@@ -35,6 +35,7 @@ object SettingsKeys {
     val YT_MUSIC_USER_AVATAR = stringPreferencesKey("yt_music_user_avatar")
     val NAV_TAB_ORDER = stringPreferencesKey("nav_tab_order")     // CSV of tab ids (movies,music,ai,library|adult)
     val PLAYLIST_THUMBS = stringPreferencesKey("playlist_thumbs") // JSON {playlistId: uriString}
+    val UI_MODE = stringPreferencesKey("ui_mode")                 // Auto / Mobile / Tablet / Tv
 }
 
 class SettingsRepository(private val context: Context) {
@@ -86,6 +87,11 @@ class SettingsRepository(private val context: Context) {
         it[SettingsKeys.PLAYLIST_THUMBS] ?: "{}"
     }
 
+    /** UI form factor override — `Auto` lets the runtime detect mobile/tablet/TV. */
+    val uiMode: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.UI_MODE] ?: "Auto"
+    }
+
     suspend fun setBackendUrl(url: String) = context.dataStore.edit { it[SettingsKeys.BACKEND_URL] = url }
     suspend fun setAiProvider(p: String) = context.dataStore.edit { it[SettingsKeys.AI_PROVIDER] = p }
     suspend fun setAiModel(m: String) = context.dataStore.edit { it[SettingsKeys.AI_MODEL] = m }
@@ -110,6 +116,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setNavTabOrder(ids: List<String>) =
         context.dataStore.edit { it[SettingsKeys.NAV_TAB_ORDER] = ids.joinToString(",") }
+
+    suspend fun setUiMode(mode: String) =
+        context.dataStore.edit { it[SettingsKeys.UI_MODE] = mode }
 
     suspend fun setPlaylistThumb(playlistId: String, uri: String?) =
         context.dataStore.edit { prefs ->

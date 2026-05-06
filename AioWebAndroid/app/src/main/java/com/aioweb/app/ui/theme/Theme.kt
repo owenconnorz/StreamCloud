@@ -82,6 +82,10 @@ fun AioWebTheme(content: @Composable () -> Unit) {
     val sl = remember { ServiceLocator.get(context) }
     val dynamicEnabled by sl.settings.dynamicColor.collectAsState(initial = false)
     val albumArtAccent by AlbumArtThemeBus.accent.collectAsState()
+    val uiModeStr by sl.settings.uiMode.collectAsState(initial = "Auto")
+    val formFactor = remember(uiModeStr, context) {
+        UiModeOverride.fromStorage(uiModeStr).resolve(context)
+    }
 
     val supportsDynamic = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val baseColors = if (dynamicEnabled && supportsDynamic) {
