@@ -120,6 +120,15 @@ fun MoviesScreen(onMovieClick: (Long) -> Unit) {
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )
+                        Spacer(Modifier.height(12.dp))
+                        // Many CloudStream plugins have no `mainPage` — they only
+                        // expose search. Hint the user instead of dead-ending
+                        // them on the empty error card.
+                        Text(
+                            "Tip: Use the search bar above to look up a title — most plugins return results that way even when their home feed is empty.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.85f),
+                        )
                     }
                 }
             }
@@ -368,27 +377,35 @@ private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MoviesSearchField(query: String, loading: Boolean, onQueryChange: (String) -> Unit) {
-    OutlinedTextField(
+    // OpenTune-style filled search bar — pill-shaped, no border, sits cleanly
+    // against the dark background. Replaces the old OutlinedTextField that
+    // looked off after the global theme picked up dynamic album-art colors.
+    androidx.compose.material3.TextField(
         value = query,
         onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(28.dp)),
         placeholder = { Text("Search movies, series, anime") },
         singleLine = true,
-        leadingIcon = { Icon(Icons.Default.Search, null) },
+        leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
         trailingIcon = {
             if (loading) CircularProgressIndicator(
                 Modifier.size(20.dp), strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.primary,
             )
         },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         shape = RoundedCornerShape(28.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-            focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-        )
+        colors = androidx.compose.material3.TextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            cursorColor = MaterialTheme.colorScheme.primary,
+        ),
     )
 }
 
@@ -430,16 +447,22 @@ private fun SourceChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    // Fixed brand purple — independent of the dynamic album-art accent so
+    // CloudStream / Stremio source chips always read the same regardless
+    // of what's playing. Pill shape (50% rounded) per Metrolist /
+    // OpenTune conventions.
+    val brandPurple = androidx.compose.ui.graphics.Color(0xFF7C5CFF)
+    val onBrand = androidx.compose.ui.graphics.Color.White
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .background(
-                if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surface
+                if (selected) brandPurple
+                else MaterialTheme.colorScheme.surfaceContainerHigh,
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         if (!logoUrl.isNullOrBlank()) {
             coil.compose.AsyncImage(
@@ -453,17 +476,17 @@ private fun SourceChip(
         } else {
             Icon(
                 icon, null,
-                tint = if (selected) MaterialTheme.colorScheme.onPrimary
-                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (selected) onBrand else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp),
             )
         }
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(8.dp))
         Text(
             label,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            ),
+            color = if (selected) onBrand else MaterialTheme.colorScheme.onSurface,
         )
     }
 }
