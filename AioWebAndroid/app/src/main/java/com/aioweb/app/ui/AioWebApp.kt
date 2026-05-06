@@ -3,8 +3,12 @@ package com.aioweb.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmarks
@@ -17,6 +21,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +35,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -44,6 +52,8 @@ import com.aioweb.app.ui.screens.MoviesScreen
 import com.aioweb.app.ui.screens.MusicScreen
 import com.aioweb.app.ui.screens.PluginsScreen
 import com.aioweb.app.ui.screens.SettingsHubScreen
+import com.aioweb.app.ui.theme.LocalUiFormFactor
+import com.aioweb.app.ui.theme.UiFormFactor
 import com.aioweb.app.ui.viewmodel.AdultViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
@@ -113,7 +123,10 @@ fun AioWebApp() {
             .background(MaterialTheme.colorScheme.background),
         bottomBar = {
             val showBar = currentRoute == null || tabs.any { it.route == currentRoute }
-            if (showBar) {
+            // Only show the bottom bar on Mobile. Tablet/TV use a NavigationRail
+            // rendered alongside the content (see Row wrapper below).
+            val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
+            if (showBar && !useRail) {
                 Column {
                     // Global mini-player — appears above the nav bar on every tab
                     // (Music, Library, Movies, AI, Settings) whenever audio is queued
@@ -137,13 +150,7 @@ fun AioWebApp() {
                             val selected = currentRoute == tab.route
                             NavigationBarItem(
                                 selected = selected,
-                                onClick = {
-                                    nav.navigate(tab.route) {
-                                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
+                                onClick = { navigateToTab(nav, tab.route) },
                                 icon = { Icon(tab.icon, contentDescription = tab.label) },
                                 label = { Text(tab.label, style = MaterialTheme.typography.labelLarge) },
                                 colors = NavigationBarItemDefaults.colors(
@@ -160,8 +167,38 @@ fun AioWebApp() {
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            NavHost(
+        val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
+        val showRail = useRail &&
+            (currentRoute == null || tabs.any { it.route == currentRoute })
+        Row(Modifier.fillMaxSize().padding(padding)) {
+            if (showRail) {
+                NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxHeight(),
+                ) {
+                    Spacer(Modifier.height(16.dp))
+                    tabs.forEach { tab ->
+                        val selected = currentRoute == tab.route
+                        NavigationRailItem(
+                            selected = selected,
+                            onClick = { navigateToTab(nav, tab.route) },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label, style = MaterialTheme.typography.labelLarge) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                            ),
+                        )
+                    }
+                }
+            }
+            Box(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f).fillMaxSize()) {
+                        NavHost(
                 navController = nav,
                 startDestination = Tab.Movies.route,
             ) {
@@ -331,9 +368,30 @@ fun AioWebApp() {
                     PluginsScreen(onBack = { nav.popBackStack() })
                 }
             }
+                    }
+                    // On Tablet/TV the bottom-bar branch is suppressed, so the
+                    // global mini-player renders here above the content's bottom
+                    // edge instead. On Mobile this branch is skipped.
+                    if (showRail && currentRoute != Tab.Music.route) {
+                        com.aioweb.app.ui.player.GlobalMiniPlayer(
+                            onExpand = {
+                                com.aioweb.app.ui.player.PlayerExpandBus.requestExpand()
+                            },
+                        )
+                    }
+                }
+            }
         }
         // App-wide NowPlayingSheet — renders on TOP of whatever tab is active
         // so swipe-up on the GlobalMiniPlayer works from any screen.
         com.aioweb.app.ui.player.GlobalNowPlayingSheet()
+    }
+}
+
+private fun navigateToTab(nav: NavHostController, route: String) {
+    nav.navigate(route) {
+        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
     }
 }

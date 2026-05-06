@@ -111,6 +111,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var eqPreset by remember { mutableStateOf("flat") }
     var bassBoost by remember { mutableStateOf(false) }
     var enabledCollections by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var uiMode by remember { mutableStateOf("Auto") }
 
     // Dialog flags
     var showQualityVideoDialog by remember { mutableStateOf(false) }
@@ -119,6 +120,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var showCollectionsDialog by remember { mutableStateOf(false) }
     var showNavOrderDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showUiModeDialog by remember { mutableStateOf(false) }
 
     // Which hub rows are currently expanded. Using a set lets multiple rows be
     // open at once, which feels natural on a single-page settings surface.
@@ -143,6 +145,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         eqEnabled = sl.settings.eqEnabled.first()
         eqPreset = sl.settings.eqPreset.first()
         bassBoost = sl.settings.bassBoost.first()
+        uiMode = sl.settings.uiMode.first()
         val csv = sl.settings.homeCollectionsCsv.first()
         enabledCollections = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet()
             ?: HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
@@ -308,6 +311,17 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                             dynamicColor = it
                             scope.launch { sl.settings.setDynamicColor(it) }
                         },
+                    )
+                    InnerNavRow(
+                        icon = Icons.Default.Visibility,
+                        title = "Layout / device",
+                        subtitle = when (uiMode) {
+                            "Mobile" -> "Forced Mobile · compact"
+                            "Tablet" -> "Forced Tablet · larger"
+                            "Tv" -> "Forced TV · leanback"
+                            else -> "Auto · adapts to phone / tablet / TV"
+                        },
+                        onClick = { showUiModeDialog = true },
                     )
                 }
             }
@@ -693,6 +707,17 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     }
     if (showAboutDialog) {
         AboutDialog(onDismiss = { showAboutDialog = false })
+    }
+    if (showUiModeDialog) {
+        UiModeDialog(
+            current = uiMode,
+            onPick = { picked ->
+                uiMode = picked
+                showUiModeDialog = false
+                scope.launch { sl.settings.setUiMode(picked) }
+            },
+            onDismiss = { showUiModeDialog = false },
+        )
     }
 }
 
@@ -1359,4 +1384,50 @@ private fun YtMusicAccountRow() {
             }) { Text("Sign out") }
         }
     }
+}
+
+
+@Composable
+private fun UiModeDialog(
+    current: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf(
+        Triple("Auto", "Auto-detect", "Phone, tablet or TV based on the device"),
+        Triple("Mobile", "Mobile", "Compact phone layout"),
+        Triple("Tablet", "Tablet", "Wider canvas, slightly larger text"),
+        Triple("Tv", "TV / leanback", "Largest text, designed for D-pad / remote"),
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Layout / device") },
+        text = {
+            Column {
+                options.forEach { (id, label, sub) ->
+                    val selected = current.equals(id, ignoreCase = true)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onPick(id) }
+                            .padding(horizontal = 8.dp, vertical = 12.dp),
+                    ) {
+                        RadioButton(selected = selected, onClick = { onPick(id) })
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(label, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                sub,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
 }

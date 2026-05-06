@@ -113,7 +113,9 @@ fun AioWebTheme(content: @Composable () -> Unit) {
             }
         }
     }
-    MaterialTheme(colorScheme = colors, typography = AioTypography, content = content)
+    ProvideUiFormFactor(formFactor) {
+        MaterialTheme(colorScheme = colors, typography = AioTypography, content = content)
+    }
 }
 
 private fun Color.toArgbInt(): Int = android.graphics.Color.argb(
