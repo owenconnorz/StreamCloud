@@ -235,6 +235,14 @@ fun AioWebApp() {
                             val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
                             nav.navigate("catalog/$s/$tt/$ss")
                         },
+                        onOpenStremio = { addonId, type, metaId, ttl, poster ->
+                            val a = URLEncoder.encode(addonId, "UTF-8")
+                            val ty = URLEncoder.encode(type, "UTF-8")
+                            val m = URLEncoder.encode(metaId, "UTF-8")
+                            val tt = URLEncoder.encode(ttl, "UTF-8")
+                            val p = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
+                        },
                     )
                 }
                 composable(
@@ -254,6 +262,14 @@ fun AioWebApp() {
                         subtitle = sub.trim(),
                         onBack = { nav.popBackStack() },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onOpenStremio = { addonId, type, metaId, ttl, poster ->
+                            val a = URLEncoder.encode(addonId, "UTF-8")
+                            val ty = URLEncoder.encode(type, "UTF-8")
+                            val m = URLEncoder.encode(metaId, "UTF-8")
+                            val tt = URLEncoder.encode(ttl, "UTF-8")
+                            val p = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
+                        },
                     )
                 }
                 composable(
@@ -278,6 +294,44 @@ fun AioWebApp() {
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("player/movie/$u/$t")
+                        },
+                    )
+                }
+                composable(
+                    "stremio-detail/{addonId}/{type}/{metaId}/{title}/{poster}",
+                    arguments = listOf(
+                        navArgument("addonId") { type = NavType.StringType },
+                        navArgument("type") { type = NavType.StringType },
+                        navArgument("metaId") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                        navArgument("poster") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val a = URLDecoder.decode(entry.arguments!!.getString("addonId")!!, "UTF-8")
+                    val t = URLDecoder.decode(entry.arguments!!.getString("type")!!, "UTF-8")
+                    val m = URLDecoder.decode(entry.arguments!!.getString("metaId")!!, "UTF-8")
+                    val tt = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    val pp = URLDecoder.decode(entry.arguments!!.getString("poster")!!, "UTF-8").trim()
+                    com.aioweb.app.ui.screens.StremioDetailScreen(
+                        addonId = a,
+                        type = t,
+                        metaId = m,
+                        initialTitle = tt,
+                        initialPoster = pp.takeIf { it.isNotBlank() },
+                        onBack = { nav.popBackStack() },
+                        onPlay = { url, title ->
+                            // Reuse the existing eporner-style direct route — the
+                            // resolver short-circuits anything starting with
+                            // `direct://` straight to playback. The `embed`
+                            // arg is unused for direct streams.
+                            val u = URLEncoder.encode("direct://$url", "UTF-8")
+                            val tArg = URLEncoder.encode(title, "UTF-8")
+                            // The eporner route requires a non-empty `embed`
+                            // arg as a path placeholder. AdultViewModel
+                            // short-circuits anything prefixed with `direct://`
+                            // so the embed value is ignored — we just need the
+                            // path to match.
+                            nav.navigate("player/eporner/$u/x/$tArg")
                         },
                     )
                 }

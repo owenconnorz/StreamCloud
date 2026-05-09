@@ -45,6 +45,8 @@ fun MoviesScreen(
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
     onOpenCatalog: (source: String, title: String, subtitle: String) -> Unit = { _, _, _ -> },
+    onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit =
+        { _, _, _, _, _ -> },
 ) {
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
@@ -166,9 +168,21 @@ fun MoviesScreen(
                         ) {
                             items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
                                 StremioPoster(meta = meta) {
-                                    vm.openStremioMeta(meta) { tmdbId, _ ->
-                                        if (tmdbId != null) onMovieClick(tmdbId)
-                                        // else: VM has already set a notice
+                                    if (meta.id.startsWith("tt", ignoreCase = true)) {
+                                        // IMDB-keyed addon (Cinemeta etc) →
+                                        // resolve to TMDB and use the existing
+                                        // MovieDetail screen.
+                                        vm.openStremioMeta(meta) { tmdbId, _ ->
+                                            if (tmdbId != null) onMovieClick(tmdbId)
+                                        }
+                                    } else {
+                                        // Non-IMDB addon (PornTube, SexLikeReal,
+                                        // custom addons) → bypass TMDB and open
+                                        // the Stremio-native detail screen.
+                                        onOpenStremio(
+                                            row.addonId, row.type, meta.id,
+                                            meta.name, meta.poster,
+                                        )
                                     }
                                 }
                             }

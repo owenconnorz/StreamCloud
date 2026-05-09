@@ -58,6 +58,8 @@ fun CatalogPageScreen(
     subtitle: String,
     onBack: () -> Unit,
     onMovieClick: (Long) -> Unit,
+    onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit =
+        { _, _, _, _, _ -> },
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
@@ -171,6 +173,9 @@ fun CatalogPageScreen(
                 items(stremioItems, key = { "st_${it.id}" }) { meta ->
                     GridPosterStremio(meta) {
                         val id = meta.id
+                        val parts = source.removePrefix("stremio:").split(":")
+                        val addonId = parts.getOrNull(0).orEmpty()
+                        val type = parts.getOrNull(1).orEmpty()
                         if (id.startsWith("tt", ignoreCase = true)) {
                             scope.launch {
                                 runCatching {
@@ -179,13 +184,24 @@ fun CatalogPageScreen(
                                         ?: r.tvResults.firstOrNull()?.id
                                     if (t != null) {
                                         withContext(Dispatchers.Main) { onMovieClick(t) }
+                                    } else if (addonId.isNotBlank() && type.isNotBlank()) {
+                                        // Couldn't match TMDB but we still have
+                                        // a Stremio source — fall through to
+                                        // the addon-native detail screen.
+                                        withContext(Dispatchers.Main) {
+                                            onOpenStremio(addonId, type, id, meta.name, meta.poster)
+                                        }
                                     } else {
                                         notice = "Couldn't match \"${meta.name}\" to TMDB."
                                     }
                                 }.onFailure { e -> notice = "Resolve failed: ${e.message}" }
                             }
+                        } else if (addonId.isNotBlank() && type.isNotBlank()) {
+                            // Non-IMDB id (NSFW addons, custom addons) — go
+                            // straight to the addon-native detail screen.
+                            onOpenStremio(addonId, type, id, meta.name, meta.poster)
                         } else {
-                            notice = "Stremio item id is not an IMDB id — open detail unsupported."
+                            notice = "Cannot open this item — no source addon."
                         }
                     }
                 }
