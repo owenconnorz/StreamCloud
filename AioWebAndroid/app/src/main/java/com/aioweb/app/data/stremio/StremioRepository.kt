@@ -6,6 +6,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.aioweb.app.data.network.Net
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -77,6 +80,40 @@ class StremioRepository(private val context: Context) {
                 c.extra?.none { it.isRequired && it.name.lowercase() == "search" } != false
             } ?: return@withContext emptyList()
             fetchCatalog(addon, first.type, first.id)
+        }
+
+    /**
+     * Fetch every non-search catalog declared by [addon] in parallel. Returns
+     * the raw rows so the caller can title them (NuvioMobile-style:
+     * `<addonName> · <catalogName>`).
+     */
+    suspend fun fetchAllHomeCatalogs(addon: InstalledStremioAddon): List<StremioHomeRow> =
+        withContext(Dispatchers.IO) {
+            val mf = runCatching { fetchManifest(addon.manifestUrl) }.getOrNull()
+                ?: return@withContext emptyList()
+            val nonSearch = mf.catalogs.filter { c ->
+                c.extra?.none { it.isRequired } ?: true
+            }
+            // Fan-out parallel + small cap so a misbehaving addon can't stall the home.
+            coroutineScope {
+                nonSearch.take(8).map { c ->
+                    async {
+                        runCatching { fetchCatalog(addon, c.type, c.id) }
+                            .getOrDefault(emptyList())
+                            .takeIf { it.isNotEmpty() }
+                            ?.let {
+                                StremioHomeRow(
+                                    addonId = addon.id,
+                                    addonName = addon.name,
+                                    catalogId = c.id,
+                                    catalogName = c.name?.takeIf { n -> n.isNotBlank() } ?: c.id,
+                                    type = c.type,
+                                    items = it.take(18),
+                                )
+                            }
+                    }
+                }.awaitAll().filterNotNull()
+            }
         }
 
     suspend fun fetchCatalog(

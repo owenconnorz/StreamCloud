@@ -12,11 +12,9 @@ import com.aioweb.app.data.library.LibraryDb
 import com.aioweb.app.data.library.WatchProgressEntity
 import com.aioweb.app.data.plugins.InstalledPlugin
 import com.aioweb.app.data.plugins.PluginRepository
-import com.aioweb.app.data.plugins.PluginRuntime
 import com.aioweb.app.data.stremio.InstalledStremioAddon
-import com.aioweb.app.data.stremio.StremioMetaPreview
+import com.aioweb.app.data.stremio.StremioHomeRow
 import com.aioweb.app.data.stremio.StremioRepository
-import com.lagradost.cloudstream3.SearchResponse
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -29,12 +27,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * Compatibility token still referenced by the player's source-picker code.
+ * The Movies tab itself no longer renders a "Built-in" chip.
+ */
 const val SOURCE_BUILTIN = "builtin"
-
-data class PluginSection(
-    val title: String,
-    val items: List<SearchResponse>,
-)
 
 data class CollectionRow(
     val id: String,
@@ -52,25 +49,16 @@ data class MoviesState(
     val heroBanner: List<TmdbMovie> = emptyList(),
     val continueWatching: List<WatchProgressEntity> = emptyList(),
     val searchResults: List<TmdbMovie> = emptyList(),
+    /** All CloudStream `.cs3` plugins — rendered as a chip strip → opens its own page. */
     val installedPlugins: List<InstalledPlugin> = emptyList(),
+    /** All Stremio HTTP addons currently installed. Catalogs flatten into [stremioRows]. */
     val installedStremioAddons: List<InstalledStremioAddon> = emptyList(),
-    val selectedSourceId: String = SOURCE_BUILTIN,
+    /** Inline NuvioMobile-style addon rows, one per addon catalog (movie/series/etc). */
+    val stremioRows: List<StremioHomeRow> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
-    // Plugin-driven state
-    val pluginSections: List<PluginSection> = emptyList(),
-    val pluginSearchResults: List<SearchResponse> = emptyList(),
-    val pluginLoading: Boolean = false,
-    val pluginError: String? = null,
-) {
-    /** Display name of the currently selected source. */
-    val selectedSourceName: String
-        get() = if (selectedSourceId == SOURCE_BUILTIN) "TMDB"
-        else installedPlugins.firstOrNull { it.internalName == selectedSourceId }?.name ?: "Plugin"
-
-    val isPluginActive: Boolean get() = selectedSourceId != SOURCE_BUILTIN
-}
+)
 
 class MoviesViewModel(
     private val sl: ServiceLocator,
@@ -90,8 +78,11 @@ class MoviesViewModel(
             }
         }
         viewModelScope.launch {
+            // Whenever the addon list changes, re-aggregate the home so freshly
+            // installed Stremio addons surface immediately.
             stremioRepo.addons.collect { list ->
                 _state.update { it.copy(installedStremioAddons = list) }
+                refreshStremioRows(list)
             }
         }
         // Auto-reload home rows whenever the user toggles a collection in Settings.
@@ -144,66 +135,30 @@ class MoviesViewModel(
                         loading = false,
                     )
                 }
+                // Kick off Stremio aggregation in the background — TMDB rows show
+                // first; addon rows trickle in below as each addon resolves.
+                refreshStremioRows(_state.value.installedStremioAddons)
             } catch (e: Exception) {
                 _state.update { it.copy(error = "Failed to load: ${e.message}", loading = false) }
             }
         }
     }
 
-    fun selectSource(sourceId: String) {
-        _state.update {
-            it.copy(
-                selectedSourceId = sourceId,
-                pluginSections = emptyList(),
-                pluginSearchResults = emptyList(),
-                pluginError = null,
-            )
-        }
-        if (sourceId != SOURCE_BUILTIN) loadPluginHome(sourceId)
-        else _state.update { it.copy(notice = null) }
-    }
-
-    private fun loadPluginHome(sourceId: String) {
-        val plugin = _state.value.installedPlugins.firstOrNull { it.internalName == sourceId }
-        if (plugin == null) {
-            _state.update { it.copy(pluginError = "Plugin not found.") }
+    /**
+     * Aggregate every installed Stremio addon's non-search catalogs into a flat
+     * row list (NuvioMobile parity). Each addon × catalog becomes one row,
+     * fanned out in parallel + capped at 18 items per row.
+     */
+    private fun refreshStremioRows(addons: List<InstalledStremioAddon>) {
+        if (addons.isEmpty()) {
+            _state.update { it.copy(stremioRows = emptyList()) }
             return
         }
-        _state.update { it.copy(pluginLoading = true, pluginError = null, notice = null) }
         viewModelScope.launch {
-            try {
-                val sections = PluginRuntime.home(appContext, plugin.filePath)
-                if (sections.isEmpty()) {
-                    val err = PluginRuntime.lastErrorFor(plugin.filePath)
-                    _state.update {
-                        it.copy(
-                            pluginLoading = false,
-                            pluginSections = emptyList(),
-                            pluginError = err
-                                ?: "Plugin loaded but returned no home content. Try search instead.",
-                            // Suppress the duplicate "Use search." notice when the error card
-                            // is already shown below — we used to render both stacked.
-                            notice = null,
-                        )
-                    }
-                } else {
-                    _state.update {
-                        it.copy(
-                            pluginLoading = false,
-                            pluginSections = sections.map { (n, l) -> PluginSection(n, l) },
-                            pluginError = null,
-                            notice = null,
-                        )
-                    }
-                }
-            } catch (e: Throwable) {
-                _state.update {
-                    it.copy(
-                        pluginLoading = false,
-                        pluginError = "Plugin failed: ${e::class.simpleName}: ${e.message}",
-                    )
-                }
-            }
+            val rows = addons.map { addon ->
+                async { runCatching { stremioRepo.fetchAllHomeCatalogs(addon) }.getOrDefault(emptyList()) }
+            }.awaitAll().flatten()
+            _state.update { it.copy(stremioRows = rows) }
         }
     }
 
@@ -214,23 +169,14 @@ class MoviesViewModel(
     fun search(query: String) {
         searchJob?.cancel()
         if (query.isBlank()) {
-            _state.update { it.copy(searchResults = emptyList(), pluginSearchResults = emptyList()) }
+            _state.update { it.copy(searchResults = emptyList()) }
             return
         }
         searchJob = viewModelScope.launch {
             delay(350)
             try {
-                if (_state.value.isPluginActive) {
-                    val plugin = _state.value.installedPlugins
-                        .firstOrNull { it.internalName == _state.value.selectedSourceId }
-                    if (plugin != null) {
-                        val res = PluginRuntime.search(appContext, plugin.filePath, query)
-                        _state.update { it.copy(pluginSearchResults = res, error = null) }
-                    }
-                } else {
-                    val res = sl.tmdb.search(sl.tmdbApiKey, query).results
-                    _state.update { it.copy(searchResults = res, error = null) }
-                }
+                val res = sl.tmdb.search(sl.tmdbApiKey, query).results
+                _state.update { it.copy(searchResults = res, error = null) }
             } catch (e: Exception) {
                 _state.update { it.copy(error = "Search failed: ${e.message}") }
             }

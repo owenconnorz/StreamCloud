@@ -81,6 +81,13 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
 - Plugin runtime works for most providers but tested mostly with phisher98/CXXX repo.
 
 ## Latest changes (Feb 2026)
+- **(NEW — Feb 2026) Movies tab redesigned to NuvioMobile parity**
+  - Removed the source-switcher chip row entirely (no more "Built-in / Plugin / Stremio" toggle).
+  - **All Stremio addon catalogs now load inline** on the Movies home page as horizontal rows (NuvioMobile style). `StremioRepository.fetchAllHomeCatalogs(addon)` fans out parallel calls across every non-search catalog declared by each installed addon (capped at 8 catalogs × 18 items each per addon to keep loads snappy). Each row's title is the catalog name with a tinted "from <AddonName>" subtitle.
+  - **CloudStream `.cs3` plugins keep their own page**: the Movies home shows them only as a horizontal "CloudStream plugins" chip strip near the top — tap a chip → opens a dedicated `CloudStreamPluginScreen` with that plugin's home rows + search bar + back button.
+  - New nav route `cloudstream/{name}` wired in `AioWebApp.kt`.
+  - State cleanup: `MoviesViewModel` dropped `selectSource`, `pluginLoading`, `pluginError`, `pluginSections`, `pluginSearchResults`, `selectedSourceId`. Added `stremioRows: List<StremioHomeRow>`.
+
 - **(NEW — Feb 2026) Adaptive UI for Mobile / Tablet / TV**
   - `UiFormFactor.kt` resolves the device class via `UiModeManager` (TV) and `smallestScreenWidthDp` (Tablet ≥ 600dp). User can override in **Settings → Appearance → Layout / device** (Auto / Mobile / Tablet / TV).
   - `Theme.kt` now wraps `MaterialTheme` in `ProvideUiFormFactor` which scales `LocalDensity.fontScale` (1.0 / 1.10 / 1.30) so all `sp` text grows on bigger screens without breaking dp-based layouts.

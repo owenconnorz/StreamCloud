@@ -9,16 +9,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AllInclusive
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,12 +34,16 @@ import coil.compose.AsyncImage
 import com.aioweb.app.data.api.TmdbMovie
 import com.aioweb.app.data.library.WatchProgressEntity
 import com.aioweb.app.data.plugins.InstalledPlugin
+import com.aioweb.app.data.stremio.StremioHomeRow
+import com.aioweb.app.data.stremio.StremioMetaPreview
 import com.aioweb.app.ui.viewmodel.MoviesViewModel
-import com.aioweb.app.ui.viewmodel.SOURCE_BUILTIN
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MoviesScreen(onMovieClick: (Long) -> Unit) {
+fun MoviesScreen(
+    onMovieClick: (Long) -> Unit,
+    onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
+) {
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
     val state by vm.state.collectAsState()
@@ -62,17 +62,17 @@ fun MoviesScreen(onMovieClick: (Long) -> Unit) {
                     onQueryChange = { query = it; vm.search(it) },
                 )
             }
-            item {
-                SourceChipsRow(
-                    plugins = state.installedPlugins,
-                    selectedId = state.selectedSourceId,
-                    onSelect = vm::selectSource,
-                )
+            // CloudStream plugins — separate page each. Stremio addons feed inline rows.
+            if (state.installedPlugins.isNotEmpty()) {
+                item {
+                    CloudStreamChipsRow(
+                        plugins = state.installedPlugins,
+                        onOpen = onOpenCloudStreamPlugin,
+                    )
+                }
             }
             state.notice?.let {
-                item {
-                    NoticeBanner(it, onDismiss = vm::clearNotice)
-                }
+                item { NoticeBanner(it, onDismiss = vm::clearNotice) }
             }
             state.error?.let {
                 item {
@@ -83,87 +83,12 @@ fun MoviesScreen(onMovieClick: (Long) -> Unit) {
                 }
             }
 
-            // Plugin error/loading banner
-            if (state.pluginLoading) {
-                item {
-                    Row(
-                        Modifier.fillMaxWidth().padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            "Loading ${state.selectedSourceName} home feed…",
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-            }
-            state.pluginError?.let { err ->
-                item {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.errorContainer)
-                            .padding(16.dp),
-                    ) {
-                        Text(
-                            "Plugin error",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            err,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        // Many CloudStream plugins have no `mainPage` — they only
-                        // expose search. Hint the user instead of dead-ending
-                        // them on the empty error card.
-                        Text(
-                            "Tip: Use the search bar above to look up a title — most plugins return results that way even when their home feed is empty.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.85f),
-                        )
-                    }
-                }
-            }
-
             if (query.isNotBlank()) {
                 item { SectionTitle("Search results") }
-                if (state.isPluginActive) {
-                    item {
-                        PluginPosterGrid(state.pluginSearchResults) { /* TODO link to plugin detail */ }
-                    }
-                } else {
-                    item {
-                        PosterGrid(
-                            movies = state.searchResults,
-                            onClick = onMovieClick,
-                        )
-                    }
-                }
-            } else if (state.isPluginActive) {
-                // ── Plugin home feed sections ────────────────────────────
-                state.pluginSections.forEachIndexed { idx, section ->
-                    item(key = "psec_t_$idx") { SectionTitle(section.title) }
-                    item(key = "psec_$idx") {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(section.items, key = { "ps_${idx}_${it.url}" }) { sr ->
-                                PluginPoster(sr, onClick = { /* TODO link to plugin detail */ })
-                            }
-                        }
-                    }
+                item {
+                    PosterGrid(movies = state.searchResults, onClick = onMovieClick)
                 }
             } else {
-                val srcLabel = state.selectedSourceName
                 if (state.heroBanner.isNotEmpty()) {
                     item(key = "hero_pager") {
                         HeroPager(
@@ -173,18 +98,13 @@ fun MoviesScreen(onMovieClick: (Long) -> Unit) {
                     }
                 }
                 if (state.continueWatching.isNotEmpty()) {
-                    item(key = "continue_watching_t") {
-                        SectionTitle("Continue Watching")
-                    }
+                    item(key = "continue_watching_t") { SectionTitle("Continue Watching") }
                     item(key = "continue_watching") {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(
-                                state.continueWatching,
-                                key = { "cw_${it.tmdbId}" },
-                            ) { entry ->
+                            items(state.continueWatching, key = { "cw_${it.tmdbId}" }) { entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
                                     onClick = { onMovieClick(entry.tmdbId) },
@@ -211,10 +131,26 @@ fun MoviesScreen(onMovieClick: (Long) -> Unit) {
                         }
                     }
                 }
-                if (state.collections.isEmpty() && !state.loading) {
+                // ── Stremio addon catalogs — NuvioMobile parity ─────────
+                state.stremioRows.forEach { row ->
+                    item(key = "stremio_t_${row.rowKey}") {
+                        AddonSectionTitle(addon = row.addonName, catalog = row.catalogName)
+                    }
+                    item(key = "stremio_${row.rowKey}") {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
+                                StremioPoster(meta = meta)
+                            }
+                        }
+                    }
+                }
+                if (state.collections.isEmpty() && state.stremioRows.isEmpty() && !state.loading) {
                     item {
                         Text(
-                            "No collections enabled. Open Settings → Home collections to pick rows.",
+                            "No collections enabled. Open Settings → Home collections to pick rows, or install a Stremio addon.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(20.dp),
@@ -236,7 +172,7 @@ private fun MoviesHeader() {
             fontWeight = FontWeight.Black,
         )
         Text(
-            "Movies, series, plugins — all in one place",
+            "Movies, series, addons — all in one place",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -251,7 +187,6 @@ private fun HeroPager(
 ) {
     val pagerState = rememberPagerState(pageCount = { items.size })
 
-    // Auto-advance every 6 seconds — Nuvio-style.
     LaunchedEffect(items.size) {
         if (items.size <= 1) return@LaunchedEffect
         while (true) {
@@ -264,20 +199,14 @@ private fun HeroPager(
     Column(Modifier.fillMaxWidth()) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(520.dp),
+            modifier = Modifier.fillMaxWidth().height(520.dp),
             pageSpacing = 0.dp,
         ) { page ->
             val m = items[page]
             HeroBannerSlide(movie = m, onClick = { onClick(m.id) })
         }
         Spacer(Modifier.height(10.dp))
-        // Dot indicator
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-        ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             items.forEachIndexed { i, _ ->
                 val active = i == pagerState.currentPage
                 Box(
@@ -311,7 +240,6 @@ private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        // Vertical scrim — dark on top + bottom for text legibility.
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
@@ -325,7 +253,6 @@ private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
                 )
             )
         )
-        // Bottom-anchored content
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -355,7 +282,6 @@ private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(18.dp))
-            // White "View Details" pill (matches Nuvio screenshot exactly)
             Box(
                 Modifier
                     .clip(RoundedCornerShape(50))
@@ -373,13 +299,9 @@ private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
     }
 }
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MoviesSearchField(query: String, loading: Boolean, onQueryChange: (String) -> Unit) {
-    // OpenTune-style filled search bar — pill-shaped, no border, sits cleanly
-    // against the dark background. Replaces the old OutlinedTextField that
-    // looked off after the global theme picked up dynamic album-art colors.
     androidx.compose.material3.TextField(
         value = query,
         onValueChange = onQueryChange,
@@ -401,92 +323,72 @@ private fun MoviesSearchField(query: String, loading: Boolean, onQueryChange: (S
         colors = androidx.compose.material3.TextFieldDefaults.colors(
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+            disabledIndicatorColor = Color.Transparent,
             cursorColor = MaterialTheme.colorScheme.primary,
         ),
     )
 }
 
+/**
+ * Horizontal chip strip listing every installed CloudStream `.cs3` plugin.
+ * Tap a chip → host navigates to a dedicated page that renders the plugin's
+ * own home sections (separate from the unified Stremio + TMDB feed).
+ */
 @Composable
-private fun SourceChipsRow(
+private fun CloudStreamChipsRow(
     plugins: List<InstalledPlugin>,
-    selectedId: String,
-    onSelect: (String) -> Unit,
+    onOpen: (String) -> Unit,
 ) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item {
-            SourceChip(
-                label = "Built-in",
-                icon = Icons.Default.AllInclusive,
-                selected = selectedId == SOURCE_BUILTIN,
-                onClick = { onSelect(SOURCE_BUILTIN) },
-            )
-        }
-        items(plugins, key = { "pl_${it.internalName}" }) { p ->
-            SourceChip(
-                label = p.name,
-                icon = Icons.Default.Extension,
-                logoUrl = p.iconUrl,
-                selected = selectedId == p.internalName,
-                onClick = { onSelect(p.internalName) },
-            )
+    Column {
+        Text(
+            "CloudStream plugins",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp),
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(plugins, key = { "pl_${it.internalName}" }) { p ->
+                PluginChip(label = p.name, logoUrl = p.iconUrl, onClick = { onOpen(p.internalName) })
+            }
         }
     }
 }
 
 @Composable
-private fun SourceChip(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    logoUrl: String? = null,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    // Fixed brand purple — independent of the dynamic album-art accent so
-    // CloudStream / Stremio source chips always read the same regardless
-    // of what's playing. Pill shape (50% rounded) per Metrolist /
-    // OpenTune conventions.
-    val brandPurple = androidx.compose.ui.graphics.Color(0xFF7C5CFF)
-    val onBrand = androidx.compose.ui.graphics.Color.White
+private fun PluginChip(label: String, logoUrl: String?, onClick: () -> Unit) {
+    val brand = Color(0xFF7C5CFF)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .background(
-                if (selected) brandPurple
-                else MaterialTheme.colorScheme.surfaceContainerHigh,
-            )
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         if (!logoUrl.isNullOrBlank()) {
-            coil.compose.AsyncImage(
+            AsyncImage(
                 model = logoUrl,
                 contentDescription = null,
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                modifier = Modifier
-                    .size(18.dp)
-                    .clip(RoundedCornerShape(4.dp)),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(18.dp).clip(RoundedCornerShape(4.dp)),
             )
         } else {
             Icon(
-                icon, null,
-                tint = if (selected) onBrand else MaterialTheme.colorScheme.onSurfaceVariant,
+                Icons.Default.Extension, null,
+                tint = brand,
                 modifier = Modifier.size(16.dp),
             )
         }
         Spacer(Modifier.width(8.dp))
         Text(
             label,
-            style = MaterialTheme.typography.labelLarge.copy(
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            ),
-            color = if (selected) onBrand else MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -509,8 +411,11 @@ private fun NoticeBanner(text: String, onDismiss: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-            Icon(Icons.Default.Close, "Dismiss", tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(18.dp))
+            Icon(
+                Icons.Default.Close, "Dismiss",
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }
@@ -526,44 +431,24 @@ private fun SectionTitle(text: String) {
     )
 }
 
+/**
+ * NuvioMobile-style row title — primary catalog name + a tinted "from <addon>"
+ * subtitle so the user always knows which addon contributed the row.
+ */
 @Composable
-private fun HeroPoster(m: TmdbMovie, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .width(280.dp).height(160.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-    ) {
-        AsyncImage(
-            model = m.backdropUrl ?: m.posterUrl,
-            contentDescription = m.displayTitle,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)
+private fun AddonSectionTitle(addon: String, catalog: String) {
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Text(
+            catalog,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
         )
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)))
-            )
+        Text(
+            "from $addon",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
-            Text(
-                m.displayTitle,
-                color = Color.White,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Star, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    String.format("%.1f", m.voteAverage),
-                    color = Color.White.copy(alpha = 0.9f),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        }
     }
 }
 
@@ -610,7 +495,6 @@ private fun ContinueWatchingCard(
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(14.dp))
-            // Progress bar
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -665,35 +549,7 @@ private fun MidPoster(m: TmdbMovie, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PluginPoster(sr: com.lagradost.cloudstream3.SearchResponse, onClick: () -> Unit) {
-    Column(
-        Modifier
-            .width(140.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-    ) {
-        AsyncImage(
-            model = sr.posterUrl,
-            contentDescription = sr.name,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth().aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surface),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            sr.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun StremioPoster(meta: com.aioweb.app.data.stremio.StremioMetaPreview) {
+private fun StremioPoster(meta: StremioMetaPreview) {
     Column(
         Modifier
             .width(140.dp)
@@ -719,107 +575,9 @@ private fun StremioPoster(meta: com.aioweb.app.data.stremio.StremioMetaPreview) 
         if (!meta.releaseInfo.isNullOrBlank()) {
             Text(
                 meta.releaseInfo,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-    }
-}
-
-@Composable
-private fun StremioPosterGrid(items: List<com.aioweb.app.data.stremio.StremioMetaPreview>) {
-    if (items.isEmpty()) {
-        Text(
-            "No results from this addon.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(20.dp),
-        )
-        return
-    }
-    Column(
-        modifier = Modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { m ->
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp)),
-                    ) {
-                        AsyncImage(
-                            model = m.poster,
-                            contentDescription = m.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth().aspectRatio(2f / 3f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surface),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            m.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun PluginPosterGrid(
-    items: List<com.lagradost.cloudstream3.SearchResponse>,
-    onClick: (com.lagradost.cloudstream3.SearchResponse) -> Unit,
-) {
-    if (items.isEmpty()) {
-        Text(
-            "No results from this plugin.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(20.dp),
-        )
-        return
-    }
-    Column(
-        modifier = Modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { sr ->
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onClick(sr) }
-                    ) {
-                        AsyncImage(
-                            model = sr.posterUrl,
-                            contentDescription = sr.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth().aspectRatio(2f / 3f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surface),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            sr.name,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-            }
         }
     }
 }
@@ -858,7 +616,6 @@ private fun PosterGrid(movies: List<TmdbMovie>, onClick: (Long) -> Unit) {
                         )
                     }
                 }
-                // Fill remaining slots
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }

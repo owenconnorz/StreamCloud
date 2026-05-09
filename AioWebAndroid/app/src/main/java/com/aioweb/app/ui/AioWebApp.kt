@@ -203,7 +203,23 @@ fun AioWebApp() {
                 startDestination = Tab.Movies.route,
             ) {
                 composable(Tab.Movies.route) {
-                    MoviesScreen(onMovieClick = { id -> nav.navigate("movie/$id") })
+                    MoviesScreen(
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onOpenCloudStreamPlugin = { internalName ->
+                            val n = URLEncoder.encode(internalName, "UTF-8")
+                            nav.navigate("cloudstream/$n")
+                        },
+                    )
+                }
+                composable(
+                    "cloudstream/{name}",
+                    arguments = listOf(navArgument("name") { type = NavType.StringType }),
+                ) { entry ->
+                    val name = URLDecoder.decode(entry.arguments!!.getString("name")!!, "UTF-8")
+                    com.aioweb.app.ui.screens.CloudStreamPluginScreen(
+                        internalName = name,
+                        onBack = { nav.popBackStack() },
+                    )
                 }
                 composable(
                     "movie/{id}",

@@ -124,3 +124,19 @@ data class InstalledStremioAddon(
     val logo: String? = null,
     val installedAt: Long,
 )
+
+/**
+ * One horizontal row on the Movies home page sourced from a Stremio addon
+ * catalog. Mirrors NuvioMobile's `HomeCatalogSection` minus the disk-cache
+ * machinery — we re-fetch on every `loadDiscover()` for now.
+ */
+data class StremioHomeRow(
+    val addonId: String,
+    val addonName: String,
+    val catalogId: String,
+    val catalogName: String,
+    val type: String,                // "movie" | "series" | "channel" | …
+    val items: List<StremioMetaPreview>,
+) {
+    val rowKey: String get() = "$addonId:$type:$catalogId"
+}
