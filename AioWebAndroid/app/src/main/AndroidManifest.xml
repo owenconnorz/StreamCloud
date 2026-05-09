@@ -66,5 +66,13 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Google Cast (Chromecast). The SDK auto-registers MediaRouter
+             discovery + session callbacks once `CastContext.getSharedInstance`
+             is called the first time. Default Media Receiver = no developer
+             console / app id needed. -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.aioweb.app.cast.CastOptionsProviderImpl" />
     </application>
 </manifest>

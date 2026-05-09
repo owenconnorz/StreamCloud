@@ -22,6 +22,9 @@ class MainActivity : ComponentActivity() {
         setTheme(R.style.Theme_AioWeb)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Lazy-init the Google Cast SDK now so the cast notification surfaces
+        // promptly when a route is selected from any screen.
+        com.aioweb.app.cast.initCast(applicationContext)
         // Android 13+ requires explicit POST_NOTIFICATIONS permission to surface the
         // media-session notification when music is playing.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&

@@ -81,6 +81,14 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
 - Plugin runtime works for most providers but tested mostly with phisher98/CXXX repo.
 
 ## Latest changes (Feb 2026)
+- **(NEW — Feb 2026) Google Cast (Chromecast) support in the movies player**
+  - Added `play-services-cast-framework:21.5.0` + `androidx.mediarouter:1.7.0` deps.
+  - `CastOptionsProviderImpl.kt` registers the Default Media Receiver (no Cast Developer Console / app id required) — works with any Chromecast / Android TV / Google Nest Hub on the same Wi-Fi.
+  - `CastButton` (Compose wrapper around `MediaRouteButton`) renders in the **top-right of `NativePlayerScreen`** alongside Lock + Back. Auto-hides when the player overlay is locked.
+  - `rememberCastController(streamUrl, title)` sets a `SessionManagerListener` that pushes the current resolved URL to the receiver via `RemoteMediaClient.load(MediaLoadRequestData...)`. MIME guessed from extension (HLS / DASH / MP4 / MKV / WebM). Local-proxy torrent URLs (`127.0.0.1`) are skipped automatically — Chromecasts can't reach the device's loopback interface.
+  - `MainActivity.onCreate` calls `initCast()` so cast notifications surface promptly even when the user lands on Music first.
+  - Manifest `<meta-data android:name="…OPTIONS_PROVIDER_CLASS_NAME" />` wires the SDK.
+
 - **(NEW — Feb 2026) Movies tab redesigned to NuvioMobile parity**
   - Removed the source-switcher chip row entirely (no more "Built-in / Plugin / Stremio" toggle).
   - **All Stremio addon catalogs now load inline** on the Movies home page as horizontal rows (NuvioMobile style). `StremioRepository.fetchAllHomeCatalogs(addon)` fans out parallel calls across every non-search catalog declared by each installed addon (capped at 8 catalogs × 18 items each per addon to keep loads snappy). Each row's title is the catalog name with a tinted "from <AddonName>" subtitle.

@@ -128,6 +128,15 @@ fun NativePlayerScreen(
 
     // --- ExoPlayer ------------------------------------------------------------------------------
     val player = remember { mutableStateOf<ExoPlayer?>(null) }
+
+    // --- Google Cast bridge ---------------------------------------------------------------------
+    // When a Cast session is live, the resolved URL gets pushed to the
+    // receiver. Local-proxy URLs (localhost / 127.0.0.1 from the torrent
+    // server) are skipped automatically inside the controller.
+    com.aioweb.app.cast.rememberCastController(
+        streamUrl = resolvedUrl.orEmpty(),
+        title = title,
+    )
     val needsWebView = remember(resolvedUrl) {
         val u = resolvedUrl?.lowercase().orEmpty()
         u.isNotEmpty() && !u.startsWith("http://127.0.0.1") &&
@@ -385,13 +394,27 @@ fun NativePlayerScreen(
                         }
                     }
                 }
-                // ── Top-RIGHT: lock + back as dark capsule pills ───────────────────
+                // ── Top-RIGHT: cast + lock + back as dark capsule pills ───
                 Row(
                     Modifier
                         .align(Alignment.TopEnd)
                         .padding(end = 14.dp, top = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (!locked) {
+                        // Google Cast button — opens the system route chooser. When the
+                        // user picks a Chromecast / Android TV, [rememberCastController]
+                        // (set up earlier in the composition) loads the current stream
+                        // URL into the receiver.
+                        com.aioweb.app.cast.CastButton(
+                            modifier = Modifier
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .padding(8.dp)
+                                .size(28.dp),
+                        )
+                    }
                     PlayerCapsuleIcon(
                         icon = if (locked) androidx.compose.material.icons.Icons.Default.LockOpen
                                else androidx.compose.material.icons.Icons.Default.Lock,

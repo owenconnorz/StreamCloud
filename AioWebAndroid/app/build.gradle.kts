@@ -194,4 +194,10 @@ dependencies {
     // `MainActivityKt.mapper.readValue(...)` or `parsedSafe<...>()`. Without it,
     // every plugin dies with NoClassDefFoundError on first JSON parse.
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
+
+    // Google Cast (Chromecast). Adds the `androidx.mediarouter` chooser dialog
+    // and the cast framework that powers MediaRouteButton + RemoteMediaClient.
+    // Uses the Default Media Receiver app id — no developer console needed.
+    implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
+    implementation("androidx.mediarouter:mediarouter:1.7.0")
 }
