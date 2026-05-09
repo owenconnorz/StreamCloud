@@ -34,6 +34,7 @@ import com.aioweb.app.data.api.AdultItem
 import com.aioweb.app.data.api.AdultSource
 import com.aioweb.app.data.api.RedditAdultSubs
 import com.aioweb.app.ui.viewmodel.AdultViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,11 +42,44 @@ fun AdultScreen(onPlay: (videoId: String, fallbackEmbed: String, title: String) 
     val context = LocalContext.current
     val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(context))
     val state by vm.state.collectAsState()
+    val sl = remember(context) { com.aioweb.app.data.ServiceLocator.get(context) }
+
+    // Reddit takes over the whole screen with a TikTok-style vertical pager —
+    // chip strip + feed + source switcher pill all rendered by RedditFeedView.
+    if (state.source == AdultSource.Reddit) {
+        val customCsv by sl.settings.adultRedditSubsCsv.collectAsState(initial = "")
+        val customSubs = remember(customCsv) {
+            customCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        }
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        com.aioweb.app.ui.screens.adult.RedditFeedView(
+            vm = vm,
+            customSubs = customSubs,
+            onAddSub = { sub ->
+                scope.launch {
+                    val cleaned = sub.removePrefix("r/").trim()
+                    if (cleaned.isNotBlank()) {
+                        val updated = (customSubs + cleaned).distinct().joinToString(",")
+                        sl.settings.setAdultRedditSubs(updated)
+                    }
+                }
+            },
+            onRemoveSub = { sub ->
+                scope.launch {
+                    val updated = (customSubs - sub).joinToString(",")
+                    sl.settings.setAdultRedditSubs(updated)
+                }
+            },
+            onSwitchSource = { vm.setSource(AdultSource.Eporner) },
+        )
+        return
+    }
+
     var query by remember { mutableStateOf("") }
     val gridState = rememberLazyGridState()
 
-    // Endless scroll on Reddit — pull the next page once we're within ~6 rows of the bottom.
-    LaunchedEffect(gridState, state.source, state.subreddit, state.nextAfter) {
+    // Endless scroll on the Eporner grid (Reddit pager has its own).
+    LaunchedEffect(gridState, state.source) {
         snapshotFlow {
             val total = gridState.layoutInfo.totalItemsCount
             val last = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -63,10 +97,7 @@ fun AdultScreen(onPlay: (videoId: String, fallbackEmbed: String, title: String) 
             modifier = Modifier.padding(horizontal = 20.dp),
         )
         Text(
-            "18+ · " + when (state.source) {
-                AdultSource.Eporner -> "Powered by Eporner"
-                AdultSource.Reddit -> "Browsing r/${state.subreddit}"
-            },
+            "18+ · Powered by Eporner",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp),

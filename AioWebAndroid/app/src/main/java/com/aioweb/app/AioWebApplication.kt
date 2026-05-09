@@ -1,6 +1,11 @@
 package com.aioweb.app
 
 import android.app.Application
+import android.os.Build
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import com.aioweb.app.data.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -11,9 +16,22 @@ import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 
-class AioWebApplication : Application() {
+class AioWebApplication : Application(), ImageLoaderFactory {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        .components {
+            // Animated GIF / WEBP support for Reddit feed cards (Adult tab).
+            // ImageDecoderDecoder uses the platform animator on API 28+ (faster,
+            // less RAM); GifDecoder is the legacy software fallback.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                add(ImageDecoderDecoder.Factory())
+            } else {
+                add(GifDecoder.Factory())
+            }
+        }
+        .build()
 
     override fun onCreate() {
         super.onCreate()

@@ -6,18 +6,16 @@ import android.view.ViewGroup
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Download
@@ -341,9 +339,12 @@ private fun SubChipDark(
     Surface(
         color = bg,
         shape = RoundedCornerShape(50),
-        modifier = Modifier.combinedClickableSafely(
-            onClick = onClick,
-            onLongClick = onLongClick,
+        modifier = Modifier.then(
+            if (onLongClick != null) {
+                Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            } else {
+                Modifier.clickable(onClick = onClick)
+            }
         ),
     ) {
         Text(
@@ -353,17 +354,6 @@ private fun SubChipDark(
         )
     }
 }
-
-@OptIn(ExperimentalFoundationApi::class)
-private fun Modifier.combinedClickableSafely(
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
-): Modifier = this.then(
-    androidx.compose.foundation.combinedClickable(
-        onClick = onClick,
-        onLongClick = onLongClick,
-    )
-)
 
 @Composable
 private fun AddSubredditDialog(
@@ -396,9 +386,9 @@ private fun AddSubredditDialog(
 // ----- helpers --------------------------------------------------------------
 
 private fun AdultItem.permalinkOrUrl(): String {
-    // Reddit's API embeds permalinks like "/r/sub/comments/<id>/<slug>/" — used
-    // for share intents. Falls back to the post id if missing.
-    return "/r/${"unknown"}/comments/$id/"
+    // For Reddit items the streamUrl was resolved from the post; the post id
+    // is stable enough for share intents. Falls back to the post id only.
+    return "/comments/$id/"
 }
 
 private fun shareUrl(context: android.content.Context, url: String, title: String) {
@@ -423,27 +413,3 @@ private fun downloadUrl(context: android.content.Context, url: String) {
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(intent) }
 }
-
-@Composable
-fun rememberCustomSubs(
-    sl: com.aioweb.app.data.ServiceLocator,
-): Pair<List<String>, (Pair<String, Boolean>) -> Unit> {
-    val csv by sl.settings.adultRedditSubsCsv.collectAsState(initial = "")
-    val list = remember(csv) {
-        csv.split(",").map { it.trim() }.filter { it.isNotBlank() }
-    }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val mutate = remember<(Pair<String, Boolean>) -> Unit>(csv) {
-        { (sub, add) ->
-            val cleaned = sub.removePrefix("r/").trim()
-            if (cleaned.isNotBlank()) {
-                val updated = if (add) (list + cleaned).distinct() else list - cleaned
-                scope.launch { sl.settings.setAdultRedditSubs(updated.joinToString(",")) }
-            }
-        }
-    }
-    return list to mutate
-}
-
-private fun kotlinx.coroutines.CoroutineScope.launch(block: suspend () -> Unit) =
-    kotlinx.coroutines.launch(this.coroutineContext) { block() }

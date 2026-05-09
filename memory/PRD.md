@@ -81,6 +81,16 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
 - Plugin runtime works for most providers but tested mostly with phisher98/CXXX repo.
 
 ## Latest changes (Feb 2026)
+- **(NEW — Feb 2026) Reddit feed redesigned to TikTok-style swipe-up vertical pager**
+  - When the user picks the **Reddit** source on the Adult tab, the screen now renders as a full-bleed `VerticalPager` (one Reddit post per page, swipe up for the next) — matching the user's reference screenshot exactly. Eporner keeps the existing 2-column grid.
+  - Each card auto-plays Reddit-hosted DASH videos (with sibling DASH audio when present) via Media3 ExoPlayer; only the *currently visible* page consumes player resources. GIF / WEBP / JPEG / PNG posts render via Coil's animated `ImageDecoderDecoder` (or `GifDecoder` on pre-P).
+  - Right-side action column: Save (local toggle for now), Share (`ACTION_SEND`), Download (`ACTION_VIEW` → user's media saver app).
+  - Top: subreddit chip strip with built-in presets (`r/nsfw`, `r/gonewild`, …) + a `+` button that opens a dialog to add a custom subreddit. Long-press a custom chip to remove it. Custom subs persist in DataStore (`adult_reddit_subs` CSV).
+  - Bottom-right: source switcher pill (`Reddit ›`) → switches back to Eporner.
+  - Endless scroll preloads the next page of posts when the user is within 3 cards of the end.
+  - **No API key needed.** Reddit's `https://www.reddit.com/r/{sub}/{sort}.json` is public for NSFW subreddits as long as a custom `User-Agent` is sent — already wired in `RedditApi.kt` since the AioWeb port.
+- `coil-gif:2.7.0` added; `AioWebApplication` now implements `ImageLoaderFactory` so animated GIFs work in the rest of the app too.
+
 - **(NEW — Feb 2026) "View all →" + endless-scroll Catalog page**
   - Every home row (TMDB collections AND Stremio addon catalogs) now ships with a tappable **"View all →"** affordance on the right of its section header — same UX Nuvio uses.
   - Tap → opens a new `CatalogPageScreen` (3-column poster grid) that paginates endlessly via TMDB's `page=` parameter (TMDB rows) or Stremio's `skip=` parameter (addon rows). Stremio posters resolve IMDB→TMDB on tap so the existing MovieDetail flow takes over.
