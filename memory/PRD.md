@@ -81,6 +81,11 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
 - Plugin runtime works for most providers but tested mostly with phisher98/CXXX repo.
 
 ## Latest changes (Feb 2026)
+- **(NEW — Feb 2026) Profile button (Google avatar) in top-right of Music / Movies / Library**
+  - `YtMusicLoginActivity` now scrapes the user's avatar URL + display name from `music.youtube.com` after login (via a single `WebView.evaluateJavascript` query against the page's `#avatar-btn img`). Avatar is upgraded to `=s256` so it stays crisp on hidpi.
+  - New `ui/components/ProfileButton.kt` — reads `ytMusicUserAvatar` from `SettingsRepository` and shows it as a circular `AsyncImage`. Falls back to a generic `AccountCircle` icon when signed out.
+  - Wired into `MusicScreen` (next to "Listen now"), `MoviesScreen` (next to "Discover"), and `LibraryScreen` (next to "Library"). Tap → navigates to the Settings hub. Same pattern Spotify / YouTube Music use.
+
 - **(NEW — Feb 2026) Library + Adult coexist; bottom nav scrolls horizontally**
   - Library is now ALWAYS in the nav bar; Adult is additive (only appears when the NSFW toggle is on). Previously they were mutually exclusive.
   - Replaced Material 3's fixed-width `NavigationBar` with a custom horizontally-scrollable Row of pill-styled `ScrollableNavBarItem`s. With 6 tabs + Settings on small phones the bar now scrolls instead of cramping.

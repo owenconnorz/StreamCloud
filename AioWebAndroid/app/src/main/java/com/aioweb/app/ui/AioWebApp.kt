@@ -228,6 +228,7 @@ fun AioWebApp() {
                             val n = URLEncoder.encode(internalName, "UTF-8")
                             nav.navigate("cloudstream/$n")
                         },
+                        onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
                 }
                 composable(
@@ -266,6 +267,11 @@ fun AioWebApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("yt-playlist/$i/$t")
                         },
+                        // Top-right profile button → Settings hub. Same pattern
+                        // is used on Movies / Library so the YT-Music profile
+                        // pic doubles as the entry point to Settings (Spotify
+                        // / YouTube Music style).
+                        onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
                 }
                 composable(
@@ -291,6 +297,7 @@ fun AioWebApp() {
                             val u = URLEncoder.encode(url, "UTF-8")
                             nav.navigate("artist/$u")
                         },
+                        onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
                 }
                 composable(

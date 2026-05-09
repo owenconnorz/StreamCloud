@@ -43,6 +43,7 @@ import com.aioweb.app.ui.viewmodel.MoviesViewModel
 fun MoviesScreen(
     onMovieClick: (Long) -> Unit,
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
+    onProfileClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
@@ -54,7 +55,7 @@ fun MoviesScreen(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
-            item { MoviesHeader() }
+            item { MoviesHeader(onProfileClick = onProfileClick) }
             item {
                 MoviesSearchField(
                     query = query,
@@ -163,19 +164,27 @@ fun MoviesScreen(
 }
 
 @Composable
-private fun MoviesHeader() {
-    Column(Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 8.dp)) {
-        Text(
-            "Discover",
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontWeight = FontWeight.Black,
-        )
-        Text(
-            "Movies, series, addons — all in one place",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+private fun MoviesHeader(onProfileClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, top = 16.dp, end = 14.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Discover",
+                style = MaterialTheme.typography.displayLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Black,
+            )
+            Text(
+                "Movies, series, addons — all in one place",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        com.aioweb.app.ui.components.ProfileButton(onClick = onProfileClick)
     }
 }
 

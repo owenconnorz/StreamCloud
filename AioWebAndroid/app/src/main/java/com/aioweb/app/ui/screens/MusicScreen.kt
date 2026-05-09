@@ -55,6 +55,7 @@ private val SUGGESTIONS = listOf(
 fun MusicScreen(
     onArtistClick: (String) -> Unit = {},
     onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
+    onProfileClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
@@ -102,7 +103,7 @@ fun MusicScreen(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = if (nowPlaying != null) 96.dp else 12.dp),
         ) {
-            item { MusicHeader() }
+            item { MusicHeader(onProfileClick = onProfileClick) }
             item {
                 MusicSearchField(
                     query = query,
@@ -445,19 +446,27 @@ private fun playTrack(player: androidx.media3.common.Player, track: YtTrack, aud
 }
 
 @Composable
-private fun MusicHeader() {
-    Column(Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 8.dp)) {
-        Text(
-            "Listen now",
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontWeight = FontWeight.Black,
-        )
-        Text(
-            "Your music. From everywhere.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+private fun MusicHeader(onProfileClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, top = 16.dp, end = 14.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Listen now",
+                style = MaterialTheme.typography.displayLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Black,
+            )
+            Text(
+                "Your music. From everywhere.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        com.aioweb.app.ui.components.ProfileButton(onClick = onProfileClick)
     }
 }
 

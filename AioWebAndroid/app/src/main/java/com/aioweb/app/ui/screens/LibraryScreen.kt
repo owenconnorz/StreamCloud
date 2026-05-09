@@ -58,6 +58,7 @@ private enum class LibTab(val label: String) {
 fun LibraryScreen(
     onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
     onOpenArtist: (channelUrl: String) -> Unit = {},
+    onProfileClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val dao = remember { LibraryDb.get(context).tracks() }
@@ -112,12 +113,20 @@ fun LibraryScreen(
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Spacer(Modifier.height(12.dp))
-        Text(
-            "Library",
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(horizontal = 20.dp),
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Library",
+                style = MaterialTheme.typography.displayLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            com.aioweb.app.ui.components.ProfileButton(onClick = onProfileClick)
+        }
         Spacer(Modifier.height(12.dp))
 
         // Top filter chips: Playlists / Songs / Albums / Artists
