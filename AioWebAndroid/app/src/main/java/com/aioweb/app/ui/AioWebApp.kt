@@ -229,6 +229,31 @@ fun AioWebApp() {
                             nav.navigate("cloudstream/$n")
                         },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
+                        onOpenCatalog = { src, t, sub ->
+                            val s = URLEncoder.encode(src, "UTF-8")
+                            val tt = URLEncoder.encode(t, "UTF-8")
+                            val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
+                            nav.navigate("catalog/$s/$tt/$ss")
+                        },
+                    )
+                }
+                composable(
+                    "catalog/{src}/{title}/{subtitle}",
+                    arguments = listOf(
+                        navArgument("src") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                        navArgument("subtitle") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val src = URLDecoder.decode(entry.arguments!!.getString("src")!!, "UTF-8")
+                    val t = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    val sub = URLDecoder.decode(entry.arguments!!.getString("subtitle")!!, "UTF-8")
+                    com.aioweb.app.ui.screens.CatalogPageScreen(
+                        source = src,
+                        title = t,
+                        subtitle = sub.trim(),
+                        onBack = { nav.popBackStack() },
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
                     )
                 }
                 composable(

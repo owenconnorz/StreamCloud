@@ -44,6 +44,7 @@ fun MoviesScreen(
     onMovieClick: (Long) -> Unit,
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
+    onOpenCatalog: (source: String, title: String, subtitle: String) -> Unit = { _, _, _ -> },
 ) {
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
@@ -114,20 +115,31 @@ fun MoviesScreen(
                         }
                     }
                 }
-                state.collections.forEachIndexed { idx, row ->
-                    item(key = "col_t_${row.id}") { SectionTitle("${row.emoji}  ${row.title}") }
+                state.collections.forEachIndexed { _, row ->
+                    item(key = "col_t_${row.id}") {
+                        SectionTitleWithViewAll(
+                            title = row.title,
+                            onViewAll = {
+                                onOpenCatalog(
+                                    "tmdb:${row.id}",
+                                    row.title,
+                                    com.aioweb.app.data.collections.HomeCollections
+                                        .byId(row.id)?.subtitle.orEmpty(),
+                                )
+                            },
+                        )
+                    }
                     item(key = "col_${row.id}") {
-                        if (idx == 0 || row.id == "popular") {
-                            // Top trending row uses a tighter 3x grid.
-                            PosterGrid(movies = row.items.take(9), onClick = onMovieClick)
-                        } else {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                items(row.items, key = { "${row.id}_${it.id}" }) { m ->
-                                    MidPoster(m, onClick = { onMovieClick(m.id) })
-                                }
+                        // Single-line horizontal scroll for every TMDB row,
+                        // matching Nuvio's design. Trending / Popular used to
+                        // render as a 3-col grid which broke visual rhythm
+                        // against the addon rows below.
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(row.items, key = { "${row.id}_${it.id}" }) { m ->
+                                MidPoster(m, onClick = { onMovieClick(m.id) })
                             }
                         }
                     }
@@ -135,7 +147,17 @@ fun MoviesScreen(
                 // ── Stremio addon catalogs — NuvioMobile parity ─────────
                 state.stremioRows.forEach { row ->
                     item(key = "stremio_t_${row.rowKey}") {
-                        AddonSectionTitle(addon = row.addonName, catalog = row.catalogName)
+                        AddonSectionTitleWithViewAll(
+                            addon = row.addonName,
+                            catalog = row.catalogName,
+                            onViewAll = {
+                                onOpenCatalog(
+                                    "stremio:${row.addonId}:${row.type}:${row.catalogId}",
+                                    row.catalogName,
+                                    row.addonName,
+                                )
+                            },
+                        )
                     }
                     item(key = "stremio_${row.rowKey}") {
                         LazyRow(
@@ -144,17 +166,9 @@ fun MoviesScreen(
                         ) {
                             items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
                                 StremioPoster(meta = meta) {
-                                    // Stremio metas are keyed by IMDB id (`tt…`).
-                                    // Resolve to TMDB so the existing detail
-                                    // screen / playback flow can take it.
-                                    vm.openStremioMeta(meta) { tmdbId, fallbackTitle ->
+                                    vm.openStremioMeta(meta) { tmdbId, _ ->
                                         if (tmdbId != null) onMovieClick(tmdbId)
-                                        // If we couldn't resolve a TMDB id we
-                                        // surface a ViewModel notice — the
-                                        // banner at the top of the screen will
-                                        // tell the user (and link the user to
-                                        // search by title as a fallback).
-                                        else { /* notice already set by VM */ }
+                                        // else: VM has already set a notice
                                     }
                                 }
                             }
@@ -453,6 +467,34 @@ private fun SectionTitle(text: String) {
     )
 }
 
+/** Section header with a trailing tappable "View all →" affordance. */
+@Composable
+private fun SectionTitleWithViewAll(title: String, onViewAll: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "View all →",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable(onClick = onViewAll)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+    }
+}
+
 /**
  * NuvioMobile-style row title — primary catalog name + a tinted "from <addon>"
  * subtitle so the user always knows which addon contributed the row.
@@ -470,6 +512,44 @@ private fun AddonSectionTitle(addon: String, catalog: String) {
             "from $addon",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Stremio addon row header with a trailing "View all →" link. */
+@Composable
+private fun AddonSectionTitleWithViewAll(
+    addon: String,
+    catalog: String,
+    onViewAll: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                catalog,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "from $addon",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            "View all →",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable(onClick = onViewAll)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
         )
     }
 }

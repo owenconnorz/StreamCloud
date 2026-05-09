@@ -49,6 +49,7 @@ interface TmdbApi {
     suspend fun trending(
         @retrofit2.http.Path("window") window: String = "week",
         @Query("api_key") apiKey: String,
+        @Query("page") page: Int = 1,
     ): TmdbListResponse
 
     @GET("3/movie/popular")

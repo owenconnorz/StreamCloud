@@ -81,6 +81,16 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
 - Plugin runtime works for most providers but tested mostly with phisher98/CXXX repo.
 
 ## Latest changes (Feb 2026)
+- **(NEW — Feb 2026) "View all →" + endless-scroll Catalog page**
+  - Every home row (TMDB collections AND Stremio addon catalogs) now ships with a tappable **"View all →"** affordance on the right of its section header — same UX Nuvio uses.
+  - Tap → opens a new `CatalogPageScreen` (3-column poster grid) that paginates endlessly via TMDB's `page=` parameter (TMDB rows) or Stremio's `skip=` parameter (addon rows). Stremio posters resolve IMDB→TMDB on tap so the existing MovieDetail flow takes over.
+  - New nav route `catalog/{src}/{title}/{subtitle}` wired in `AioWebApp.kt`.
+  - `HomeCollection.fetchPage(api, key, page)` added; existing `fetch(api, key)` is now a thin convenience over `fetchPage(_, _, 1)`.
+  - `TmdbApi.trending` now takes a `page` query parameter so the View All grid can paginate it too.
+- **(UI — Feb 2026) Single-line scrolling rows + emoji removed**
+  - "Trending This Week", "In Theatres", "Popular Movies", "Top Rated" used to render as 3-column grids — now they render as horizontal `LazyRow`s of mid-size posters, matching every other row + Nuvio's design.
+  - Stripped the prefix emojis (🔥 / 🎬 / ⭐ / 🏆 / etc.) from `HomeCollections` titles so the bar reads cleanly: "Trending This Week" instead of "🔥  Trending This Week".
+
 - **(FIX — Feb 2026) Player crashed when tapping "Play"**
   - Root cause: `MediaRouteButton` (the cast icon) requires the host theme to define `mediaRouteButtonStyle`, which our base `Theme.Material3.DayNight` does not. Inflation threw `Resources$NotFoundException` and took the player down with it.
   - Fix: wrap the inflation context in a `ContextThemeWrapper(ctx, androidx.mediarouter.R.style.Theme_MediaRouter)` which DOES define the attribute. The whole construction is `runCatching`-wrapped so devices without Play Services degrade gracefully instead of crashing.
