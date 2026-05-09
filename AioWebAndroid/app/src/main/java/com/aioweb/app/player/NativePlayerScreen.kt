@@ -150,10 +150,13 @@ fun NativePlayerScreen(
     }
 
     LaunchedEffect(resolvedUrl, needsWebView) {
+        // Always tear down any previously-built ExoPlayer before resolving a new
+        // URL — otherwise switching sources / closing+reopening the player leaks
+        // an orphan that keeps playing in the background until the app dies.
+        player.value?.release()
+        player.value = null
         if (needsWebView) {
             // Don't build ExoPlayer for HTML embed pages — WebView handles them.
-            player.value?.release()
-            player.value = null
             return@LaunchedEffect
         }
         val url = resolvedUrl ?: return@LaunchedEffect
@@ -212,6 +215,20 @@ fun NativePlayerScreen(
             torrentServer.value?.stop()
             torrentServer.value = null
         }
+    }
+    // Auto-pause when the app is backgrounded (Home / recent apps) — ExoPlayer
+    // doesn't observe activity lifecycle on its own, so without this it keeps
+    // streaming audio with the screen off.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> player.value?.pause()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // --- Player state for the overlay ----------------------------------------------------------
