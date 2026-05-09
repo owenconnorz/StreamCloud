@@ -90,6 +90,27 @@ class TorrentStreamServer(context: Context) {
         runCatching {
             handle.flags = handle.flags.or_(org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
         }
+        // Many MP4 containers store the `moov` atom (codec config) at the END of
+        // the file. Without an explicit hint libtorrent's sequential mode would
+        // download the start first and the end last → ExoPlayer's initial
+        // probe Range request for the tail bytes stalls indefinitely. Bump the
+        // first 3 + last 3 pieces of the playable file to TOP priority so the
+        // moov atom is reachable within seconds even before the body is done.
+        runCatching {
+            val numPieces = torrentInfo.numPieces()
+            val pieceLen = torrentInfo.pieceLength().toLong()
+            val fileOffset = files.fileOffset(largestIdx)
+            val firstPiece = (fileOffset / pieceLen).toInt().coerceAtLeast(0)
+            val lastPiece = ((fileOffset + largestSize - 1) / pieceLen)
+                .toInt().coerceIn(0, numPieces - 1)
+            val boost = 3
+            for (p in firstPiece until (firstPiece + boost).coerceAtMost(numPieces)) {
+                handle.piecePriority(p, Priority.TOP_PRIORITY)
+            }
+            for (p in (lastPiece - boost + 1).coerceAtLeast(0)..lastPiece) {
+                handle.piecePriority(p, Priority.TOP_PRIORITY)
+            }
+        }
 
         // 5. Start NanoHTTPD on a free port.
         val server = HttpServer(absFile) { totalBytes }
@@ -132,6 +153,15 @@ class TorrentStreamServer(context: Context) {
     /**
      * Tiny HTTP server: serves [target] with HTTP Range support. If a requested
      * byte isn't yet downloaded by libtorrent, blocks (with timeout) until it is.
+     *
+     * Streaming model:
+     *  - Pre-block only for an *initial* window (~2 MB from `start`) so ExoPlayer's
+     *    first parse (container header) succeeds, then return the response and let
+     *    the InputStream poll-wait per-read as more bytes arrive.
+     *  - Without per-read blocking, RandomAccessFile.read() returns -1 the moment
+     *    it hits the current file length even though libtorrent is still writing
+     *    sequentially — that's why ExoPlayer used to give up immediately on first
+     *    play of a fresh torrent.
      */
     private class HttpServer(
         private val target: File,
@@ -144,20 +174,35 @@ class TorrentStreamServer(context: Context) {
 
             val (start, end) = parseRange(rangeHeader, total)
             val length = end - start + 1
-            waitForBytes(start + length, timeoutMs = 30_000L)
+            // Pre-buffer only the first 2 MB of the requested window — enough for
+            // ExoPlayer to read the moov/mvhd atom for MP4 / init segment for HLS.
+            val initialBuffer = minOf(2L * 1024 * 1024, length)
+            waitForBytes(start + initialBuffer, timeoutMs = 30_000L)
 
             val raf = RandomAccessFile(target, "r")
             raf.seek(start)
             val stream = object : java.io.InputStream() {
                 private var remaining = length
+                /** Block-wait until the file has at least [needed] bytes downloaded. */
+                private fun blockUntilAvailable(needed: Long, timeoutMs: Long = 60_000L): Boolean {
+                    val deadline = System.currentTimeMillis() + timeoutMs
+                    while (target.length() < needed) {
+                        if (System.currentTimeMillis() > deadline) return false
+                        try { Thread.sleep(200) } catch (_: InterruptedException) { return false }
+                    }
+                    return true
+                }
                 override fun read(): Int {
                     if (remaining <= 0) return -1
-                    val v = raf.read(); if (v >= 0) remaining--
+                    if (!blockUntilAvailable(raf.filePointer + 1)) return -1
+                    val v = raf.read()
+                    if (v >= 0) remaining--
                     return v
                 }
                 override fun read(b: ByteArray, off: Int, len: Int): Int {
                     if (remaining <= 0) return -1
                     val toRead = minOf(len.toLong(), remaining).toInt()
+                    if (!blockUntilAvailable(raf.filePointer + 1)) return -1
                     val n = raf.read(b, off, toRead)
                     if (n > 0) remaining -= n
                     return n
@@ -166,11 +211,23 @@ class TorrentStreamServer(context: Context) {
             }
 
             val status = if (rangeHeader != null) Response.Status.PARTIAL_CONTENT else Response.Status.OK
-            val resp = newFixedLengthResponse(status, "video/*", stream, length)
+            val resp = newFixedLengthResponse(status, guessMimeType(target.name), stream, length)
             resp.addHeader("Accept-Ranges", "bytes")
             resp.addHeader("Content-Range", "bytes $start-$end/$total")
             resp.addHeader("Content-Length", length.toString())
             return resp
+        }
+
+        private fun guessMimeType(name: String): String {
+            val n = name.lowercase()
+            return when {
+                n.endsWith(".mp4") || n.endsWith(".m4v") -> "video/mp4"
+                n.endsWith(".mkv")                       -> "video/x-matroska"
+                n.endsWith(".webm")                      -> "video/webm"
+                n.endsWith(".avi")                       -> "video/x-msvideo"
+                n.endsWith(".mov")                       -> "video/quicktime"
+                else                                     -> "video/mp4"
+            }
         }
 
         private fun parseRange(header: String?, total: Long): Pair<Long, Long> {
