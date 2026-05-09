@@ -67,6 +67,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -426,5 +428,53 @@ private fun navigateToTab(nav: NavHostController, route: String) {
         popUpTo(nav.graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
+    }
+}
+
+
+/**
+ * One item in the horizontally scrollable bottom nav. Mimics the look of a
+ * Material 3 [androidx.compose.material3.NavigationBarItem] (pill indicator
+ * behind the icon when selected, accent label below) but is a bare `Column`
+ * so it's safe to drop inside a horizontally-scrollable Row.
+ */
+@Composable
+private fun ScrollableNavBarItem(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val indicator = MaterialTheme.colorScheme.primary
+    val onIndicator = MaterialTheme.colorScheme.onPrimary
+    val unselectedTint = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier
+                .height(32.dp)
+                .width(64.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (selected) indicator else androidx.compose.ui.graphics.Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = if (selected) onIndicator else unselectedTint,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) MaterialTheme.colorScheme.primary else unselectedTint,
+        )
     }
 }

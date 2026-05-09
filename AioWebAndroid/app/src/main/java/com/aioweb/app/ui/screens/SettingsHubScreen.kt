@@ -1084,20 +1084,18 @@ private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
 
     data class NavItem(val id: String, val label: String, val icon: ImageVector)
 
-    // Build the initial ordered list from SettingsRepo. Anything missing is
-    // appended at the end so a newly-added tab remains reachable.
+    // Build the initial ordered list from SettingsRepo. Library is ALWAYS
+    // present; Adult is additive and only appears when the NSFW toggle is on.
+    // Anything missing is appended at the end so a newly-added tab remains
+    // reachable.
     val all = remember(nsfw) {
-        val libOrAdult = if (nsfw) {
-            NavItem("adult", "Adult", Icons.Default.Visibility)
-        } else {
-            NavItem("library", "Library", Icons.Default.FormatListBulleted)
+        buildList {
+            add(NavItem("movies", "Movies", Icons.Default.PlayArrow))
+            add(NavItem("music", "Music", Icons.Default.MusicNote))
+            add(NavItem("ai", "AI", Icons.Default.AutoAwesome))
+            add(NavItem("library", "Library", Icons.Default.FormatListBulleted))
+            if (nsfw) add(NavItem("adult", "Adult", Icons.Default.Visibility))
         }
-        listOf(
-            NavItem("movies", "Movies", Icons.Default.PlayArrow),
-            NavItem("music", "Music", Icons.Default.MusicNote),
-            NavItem("ai", "AI", Icons.Default.AutoAwesome),
-            libOrAdult,
-        )
     }
     val byId = all.associateBy { it.id }
     var order by remember { mutableStateOf<List<NavItem>>(all) }

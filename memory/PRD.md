@@ -81,6 +81,16 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
 - Plugin runtime works for most providers but tested mostly with phisher98/CXXX repo.
 
 ## Latest changes (Feb 2026)
+- **(NEW — Feb 2026) Library + Adult coexist; bottom nav scrolls horizontally**
+  - Library is now ALWAYS in the nav bar; Adult is additive (only appears when the NSFW toggle is on). Previously they were mutually exclusive.
+  - Replaced Material 3's fixed-width `NavigationBar` with a custom horizontally-scrollable Row of pill-styled `ScrollableNavBarItem`s. With 6 tabs + Settings on small phones the bar now scrolls instead of cramping.
+  - `NavOrderDialog` updated: shows both Library and Adult as separately reorderable rows when NSFW is on, so the user can place Adult anywhere in the bar.
+
+- **(FIX — Feb 2026) Build error fallout**
+  - `MediaRouteButton.setColorFilter` doesn't exist — removed the runtime tint hook in `CastUi.kt` (the SDK's bundled drawable already reads well over our dark capsule).
+  - Added missing `Alignment` + `clip` imports to `AioWebApp.kt`.
+  - Defined the previously-referenced `ScrollableNavBarItem` composable.
+
 - **(NEW — Feb 2026) Google Cast (Chromecast) support in the movies player**
   - Added `play-services-cast-framework:21.5.0` + `androidx.mediarouter:1.7.0` deps.
   - `CastOptionsProviderImpl.kt` registers the Default Media Receiver (no Cast Developer Console / app id required) — works with any Chromecast / Android TV / Google Nest Hub on the same Wi-Fi.

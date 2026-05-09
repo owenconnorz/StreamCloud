@@ -8,7 +8,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.mediarouter.app.MediaRouteButton
@@ -46,10 +45,12 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
                 CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, btn)
             }
         },
-        update = { btn ->
-            // Recolor the cast icon when the host re-composes (e.g. after
-            // Material 3 dynamic-color theme change picks up new accent).
-            btn.setColorFilter(tint.toArgb())
+        update = { _ ->
+            // Cast icon tint is driven by the inflated drawable resources from
+            // the cast SDK (mr_cast_button_*). Recoloring on the fly would
+            // require swapping the drawable, which isn't worth the complexity —
+            // the default white indicator already reads well over our dark
+            // semi-transparent capsule background.
         },
     )
 }
