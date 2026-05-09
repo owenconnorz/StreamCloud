@@ -1,14 +1,22 @@
 package com.aioweb.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmarks
@@ -92,14 +100,15 @@ fun AioWebApp() {
     }
 
     val tabs = remember(nsfwEnabled, navOrderCsv) {
-        // Build the pool of tabs available given the NSFW toggle — `Library` and
-        // `Adult` are mutually exclusive so only one of them appears.
+        // Build the pool of tabs available given the NSFW toggle. Library is
+        // ALWAYS present; Adult is additive (only appears when the NSFW toggle
+        // is on). The bottom nav is horizontally scrollable so all tabs fit.
         val pool: Map<String, Tab> = buildMap {
             put(Tab.Movies.route, Tab.Movies)
             put(Tab.Music.route, Tab.Music)
             put(Tab.Ai.route, Tab.Ai)
+            put(Tab.Library.route, Tab.Library)
             if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
-            else put(Tab.Library.route, Tab.Library)
         }
         // Apply user-defined ordering, skipping unknown/dropped ids. Anything
         // not listed in the CSV is appended in its natural order so new tabs
@@ -142,25 +151,33 @@ fun AioWebApp() {
                             },
                         )
                     }
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
+                    // Custom horizontally-scrollable nav bar — Material 3's
+                    // NavigationBar forces equal weight distribution which gets
+                    // cramped at 5+ tabs. This bar styles items the same way
+                    // (pill indicator, label, icon) but lets the user swipe
+                    // sideways when more tabs are enabled (e.g. Adult).
+                    androidx.compose.material3.Surface(
+                        color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        tabs.forEach { tab ->
-                            val selected = currentRoute == tab.route
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { navigateToTab(nav, tab.route) },
-                                icon = { Icon(tab.icon, contentDescription = tab.label) },
-                                label = { Text(tab.label, style = MaterialTheme.typography.labelLarge) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    indicatorColor = MaterialTheme.colorScheme.primary,
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            tabs.forEach { tab ->
+                                val selected = currentRoute == tab.route
+                                ScrollableNavBarItem(
+                                    icon = tab.icon,
+                                    label = tab.label,
+                                    selected = selected,
+                                    onClick = { navigateToTab(nav, tab.route) },
                                 )
-                            )
+                            }
                         }
                     }
                 }
