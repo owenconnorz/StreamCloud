@@ -36,6 +36,7 @@ object SettingsKeys {
     val NAV_TAB_ORDER = stringPreferencesKey("nav_tab_order")     // CSV of tab ids (movies,music,ai,library|adult)
     val PLAYLIST_THUMBS = stringPreferencesKey("playlist_thumbs") // JSON {playlistId: uriString}
     val UI_MODE = stringPreferencesKey("ui_mode")                 // Auto / Mobile / Tablet / Tv
+    val ADULT_REDDIT_SUBS = stringPreferencesKey("adult_reddit_subs") // CSV of user-added subreddits
 }
 
 class SettingsRepository(private val context: Context) {
@@ -152,4 +153,11 @@ class SettingsRepository(private val context: Context) {
         it.remove(SettingsKeys.YT_MUSIC_USER_NAME)
         it.remove(SettingsKeys.YT_MUSIC_USER_AVATAR)
     }
+
+    /** User-added Reddit subreddits (Adult tab). Empty list = use built-in presets only. */
+    val adultRedditSubsCsv: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.ADULT_REDDIT_SUBS] ?: ""
+    }
+    suspend fun setAdultRedditSubs(csv: String) =
+        context.dataStore.edit { it[SettingsKeys.ADULT_REDDIT_SUBS] = csv }
 }
