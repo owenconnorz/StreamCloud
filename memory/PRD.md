@@ -81,7 +81,17 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
 - Plugin runtime works for most providers but tested mostly with phisher98/CXXX repo.
 
 ## Latest changes (Feb 2026)
-- Fixed Gradle plugin DSL conflict (`org.jetbrains.kotlin.kapt` was being requested twice)
+- **(NEW — Feb 2026) Adaptive UI for Mobile / Tablet / TV**
+  - `UiFormFactor.kt` resolves the device class via `UiModeManager` (TV) and `smallestScreenWidthDp` (Tablet ≥ 600dp). User can override in **Settings → Appearance → Layout / device** (Auto / Mobile / Tablet / TV).
+  - `Theme.kt` now wraps `MaterialTheme` in `ProvideUiFormFactor` which scales `LocalDensity.fontScale` (1.0 / 1.10 / 1.30) so all `sp` text grows on bigger screens without breaking dp-based layouts.
+  - `AioWebApp.kt` uses a side `NavigationRail` for Tablet/TV (with the global mini-player rendered above the content's bottom edge instead of above a bottom bar). Mobile keeps the bottom `NavigationBar`.
+- **(NEW — Feb 2026) Reddit added back to the Adult tab**
+  - `RedditApi.kt` + `RedditAdultRepository.kt` — uses Reddit's public `/r/{sub}/{sort}/.json` endpoint (no OAuth needed for public NSFW subs, just a custom `User-Agent`). Resolves Reddit-hosted DASH videos (with sibling `DASH_AUDIO_128.mp4` audio track), inline image posts, redgifs links, direct `.mp4`/`.webm`, and `.gifv` → `.mp4` rewrites.
+  - `AdultViewModel.kt` rewritten to drive a unified `AdultItem` model (Eporner OR Reddit) via an `AdultSource` enum + `setSource(...)` switcher.
+  - `AdultScreen.kt` adds a horizontal source-switcher chip row (Eporner / Reddit), a preset subreddit chip strip when Reddit is active (`r/nsfw`, `r/gonewild`, `r/RealGirls`, …), and endless-scroll pagination via Reddit's `after` cursor.
+  - The existing `player/eporner/{id}/{embed}/{title}` route is reused — Reddit items pass `direct://<resolved-url>` as the id and the resolver short-circuits straight to playback.
+
+## Earlier changes (Feb 2026) (`org.jetbrains.kotlin.kapt` was being requested twice)
 - Fixed `AiScreen.kt` non-exhaustive `when` (added missing `Edit` branch + image-picker UI)
 - Fixed `CloudstreamApi.kt` JVM-signature clash (`fixUrl` top-level vs extension) via `@JvmName`
 - Fixed `MusicController.kt` invalid `cont.resume(throw it)` → `resumeWith(Result.failure(it))`
