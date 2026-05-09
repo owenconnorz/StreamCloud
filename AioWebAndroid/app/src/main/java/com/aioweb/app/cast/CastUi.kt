@@ -41,17 +41,32 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            MediaRouteButton(ctx).also { btn ->
-                CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, btn)
+            // MediaRouteButton requires the host theme to define
+            // `mediaRouteButtonStyle`. Our Material 3 base theme doesn't, so
+            // we wrap the inflation context with the mediarouter library's
+            // own `Theme_MediaRouter` which DOES define it. Without this
+            // wrapper the inflation throws Resources$NotFoundException at
+            // runtime — and historically crashed the whole player overlay
+            // when the user tapped "Play" on a film.
+            //
+            // The whole construction is wrapped in runCatching so a missing
+            // GoogleApiAvailability / Play Services on the device degrades
+            // gracefully to "no cast button" instead of taking the player
+            // down with it.
+            runCatching {
+                val themed = android.view.ContextThemeWrapper(
+                    ctx,
+                    androidx.mediarouter.R.style.Theme_MediaRouter,
+                )
+                MediaRouteButton(themed).also { btn ->
+                    CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, btn)
+                }
+            }.getOrElse {
+                // Last-resort placeholder so AndroidView's factory returns SOMETHING.
+                android.view.View(ctx)
             }
         },
-        update = { _ ->
-            // Cast icon tint is driven by the inflated drawable resources from
-            // the cast SDK (mr_cast_button_*). Recoloring on the fly would
-            // require swapping the drawable, which isn't worth the complexity —
-            // the default white indicator already reads well over our dark
-            // semi-transparent capsule background.
-        },
+        update = { /* no dynamic state to push */ },
     )
 }
 

@@ -143,7 +143,20 @@ fun MoviesScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
-                                StremioPoster(meta = meta)
+                                StremioPoster(meta = meta) {
+                                    // Stremio metas are keyed by IMDB id (`tt…`).
+                                    // Resolve to TMDB so the existing detail
+                                    // screen / playback flow can take it.
+                                    vm.openStremioMeta(meta) { tmdbId, fallbackTitle ->
+                                        if (tmdbId != null) onMovieClick(tmdbId)
+                                        // If we couldn't resolve a TMDB id we
+                                        // surface a ViewModel notice — the
+                                        // banner at the top of the screen will
+                                        // tell the user (and link the user to
+                                        // search by title as a fallback).
+                                        else { /* notice already set by VM */ }
+                                    }
+                                }
                             }
                         }
                     }
@@ -558,11 +571,12 @@ private fun MidPoster(m: TmdbMovie, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StremioPoster(meta: StremioMetaPreview) {
+private fun StremioPoster(meta: StremioMetaPreview, onClick: () -> Unit) {
     Column(
         Modifier
             .width(140.dp)
-            .clip(RoundedCornerShape(12.dp)),
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
     ) {
         AsyncImage(
             model = meta.poster,

@@ -81,6 +81,13 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
 - Plugin runtime works for most providers but tested mostly with phisher98/CXXX repo.
 
 ## Latest changes (Feb 2026)
+- **(FIX — Feb 2026) Player crashed when tapping "Play"**
+  - Root cause: `MediaRouteButton` (the cast icon) requires the host theme to define `mediaRouteButtonStyle`, which our base `Theme.Material3.DayNight` does not. Inflation threw `Resources$NotFoundException` and took the player down with it.
+  - Fix: wrap the inflation context in a `ContextThemeWrapper(ctx, androidx.mediarouter.R.style.Theme_MediaRouter)` which DOES define the attribute. The whole construction is `runCatching`-wrapped so devices without Play Services degrade gracefully instead of crashing.
+- **(FIX — Feb 2026) Stremio addon posters were not clickable**
+  - `StremioPoster` now has an `onClick` handler. New `MoviesViewModel.openStremioMeta(meta) { tmdbId, … }` resolves a Stremio meta to a TMDB id via TMDB's `/find/{imdbId}?external_source=imdb_id` endpoint (Stremio addons key by IMDB id). On miss → falls back to a TMDB title search. On total miss → a friendly notice banner is surfaced at the top of the Movies tab.
+  - Added `TmdbApi.find(externalId, externalSource)` + `TmdbFindResponse` model.
+
 - **(NEW — Feb 2026) Profile button (Google avatar) in top-right of Music / Movies / Library**
   - `YtMusicLoginActivity` now scrapes the user's avatar URL + display name from `music.youtube.com` after login (via a single `WebView.evaluateJavascript` query against the page's `#avatar-btn img`). Avatar is upgraded to `=s256` so it stays crisp on hidpi.
   - New `ui/components/ProfileButton.kt` — reads `ytMusicUserAvatar` from `SettingsRepository` and shows it as a circular `AsyncImage`. Falls back to a generic `AccountCircle` icon when signed out.

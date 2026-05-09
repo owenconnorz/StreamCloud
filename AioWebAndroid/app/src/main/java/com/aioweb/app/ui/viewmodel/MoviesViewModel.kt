@@ -166,6 +166,47 @@ class MoviesViewModel(
         _state.update { it.copy(notice = null) }
     }
 
+    /**
+     * Resolve a Stremio meta to a TMDB id (or surface a friendly notice when
+     * we can't). Stremio addons key items by IMDB id (`tt…`); we hand that
+     * straight to TMDB's `/find` endpoint with `external_source=imdb_id`.
+     *
+     * If the Stremio addon happens to provide a non-IMDB id (some custom
+     * addons do), we fall back to a TMDB title search and pick the closest
+     * year match.
+     */
+    fun openStremioMeta(
+        meta: com.aioweb.app.data.stremio.StremioMetaPreview,
+        callback: (tmdbId: Long?, fallbackTitle: String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val key = sl.tmdbApiKey
+            try {
+                val resolved: Long? = when {
+                    meta.id.startsWith("tt", ignoreCase = true) -> {
+                        val r = sl.tmdb.find(meta.id, key, "imdb_id")
+                        r.movieResults.firstOrNull()?.id ?: r.tvResults.firstOrNull()?.id
+                    }
+                    else -> {
+                        sl.tmdb.search(key, meta.name).results.firstOrNull()?.id
+                    }
+                }
+                if (resolved == null) {
+                    _state.update {
+                        it.copy(
+                            notice = "Couldn't match \"${meta.name}\" to TMDB. " +
+                                "The Stremio addon doesn't ship a known IMDB id.",
+                        )
+                    }
+                }
+                callback(resolved, meta.name)
+            } catch (e: Exception) {
+                _state.update { it.copy(notice = "Resolve failed: ${e.message}") }
+                callback(null, meta.name)
+            }
+        }
+    }
+
     fun search(query: String) {
         searchJob?.cancel()
         if (query.isBlank()) {
