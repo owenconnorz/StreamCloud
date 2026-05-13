@@ -51,6 +51,7 @@ private data class PluginPageState(
 fun CloudStreamPluginScreen(
     internalName: String,
     onBack: () -> Unit,
+    onOpenItem: (pluginInternalName: String, url: String, name: String, posterUrl: String?) -> Unit = { _, _, _, _ -> },
 ) {
     val context = LocalContext.current
     val repo = remember { PluginRepository(context.applicationContext) }
@@ -172,7 +173,9 @@ fun CloudStreamPluginScreen(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                     )
                 }
-                item { PluginGrid(items = state.searchResults) }
+                item { PluginGrid(items = state.searchResults, onClick = { sr ->
+                    onOpenItem(internalName, sr.url, sr.name, sr.posterUrl)
+                }) }
             } else {
                 state.sections.forEachIndexed { idx, (title, items) ->
                     item(key = "psec_t_$idx") {
@@ -189,7 +192,9 @@ fun CloudStreamPluginScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(items, key = { "ps_${idx}_${it.url}" }) { sr ->
-                                PluginPoster(sr)
+                                PluginPoster(sr, onClick = {
+                                    onOpenItem(internalName, sr.url, sr.name, sr.posterUrl)
+                                })
                             }
                         }
                     }
@@ -200,11 +205,12 @@ fun CloudStreamPluginScreen(
 }
 
 @Composable
-private fun PluginPoster(sr: SearchResponse) {
+private fun PluginPoster(sr: SearchResponse, onClick: () -> Unit = {}) {
     Column(
         Modifier
             .width(140.dp)
             .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
     ) {
         AsyncImage(
             model = sr.posterUrl,
@@ -227,7 +233,7 @@ private fun PluginPoster(sr: SearchResponse) {
 }
 
 @Composable
-private fun PluginGrid(items: List<SearchResponse>) {
+private fun PluginGrid(items: List<SearchResponse>, onClick: (SearchResponse) -> Unit = {}) {
     if (items.isEmpty()) {
         Text(
             "No results.",
@@ -247,6 +253,7 @@ private fun PluginGrid(items: List<SearchResponse>) {
                         Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(12.dp))
+                            .clickable { onClick(sr) }
                     ) {
                         AsyncImage(
                             model = sr.posterUrl,

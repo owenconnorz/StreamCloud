@@ -1,11 +1,13 @@
 package com.aioweb.app.data.plugins
 
 import android.content.Context
+import com.lagradost.cloudstream3.ExtractorLink
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.plugins.Plugin
 import dalvik.system.DexClassLoader
 import dalvik.system.DexFile
@@ -227,6 +229,46 @@ object PluginRuntime {
             try { api.load(url) } catch (_: Throwable) { null }
         }
     }
+
+    /**
+     * Replica of the official CloudStream pipeline:
+     *   `api.loadLinks(data, isCasting=false, subtitleCallback, callback)`
+     *
+     * Every registered MainAPI in the plugin is given a chance to resolve the
+     * link. Some plugins ship multiple providers and only one may know the
+     * `data` shape — we silently swallow per-API failures and accumulate
+     * everything that succeeds across them.
+     *
+     * Returns the collected [ExtractorLink]s and [SubtitleFile]s. The [data]
+     * string is whatever the plugin put inside `LoadResponse.dataUrl` (movie)
+     * or `Episode.data` (series), and is opaque to the host.
+     */
+    suspend fun loadLinks(
+        context: Context,
+        filePath: String,
+        data: String,
+        isCasting: Boolean = false,
+    ): Pair<List<ExtractorLink>, List<SubtitleFile>> = withContext(Dispatchers.IO) {
+        val apis = load(context, filePath)
+        val links = java.util.Collections.synchronizedList(mutableListOf<ExtractorLink>())
+        val subs = java.util.Collections.synchronizedList(mutableListOf<SubtitleFile>())
+        for (api in apis) {
+            try {
+                api.loadLinks(
+                    data = data,
+                    isCasting = isCasting,
+                    subtitleCallback = { sub -> subs.add(sub) },
+                    callback = { link -> links.add(link) },
+                )
+            } catch (_: Throwable) {
+                // Per-API failure — keep going, other APIs may still resolve.
+            }
+        }
+        links.toList() to subs.toList()
+    }
+
+    /** First MainAPI that loaded successfully from the given plugin file (used for `apiName`). */
+    suspend fun firstApi(context: Context, filePath: String): MainAPI? = load(context, filePath).firstOrNull()
 
     fun clear(filePath: String) {
         cache.remove(filePath)

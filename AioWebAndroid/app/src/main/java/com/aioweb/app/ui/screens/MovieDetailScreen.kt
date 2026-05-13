@@ -27,10 +27,15 @@ import com.aioweb.app.data.api.TmdbMovie
 import com.aioweb.app.data.api.TmdbVideo
 import com.aioweb.app.data.nuvio.InstalledNuvioProvider
 import com.aioweb.app.data.nuvio.NuvioStream
+import com.aioweb.app.data.plugins.InstalledPlugin
+import com.aioweb.app.data.plugins.PluginRuntime
 import com.aioweb.app.data.stremio.InstalledStremioAddon
 import com.aioweb.app.data.stremio.StremioStream
 import com.aioweb.app.player.PlayerSource
 import com.aioweb.app.player.WatchProgressKey
+import com.lagradost.cloudstream3.ExtractorLink
+import com.lagradost.cloudstream3.MovieLoadResponse
+import com.lagradost.cloudstream3.SearchResponse
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
@@ -62,6 +67,7 @@ fun MovieDetailScreen(
 
     val installedAddons by sl.stremio.addons.collectAsState(initial = emptyList())
     val installedNuvio by sl.nuvio.installed.collectAsState(initial = emptyList())
+    val installedCsPlugins by sl.plugins.installed.collectAsState(initial = emptyList())
     var resolving by remember { mutableStateOf(false) }
     var resolverMessage by remember { mutableStateOf<String?>(null) }
 
@@ -83,16 +89,18 @@ fun MovieDetailScreen(
             resolverMessage = "Loading IMDB id… try again in a second."
             return
         }
-        if (installedAddons.isEmpty() && installedNuvio.isEmpty()) {
-            resolverMessage = "No Stremio addons or Nuvio providers installed. Add some from Settings → Plugins."
+        if (installedAddons.isEmpty() && installedNuvio.isEmpty() && installedCsPlugins.isEmpty()) {
+            resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed. Add some from Settings → Plugins."
             return
         }
         scope.launch {
             resolving = true
             resolverMessage = null
             try {
-                // Fan out to BOTH systems in parallel: Stremio addons keyed by IMDB tt,
-                // Nuvio JS providers keyed by TMDB id.
+                // Fan out to ALL THREE systems in parallel:
+                //   • Stremio addons keyed by IMDB tt
+                //   • Nuvio JS providers keyed by TMDB id
+                //   • CloudStream `.cs3` plugins — title search → load → loadLinks
                 val stremioJob = async {
                     installedAddons.map { addon ->
                         async {
@@ -108,9 +116,16 @@ fun MovieDetailScreen(
                             .map { (provider, stream) -> stream.toPlayerSource(provider) }
                     }.getOrDefault(emptyList())
                 }
-                val all = stremioJob.await() + nuvioJob.await()
+                val csJob = async {
+                    val title = movie?.displayTitle.orEmpty()
+                    if (title.isBlank()) emptyList<PlayerSource>()
+                    else installedCsPlugins.map { plugin ->
+                        async { resolveCsPluginForMovie(context, plugin, title, movie?.year()) }
+                    }.awaitAll().flatten()
+                }
+                val all = stremioJob.await() + nuvioJob.await() + csJob.await()
                 if (all.isEmpty()) {
-                    val total = installedAddons.size + installedNuvio.size
+                    val total = installedAddons.size + installedNuvio.size + installedCsPlugins.size
                     resolverMessage = "No streams found across $total source(s)."
                     return@launch
                 }
@@ -181,8 +196,8 @@ fun MovieDetailScreen(
 
                 // ── ONE button. ──
                 PlayMovieCta(
-                    addonCount = installedAddons.size + installedNuvio.size,
-                    enabled = imdbId != null && (installedAddons.isNotEmpty() || installedNuvio.isNotEmpty()) && !resolving,
+                    addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size,
+                    enabled = imdbId != null && (installedAddons.isNotEmpty() || installedNuvio.isNotEmpty() || installedCsPlugins.isNotEmpty()) && !resolving,
                     loading = resolving,
                     onClick = { playMovie() },
                 )
@@ -349,3 +364,88 @@ private fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): Player
         isMagnet = url.startsWith("magnet:"),
     )
 }
+
+// ─────────────────────── CloudStream `.cs3` plugin → PlayerSource ───────────────────────
+//
+// Same pipeline as the dedicated CloudStream detail screen:
+//   1. plugin.search(title) → best year-matched SearchResponse
+//   2. plugin.load(searchResult.url) → LoadResponse (must be MovieLoadResponse here)
+//   3. plugin.loadLinks(dataUrl, false, subCb, linkCb) → ExtractorLink list
+//   4. Map ExtractorLink → PlayerSource so it shows up in the unified player picker
+//
+// We constrain to MovieLoadResponse — TvSeries flows go through CloudStreamDetailScreen.
+private suspend fun resolveCsPluginForMovie(
+    context: android.content.Context,
+    plugin: InstalledPlugin,
+    title: String,
+    year: Int?,
+): List<PlayerSource> {
+    return try {
+        val results: List<SearchResponse> = runCatching {
+            PluginRuntime.search(context, plugin.filePath, title)
+        }.getOrDefault(emptyList())
+        val best = pickBestMatch(results, title, year) ?: return emptyList()
+        val detail = runCatching { PluginRuntime.loadDetail(context, plugin.filePath, best.url) }.getOrNull()
+        val movieDetail = detail as? MovieLoadResponse ?: return emptyList()
+        val (links, _) = runCatching {
+            PluginRuntime.loadLinks(context, plugin.filePath, movieDetail.dataUrl, isCasting = false)
+        }.getOrElse { return emptyList() }
+        links.toCsPlayerSources(plugin.name)
+    } catch (_: Throwable) {
+        emptyList()
+    }
+}
+
+private fun pickBestMatch(results: List<SearchResponse>, title: String, year: Int?): SearchResponse? {
+    if (results.isEmpty()) return null
+    val cleanTitle = title.normalizedTitle()
+    return results
+        .map { sr ->
+            var score = 0
+            if (sr.name.normalizedTitle() == cleanTitle) score += 50
+            else if (sr.name.normalizedTitle().contains(cleanTitle)) score += 10
+            if (year != null) {
+                val srYear = (sr as? com.lagradost.cloudstream3.MovieSearchResponse)?.year
+                    ?: (sr as? com.lagradost.cloudstream3.TvSeriesSearchResponse)?.year
+                if (srYear == year) score += 30
+            }
+            sr to score
+        }
+        .sortedByDescending { it.second }
+        .firstOrNull()
+        ?.first
+}
+
+private fun String.normalizedTitle(): String =
+    lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+
+private fun List<ExtractorLink>.toCsPlayerSources(pluginDisplayName: String): List<PlayerSource> =
+    this.mapIndexedNotNull { idx, link ->
+        if (link.url.isBlank()) return@mapIndexedNotNull null
+        PlayerSource(
+            id = "cs::$pluginDisplayName::${link.url.hashCode()}::$idx",
+            url = link.url,
+            label = link.name.ifBlank { link.source.ifBlank { "Stream" } },
+            addonName = link.source.ifBlank { pluginDisplayName },
+            qualityTag = csQualityLabel(link.quality),
+            isMagnet = link.url.startsWith("magnet:"),
+            headers = buildMap {
+                if (link.referer.isNotBlank()) put("Referer", link.referer)
+                putAll(link.headers)
+            },
+        )
+    }
+
+private fun csQualityLabel(q: Int): String? = when {
+    q >= 2160 -> "4K"
+    q >= 1440 -> "1440p"
+    q >= 1080 -> "1080p"
+    q >= 720 -> "720p"
+    q >= 480 -> "480p"
+    q >= 360 -> "360p"
+    q > 0 -> "${q}p"
+    else -> null
+}
+
+private fun com.aioweb.app.data.api.TmdbMovie.year(): Int? =
+    releaseDate?.takeIf { it.isNotBlank() }?.substringBefore('-')?.toIntOrNull()

@@ -225,11 +225,24 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
   - Fixed home-feed playlist tap → `MusicScreen` `YtHomePlaylistCard` was passing no `onClick`, which silently used the default empty lambda. Now wires through `onOpenPlaylist(pl.id, pl.title)`.
 - **(NEW — gitignore cleanup, Feb 2026)** Replaced corrupted 568-line `.gitignore` (had the same env-vars block duplicated 60+ times due to a `-e` heredoc bug) with the user-supplied 91-line clean version. This was confusing the platform's 3-way merger and producing phantom conflicts on `SettingsScreen.kt`.
 
+- **(NEW — CloudStream `.cs3` plugin streaming end-to-end, Feb 2026)**
+  - **Root cause of broken playback**: `PluginRuntime` could `load()` plugins, register `MainAPI`s, and even run `home()`/`search()` — but **never called `api.loadLinks()`**. Posters in `CloudStreamPluginScreen` had **no `onClick`**, so the user could never reach the source-resolution step. `MovieDetailScreen` (TMDB path) only fanned out to Stremio + Nuvio, ignoring installed `.cs3` plugins entirely.
+  - **`PluginRuntime.loadLinks(filePath, data, isCasting=false)`** — replica of the upstream `recloudstream/cloudstream` pipeline. Iterates every registered `MainAPI` in the plugin and accumulates `ExtractorLink` + `SubtitleFile` via callbacks (one API failing doesn't kill the others).
+  - **`CloudStreamDetailScreen.kt`** — new poster-tap destination. `api.load(url)` → for Movies, "Play" calls `loadLinks(dataUrl)`; for TvSeries, episode rows each call `loadLinks(episode.data)`. ExtractorLinks convert to `PlayerSource` (quality + label + magnet flag + headers) and hand off to the existing native player + Sources picker.
+  - **`MovieDetailScreen.kt`** (TMDB path) now also fans out to installed `.cs3` plugins via `plugin.search(title) → load → loadLinks`. CS streams join Stremio + Nuvio in the unified source picker.
+  - **`PlayerSource.headers`** — optional `Map<String,String>` carrying `Referer`/`Origin` etc from `ExtractorLink`; the player route forwards them to `NativePlayerScreen` so CloudStream extractors that 403 without a referrer now resolve.
+  - **CloudStream plugin posters are now clickable** in both the home-row LazyRows and the search-result grid.
+  - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL in 17s.
+
 ## Backlog / next iterations
 - **P1** Picture-in-Picture (PiP) for the player
 - **P1** Brightness/volume vertical drag gestures (Nuvio-style)
-- **P1** Subtitle track picker + external SRT/VTT loader in NativePlayerScreen
+- **P1** Subtitle track picker + external SRT/VTT loader in NativePlayerScreen (surface the `SubtitleFile`s now returned by `PluginRuntime.loadLinks`)
+- **P1** Cast button visibility fix in NativePlayerScreen overlay (sizing/constraint)
+- **P1** Nuvio Plugin Repo installer/updater UI (Settings → Plugins)
+- **P1** Stremio category click speed-up (`CatalogPageScreen` async + skeletons)
 - **P1** Refactor monolithic `MovieDetailScreen.kt` / `PluginsScreen.kt` into per-ecosystem modules (CloudStream / Stremio / Nuvio)
+- **P2** Android Auto integration (`CarAppService` + Media3 session bridging)
 - **P2** Downloads tab for movies/adult via WorkManager
 - **P2** Real-world torrent streaming verification with magnet links
 - **P2** Per-ABI APK splits / AAB

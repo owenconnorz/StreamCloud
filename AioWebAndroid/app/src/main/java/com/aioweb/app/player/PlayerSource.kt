@@ -15,4 +15,7 @@ data class PlayerSource(
     /** "1080p", "4K", "HDR" etc — used to sort. */
     val qualityTag: String? = null,
     val isMagnet: Boolean = false,
+    /** Optional HTTP headers (Referer / Origin / cookies) — CloudStream extractors
+     *  routinely require these; without them the upstream returns 403/redirect. */
+    val headers: Map<String, String> = emptyMap(),
 )

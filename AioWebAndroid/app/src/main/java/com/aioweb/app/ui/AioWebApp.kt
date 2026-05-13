@@ -280,6 +280,40 @@ fun AioWebApp() {
                     com.aioweb.app.ui.screens.CloudStreamPluginScreen(
                         internalName = name,
                         onBack = { nav.popBackStack() },
+                        onOpenItem = { plugin, itemUrl, itemName, poster ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val u = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                    )
+                }
+                composable(
+                    "cs-detail/{plugin}/{url}/{name}/{poster}",
+                    arguments = listOf(
+                        navArgument("plugin") { type = NavType.StringType },
+                        navArgument("url") { type = NavType.StringType },
+                        navArgument("name") { type = NavType.StringType },
+                        navArgument("poster") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val plugin = URLDecoder.decode(entry.arguments!!.getString("plugin")!!, "UTF-8")
+                    val itemUrl = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val itemName = URLDecoder.decode(entry.arguments!!.getString("name")!!, "UTF-8")
+                    val poster = URLDecoder.decode(entry.arguments!!.getString("poster")!!, "UTF-8").trim()
+                    com.aioweb.app.ui.screens.CloudStreamDetailScreen(
+                        pluginInternalName = plugin,
+                        url = itemUrl,
+                        initialTitle = itemName,
+                        initialPoster = poster.takeIf { it.isNotBlank() },
+                        onBack = { nav.popBackStack() },
+                        onPlay = { initialUrl, title, sources, progressKey ->
+                            com.aioweb.app.player.MoviePlayerSession.set(sources, progressKey)
+                            val u = URLEncoder.encode(initialUrl, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/movie/$u/$t")
+                        },
                     )
                 }
                 composable(
@@ -472,6 +506,7 @@ fun AioWebApp() {
                         streamUrl = currentUrl,
                         title = title,
                         subtitle = subtitle,
+                        headers = active?.headers ?: emptyMap(),
                         sources = sources,
                         selectedSourceId = currentId,
                         onSwitchSource = { src ->
