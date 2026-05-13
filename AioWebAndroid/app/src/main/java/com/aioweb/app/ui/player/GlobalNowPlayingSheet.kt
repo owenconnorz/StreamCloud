@@ -41,7 +41,10 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
-fun GlobalNowPlayingSheet() {
+fun GlobalNowPlayingSheet(
+    onOpenSettings: () -> Unit = {},
+    onOpenArtistSearch: (String) -> Unit = {},
+) {
     val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -89,6 +92,8 @@ fun GlobalNowPlayingSheet() {
                 scope.launch { sheetState.hide() }
                 open = false
             },
+            onOpenSettings = onOpenSettings,
+            onOpenArtistSearch = onOpenArtistSearch,
         )
     }
 }
@@ -98,6 +103,8 @@ fun GlobalNowPlayingSheet() {
 private fun GlobalNowPlayingContent(
     controller: Player,
     onClose: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenArtistSearch: (String) -> Unit,
 ) {
     androidx.compose.foundation.layout.Box(
         Modifier
@@ -109,6 +116,8 @@ private fun GlobalNowPlayingContent(
         com.aioweb.app.ui.screens.NowPlayingShell(
             controller = controller,
             onClose = onClose,
+            onOpenSettings = onOpenSettings,
+            onOpenArtistSearch = onOpenArtistSearch,
         )
     }
 }

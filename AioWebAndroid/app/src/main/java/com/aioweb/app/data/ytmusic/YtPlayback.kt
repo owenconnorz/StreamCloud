@@ -133,6 +133,30 @@ object YtPlayback {
         }
     }
 
+    /**
+     * Public wrapper around [startAutoRadio] driven by a media-id URL (the
+     * `https://music.youtube.com/watch?v=…` string we stash on every MediaItem).
+     * Used by the in-player "Radio" action so the user can spin a Metrolist-
+     * style auto-radio off whatever's currently playing.
+     */
+    fun startRadioFromCurrent(context: Context, mediaIdUrl: String) {
+        val videoId = mediaIdUrl
+            .substringAfter("v=", missingDelimiterValue = "")
+            .substringBefore('&')
+            .takeIf { it.isNotBlank() }
+            ?: return
+        // Minimal stub song — only the videoId matters for radio seeding.
+        val seed = YtmSong(
+            videoId = videoId,
+            title = "",
+            artist = "",
+            album = null,
+            thumbnail = null,
+            durationSeconds = null,
+        )
+        startAutoRadio(context, seed)
+    }
+
     /** Insert [song] right after the currently-playing track. */
     suspend fun playNext(context: Context, song: YtmSong) {
         val (item, _) = resolvePlayable(context, song, bumpPlayCount = false)

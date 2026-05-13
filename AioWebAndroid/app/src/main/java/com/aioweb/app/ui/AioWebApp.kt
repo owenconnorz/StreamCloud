@@ -540,7 +540,18 @@ fun AioWebApp() {
         }
         // App-wide NowPlayingSheet — renders on TOP of whatever tab is active
         // so swipe-up on the GlobalMiniPlayer works from any screen.
-        com.aioweb.app.ui.player.GlobalNowPlayingSheet()
+        com.aioweb.app.ui.player.GlobalNowPlayingSheet(
+            onOpenSettings = { navigateToTab(nav, Tab.Settings.route) },
+            onOpenArtistSearch = { artistName ->
+                // No channel URL on MediaItem metadata — use NewPipe's search
+                // URL convention (`/results?search_query=...`) so the existing
+                // MusicArtistScreen can scrape the artist page.
+                val q = java.net.URLEncoder.encode(artistName, "UTF-8")
+                val searchUrl = "https://www.youtube.com/results?search_query=$q"
+                val encoded = URLEncoder.encode(searchUrl, "UTF-8")
+                nav.navigate("artist/$encoded")
+            },
+        )
     }
 }
 

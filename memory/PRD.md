@@ -234,6 +234,15 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
   - **CloudStream plugin posters are now clickable** in both the home-row LazyRows and the search-result grid.
   - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL in 17s.
 
+- **(NEW — Rich Now Playing UI + functional 3-dot actions sheet, Feb 2026)**
+  - **`NowPlayingShell.kt`** completely rewritten to match the user's reference screenshot 1:1 — wide square artwork, title + artist with Download/Like pills on the right, slider with timestamps, big white "Play" pill flanked by dark prev/next capsules, 7-chip bottom toolbar (Queue · Sleep · Lyrics · Comments · Shuffle · Repeat · 3-dot), palette-driven dynamic gradient background, and inline synced lyrics view. All UI driven entirely from a Media3 `Player` reference + Room flows (no ViewModel required) so the same UI works from any tab.
+  - **`MusicActionsSheet.kt`** new — opens when the 3-dot is tapped, matches screenshot 2. Includes live AudioManager STREAM_MUSIC volume slider, three pill chips (Radio · Add · Share), and full action list: View artist, Add to library, Download, Listen Together, Details (info dialog), Equalizer (launches system audio-effect panel via `AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL` with current audio session id, falls back to Settings → Audio FX), Advanced (tempo/pitch dialog wired to `controller.setPlaybackParameters`).
+  - **`YtPlayback.startRadioFromCurrent(context, mediaIdUrl)`** new public wrapper around the existing `startAutoRadio` so the Radio chip can spin a Metrolist-style auto-radio off whatever's currently playing.
+  - **Share** uses Android's `Intent.ACTION_SEND` with title + artist + YT URL.
+  - **View artist** routes through the existing `artist/{url}` destination using a YouTube search URL when the channel URL isn't on the MediaItem metadata.
+  - **Like / Download** read live from Room (`TrackDao.isLiked`, `MusicDownloader.isDownloaded`) so the pills always reflect the true state.
+  - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL.
+
 ## Backlog / next iterations
 - **P1** Picture-in-Picture (PiP) for the player
 - **P1** Brightness/volume vertical drag gestures (Nuvio-style)
