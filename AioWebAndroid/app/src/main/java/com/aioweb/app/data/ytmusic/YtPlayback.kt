@@ -59,6 +59,15 @@ object YtPlayback {
                     .setTitle(song.title)
                     .setArtist(song.artist)
                     .setArtworkUri(song.thumbnail?.let(Uri::parse))
+                    .setExtras(android.os.Bundle().apply {
+                        // Stash the videoId + watch URL into metadata extras.
+                        // mediaMetadata.extras survives IPC to MediaController
+                        // unlike `localConfiguration`, so any sheet/screen
+                        // bound to the controller can recover the videoId
+                        // without re-querying Room.
+                        putString("videoId", song.videoId)
+                        putString("watchUrl", url)
+                    })
                     .build(),
             )
             .build()

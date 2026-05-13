@@ -57,6 +57,7 @@ import androidx.media3.common.Player
 import com.aioweb.app.data.downloads.MusicDownloader
 import com.aioweb.app.data.library.LibraryDb
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -93,13 +94,23 @@ fun MusicActionsSheet(
     var showAddToPlaylist by remember { mutableStateOf(false) }
 
     // Extract videoId from the controller — works for any MediaItem whose
-    // mediaId / requestMetadata.mediaUri / localConfiguration.uri carries a
-    // `v=` param OR which IS the 11-char video id directly.
-    val videoId = remember(currentMediaId, controller.currentMediaItem) {
-        val mi = controller.currentMediaItem
-        extractYouTubeVideoId(currentMediaId)
-            ?: extractYouTubeVideoId(mi?.requestMetadata?.mediaUri?.toString())
-            ?: extractYouTubeVideoId(mi?.localConfiguration?.uri?.toString())
+    // mediaMetadata.extras carries a `videoId` (the producer-side path we
+    // own — see YtPlayback.resolvePlayable), OR whose mediaId / request
+    // metadata uri carries a `v=` param. On MediaController over IPC the
+    // `localConfiguration` is stripped, so extras is the reliable channel.
+    val mm = controller.mediaMetadata
+    var videoId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentMediaId, mm) {
+        videoId = mm.extras?.getString("videoId")
+            ?: extractYouTubeVideoId(mm.extras?.getString("watchUrl"))
+            ?: extractYouTubeVideoId(currentMediaId)
+            ?: extractYouTubeVideoId(controller.currentMediaItem?.requestMetadata?.mediaUri?.toString())
+            // Room fallback: most recently played track is the one we're on.
+            ?: runCatching {
+                val recent = com.aioweb.app.data.library.LibraryDb
+                    .get(context.applicationContext).tracks().recent().first().firstOrNull()
+                extractYouTubeVideoId(recent?.url)
+            }.getOrNull()
     }
 
     ModalBottomSheet(
