@@ -279,6 +279,24 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
   - Empty-state messaging when not signed in: "Sign in to YouTube Music to see your playlists".
   - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL (clean, no errors).
 
+- **(NEW — Android Auto support with Spotify-style content tree, Feb 2026)**
+  - **Upgraded `MusicPlaybackService` from `MediaSessionService` → `MediaLibraryService`** so Android Auto can browse the library tree.
+  - **`LibraryCallback`** implements the four hooks AA needs:
+    - `onGetLibraryRoot` → returns root browsable item
+    - `onGetItem` → resolves any of our known browse IDs to its `MediaItem`
+    - `onGetChildren` → builds the tree on-demand from `LibraryDb` Flows (`recent()`, `liked()`, `downloaded()`, `mostPlayed()`)
+    - `onAddMediaItems` → when the driver taps a card, resolves the watch URL → local file (if downloaded) or NewPipe-extracted audio stream — required because Auto doesn't trigger our normal `YtPlayback.resolvePlayable` flow
+  - **Content tree mirrors Spotify Auto exactly:**
+    - Root → **Home** and **Your Library** rows
+    - Home → **Recently played** (`tracks.recent` LIMIT 100) and **On repeat** (`tracks.mostPlayed` LIMIT 30)
+    - Library → **Liked songs** and **Downloads** (the only group that plays offline in the car)
+  - **Manifest additions:**
+    - `xml/automotive_app_desc.xml` with `<uses name="media" />`
+    - `com.google.android.gms.car.application` meta-data pointing to the descriptor
+    - `com.google.android.gms.car.notification.SmallIcon` meta-data
+    - Service intent-filter now advertises `MediaLibraryService` + `MediaBrowserService` actions so both Android Auto and legacy `MediaBrowserCompat` clients (e.g. Wear, system search) can connect
+  - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL.
+
 ## Backlog / next iterations
 - **P1** Picture-in-Picture (PiP) for the player
 - **P1** Brightness/volume vertical drag gestures (Nuvio-style)
