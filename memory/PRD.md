@@ -269,6 +269,16 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
     - New `injectTrackersOn(handle)` re-injects the same trackers into the live `TorrentHandle` post-add and calls `forceReannounce()`.
   - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL.
 
+- **(NEW — Add-to-playlist sheet with full YT Music sync, Feb 2026)**
+  - User report: "Fix adding song to playlist as it says no song selected — make it able to add to a yt playlist for sync, it should look like this if your logged in to Google". Two issues: (a) the old "Add" chip only liked the song locally with a toast, no playlist UI at all; (b) when `currentMediaItem.mediaId` was blank the chip just said "No song to add".
+  - **New `AddToPlaylistSheet.kt`** matches the user's screenshot 1:1: pill-edged "Create playlist" hero tile at the top, mint-green sort chip ("Name ▾"), then a LazyColumn of the user's YT Music playlists (thumbnail + title + "N songs" subtitle). Per-row spinner while the add request is in flight.
+  - **New `YtMusicPlaylistRepository.kt`** — replicates the InnerTube web client's mutation endpoints:
+    - `POST /youtubei/v1/browse/edit_playlist` with `{action: ACTION_ADD_VIDEO, addedVideoId}` → adds the current track. Uses the existing `YtMusicAuth.sapisidHashHeader(cookie)` for the SAPISIDHASH Authorization header so the call is authenticated end-to-end.
+    - `POST /youtubei/v1/playlist/create` with `{title, privacyStatus, videoIds: [seedVideoId]}` → creates a new playlist and seeds it with the current song in one round-trip.
+  - **`MusicActionsSheet`** "Add" chip now opens the sheet (or shows a toast if nothing is playing). Robust videoId extraction via `extractYouTubeVideoId()` covers any MediaItem whose `mediaId`, `requestMetadata.mediaUri`, or `localConfiguration.uri` carries a `v=` param OR is the bare 11-char id.
+  - Empty-state messaging when not signed in: "Sign in to YouTube Music to see your playlists".
+  - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL (clean, no errors).
+
 ## Backlog / next iterations
 - **P1** Picture-in-Picture (PiP) for the player
 - **P1** Brightness/volume vertical drag gestures (Nuvio-style)

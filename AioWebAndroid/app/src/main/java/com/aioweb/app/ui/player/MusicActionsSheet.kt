@@ -90,6 +90,17 @@ fun MusicActionsSheet(
 
     var showDetails by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
+    var showAddToPlaylist by remember { mutableStateOf(false) }
+
+    // Extract videoId from the controller — works for any MediaItem whose
+    // mediaId / requestMetadata.mediaUri / localConfiguration.uri carries a
+    // `v=` param OR which IS the 11-char video id directly.
+    val videoId = remember(currentMediaId, controller.currentMediaItem) {
+        val mi = controller.currentMediaItem
+        extractYouTubeVideoId(currentMediaId)
+            ?: extractYouTubeVideoId(mi?.requestMetadata?.mediaUri?.toString())
+            ?: extractYouTubeVideoId(mi?.localConfiguration?.uri?.toString())
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -136,15 +147,13 @@ fun MusicActionsSheet(
                     icon = Icons.Default.PlaylistAdd, label = "Add",
                     modifier = Modifier.weight(1f),
                 ) {
-                    // Local playlists DAO doesn't exist yet → liking is the
-                    // closest existing "Add" surface (track appears in Library).
-                    val mid = currentMediaId
-                    if (mid.isNullOrBlank()) toast(context, "No song to add")
-                    else scope.launch {
-                        LibraryDb.get(context.applicationContext).tracks()
-                            .setLikedAt(mid, System.currentTimeMillis())
-                        toast(context, "Added to library")
-                        onDismiss()
+                    // Open the YouTube-Music-synced "Add to playlist" sheet
+                    // showing the user's playlists, with a "Create playlist"
+                    // hero tile and a sort chip — see [AddToPlaylistSheet].
+                    if (videoId.isNullOrBlank()) {
+                        toast(context, "No song playing — start a track first")
+                    } else {
+                        showAddToPlaylist = true
                     }
                 }
                 ChipPill(
@@ -240,6 +249,13 @@ fun MusicActionsSheet(
         }
     }
 
+    if (showAddToPlaylist) {
+        AddToPlaylistSheet(
+            videoId = videoId,
+            songTitle = currentTitle,
+            onDismiss = { showAddToPlaylist = false },
+        )
+    }
     if (showDetails) {
         DetailsDialog(
             title = currentTitle,
@@ -476,6 +492,26 @@ private fun AdvancedDialog(
 
 private fun toast(context: Context, msg: String) {
     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * Extract an 11-char YouTube videoId from any string the controller might
+ * expose — a `watch?v=ABC` URL, a `music.youtube.com/watch?v=ABC&pp=...`,
+ * a `youtu.be/ABC` short link, or the bare 11-char id.
+ */
+private fun extractYouTubeVideoId(raw: String?): String? {
+    val s = raw?.trim().orEmpty()
+    if (s.isEmpty()) return null
+    // Bare 11-char id?
+    val bareIdRegex = Regex("^[A-Za-z0-9_-]{11}$")
+    if (bareIdRegex.matches(s)) return s
+    // ?v=… or &v=…
+    val vParam = Regex("[?&]v=([A-Za-z0-9_-]{11})").find(s)
+    if (vParam != null) return vParam.groupValues[1]
+    // youtu.be/<id>
+    val shortLink = Regex("youtu\\.be/([A-Za-z0-9_-]{11})").find(s)
+    if (shortLink != null) return shortLink.groupValues[1]
+    return null
 }
 
 private fun formatDur(ms: Long): String {
