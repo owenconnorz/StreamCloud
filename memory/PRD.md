@@ -250,6 +250,16 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
   - **NuvioRepository TMDB ID resolution** — replica of NuvioMobile's `TmdbService.ensureTmdbId`. Strips `tmdb:`, `tmdb/`, `imdb:`, `movie:`, `series:` prefixes; numeric ids pass through; IMDB `tt…` ids → resolved via `/find/{imdb_id}?external_source=imdb_id` against the existing `BuildConfig.TMDB_API_KEY`. In-memory LRU cache prevents repeat hops. **This was the actual reason streams weren't loading** — providers were being called with `"tt0133093"` or `"tmdb:603"` and bailing out without ever hitting the network.
   - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL.
 
+- **(NEW — Torrent streaming actually plays now, Feb 2026)**
+  - **Root cause** of "connecting to peer but no movie starts playing": libtorrent4j allocates the destination file at its **full size** on disk the moment metadata is received (sparse allocation). So `target.length()` returned the full file size instantly even though zero bytes were downloaded. The previous `waitForBytes` / `blockUntilAvailable` checks gated on `target.length()`, short-circuited immediately, then `RandomAccessFile.read()` returned zero-filled sparse holes — ExoPlayer got garbage and silently failed the container parse.
+  - **Fix in `TorrentStreamServer.kt`**:
+    - Replaced all file-length checks with **piece availability** via `handle.havePiece(p)`.
+    - `HttpServer` now receives the `TorrentHandle` + piece geometry (offset, length, first/last piece indices) directly.
+    - On every Range request: computes the piece span, boosts those pieces to TOP priority with staggered `setPieceDeadline()` (250ms increments), waits up to 45s for the initial 2 MB window, then streams piece-by-piece — re-checking `havePiece()` before crossing into the next piece so the InputStream never reads ahead of downloaded data.
+    - Added support for **suffix Range** (`Range: bytes=-N`) — ExoPlayer's MP4 tail-probe was being misparsed as `start=0, end=N` before, which is why tail-stored `moov` MP4s appeared to "connect" but then froze.
+    - Head and tail piece pre-boosting bumped to 8 pieces each with explicit deadlines.
+  - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL.
+
 ## Backlog / next iterations
 - **P1** Picture-in-Picture (PiP) for the player
 - **P1** Brightness/volume vertical drag gestures (Nuvio-style)

@@ -1,6 +1,7 @@
 package com.aioweb.app.player
 
 import android.content.Context
+import android.util.Log
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -21,6 +22,19 @@ import kotlin.coroutines.resume
 /**
  * Streams a magnet/torrent through libtorrent4j and exposes the largest media
  * file via a small embedded HTTP server, so ExoPlayer can play it like any URL.
+ *
+ * **Why the previous implementation never started playback** (user report:
+ *  "connecting to peer but no movie starts playing"):
+ *  - libtorrent4j allocates the destination file at its **full size** on disk
+ *    from the moment metadata is received (sparse allocation). So
+ *    `target.length()` returned e.g. 2 GB instantly even though zero bytes
+ *    were downloaded. `waitForBytes` / `blockUntilAvailable` would short-
+ *    circuit, `RandomAccessFile.read()` would happily return zero-filled
+ *    sparse holes, and ExoPlayer received garbage — failing the container
+ *    parse silently.
+ *  - The fix is to gate reads on **piece availability** (`handle.havePiece(p)`)
+ *    not file length, and to dynamically boost the priority of any piece a
+ *    client requests so playback advances even when the user seeks ahead.
  *
  * One instance handles a single torrent at a time. Call [stop] when done.
  */
@@ -80,40 +94,47 @@ class TorrentStreamServer(context: Context) {
         val relPath = files.filePath(largestIdx)
         val absFile = File(downloadDir, relPath)
         targetFileRef.set(absFile)
+        Log.i(TAG, "Selected file $relPath ($largestSize bytes)")
 
         // 4. Sequentially prioritise that file; deprioritise others to save bandwidth.
         val prios = Array(files.numFiles()) { Priority.IGNORE }
         prios[largestIdx] = Priority.TOP_PRIORITY
         handle.prioritizeFiles(prios)
-        // libtorrent4j flag for sequential download (use property syntax — Kotlin
-        // exposes `flags()`/`setFlags(...)` as a synthetic property `flags`):
         runCatching {
             handle.flags = handle.flags.or_(org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
         }
-        // Many MP4 containers store the `moov` atom (codec config) at the END of
-        // the file. Without an explicit hint libtorrent's sequential mode would
-        // download the start first and the end last → ExoPlayer's initial
-        // probe Range request for the tail bytes stalls indefinitely. Bump the
-        // first 3 + last 3 pieces of the playable file to TOP priority so the
-        // moov atom is reachable within seconds even before the body is done.
+        // Many MP4 containers store the `moov` atom (codec config) at the END.
+        // Force the first AND last several pieces of the playable file to TOP
+        // priority + tight deadlines so ExoPlayer's initial header/tail probes
+        // succeed within seconds.
+        val pieceLen = torrentInfo.pieceLength().toLong()
+        val fileOffset = files.fileOffset(largestIdx)
+        val firstPiece = (fileOffset / pieceLen).toInt().coerceAtLeast(0)
+        val lastPiece = ((fileOffset + largestSize - 1) / pieceLen)
+            .toInt().coerceIn(0, torrentInfo.numPieces() - 1)
         runCatching {
-            val numPieces = torrentInfo.numPieces()
-            val pieceLen = torrentInfo.pieceLength().toLong()
-            val fileOffset = files.fileOffset(largestIdx)
-            val firstPiece = (fileOffset / pieceLen).toInt().coerceAtLeast(0)
-            val lastPiece = ((fileOffset + largestSize - 1) / pieceLen)
-                .toInt().coerceIn(0, numPieces - 1)
-            val boost = 3
-            for (p in firstPiece until (firstPiece + boost).coerceAtMost(numPieces)) {
+            val headBoost = 8
+            val tailBoost = 8
+            for (p in firstPiece until (firstPiece + headBoost).coerceAtMost(torrentInfo.numPieces())) {
                 handle.piecePriority(p, Priority.TOP_PRIORITY)
+                runCatching { handle.setPieceDeadline(p, 1_000) }
             }
-            for (p in (lastPiece - boost + 1).coerceAtLeast(0)..lastPiece) {
+            for (p in (lastPiece - tailBoost + 1).coerceAtLeast(0)..lastPiece) {
                 handle.piecePriority(p, Priority.TOP_PRIORITY)
+                runCatching { handle.setPieceDeadline(p, 2_000) }
             }
         }
 
         // 5. Start NanoHTTPD on a free port.
-        val server = HttpServer(absFile) { totalBytes }
+        val server = HttpServer(
+            target = absFile,
+            handle = handle,
+            fileOffset = fileOffset,
+            pieceLen = pieceLen,
+            fileSize = largestSize,
+            firstPiece = firstPiece,
+            lastPiece = lastPiece,
+        )
         server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, /* daemon */ true)
         nano = server
         val port = server.listeningPort
@@ -151,50 +172,65 @@ class TorrentStreamServer(context: Context) {
     }
 
     /**
-     * Tiny HTTP server: serves [target] with HTTP Range support. If a requested
-     * byte isn't yet downloaded by libtorrent, blocks (with timeout) until it is.
-     *
-     * Streaming model:
-     *  - Pre-block only for an *initial* window (~2 MB from `start`) so ExoPlayer's
-     *    first parse (container header) succeeds, then return the response and let
-     *    the InputStream poll-wait per-read as more bytes arrive.
-     *  - Without per-read blocking, RandomAccessFile.read() returns -1 the moment
-     *    it hits the current file length even though libtorrent is still writing
-     *    sequentially — that's why ExoPlayer used to give up immediately on first
-     *    play of a fresh torrent.
+     * Tiny HTTP server with HTTP Range support, driven by **piece availability**
+     * (not file length — see class-level comment for why that distinction matters).
      */
     private class HttpServer(
         private val target: File,
-        private val totalSizeProvider: () -> Long,
+        private val handle: TorrentHandle,
+        private val fileOffset: Long,
+        private val pieceLen: Long,
+        private val fileSize: Long,
+        private val firstPiece: Int,
+        private val lastPiece: Int,
     ) : NanoHTTPD(0) {
 
         override fun serve(session: IHTTPSession): Response {
-            val total = totalSizeProvider().takeIf { it > 0 } ?: target.length().coerceAtLeast(1L)
             val rangeHeader = session.headers["range"]
-
-            val (start, end) = parseRange(rangeHeader, total)
+            val (start, end) = parseRange(rangeHeader, fileSize)
             val length = end - start + 1
-            // Pre-buffer only the first 2 MB of the requested window — enough for
-            // ExoPlayer to read the moov/mvhd atom for MP4 / init segment for HLS.
-            val initialBuffer = minOf(2L * 1024 * 1024, length)
-            waitForBytes(start + initialBuffer, timeoutMs = 30_000L)
+            Log.i(TAG, "serve range $start-$end (length=$length) range='$rangeHeader'")
+
+            // Compute the piece span this client request covers in the file.
+            val firstNeeded = pieceForFileByte(start)
+            val lastNeeded = pieceForFileByte(end)
+            // Boost the requested pieces to TOP priority + tight deadlines so
+            // seeks (or ExoPlayer's tail probe) advance immediately. We don't
+            // wait for the whole range — only the initial 2 MB before responding.
+            boostPieces(firstNeeded, lastNeeded)
+
+            // Pre-block only for an *initial* window (~2 MB from `start`).
+            val initialWindow = minOf(2L * 1024 * 1024, length)
+            val initialLastByte = start + initialWindow - 1
+            val initialLastPiece = pieceForFileByte(initialLastByte)
+            val haveInitial = waitForPieces(firstNeeded, initialLastPiece, timeoutMs = 45_000L)
+            if (!haveInitial) {
+                Log.w(TAG, "Timed out waiting for initial pieces $firstNeeded..$initialLastPiece")
+                return newFixedLengthResponse(
+                    Response.Status.SERVICE_UNAVAILABLE, "text/plain",
+                    "Torrent: no peers / initial window timed out",
+                )
+            }
 
             val raf = RandomAccessFile(target, "r")
             raf.seek(start)
             val stream = object : java.io.InputStream() {
                 private var remaining = length
-                /** Block-wait until the file has at least [needed] bytes downloaded. */
-                private fun blockUntilAvailable(needed: Long, timeoutMs: Long = 60_000L): Boolean {
-                    val deadline = System.currentTimeMillis() + timeoutMs
-                    while (target.length() < needed) {
-                        if (System.currentTimeMillis() > deadline) return false
-                        try { Thread.sleep(200) } catch (_: InterruptedException) { return false }
+
+                /** Wait until the piece containing the next byte to read is downloaded. */
+                private fun ensurePiece(fileByte: Long, timeoutMs: Long = 60_000L): Boolean {
+                    val piece = pieceForFileByte(fileByte)
+                    if (handle.havePiece(piece)) return true
+                    runCatching {
+                        handle.piecePriority(piece, Priority.TOP_PRIORITY)
+                        handle.setPieceDeadline(piece, 1_500)
                     }
-                    return true
+                    return waitForPieces(piece, piece, timeoutMs)
                 }
+
                 override fun read(): Int {
                     if (remaining <= 0) return -1
-                    if (!blockUntilAvailable(raf.filePointer + 1)) return -1
+                    if (!ensurePiece(raf.filePointer)) return -1
                     val v = raf.read()
                     if (v >= 0) remaining--
                     return v
@@ -202,20 +238,75 @@ class TorrentStreamServer(context: Context) {
                 override fun read(b: ByteArray, off: Int, len: Int): Int {
                     if (remaining <= 0) return -1
                     val toRead = minOf(len.toLong(), remaining).toInt()
-                    if (!blockUntilAvailable(raf.filePointer + 1)) return -1
-                    val n = raf.read(b, off, toRead)
+                    if (!ensurePiece(raf.filePointer)) return -1
+                    // Only read as far as the CURRENT piece — re-enter on next call
+                    // to ensure the next piece is available before reading past it.
+                    val currentPiece = pieceForFileByte(raf.filePointer)
+                    val nextPieceFileByte =
+                        ((currentPiece + 1).toLong() * pieceLen - fileOffset).coerceIn(0L, fileSize)
+                    val safeLen = minOf(toRead.toLong(), nextPieceFileByte - raf.filePointer
+                        .let { it - fileOffset }
+                        .let { fileByteToReadablePos(it) }
+                    ).toInt().coerceAtLeast(1)
+                    val n = raf.read(b, off, safeLen)
                     if (n > 0) remaining -= n
                     return n
                 }
                 override fun close() { runCatching { raf.close() } }
+
+                /** Bytes remaining in current piece, computed from RAF pointer. */
+                private fun fileByteToReadablePos(positionInFile: Long): Long {
+                    val piece = pieceForFileByte(positionInFile)
+                    val pieceEndInFile = ((piece + 1).toLong() * pieceLen) - fileOffset
+                    return (pieceEndInFile - positionInFile).coerceAtLeast(1L)
+                }
             }
 
             val status = if (rangeHeader != null) Response.Status.PARTIAL_CONTENT else Response.Status.OK
             val resp = newFixedLengthResponse(status, guessMimeType(target.name), stream, length)
             resp.addHeader("Accept-Ranges", "bytes")
-            resp.addHeader("Content-Range", "bytes $start-$end/$total")
+            if (rangeHeader != null) {
+                resp.addHeader("Content-Range", "bytes $start-$end/$fileSize")
+            }
             resp.addHeader("Content-Length", length.toString())
             return resp
+        }
+
+        private fun pieceForFileByte(fileByte: Long): Int {
+            val globalByte = fileOffset + fileByte
+            val piece = (globalByte / pieceLen).toInt()
+            return piece.coerceIn(firstPiece, lastPiece)
+        }
+
+        private fun boostPieces(first: Int, last: Int) {
+            runCatching {
+                val window = (last - first + 1).coerceAtMost(64)
+                for (p in first..(first + window - 1)) {
+                    if (!handle.havePiece(p)) {
+                        handle.piecePriority(p, Priority.TOP_PRIORITY)
+                        handle.setPieceDeadline(p, ((p - first) * 250L + 500L).toInt())
+                    }
+                }
+            }
+        }
+
+        /**
+         * Block until every piece in [first]..[last] reports `havePiece(p) == true`,
+         * or [timeoutMs] elapses. Returns `true` on success.
+         */
+        private fun waitForPieces(first: Int, last: Int, timeoutMs: Long): Boolean {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (true) {
+                var allHave = true
+                var p = first
+                while (p <= last) {
+                    if (!handle.havePiece(p)) { allHave = false; break }
+                    p++
+                }
+                if (allHave) return true
+                if (System.currentTimeMillis() > deadline) return false
+                try { Thread.sleep(200) } catch (_: InterruptedException) { return false }
+            }
         }
 
         private fun guessMimeType(name: String): String {
@@ -234,16 +325,18 @@ class TorrentStreamServer(context: Context) {
             if (header == null || !header.startsWith("bytes=")) return 0L to (total - 1)
             val raw = header.removePrefix("bytes=").substringBefore(",")
             val parts = raw.split("-")
-            val start = parts.getOrNull(0)?.toLongOrNull() ?: 0L
-            val end = parts.getOrNull(1)?.toLongOrNull() ?: (total - 1)
-            return start.coerceIn(0, total - 1) to end.coerceIn(start, total - 1)
-        }
-
-        private fun waitForBytes(byteCount: Long, timeoutMs: Long) {
-            val deadline = System.currentTimeMillis() + timeoutMs
-            while (target.length() < byteCount) {
-                if (System.currentTimeMillis() > deadline) return
-                try { Thread.sleep(250) } catch (_: InterruptedException) { return }
+            val start = parts.getOrNull(0)?.takeIf { it.isNotBlank() }?.toLongOrNull()
+            val end = parts.getOrNull(1)?.takeIf { it.isNotBlank() }?.toLongOrNull()
+            // Suffix range `bytes=-N` → last N bytes (used by ExoPlayer for MP4 tail probe).
+            return when {
+                start == null && end != null -> {
+                    val s = (total - end).coerceAtLeast(0L)
+                    s to (total - 1)
+                }
+                start != null && end == null -> start.coerceIn(0, total - 1) to (total - 1)
+                start != null && end != null ->
+                    start.coerceIn(0, total - 1) to end.coerceIn(start, total - 1)
+                else -> 0L to (total - 1)
             }
         }
     }
