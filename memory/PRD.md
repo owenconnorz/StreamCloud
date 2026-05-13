@@ -260,6 +260,15 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
     - Head and tail piece pre-boosting bumped to 8 pieces each with explicit deadlines.
   - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL.
 
+- **(NEW — Torrent magnet resolution actually works on ANY link, Feb 2026)**
+  - User report after the piece-availability fix: "Fix torrent as it says connecting to peer but no movie starts playing" → then "wont work on any link". Investigated `ayman708-UX/PlayTorrioV2` (Flutter app using `libtorrent_flutter` which configures session with `fetchTrackers: true` + DHT enabled by default).
+  - **Root cause:** `SessionManager()` constructor + `start()` leaves DHT in *fallback* mode, LSD disabled, and `maxMetadataSize` at 1 MB. Bare magnets without `tr=` params rely entirely on DHT bootstrap (30–120 s) → user sees "Connecting to peer" forever. Multi-file packs with > 1 MB `.torrent` metadata silently return `null` from `fetchMagnet`.
+  - **Fix in `TorrentStreamServer.kt`:**
+    - New `configureSession()` called once after `sessionManager.start()`: `setEnableDht(true)`, `setEnableLsd(true)`, `setMaxMetadataSize(50 MB)`, bumps `connectionsLimit=200`, `activeLimit=100`, `activeDownloads=20`.
+    - New `augmentMagnet()` appends 8 high-quality public trackers (from `ngosang/trackerslist/best.txt`) to every magnet that has fewer than 3 `tr=` params — so peer discovery isn't gated on DHT alone.
+    - New `injectTrackersOn(handle)` re-injects the same trackers into the live `TorrentHandle` post-add and calls `forceReannounce()`.
+  - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL.
+
 ## Backlog / next iterations
 - **P1** Picture-in-Picture (PiP) for the player
 - **P1** Brightness/volume vertical drag gestures (Nuvio-style)

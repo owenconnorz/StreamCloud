@@ -48,6 +48,71 @@ class TorrentStreamServer(context: Context) {
     @Volatile private var totalBytes: Long = 0L
 
     /**
+     * Public trackers injected into every magnet/torrent we add. A bare
+     * `magnet:?xt=urn:btih:…` with no `tr=` params relies entirely on DHT,
+     * which can take 30–120 s to bootstrap on a fresh session — too slow for
+     * a "tap Play → it works" experience. These eight trackers (from
+     * `ngosang/trackerslist`'s `best.txt`) put metadata + peers within reach
+     * within a couple of seconds for >95 % of torrents.
+     */
+    private val publicTrackers = listOf(
+        "udp://tracker.opentrackr.org:1337/announce",
+        "udp://open.demonii.com:1337/announce",
+        "udp://open.stealth.si:80/announce",
+        "udp://tracker.torrent.eu.org:451/announce",
+        "udp://tracker.openbittorrent.com:6969/announce",
+        "udp://exodus.desync.com:6969/announce",
+        "udp://tracker.bittor.pw:1337/announce",
+        "udp://retracker.lanta-net.ru:2710/announce",
+    )
+
+    /**
+     * One-time SessionManager configuration. Default libtorrent4j settings
+     * have DHT in *fallback* mode and LSD/uTP off — bare magnet links never
+     * resolve under those defaults. Force-enable DHT, LSD, uTP, UPnP, NAT-PMP
+     * and bump the metadata size cap so massive multi-file packs work.
+     */
+    private fun configureSession() {
+        runCatching {
+            val sp = sessionManager.settings()
+            sp.setEnableDht(true)
+            sp.setEnableLsd(true)
+            // Bump the max metadata size — multi-file packs (anime seasons) can
+            // ship 5–10 MB .torrent infos and the default 1 MB cap silently
+            // refuses them, so `fetchMagnet` returns null with no error.
+            runCatching { sp.setMaxMetadataSize(50 * 1024 * 1024) }
+            // Active limits — defaults are stingy for foreground streaming.
+            runCatching { sp.connectionsLimit(200) }
+            runCatching { sp.activeLimit(100) }
+            runCatching { sp.activeDownloads(20) }
+            runCatching { sp.activeSeeds(20) }
+            sessionManager.applySettings(sp)
+        }
+    }
+
+    /** Append our public-tracker fallback list to a magnet if it has none. */
+    private fun augmentMagnet(magnet: String): String {
+        if (!magnet.startsWith("magnet:", ignoreCase = true)) return magnet
+        val existing = Regex("(?i)[?&]tr=([^&]+)").findAll(magnet).count()
+        if (existing >= 3) return magnet
+        val extras = publicTrackers.joinToString("") { "&tr=" + URLEncoder.encode(it, "UTF-8") }
+        return magnet + extras
+    }
+
+    /** Inject the same trackers into a live [TorrentHandle] post-add. */
+    private fun injectTrackersOn(handle: TorrentHandle) {
+        runCatching {
+            val current = handle.trackers().map { it.url() }.toSet()
+            publicTrackers.filter { it !in current }.forEach { url ->
+                runCatching {
+                    handle.addTracker(org.libtorrent4j.AnnounceEntry(url))
+                }
+            }
+            handle.forceReannounce()
+        }
+    }
+
+    /**
      * Starts the torrent and the local HTTP server.
      * Returns a `http://127.0.0.1:<port>/stream` URL that can be fed to ExoPlayer,
      * or `null` if metadata couldn't be fetched within [metadataTimeoutMs].
@@ -57,19 +122,29 @@ class TorrentStreamServer(context: Context) {
         metadataTimeoutMs: Long = 60_000L,
     ): String? {
         sessionManager.start()
+        configureSession()
+
+        // Augment bare magnet links with public trackers so DHT isn't the only
+        // peer source — that's what makes "Connecting to peer" succeed within
+        // a couple of seconds on fresh sessions instead of stalling 30–120 s.
+        val augmentedMagnet = augmentMagnet(magnetOrUrl)
+        Log.i(TAG, "Starting: ${if (augmentedMagnet.length > 80) augmentedMagnet.take(80) + "…" else augmentedMagnet}")
 
         // 1. Resolve metadata (magnet → TorrentInfo bytes; .torrent URL → fetched bytes).
         val infoBytes: ByteArray = when {
-            magnetOrUrl.startsWith("magnet:", ignoreCase = true) ->
+            augmentedMagnet.startsWith("magnet:", ignoreCase = true) ->
                 sessionManager.fetchMagnet(
-                    magnetOrUrl,
+                    augmentedMagnet,
                     (metadataTimeoutMs / 1000).toInt().coerceAtLeast(15),
                     downloadDir,
-                ) ?: return null
-            magnetOrUrl.startsWith("http", ignoreCase = true) ->
-                runCatching { URL(magnetOrUrl).openStream().use { it.readBytes() } }.getOrNull()
+                ) ?: run {
+                    Log.w(TAG, "fetchMagnet returned null after ${metadataTimeoutMs}ms")
+                    return null
+                }
+            augmentedMagnet.startsWith("http", ignoreCase = true) ->
+                runCatching { URL(augmentedMagnet).openStream().use { it.readBytes() } }.getOrNull()
                     ?: return null
-            else -> File(magnetOrUrl).takeIf { it.exists() }?.readBytes() ?: return null
+            else -> File(augmentedMagnet).takeIf { it.exists() }?.readBytes() ?: return null
         }
 
         val torrentInfo = runCatching { TorrentInfo.bdecode(infoBytes) }.getOrNull() ?: return null
@@ -78,6 +153,7 @@ class TorrentStreamServer(context: Context) {
         val handle = withTimeoutOrNull(metadataTimeoutMs) {
             startTorrentAndAwaitHandle(torrentInfo)
         } ?: return null
+        injectTrackersOn(handle)
 
         // 3. Pick the largest file as the playback target.
         val files = torrentInfo.files()
