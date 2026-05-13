@@ -1,96 +1,269 @@
 package com.aioweb.app.cast
 
 import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.mediarouter.app.MediaRouteButton
-import com.google.android.gms.cast.MediaInfo
-import com.google.android.gms.cast.MediaLoadRequestData
-import com.google.android.gms.cast.MediaMetadata
-import com.google.android.gms.cast.framework.CastButtonFactory
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.mediarouter.media.MediaRouteSelector
+import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.framework.CastContext
-import com.google.android.gms.cast.framework.CastSession
-import com.google.android.gms.cast.framework.SessionManagerListener
-import com.google.android.gms.common.images.WebImage
+import kotlinx.coroutines.delay
 
 /**
- * Material-styled [MediaRouteButton] wrapped for Compose. Renders the
- * standard Google Cast icon — tapping it opens the system route-chooser
- * dialog. Once a session is connected, [CastController] takes over and
- * pushes the currently-playing stream URL to the receiver.
+ * Material-styled Cast button — fully Compose-native. We deliberately avoid
+ * androidx.mediarouter's [androidx.mediarouter.app.MediaRouteButton] because:
+ *
+ *   1. Its click handler creates an AppCompat-only DialogFragment that
+ *      silently NO-OPS when the host activity isn't an AppCompatActivity.
+ *      MainActivity is a ComponentActivity (Compose-only), so the route
+ *      chooser never appeared — which exactly matched the user report:
+ *      "Cast button isn't showing and nothing happens when clicking on it".
+ *
+ *   2. The Android View has no Compose-friendly sizing — even when given a
+ *      [Modifier.size], its internal Drawable measurement clipped the icon.
+ *
+ * This implementation talks straight to [MediaRouter] / [CastContext] and
+ * pops a Compose-native [AlertDialog] listing the discovered routes.
+ *
+ * Tap → dialog opens → tap a route → `MediaRouter.selectRoute()` triggers
+ * [rememberCastController] (set up earlier in the composition) to push
+ * `streamUrl` to the receiver. Tap again while connected → disconnect.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
     val context = LocalContext.current
-    // CastContext.getSharedInstance is lazy + safe to call repeatedly.
-    // Wrapped in runCatching so the absence of Google Play Services on the
-    // device doesn't crash the player.
-    val castReady = remember(context) {
-        runCatching { CastContext.getSharedInstance(context.applicationContext) }
-            .getOrNull() != null
-    }
-    if (!castReady) return
 
-    AndroidView(
-        modifier = modifier,
-        factory = { ctx ->
-            // MediaRouteButton requires the host theme to define
-            // `mediaRouteButtonStyle`. Our Material 3 base theme doesn't, so
-            // we wrap the inflation context with the mediarouter library's
-            // own `Theme_MediaRouter` which DOES define it. Without this
-            // wrapper the inflation throws Resources$NotFoundException at
-            // runtime — and historically crashed the whole player overlay
-            // when the user tapped "Play" on a film.
-            //
-            // The whole construction is wrapped in runCatching so a missing
-            // GoogleApiAvailability / Play Services on the device degrades
-            // gracefully to "no cast button" instead of taking the player
-            // down with it.
-            runCatching {
-                val themed = android.view.ContextThemeWrapper(
-                    ctx,
-                    androidx.mediarouter.R.style.Theme_MediaRouter,
-                )
-                MediaRouteButton(themed).also { btn ->
-                    CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, btn)
+    // `CastContext.getSharedInstance` is the lazy-init entry-point for the
+    // Cast SDK. If Google Play Services is missing or out of date it returns
+    // null — gracefully hide the button in that case.
+    val castContext = remember(context) {
+        runCatching { CastContext.getSharedInstance(context.applicationContext) }
+            .getOrNull()
+    } ?: return
+
+    val mediaRouter = remember(context) { MediaRouter.getInstance(context.applicationContext) }
+    val selector = remember(castContext) { castContext.mergedSelector ?: MediaRouteSelector.EMPTY }
+
+    // Live list of selectable routes (excludes the default "Phone" route).
+    val routes = remember { mutableStateListOf<MediaRouter.RouteInfo>() }
+    var selectedRouteId by remember { mutableStateOf<String?>(null) }
+    var showDialog by remember { mutableStateOf(false) }
+
+    // Active scan while button is composed — we use callback flags = NONE
+    // when no dialog is open so battery isn't drained, ACTIVE_SCAN while the
+    // dialog is visible to surface routes quicker (matches Google's design).
+    DisposableEffect(selector, showDialog) {
+        val callback = object : MediaRouter.Callback() {
+            override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                refreshRoutes(router, selector, routes)
+            }
+            override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                refreshRoutes(router, selector, routes)
+            }
+            override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                refreshRoutes(router, selector, routes)
+            }
+            override fun onRouteSelected(router: MediaRouter, route: MediaRouter.RouteInfo, reason: Int) {
+                selectedRouteId = route.id
+            }
+            override fun onRouteUnselected(router: MediaRouter, route: MediaRouter.RouteInfo, reason: Int) {
+                if (selectedRouteId == route.id) selectedRouteId = null
+            }
+        }
+        val flags = if (showDialog) {
+            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY or
+                MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN
+        } else {
+            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY
+        }
+        mediaRouter.addCallback(selector, callback, flags)
+        refreshRoutes(mediaRouter, selector, routes)
+        selectedRouteId = mediaRouter.selectedRoute.id.takeIf { !mediaRouter.selectedRoute.isDefault }
+        onDispose { mediaRouter.removeCallback(callback) }
+    }
+
+    // Periodic refresh while dialog is open so newly-discovered routes show up.
+    LaunchedEffect(showDialog) {
+        while (showDialog) {
+            delay(1500)
+            refreshRoutes(mediaRouter, selector, routes)
+        }
+    }
+
+    val connected = selectedRouteId != null
+
+    Box(
+        modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable { showDialog = true },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            if (connected) Icons.Default.CastConnected else Icons.Default.Cast,
+            contentDescription = if (connected) "Cast (connected)" else "Cast",
+            tint = if (connected) Color(0xFF66D9A6) else tint,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+
+    if (showDialog) {
+        CastRouteDialog(
+            routes = routes,
+            selectedRouteId = selectedRouteId,
+            onPickRoute = { route ->
+                mediaRouter.selectRoute(route)
+                showDialog = false
+            },
+            onDisconnect = {
+                mediaRouter.unselect(MediaRouter.UNSELECT_REASON_DISCONNECTED)
+                showDialog = false
+            },
+            onDismiss = { showDialog = false },
+        )
+    }
+}
+
+private fun refreshRoutes(
+    router: MediaRouter,
+    selector: MediaRouteSelector,
+    out: androidx.compose.runtime.snapshots.SnapshotStateList<MediaRouter.RouteInfo>,
+) {
+    val filtered = router.routes.filter { route ->
+        !route.isDefault &&
+            !route.isBluetooth &&
+            route.matchesSelector(selector)
+    }
+    if (filtered.map { it.id } != out.map { it.id }) {
+        out.clear()
+        out.addAll(filtered)
+    }
+}
+
+@Composable
+private fun CastRouteDialog(
+    routes: List<MediaRouter.RouteInfo>,
+    selectedRouteId: String?,
+    onPickRoute: (MediaRouter.RouteInfo) -> Unit,
+    onDisconnect: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Cast to") },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                if (routes.isEmpty()) {
+                    Text(
+                        "Looking for nearby devices…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                } else {
+                    routes.forEach { route ->
+                        RouteRow(
+                            route = route,
+                            isSelected = route.id == selectedRouteId,
+                            onClick = { onPickRoute(route) },
+                        )
+                    }
                 }
-            }.getOrElse {
-                // Last-resort placeholder so AndroidView's factory returns SOMETHING.
-                android.view.View(ctx)
+                if (selectedRouteId != null) {
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
+                        Text("Disconnect", color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
         },
-        update = { /* no dynamic state to push */ },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }
 
-/**
- * Bridges between local ExoPlayer playback and a Google Cast session.
- *
- * Behaviour:
- *  - When a Cast session connects, push [streamUrl] (with [title] +
- *    optional [artworkUrl]) to the receiver via `RemoteMediaClient.load`.
- *  - When the session ends, the player keeps playing locally — the host
- *    composable doesn't need to do anything.
- *
- * Returns a [MutableState<Boolean>] indicating whether a Cast session is
- * currently connected, so callers can pause/duck the local ExoPlayer if
- * they want to (we don't here — local + cast both play, the user can mute
- * the device manually if needed).
- */
+@Composable
+private fun RouteRow(
+    route: MediaRouter.RouteInfo,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+    ) {
+        Icon(
+            Icons.Default.Tv,
+            contentDescription = null,
+            tint = if (isSelected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                route.name,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+            )
+            val desc = route.description?.takeIf { it.isNotBlank() }
+            if (desc != null) {
+                Text(
+                    desc,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (isSelected) {
+            Text("Connected", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// rememberCastController + remote-load helpers (unchanged from previous impl)
+// ──────────────────────────────────────────────────────────────────────────
+
 @Composable
 fun rememberCastController(
     streamUrl: String,
     title: String,
     artworkUrl: String? = null,
     contentType: String? = null,
-): MutableState<Boolean> {
+): androidx.compose.runtime.MutableState<Boolean> {
     val context = LocalContext.current
     val isCasting = remember { mutableStateOf(false) }
 
@@ -102,92 +275,91 @@ fun rememberCastController(
             return@DisposableEffect onDispose { }
         }
 
-        // If a session is already live (e.g. user opened the player after
-        // starting cast from a different screen), load the stream right away.
         castContext.sessionManager.currentCastSession?.let { session ->
             isCasting.value = true
             loadRemoteMedia(session, streamUrl, title, artworkUrl, contentType)
         }
 
-        val listener = object : SessionManagerListener<CastSession> {
-            override fun onSessionStarted(session: CastSession, sessionId: String) {
+        val listener = object : com.google.android.gms.cast.framework.SessionManagerListener<
+            com.google.android.gms.cast.framework.CastSession,
+            > {
+            override fun onSessionStarted(session: com.google.android.gms.cast.framework.CastSession, sessionId: String) {
                 isCasting.value = true
                 loadRemoteMedia(session, streamUrl, title, artworkUrl, contentType)
             }
-            override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
+            override fun onSessionResumed(session: com.google.android.gms.cast.framework.CastSession, wasSuspended: Boolean) {
                 isCasting.value = true
                 loadRemoteMedia(session, streamUrl, title, artworkUrl, contentType)
             }
-            override fun onSessionEnded(session: CastSession, error: Int) {
+            override fun onSessionEnded(session: com.google.android.gms.cast.framework.CastSession, error: Int) {
                 isCasting.value = false
             }
-            override fun onSessionSuspended(session: CastSession, reason: Int) {
+            override fun onSessionSuspended(session: com.google.android.gms.cast.framework.CastSession, reason: Int) {
                 isCasting.value = false
             }
-            override fun onSessionStarting(session: CastSession) {}
-            override fun onSessionEnding(session: CastSession) {}
-            override fun onSessionResuming(session: CastSession, sessionId: String) {}
-            override fun onSessionStartFailed(session: CastSession, error: Int) {}
-            override fun onSessionResumeFailed(session: CastSession, error: Int) {}
+            override fun onSessionStarting(session: com.google.android.gms.cast.framework.CastSession) {}
+            override fun onSessionEnding(session: com.google.android.gms.cast.framework.CastSession) {}
+            override fun onSessionResuming(session: com.google.android.gms.cast.framework.CastSession, sessionId: String) {}
+            override fun onSessionStartFailed(session: com.google.android.gms.cast.framework.CastSession, error: Int) {}
+            override fun onSessionResumeFailed(session: com.google.android.gms.cast.framework.CastSession, error: Int) {}
         }
-        castContext.sessionManager.addSessionManagerListener(listener, CastSession::class.java)
+        castContext.sessionManager.addSessionManagerListener(
+            listener, com.google.android.gms.cast.framework.CastSession::class.java,
+        )
         onDispose {
-            castContext.sessionManager.removeSessionManagerListener(listener, CastSession::class.java)
+            castContext.sessionManager.removeSessionManagerListener(
+                listener, com.google.android.gms.cast.framework.CastSession::class.java,
+            )
         }
     }
     return isCasting
 }
 
 private fun loadRemoteMedia(
-    session: CastSession,
+    session: com.google.android.gms.cast.framework.CastSession,
     streamUrl: String,
     title: String,
     artworkUrl: String?,
     contentType: String?,
 ) {
     val client = session.remoteMediaClient ?: return
-    // Local-proxy URLs (TorrentStreamServer) won't reach a Chromecast on the
-    // LAN — skip silently rather than throwing a confusing receiver error.
     if (streamUrl.startsWith("http://127.0.0.1") || streamUrl.startsWith("http://localhost")) {
         return
     }
-
-    val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
-        putString(MediaMetadata.KEY_TITLE, title)
+    val metadata = com.google.android.gms.cast.MediaMetadata(
+        com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE,
+    ).apply {
+        putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title)
         if (!artworkUrl.isNullOrBlank()) {
-            addImage(WebImage(android.net.Uri.parse(artworkUrl)))
+            addImage(com.google.android.gms.common.images.WebImage(android.net.Uri.parse(artworkUrl)))
         }
     }
-
     val mime = contentType ?: guessMimeType(streamUrl)
-    val mediaInfo = MediaInfo.Builder(streamUrl)
-        .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
+    val mediaInfo = com.google.android.gms.cast.MediaInfo.Builder(streamUrl)
+        .setStreamType(com.google.android.gms.cast.MediaInfo.STREAM_TYPE_BUFFERED)
         .setContentType(mime)
         .setMetadata(metadata)
         .build()
-
     client.load(
-        MediaLoadRequestData.Builder()
+        com.google.android.gms.cast.MediaLoadRequestData.Builder()
             .setMediaInfo(mediaInfo)
             .setAutoplay(true)
             .build(),
     )
 }
 
-/** Best-effort MIME guess based on the URL extension. */
 private fun guessMimeType(url: String): String {
     val q = url.substringBefore('?').lowercase()
     return when {
-        q.endsWith(".m3u8")          -> "application/x-mpegURL"
-        q.endsWith(".mpd")           -> "application/dash+xml"
-        q.endsWith(".webm")          -> "video/webm"
-        q.endsWith(".mkv")           -> "video/x-matroska"
-        q.endsWith(".mov")           -> "video/quicktime"
-        else                         -> "video/mp4"
+        q.endsWith(".m3u8") -> "application/x-mpegURL"
+        q.endsWith(".mpd") -> "application/dash+xml"
+        q.endsWith(".webm") -> "video/webm"
+        q.endsWith(".mkv") -> "video/x-matroska"
+        q.endsWith(".mov") -> "video/quicktime"
+        else -> "video/mp4"
     }
 }
 
-/** Force-init the Cast SDK — call from MainActivity.onCreate so cast notifications fire promptly. */
 fun initCast(context: Context) {
     runCatching { CastContext.getSharedInstance(context.applicationContext) }
 }

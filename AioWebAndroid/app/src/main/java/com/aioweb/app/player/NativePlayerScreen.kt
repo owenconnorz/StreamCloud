@@ -420,17 +420,9 @@ fun NativePlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (!locked) {
-                        // Google Cast button — opens the system route chooser. When the
-                        // user picks a Chromecast / Android TV, [rememberCastController]
-                        // (set up earlier in the composition) loads the current stream
-                        // URL into the receiver.
-                        com.aioweb.app.cast.CastButton(
-                            modifier = Modifier
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
-                                .background(Color.Black.copy(alpha = 0.45f))
-                                .padding(8.dp)
-                                .size(28.dp),
-                        )
+                        // Compose-native Cast button — see [CastButton] for why
+                        // we don't use androidx.mediarouter's MediaRouteButton.
+                        com.aioweb.app.cast.CastButton(modifier = Modifier)
                     }
                     PlayerCapsuleIcon(
                         icon = if (locked) androidx.compose.material.icons.Icons.Default.LockOpen

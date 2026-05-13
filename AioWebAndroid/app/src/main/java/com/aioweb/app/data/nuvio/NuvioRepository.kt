@@ -80,23 +80,92 @@ class NuvioRepository(private val context: Context) {
         save(list.filterNot { it.id == id })
     }
 
-    /** Run every installed provider in parallel against [tmdbId] and aggregate streams. */
+    /** Run every installed provider in parallel against [tmdbId] and aggregate streams.
+     *
+     *  Matches the NuvioMobile contract (`composeApp/.../streams/StreamsRepository.kt`):
+     *   • `tmdbId` may be prefixed (`tmdb:603`, `tmdb/603`, `imdb:tt0133093`, …) — we
+     *     strip the prefix and resolve IMDB → TMDB via the public `/find` endpoint
+     *     when needed (otherwise the JS providers receive a non-numeric id and bail).
+     *   • Episode-suffixes (`603:1:1`) are stripped since [season]/[episode] are passed
+     *     as separate args to `getStreams`.
+     */
     suspend fun resolveAll(
         tmdbId: String,
         mediaType: String = "movie",
         season: Int? = null,
         episode: Int? = null,
     ): List<Pair<InstalledNuvioProvider, NuvioStream>> = coroutineScope {
+        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
         val list = installed.first()
         list.map { provider ->
             async(Dispatchers.IO) {
                 val js = runCatching { File(provider.filePath).readText() }.getOrNull()
                     ?: return@async emptyList()
-                val streams = NuvioRuntime.runProvider(js, tmdbId, mediaType, season, episode)
+                val streams = NuvioRuntime.runProvider(
+                    scriptText = js,
+                    tmdbId = resolvedTmdb,
+                    mediaType = normaliseMediaType(mediaType),
+                    season = season,
+                    episode = episode,
+                    scriptKey = provider.id,
+                )
                 streams.map { provider to it }
             }
         }.awaitAll().flatten()
     }
+
+    /**
+     * Reverse of NuvioMobile's `TmdbService.ensureTmdbId`. Accepts:
+     *   • Raw numeric TMDB ids ("603")
+     *   • Prefixed ("tmdb:603", "tmdb/603")
+     *   • IMDB ids ("tt0133093") → resolved via `/find/{imdb_id}?external_source=imdb_id`
+     *   • Episode-suffixed ("603:1:5") → strip episode portion
+     *
+     * Cached in memory so repeated tmdb→imdb hops on the same screen are free.
+     */
+    private val tmdbIdCache = mutableMapOf<String, String>()
+    private suspend fun resolveTmdbId(raw: String, mediaType: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
+        val noPrefix = trimmed
+            .removePrefix("tmdb:").removePrefix("tmdb/")
+            .removePrefix("imdb:").removePrefix("movie:").removePrefix("series:")
+            .substringBefore(':').substringBefore('/')
+            .trim()
+        if (noPrefix.isBlank()) return null
+        if (noPrefix.all(Char::isDigit)) return noPrefix
+        if (!noPrefix.startsWith("tt", ignoreCase = true)) return null
+
+        val cacheKey = "$noPrefix:${normaliseMediaType(mediaType)}"
+        tmdbIdCache[cacheKey]?.let { return it }
+
+        return withContext(Dispatchers.IO) {
+            val apiKey = com.aioweb.app.BuildConfig.TMDB_API_KEY
+            if (apiKey.isBlank()) return@withContext null
+            val url = "https://api.themoviedb.org/3/find/$noPrefix?api_key=$apiKey&external_source=imdb_id"
+            runCatching {
+                val text = httpGet(url)
+                val root = Net.json.parseToJsonElement(text) as?
+                    kotlinx.serialization.json.JsonObject ?: return@runCatching null
+                val results = when (normaliseMediaType(mediaType)) {
+                    "tv" -> root["tv_results"] as? kotlinx.serialization.json.JsonArray
+                    else -> root["movie_results"] as? kotlinx.serialization.json.JsonArray
+                } ?: return@runCatching null
+                val first = results.firstOrNull() as? kotlinx.serialization.json.JsonObject
+                val id = (first?.get("id") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    ?.takeIf { it.isNotBlank() && it != "0" }
+                if (id != null) tmdbIdCache[cacheKey] = id
+                id
+            }.getOrNull()
+        }
+    }
+
+    private fun normaliseMediaType(mediaType: String): String =
+        when (mediaType.trim().lowercase()) {
+            "movie", "film" -> "movie"
+            "tv", "series", "show", "tvshow" -> "tv"
+            else -> mediaType.trim().lowercase()
+        }
 
     private suspend fun save(list: List<InstalledNuvioProvider>) {
         val text = Net.json.encodeToString(ListSerializer(InstalledNuvioProvider.serializer()), list)

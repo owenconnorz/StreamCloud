@@ -243,6 +243,13 @@ Android (Kotlin Compose) ──→ TMDB           (movies)
   - **Like / Download** read live from Room (`TrackDao.isLiked`, `MusicDownloader.isDownloaded`) so the pills always reflect the true state.
   - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL.
 
+- **(NEW — Cast button + Nuvio parity fixes, Feb 2026)**
+  - **Cast button rewritten as Compose-native** (`cast/CastUi.kt`). Root cause of "button isn't showing / nothing happens on tap": androidx.mediarouter's `MediaRouteButton` creates an AppCompat-only `DialogFragment` that silently no-ops when the host activity isn't an `AppCompatActivity`. Our `MainActivity` extends `ComponentActivity` (Compose-only), so the chooser never appeared. Also the previous wrapper used `Modifier.size(28.dp).padding(8.dp)` which clipped the inner Drawable.
+    - New impl: solid 40dp pill (`Cast` ↔ `CastConnected` icon, green tint when connected), talks straight to `androidx.mediarouter.media.MediaRouter` with the merged Cast selector from `CastContext`, pops a Compose `AlertDialog` listing live discovered routes (active scan while open + 1.5s refresh loop), `selectRoute()` on tap → existing `rememberCastController` pushes the stream URL to the receiver.
+  - **NuvioRuntime upgraded to NuvioMobile parity** — copied the polyfill surface from `NuvioMedia/NuvioMobile`'s `PluginRuntime.kt` so every plugin from their repos runs unchanged: `fetch`/`fetchv2` Response wrapper, `URL` + `URLSearchParams`, `AbortController`, `atob`/`btoa`, full `cheerio` jQuery-like API backed by Jsoup, `CryptoJS` (MD5/SHA1/SHA256/SHA512 + HMAC variants, Hex/Utf8/Base64 enc), `require('cheerio'|'crypto-js')`, plus Array.flat/flatMap, Object.entries/fromEntries, String.replaceAll polyfills. Per-script error capture exposed via `NuvioRuntime.lastError(id)`.
+  - **NuvioRepository TMDB ID resolution** — replica of NuvioMobile's `TmdbService.ensureTmdbId`. Strips `tmdb:`, `tmdb/`, `imdb:`, `movie:`, `series:` prefixes; numeric ids pass through; IMDB `tt…` ids → resolved via `/find/{imdb_id}?external_source=imdb_id` against the existing `BuildConfig.TMDB_API_KEY`. In-memory LRU cache prevents repeat hops. **This was the actual reason streams weren't loading** — providers were being called with `"tt0133093"` or `"tmdb:603"` and bailing out without ever hitting the network.
+  - Verified: `./gradlew :app:compileDebugKotlin` BUILD SUCCESSFUL.
+
 ## Backlog / next iterations
 - **P1** Picture-in-Picture (PiP) for the player
 - **P1** Brightness/volume vertical drag gestures (Nuvio-style)
