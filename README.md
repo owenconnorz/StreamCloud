@@ -1,4 +1,4 @@
-#StreamCloud
+# StreamCloud
 
 Modern streaming client for Android
 Built for fast streaming, beautiful UI, and seamless media playback with support for providers, Stremio-style addons, RealDebrid integration, casting, and modern Material 3 design.
