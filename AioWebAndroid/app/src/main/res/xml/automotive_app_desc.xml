@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tells Android Auto + Automotive OS that this app provides MEDIA content.
+  The matching MediaLibraryService is com.aioweb.app.audio.MusicPlaybackService.
+-->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

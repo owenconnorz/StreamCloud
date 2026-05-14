@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Used by the in-app updater to share the downloaded APK with the system installer. -->
+    <cache-path name="updates" path="." />
+    <files-path name="files" path="." />
+    <external-cache-path name="ext_cache" path="." />
+</paths>

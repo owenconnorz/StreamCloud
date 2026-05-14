@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_primary">#0a0a0a</color>
+    <color name="bg_secondary">#141414</color>
+    <color name="accent_violet">#7c3aed</color>
+    <color name="accent_cyan">#06b6d4</color>
+    <color name="accent_pink">#ec4899</color>
+    <color name="text_primary">#f5f5f5</color>
+    <color name="ic_launcher_background">#0c1024</color>
+</resources>
