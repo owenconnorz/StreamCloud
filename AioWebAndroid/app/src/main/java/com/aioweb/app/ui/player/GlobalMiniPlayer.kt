@@ -11,8 +11,6 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Pause
@@ -40,7 +38,6 @@ import coil.compose.AsyncImage
 import com.aioweb.app.audio.MusicController
 import com.aioweb.app.audio.PlaybackBus
 import com.aioweb.app.data.ServiceLocator
-import com.aioweb.app.data.downloads.MusicDownloader
 import com.aioweb.app.data.library.LibraryDb
 import com.aioweb.app.data.ytmusic.YtMusicLibraryRepository
 import kotlinx.coroutines.Dispatchers
@@ -79,11 +76,7 @@ fun GlobalMiniPlayer(
     val isPlaying by PlaybackBus.isPlaying.collectAsState()
     val nowMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
 
-    val downloadProgressMap by MusicDownloader.progressFlow.collectAsState(initial = emptyMap())
-    val downloadProgress = nowMediaId?.let { downloadProgressMap[it] }
-
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
-    var isDownloaded by remember(nowMediaId) { mutableStateOf(false) }
 
     // Bind to the shared controller once; failure to bind simply hides the bar.
     LaunchedEffect(Unit) {
@@ -112,15 +105,12 @@ fun GlobalMiniPlayer(
             delay(500)
         }
     }
-    // Refresh like / downloaded state whenever the playing track changes.
-    // Checks: (1) ExoDownload cache, (2) legacy OkHttp local file in Room.
+    // Refresh liked state whenever the playing track changes.
     LaunchedEffect(nowMediaId) {
         val mediaId = nowMediaId ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
             val track = LibraryDb.get(context).tracks().byUrl(mediaId)
             isLiked = track?.likedAt != null
-            isDownloaded = com.aioweb.app.data.downloads.YtMusicDownloadUtil.isDownloaded(mediaId)
-                || track?.localPath?.let { java.io.File(it).exists() } == true
         }
     }
 
@@ -185,13 +175,6 @@ fun GlobalMiniPlayer(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (downloadProgress != null) {
-                        Spacer(Modifier.height(2.dp))
-                        LinearProgressIndicator(
-                            progress = { downloadProgress.coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth().height(2.dp),
-                        )
-                    }
                 }
                 IconButton(onClick = {
                     val mediaId = nowMediaId ?: return@IconButton
@@ -212,40 +195,6 @@ fun GlobalMiniPlayer(
                         if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         if (isLiked) "Unlike" else "Like",
                         tint = if (isLiked) MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(
-                    onClick = {
-                        val mediaId = nowMediaId ?: return@IconButton
-                        val songTitle = title ?: return@IconButton
-                        val videoId = mediaId
-                            .substringAfter("v=", missingDelimiterValue = "")
-                            .substringBefore('&')
-                            .takeIf { it.isNotBlank() }
-                        if (videoId != null) {
-                            com.aioweb.app.data.ytmusic.YtPlayback.downloadSong(
-                                context,
-                                com.aioweb.app.data.ytmusic.YtmSong(
-                                    videoId = videoId,
-                                    title = songTitle,
-                                    artist = artist ?: "",
-                                    album = null,
-                                    thumbnail = artworkUri,
-                                    durationSeconds = null,
-                                ),
-                            )
-                        } else {
-                            scope.launch { runCatching { MusicDownloader.download(context, mediaId, songTitle) } }
-                        }
-                        isDownloaded = true
-                    },
-                    enabled = !isDownloaded && downloadProgress == null,
-                ) {
-                    Icon(
-                        if (isDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
-                        if (isDownloaded) "Downloaded" else "Download",
-                        tint = if (isDownloaded) MaterialTheme.colorScheme.primary
                                else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
