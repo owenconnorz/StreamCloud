@@ -2,19 +2,14 @@ package com.aioweb.app.ui.screens
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -37,14 +32,10 @@ import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Reorder
 import androidx.compose.material.icons.filled.Science
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Visibility
@@ -54,7 +45,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -71,19 +61,16 @@ import com.aioweb.app.data.updater.UpdateInfo
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/**
- * Settings hub — OpenTune-style visual language:
- *   • Large "Settings" title, hero app card with version chip.
- *   • 2×2 tile grid (Appearance / Player & audio / Storage / Privacy) for quick access.
- *   • Horizontal chip row for auxiliary sections (Integration = CloudStream plugins,
- *     YT Music account).
- *   • Grouped sections — USER INTERFACE / PLAYER & CONTENT / PRIVACY & SECURITY /
- *     STORAGE & DATA / SYSTEM & ABOUT — with colored icon tiles on each row.
- *
- * Rows expand inline (no sub-navigation) so the whole configuration surface
- * remains on one scroll. Complex choices (quality, equalizer, navigation-bar
- * reorder) drop a Material dialog.
- */
+// ── Section accent colours (Metrolist palette) ─────────────────────────────
+private val ColourAppearance = Color(0xFF5B8DEF)
+private val ColourAccount    = Color(0xFF4CAF88)
+private val ColourPlayer     = Color(0xFFB49BFF)
+private val ColourAi         = Color(0xFFFFD479)
+private val ColourContent    = Color(0xFFFF9B5E)
+private val ColourPrivacy    = Color(0xFFF2AFBC)
+private val ColourStorage    = Color(0xFFA9C96C)
+private val ColourSystem     = Color(0xFF8E9CBE)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
@@ -92,60 +79,53 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
 
-    // --- State hoisting for every setting ------------------------------
-    var backendUrl by remember { mutableStateOf("") }
-    var provider by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf("") }
-    var nsfw by remember { mutableStateOf(false) }
-    var videoQuality by remember { mutableStateOf("auto") }
-    var audioQuality by remember { mutableStateOf("high") }
-    var extLinks by remember { mutableStateOf(true) }
-    var autoplay by remember { mutableStateOf(true) }
-    var subs by remember { mutableStateOf(true) }
-    var dlWifi by remember { mutableStateOf(true) }
-    var saved by remember { mutableStateOf(false) }
+    var backendUrl       by remember { mutableStateOf("") }
+    var provider         by remember { mutableStateOf("") }
+    var model            by remember { mutableStateOf("") }
+    var nsfw             by remember { mutableStateOf(false) }
+    var videoQuality     by remember { mutableStateOf("auto") }
+    var audioQuality     by remember { mutableStateOf("high") }
+    var extLinks         by remember { mutableStateOf(true) }
+    var autoplay         by remember { mutableStateOf(true) }
+    var subs             by remember { mutableStateOf(true) }
+    var dlWifi           by remember { mutableStateOf(true) }
+    var saved            by remember { mutableStateOf(false) }
     var pluginsCacheBytes by remember { mutableStateOf(0L) }
-    var hfToken by remember { mutableStateOf("") }
-    var dynamicColor by remember { mutableStateOf(false) }
-    var eqEnabled by remember { mutableStateOf(false) }
-    var eqPreset by remember { mutableStateOf("flat") }
-    var bassBoost by remember { mutableStateOf(false) }
+    var hfToken          by remember { mutableStateOf("") }
+    var dynamicColor     by remember { mutableStateOf(false) }
+    var eqEnabled        by remember { mutableStateOf(false) }
+    var eqPreset         by remember { mutableStateOf("flat") }
+    var bassBoost        by remember { mutableStateOf(false) }
     var enabledCollections by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var uiMode by remember { mutableStateOf("Auto") }
+    var uiMode           by remember { mutableStateOf("Auto") }
 
-    // Dialog flags
-    var showQualityVideoDialog by remember { mutableStateOf(false) }
-    var showQualityAudioDialog by remember { mutableStateOf(false) }
-    var showEqDialog by remember { mutableStateOf(false) }
-    var showCollectionsDialog by remember { mutableStateOf(false) }
-    var showNavOrderDialog by remember { mutableStateOf(false) }
-    var showAboutDialog by remember { mutableStateOf(false) }
-    var showUiModeDialog by remember { mutableStateOf(false) }
-
-    // Which hub rows are currently expanded. Using a set lets multiple rows be
-    // open at once, which feels natural on a single-page settings surface.
-    var expanded by remember { mutableStateOf<Set<String>>(emptySet()) }
-    fun toggle(id: String) {
-        expanded = if (id in expanded) expanded - id else expanded + id
-    }
+    var showQualityVideoDialog  by remember { mutableStateOf(false) }
+    var showQualityAudioDialog  by remember { mutableStateOf(false) }
+    var showEqDialog            by remember { mutableStateOf(false) }
+    var showCollectionsDialog   by remember { mutableStateOf(false) }
+    var showNavOrderDialog      by remember { mutableStateOf(false) }
+    var showAboutDialog         by remember { mutableStateOf(false) }
+    var showUiModeDialog        by remember { mutableStateOf(false) }
+    var showAiDialog            by remember { mutableStateOf(false) }
+    var showBackendDialog       by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        backendUrl = sl.settings.backendUrl.first()
-        provider = sl.settings.aiProvider.first()
-        model = sl.settings.aiModel.first()
-        nsfw = sl.settings.nsfwEnabled.first()
+        backendUrl   = sl.settings.backendUrl.first()
+        provider     = sl.settings.aiProvider.first()
+        model        = sl.settings.aiModel.first()
+        nsfw         = sl.settings.nsfwEnabled.first()
         videoQuality = sl.settings.videoQuality.first()
         audioQuality = sl.settings.audioQuality.first()
-        extLinks = sl.settings.externalLinksInBrowser.first()
-        autoplay = sl.settings.autoplayNext.first()
-        subs = sl.settings.subtitlesEnabled.first()
-        dlWifi = sl.settings.downloadOverWifiOnly.first()
-        hfToken = sl.settings.hfToken.first()
+        extLinks     = sl.settings.externalLinksInBrowser.first()
+        autoplay     = sl.settings.autoplayNext.first()
+        subs         = sl.settings.subtitlesEnabled.first()
+        dlWifi       = sl.settings.downloadOverWifiOnly.first()
+        hfToken      = sl.settings.hfToken.first()
         dynamicColor = sl.settings.dynamicColor.first()
-        eqEnabled = sl.settings.eqEnabled.first()
-        eqPreset = sl.settings.eqPreset.first()
-        bassBoost = sl.settings.bassBoost.first()
-        uiMode = sl.settings.uiMode.first()
+        eqEnabled    = sl.settings.eqEnabled.first()
+        eqPreset     = sl.settings.eqPreset.first()
+        bassBoost    = sl.settings.bassBoost.first()
+        uiMode       = sl.settings.uiMode.first()
         val csv = sl.settings.homeCollectionsCsv.first()
         enabledCollections = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet()
             ?: HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
@@ -157,438 +137,230 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(16.dp))
         Text(
             "Settings",
             style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
         )
-        Spacer(Modifier.height(20.dp))
 
-        // ---- Hero app card ----------------------------------------------
-        HeroCard()
-        Spacer(Modifier.height(16.dp))
-
-        // ---- 2x2 big tiles ----------------------------------------------
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                BigTile(
-                    icon = Icons.Default.Palette,
-                    label = "Appearance",
-                    tint = Color(0xFF5B8DEF),
-                    onClick = { toggle("ui-appearance") },
-                    modifier = Modifier.weight(1f),
-                )
-                BigTile(
-                    icon = Icons.Default.PlayArrow,
-                    label = "Player and\naudio",
-                    tint = Color(0xFFB49BFF),
-                    onClick = { toggle("pc-player") },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                BigTile(
-                    icon = Icons.Default.FormatListBulleted,
-                    label = "Storage",
-                    tint = Color(0xFFA9B0BD),
-                    onClick = { toggle("sd-storage") },
-                    modifier = Modifier.weight(1f),
-                )
-                BigTile(
-                    icon = Icons.Default.Shield,
-                    label = "Privacy",
-                    tint = Color(0xFFF2AFBC),
-                    onClick = { toggle("ps-privacy") },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-
-        // ---- Horizontal chip row ----------------------------------------
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            ChipTile(
-                icon = Icons.Default.Extension,
-                label = "Integration",
-                tint = Color(0xFFB49BFF),
-                onClick = onOpenPlugins,
+        // ── APPEARANCE ────────────────────────────────────────────────────
+        SectionHeader("Appearance", ColourAppearance)
+        SettingsGroup {
+            SettingToggle(
+                icon = Icons.Default.AutoAwesome, tint = ColourAppearance,
+                title = "Material You (Monet)",
+                subtitle = "Match colours to your wallpaper · Android 12+",
+                checked = dynamicColor,
+                onChange = { dynamicColor = it; scope.launch { sl.settings.setDynamicColor(it) } },
             )
-            ChipTile(
-                icon = Icons.Default.MusicNote,
-                label = "Account",
-                tint = Color(0xFF5B8DEF),
-                onClick = { toggle("account") },
-            )
-            ChipTile(
-                icon = Icons.Default.AutoAwesome,
-                label = "AI",
-                tint = Color(0xFFFFD479),
-                onClick = { toggle("ai-defaults") },
-            )
-            ChipTile(
-                icon = Icons.Default.Chat,
-                label = "Discord",
-                tint = Color(0xFF7289DA),
-                onClick = {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse("https://discord.gg/")).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        },
-                    )
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.Visibility, tint = ColourAppearance,
+                title = "Layout / device",
+                value = when (uiMode) {
+                    "Mobile" -> "Mobile"
+                    "Tablet" -> "Tablet"
+                    "Tv"     -> "TV / Leanback"
+                    else     -> "Auto"
                 },
+                onClick = { showUiModeDialog = true },
             )
-        }
-        AnimatedVisibility(visible = "account" in expanded) {
-            Column(Modifier.padding(top = 8.dp)) {
-                SettingsCard { YtMusicAccountRow() }
-            }
-        }
-        AnimatedVisibility(visible = "ai-defaults" in expanded) {
-            Column(Modifier.padding(top = 8.dp)) {
-                SettingsCard {
-                    Text(
-                        "AI defaults",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                    ProviderRow(
-                        label = "OpenAI · gpt-5.1",
-                        selected = provider == "openai",
-                        onClick = {
-                            provider = "openai"; model = "gpt-5.1"; saved = false
-                            scope.launch { sl.settings.setAiProvider("openai"); sl.settings.setAiModel("gpt-5.1") }
-                        },
-                    )
-                    ProviderRow(
-                        label = "Anthropic · Claude Sonnet 4.5",
-                        selected = provider == "anthropic",
-                        onClick = {
-                            provider = "anthropic"; model = "claude-sonnet-4-5-20250929"; saved = false
-                            scope.launch { sl.settings.setAiProvider("anthropic"); sl.settings.setAiModel("claude-sonnet-4-5-20250929") }
-                        },
-                    )
-                    ProviderRow(
-                        label = "Google · Gemini 2.5 Pro",
-                        selected = provider == "gemini",
-                        onClick = {
-                            provider = "gemini"; model = "gemini-2.5-pro"; saved = false
-                            scope.launch { sl.settings.setAiProvider("gemini"); sl.settings.setAiModel("gemini-2.5-pro") }
-                        },
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-
-        // ---- USER INTERFACE ---------------------------------------------
-        GroupHeader("User interface")
-        SettingsCard {
-            HubRow(
-                icon = Icons.Default.Palette,
-                tint = Color(0xFF5B8DEF),
-                title = "Appearance",
-                subtitle = if (dynamicColor) "Material You" else "Dark theme",
-                expanded = "ui-appearance" in expanded,
-                onClick = { toggle("ui-appearance") },
-            )
-            AnimatedVisibility(visible = "ui-appearance" in expanded) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    ToggleRow(
-                        icon = Icons.Default.AutoAwesome,
-                        title = "Material You (Monet)",
-                        subtitle = "Match colors to your wallpaper · Android 12+",
-                        checked = dynamicColor,
-                        onChange = {
-                            dynamicColor = it
-                            scope.launch { sl.settings.setDynamicColor(it) }
-                        },
-                    )
-                    InnerNavRow(
-                        icon = Icons.Default.Visibility,
-                        title = "Layout / device",
-                        subtitle = when (uiMode) {
-                            "Mobile" -> "Forced Mobile · compact"
-                            "Tablet" -> "Forced Tablet · larger"
-                            "Tv" -> "Forced TV · leanback"
-                            else -> "Auto · adapts to phone / tablet / TV"
-                        },
-                        onClick = { showUiModeDialog = true },
-                    )
-                }
-            }
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-            HubRow(
-                icon = Icons.Default.Reorder,
-                tint = Color(0xFFB49BFF),
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.Reorder, tint = ColourAppearance,
                 title = "Navigation bar",
                 subtitle = "Reorder tabs",
-                chevron = true,
-                expanded = false,
                 onClick = { showNavOrderDialog = true },
             )
         }
 
-        // ---- PLAYER & CONTENT -------------------------------------------
-        GroupHeader("Player & content")
-        SettingsCard {
-            HubRow(
-                icon = Icons.Default.PlayArrow,
-                tint = Color(0xFFB49BFF),
-                title = "Player and audio",
-                subtitle = "Audio quality · ${audioQuality.replaceFirstChar { it.uppercase() }}",
-                expanded = "pc-player" in expanded,
-                onClick = { toggle("pc-player") },
-            )
-            AnimatedVisibility(visible = "pc-player" in expanded) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    InnerNavRow(
-                        icon = Icons.Default.HighQuality,
-                        title = "Default video quality",
-                        subtitle = videoQuality.replaceFirstChar { it.uppercase() } +
-                            if (videoQuality.matches(Regex("\\d+"))) "p" else "",
-                        onClick = { showQualityVideoDialog = true },
-                    )
-                    InnerNavRow(
-                        icon = Icons.Default.GraphicEq,
-                        title = "Audio quality",
-                        subtitle = audioQuality.replaceFirstChar { it.uppercase() },
-                        onClick = { showQualityAudioDialog = true },
-                    )
-                    ToggleRow(
-                        icon = Icons.Default.PlayCircle,
-                        title = "Autoplay next",
-                        subtitle = "Continue with the next song / episode automatically",
-                        checked = autoplay,
-                        onChange = { autoplay = it; scope.launch { sl.settings.setAutoplayNext(it) } },
-                    )
-                    ToggleRow(
-                        icon = Icons.Default.Subtitles,
-                        title = "Subtitles",
-                        subtitle = "Show subtitles when available",
-                        checked = subs,
-                        onChange = { subs = it; scope.launch { sl.settings.setSubtitlesEnabled(it) } },
-                    )
-                    ToggleRow(
-                        icon = Icons.Default.GraphicEq,
-                        title = "Equalizer",
-                        subtitle = if (eqEnabled) "On · ${eqPreset.replaceFirstChar { it.uppercase() }} preset"
-                                   else "Off — tap to enable & pick a preset",
-                        checked = eqEnabled,
-                        onChange = {
-                            eqEnabled = it
-                            scope.launch { sl.settings.setEqEnabled(it) }
-                        },
-                    )
-                    if (eqEnabled) {
-                        InnerNavRow(
-                            icon = Icons.Default.GraphicEq,
-                            title = "EQ preset",
-                            subtitle = eqPreset.replaceFirstChar { it.uppercase() },
-                            onClick = { showEqDialog = true },
-                        )
-                    }
-                    ToggleRow(
-                        icon = Icons.Default.GraphicEq,
-                        title = "Bass boost",
-                        subtitle = "Adds extra low-end punch",
-                        checked = bassBoost,
-                        onChange = {
-                            bassBoost = it
-                            scope.launch { sl.settings.setBassBoost(it) }
-                        },
-                    )
-                }
-            }
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-            HubRow(
-                icon = Icons.Default.Language,
-                tint = Color(0xFF8E8E9E),
-                title = "Content",
-                subtitle = "Backend URL, HuggingFace token, home collections",
-                expanded = "pc-content" in expanded,
-                onClick = { toggle("pc-content") },
-            )
-            AnimatedVisibility(visible = "pc-content" in expanded) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    OutlinedTextField(
-                        value = backendUrl,
-                        onValueChange = { backendUrl = it; saved = false },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Backend URL") },
-                        supportingText = { Text("Your StreamCloud FastAPI deployment.") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        colors = settingsTfColors(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = hfToken,
-                        onValueChange = { hfToken = it; saved = false },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("HuggingFace token") },
-                        supportingText = { Text("NSFW image gen + image editing. huggingface.co/settings/tokens.") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        colors = settingsTfColors(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    InnerNavRow(
-                        icon = Icons.Default.PlayCircle,
-                        title = "Home collections",
-                        subtitle = "${enabledCollections.size} of ${HomeCollections.ALL.size} enabled",
-                        onClick = { showCollectionsDialog = true },
-                    )
-                    ToggleRow(
-                        icon = Icons.Default.Visibility,
-                        title = "Show Adult tab (18+)",
-                        subtitle = "Replaces Library with Adult section",
-                        checked = nsfw,
-                        onChange = {
-                            nsfw = it
-                            scope.launch { sl.settings.setNsfwEnabled(it) }
-                        },
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                sl.settings.setBackendUrl(backendUrl.trim().trimEnd('/'))
-                                sl.settings.setHfToken(hfToken.trim())
-                                saved = true
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                    ) {
-                        Icon(if (saved) Icons.Default.Check else Icons.Default.Cloud, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (saved) "Saved" else "Save backend + HF token")
-                    }
-                }
-            }
+        // ── ACCOUNT ───────────────────────────────────────────────────────
+        SectionHeader("Account", ColourAccount)
+        SettingsGroup {
+            YtMusicAccountRow()
         }
 
-        // ---- PRIVACY & SECURITY -----------------------------------------
-        GroupHeader("Privacy & security")
-        SettingsCard {
-            HubRow(
-                icon = Icons.Default.Shield,
-                tint = Color(0xFFF2AFBC),
-                title = "Privacy",
-                subtitle = "External links, data behaviour",
-                expanded = "ps-privacy" in expanded,
-                onClick = { toggle("ps-privacy") },
+        // ── PLAYER & AUDIO ────────────────────────────────────────────────
+        SectionHeader("Player & audio", ColourPlayer)
+        SettingsGroup {
+            SettingNav(
+                icon = Icons.Default.HighQuality, tint = ColourPlayer,
+                title = "Default video quality",
+                value = videoQuality.replaceFirstChar { it.uppercase() } +
+                    if (videoQuality.matches(Regex("\\d+"))) "p" else "",
+                onClick = { showQualityVideoDialog = true },
             )
-            AnimatedVisibility(visible = "ps-privacy" in expanded) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    ToggleRow(
-                        icon = Icons.Default.OpenInBrowser,
-                        title = "Open external links in browser",
-                        subtitle = "Otherwise opens inside an in-app webview",
-                        checked = extLinks,
-                        onChange = { extLinks = it; scope.launch { sl.settings.setExternalLinksInBrowser(it) } },
-                    )
-                }
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                title = "Audio quality",
+                value = audioQuality.replaceFirstChar { it.uppercase() },
+                onClick = { showQualityAudioDialog = true },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.PlayCircle, tint = ColourPlayer,
+                title = "Autoplay next",
+                subtitle = "Continue with the next song / episode automatically",
+                checked = autoplay,
+                onChange = { autoplay = it; scope.launch { sl.settings.setAutoplayNext(it) } },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                title = "Subtitles",
+                subtitle = "Show subtitles when available",
+                checked = subs,
+                onChange = { subs = it; scope.launch { sl.settings.setSubtitlesEnabled(it) } },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                title = "Equalizer",
+                subtitle = if (eqEnabled) "On · ${eqPreset.replaceFirstChar { it.uppercase() }} preset"
+                           else "Off",
+                checked = eqEnabled,
+                onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
+            )
+            if (eqEnabled) {
+                SettingDivider()
+                SettingNav(
+                    icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                    title = "EQ preset",
+                    value = eqPreset.replaceFirstChar { it.uppercase() },
+                    onClick = { showEqDialog = true },
+                )
             }
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                title = "Bass boost",
+                subtitle = "Adds extra low-end punch",
+                checked = bassBoost,
+                onChange = { bassBoost = it; scope.launch { sl.settings.setBassBoost(it) } },
+            )
         }
 
-        // ---- STORAGE & DATA ---------------------------------------------
-        GroupHeader("Storage & data")
-        SettingsCard {
-            HubRow(
-                icon = Icons.Default.FormatListBulleted,
-                tint = Color(0xFFA9B0BD),
-                title = "Storage",
-                subtitle = "Cache · ${formatBytes(pluginsCacheBytes)}",
-                expanded = "sd-storage" in expanded,
-                onClick = { toggle("sd-storage") },
+        // ── AI ────────────────────────────────────────────────────────────
+        SectionHeader("AI", ColourAi)
+        SettingsGroup {
+            SettingNav(
+                icon = Icons.Default.AutoAwesome, tint = ColourAi,
+                title = "AI provider",
+                value = when (provider) {
+                    "openai"    -> "OpenAI · gpt-5.1"
+                    "anthropic" -> "Claude Sonnet 4.5"
+                    "gemini"    -> "Gemini 2.5 Pro"
+                    else        -> provider.ifBlank { "OpenAI" }
+                },
+                onClick = { showAiDialog = true },
             )
-            AnimatedVisibility(visible = "sd-storage" in expanded) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    InnerNavRow(
-                        icon = Icons.Default.DeleteSweep,
-                        title = "Clear app cache",
-                        subtitle = "Free up temporary files",
-                        onClick = {
-                            scope.launch {
-                                pluginRepo.clearAppCache()
-                                pluginsCacheBytes = pluginRepo.pluginsCacheSize()
-                            }
-                        },
-                    )
-                    InnerNavRow(
-                        icon = Icons.Default.Extension,
-                        title = "CloudStream plugins",
-                        subtitle = "${formatBytes(pluginsCacheBytes)} on device",
-                        onClick = onOpenPlugins,
-                    )
-                }
-            }
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-            HubRow(
-                icon = Icons.Default.Download,
-                tint = Color(0xFFB49BFF),
-                title = "Downloads",
-                subtitle = if (dlWifi) "Wi-Fi only" else "Any network",
-                expanded = "sd-downloads" in expanded,
-                onClick = { toggle("sd-downloads") },
+        }
+
+        // ── CONTENT ───────────────────────────────────────────────────────
+        SectionHeader("Content", ColourContent)
+        SettingsGroup {
+            SettingNav(
+                icon = Icons.Default.Language, tint = ColourContent,
+                title = "Backend URL",
+                subtitle = backendUrl.ifBlank { "Not set" },
+                onClick = { showBackendDialog = true },
             )
-            AnimatedVisibility(visible = "sd-downloads" in expanded) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    ToggleRow(
-                        icon = Icons.Default.Wifi,
-                        title = "Download over Wi-Fi only",
-                        subtitle = "Avoid using mobile data for downloads",
-                        checked = dlWifi,
-                        onChange = { dlWifi = it; scope.launch { sl.settings.setDownloadOverWifiOnly(it) } },
-                    )
-                }
-            }
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-            HubRow(
-                icon = Icons.Default.CloudUpload,
-                tint = Color(0xFFB49BFF),
-                title = "Backup and restore",
-                subtitle = "Export / import your library, playlists and settings",
-                chevron = true,
-                expanded = false,
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.PlayCircle, tint = ColourContent,
+                title = "Home collections",
+                value = "${enabledCollections.size} of ${HomeCollections.ALL.size}",
+                onClick = { showCollectionsDialog = true },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.Visibility, tint = ColourContent,
+                title = "Show Adult tab (18+)",
+                subtitle = "Replaces Library with Adult section",
+                checked = nsfw,
+                onChange = { nsfw = it; scope.launch { sl.settings.setNsfwEnabled(it) } },
+            )
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.Chat, tint = Color(0xFF7289DA),
+                title = "Discord community",
+                subtitle = "Join the StreamCloud server",
                 onClick = {
-                    // Stub — actual backup pipeline is P2. Surface a toast-style info.
-                    android.widget.Toast.makeText(
-                        context,
-                        "Backup & restore is coming soon",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://discord.gg/"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
                 },
             )
         }
 
-        // ---- SYSTEM & ABOUT ---------------------------------------------
-        GroupHeader("System & about")
-        SettingsCard {
-            HubRow(
-                icon = Icons.Default.Link,
-                tint = Color(0xFF5B8DEF),
+        // ── PRIVACY ───────────────────────────────────────────────────────
+        SectionHeader("Privacy", ColourPrivacy)
+        SettingsGroup {
+            SettingToggle(
+                icon = Icons.Default.OpenInBrowser, tint = ColourPrivacy,
+                title = "Open external links in browser",
+                subtitle = "Otherwise opens inside an in-app webview",
+                checked = extLinks,
+                onChange = { extLinks = it; scope.launch { sl.settings.setExternalLinksInBrowser(it) } },
+            )
+        }
+
+        // ── STORAGE ───────────────────────────────────────────────────────
+        SectionHeader("Storage", ColourStorage)
+        SettingsGroup {
+            SettingNav(
+                icon = Icons.Default.DeleteSweep, tint = ColourStorage,
+                title = "Clear app cache",
+                subtitle = "Free up temporary files",
+                onClick = {
+                    scope.launch {
+                        pluginRepo.clearAppCache()
+                        pluginsCacheBytes = pluginRepo.pluginsCacheSize()
+                    }
+                },
+            )
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.Extension, tint = ColourStorage,
+                title = "CloudStream plugins",
+                subtitle = "${formatBytes(pluginsCacheBytes)} on device",
+                onClick = onOpenPlugins,
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.Wifi, tint = ColourStorage,
+                title = "Download over Wi-Fi only",
+                subtitle = "Avoid using mobile data for downloads",
+                checked = dlWifi,
+                onChange = { dlWifi = it; scope.launch { sl.settings.setDownloadOverWifiOnly(it) } },
+            )
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.CloudUpload, tint = ColourStorage,
+                title = "Backup and restore",
+                subtitle = "Export / import your library, playlists and settings",
+                onClick = {
+                    android.widget.Toast.makeText(context, "Backup & restore coming soon", android.widget.Toast.LENGTH_SHORT).show()
+                },
+            )
+        }
+
+        // ── SYSTEM ────────────────────────────────────────────────────────
+        SectionHeader("System", ColourSystem)
+        SettingsGroup {
+            SettingNav(
+                icon = Icons.Default.Link, tint = ColourSystem,
                 title = "Open supported links",
-                subtitle = "Open supported link by default",
-                chevron = true,
-                expanded = false,
+                subtitle = "Set StreamCloud as default for supported URLs",
                 onClick = {
                     runCatching {
-                        val intent = Intent(
-                            android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
-                        ).apply {
+                        val intent = Intent(android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS).apply {
                             data = Uri.parse("package:${context.packageName}")
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
@@ -596,54 +368,41 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                     }
                 },
             )
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-            HubRow(
-                icon = Icons.Default.Science,
-                tint = Color(0xFFB49BFF),
-                title = "Experimental Settings",
-                subtitle = "Misc",
-                chevron = true,
-                expanded = false,
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.Science, tint = ColourSystem,
+                title = "Experimental settings",
+                subtitle = "Misc developer flags",
                 onClick = {
-                    android.widget.Toast.makeText(
-                        context,
-                        "No experimental flags yet",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
+                    android.widget.Toast.makeText(context, "No experimental flags yet", android.widget.Toast.LENGTH_SHORT).show()
                 },
             )
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+            SettingDivider()
             UpdaterRow()
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-            HubRow(
-                icon = Icons.Default.Info,
-                tint = Color(0xFF8E8E9E),
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.Info, tint = ColourSystem,
                 title = "About",
                 subtitle = "StreamCloud · v${BuildConfig.VERSION_NAME}",
-                chevron = true,
-                expanded = false,
                 onClick = { showAboutDialog = true },
             )
         }
-        Spacer(Modifier.height(40.dp))
+
+        Spacer(Modifier.height(48.dp))
     }
 
-    // ---- Dialogs --------------------------------------------------------
+    // ── Dialogs ───────────────────────────────────────────────────────────
     if (showQualityVideoDialog) {
         QualityDialog(
             title = "Default video quality",
             options = listOf(
                 "auto" to "Auto (recommended)",
                 "1080" to "1080p",
-                "720" to "720p",
-                "480" to "480p",
+                "720"  to "720p",
+                "480"  to "480p",
             ),
             selected = videoQuality,
-            onSelect = {
-                videoQuality = it
-                scope.launch { sl.settings.setVideoQuality(it) }
-                showQualityVideoDialog = false
-            },
+            onSelect = { videoQuality = it; scope.launch { sl.settings.setVideoQuality(it) }; showQualityVideoDialog = false },
             onDismiss = { showQualityVideoDialog = false },
         )
     }
@@ -651,16 +410,12 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         QualityDialog(
             title = "Audio quality",
             options = listOf(
-                "high" to "High (best available)",
+                "high"   to "High (best available)",
                 "medium" to "Medium",
-                "low" to "Low (data saver)",
+                "low"    to "Low (data saver)",
             ),
             selected = audioQuality,
-            onSelect = {
-                audioQuality = it
-                scope.launch { sl.settings.setAudioQuality(it) }
-                showQualityAudioDialog = false
-            },
+            onSelect = { audioQuality = it; scope.launch { sl.settings.setAudioQuality(it) }; showQualityAudioDialog = false },
             onDismiss = { showQualityAudioDialog = false },
         )
     }
@@ -668,29 +423,56 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         QualityDialog(
             title = "Equalizer preset",
             options = listOf(
-                "flat" to "Flat (no change)",
-                "pop" to "Pop",
-                "rock" to "Rock",
-                "jazz" to "Jazz",
-                "bass" to "Bass booster",
+                "flat"  to "Flat (no change)",
+                "pop"   to "Pop",
+                "rock"  to "Rock",
+                "jazz"  to "Jazz",
+                "bass"  to "Bass booster",
                 "vocal" to "Vocal",
             ),
             selected = eqPreset,
-            onSelect = {
-                eqPreset = it
-                scope.launch { sl.settings.setEqPreset(it) }
-                showEqDialog = false
-            },
+            onSelect = { eqPreset = it; scope.launch { sl.settings.setEqPreset(it) }; showEqDialog = false },
             onDismiss = { showEqDialog = false },
+        )
+    }
+    if (showAiDialog) {
+        QualityDialog(
+            title = "AI provider",
+            options = listOf(
+                "openai"    to "OpenAI · gpt-5.1",
+                "anthropic" to "Anthropic · Claude Sonnet 4.5",
+                "gemini"    to "Google · Gemini 2.5 Pro",
+            ),
+            selected = provider,
+            onSelect = { p ->
+                provider = p
+                model = when (p) {
+                    "openai"    -> "gpt-5.1"
+                    "anthropic" -> "claude-sonnet-4-5-20250929"
+                    else        -> "gemini-2.5-pro"
+                }
+                scope.launch { sl.settings.setAiProvider(p); sl.settings.setAiModel(model) }
+                showAiDialog = false
+            },
+            onDismiss = { showAiDialog = false },
+        )
+    }
+    if (showBackendDialog) {
+        BackendDialog(
+            initialUrl = backendUrl,
+            initialToken = hfToken,
+            onSave = { url, token ->
+                backendUrl = url; hfToken = token; saved = true
+                scope.launch { sl.settings.setBackendUrl(url.trim().trimEnd('/')); sl.settings.setHfToken(token.trim()) }
+                showBackendDialog = false
+            },
+            onDismiss = { showBackendDialog = false },
         )
     }
     if (showCollectionsDialog) {
         CollectionsDialog(
             enabled = enabledCollections,
-            onToggle = { id, on ->
-                enabledCollections =
-                    if (on) enabledCollections + id else enabledCollections - id
-            },
+            onToggle = { id, on -> enabledCollections = if (on) enabledCollections + id else enabledCollections - id },
             onSave = {
                 val ordered = HomeCollections.ALL.map { it.id }.filter { it in enabledCollections }
                 scope.launch { sl.settings.setHomeCollections(ordered) }
@@ -700,10 +482,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         )
     }
     if (showNavOrderDialog) {
-        NavOrderDialog(
-            nsfw = nsfw,
-            onDismiss = { showNavOrderDialog = false },
-        )
+        NavOrderDialog(nsfw = nsfw, onDismiss = { showNavOrderDialog = false })
     }
     if (showAboutDialog) {
         AboutDialog(onDismiss = { showAboutDialog = false })
@@ -711,146 +490,31 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     if (showUiModeDialog) {
         UiModeDialog(
             current = uiMode,
-            onPick = { picked ->
-                uiMode = picked
-                showUiModeDialog = false
-                scope.launch { sl.settings.setUiMode(picked) }
-            },
+            onPick = { uiMode = it; scope.launch { sl.settings.setUiMode(it) }; showUiModeDialog = false },
             onDismiss = { showUiModeDialog = false },
         )
     }
 }
 
 // ======================================================================
-//                               Layout atoms
+//                        Metrolist-style atoms
 // ======================================================================
 
 @Composable
-private fun HeroCard() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(64.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Default.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp),
-            )
-        }
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                "StreamCloud",
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "v${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun BigTile(
-    icon: ImageVector,
-    label: String,
-    tint: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .heightIn(min = 120.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Box(
-            Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(tint.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-        }
-        Spacer(Modifier.height(24.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-@Composable
-private fun ChipTile(
-    icon: ImageVector,
-    label: String,
-    tint: Color,
-    onClick: () -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-    ) {
-        Box(
-            Modifier
-                .size(28.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(tint.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
-        }
-        Spacer(Modifier.width(10.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-@Composable
-private fun GroupHeader(title: String) {
-    Spacer(Modifier.height(18.dp))
+private fun SectionHeader(title: String, color: Color) {
     Text(
         title.uppercase(),
-        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.2.sp, fontWeight = FontWeight.SemiBold),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 8.dp, bottom = 8.dp, top = 4.dp),
+        style = MaterialTheme.typography.labelLarge.copy(
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+        ),
+        color = color,
+        modifier = Modifier.padding(start = 4.dp, top = 24.dp, bottom = 6.dp),
     )
 }
 
 @Composable
-private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -861,36 +525,46 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun HubRow(
+private fun SettingDivider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 72.dp)
+            .height(0.5.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+    )
+}
+
+@Composable
+private fun IconBox(icon: ImageVector, tint: Color) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(tint.copy(alpha = 0.16f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun SettingNav(
     icon: ImageVector,
     tint: Color,
     title: String,
-    subtitle: String,
-    expanded: Boolean,
-    chevron: Boolean = false,
+    subtitle: String? = null,
+    value: String? = null,
     onClick: () -> Unit,
 ) {
-    val rotation by animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = tween(200),
-        label = "chevron",
-    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 13.dp),
     ) {
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(tint.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-        }
+        IconBox(icon, tint)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -898,51 +572,38 @@ private fun HubRow(
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
             )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+        if (!value.isNullOrBlank()) {
             Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
+                value,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 4.dp),
             )
         }
         Icon(
-            if (chevron) Icons.Default.ChevronRight else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            Icons.Default.ChevronRight,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.rotate(if (chevron) 0f else rotation),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.size(20.dp),
         )
     }
 }
 
-/** Smaller nested row used inside expanded HubRow sections. */
 @Composable
-private fun InnerNavRow(
+private fun SettingToggle(
     icon: ImageVector,
+    tint: Color,
     title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun ToggleRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
+    subtitle: String? = null,
     checked: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
@@ -951,39 +612,175 @@ private fun ToggleRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onChange(!checked) }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 13.dp),
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.width(12.dp))
+        IconBox(icon, tint)
+        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
         }
+        Spacer(Modifier.width(8.dp))
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 
+// ======================================================================
+//                         Composite rows
+// ======================================================================
+
 @Composable
-private fun ProviderRow(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun YtMusicAccountRow() {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val cookie   by sl.settings.ytMusicCookie.collectAsState(initial = "")
+    val userName by sl.settings.ytMusicUserName.collectAsState(initial = "")
+    val signedIn = cookie.isNotBlank()
+    val scope = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !signedIn) {
+                context.startActivity(
+                    Intent(context, com.aioweb.app.ui.account.YtMusicLoginActivity::class.java),
+                )
+            }
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(
+            if (signedIn) Icons.Default.Logout else Icons.Default.Login,
+            ColourAccount,
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "YouTube Music" else "Sign in to YouTube Music",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) userName.ifBlank { "Signed in" }
+                else "Personalised mixes, recommendations and library",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        if (signedIn) {
+            TextButton(onClick = {
+                scope.launch {
+                    sl.settings.clearYtMusicAccount()
+                    com.aioweb.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = ""
+                    runCatching { android.webkit.CookieManager.getInstance().removeAllCookies(null) }
+                }
+            }) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun UpdaterRow() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val checker = remember { UpdateChecker(context.applicationContext) }
+
+    var checking    by remember { mutableStateOf(false) }
+    var status      by remember { mutableStateOf<String?>(null) }
+    var update      by remember { mutableStateOf<UpdateInfo?>(null) }
+    var downloading by remember { mutableStateOf(false) }
+    var progress    by remember { mutableStateOf(0f) }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .clickable(enabled = !checking && !downloading) {
+                checking = true; status = null; update = null
+                scope.launch {
+                    try {
+                        val info = checker.fetchLatest(includeOlder = false)
+                        update = info
+                        status = if (info == null) "You're on the latest build."
+                                 else "${info.title} available · ${formatBytes(info.sizeBytes)}"
+                    } catch (e: Exception) {
+                        status = "Check failed: ${e.message}"
+                    } finally {
+                        checking = false
+                    }
+                }
+            }
+            .padding(horizontal = 14.dp, vertical = 13.dp),
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        if (selected) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+        IconBox(Icons.Default.SystemUpdate, ColourSystem)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Updates",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                status ?: "v${BuildConfig.VERSION_NAME} · Tap to check",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (downloading) {
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            }
+        }
+        when {
+            checking || downloading -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            update?.isNewerThanInstalled == true -> Button(
+                onClick = {
+                    val info = update ?: return@Button
+                    downloading = true; progress = 0f
+                    scope.launch {
+                        try {
+                            val apk = checker.downloadApk(info) { progress = it }
+                            checker.launchInstaller(apk)
+                            status = "Launching installer…"
+                        } catch (e: Exception) {
+                            status = "Download failed: ${e.message}"
+                        } finally {
+                            downloading = false
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(10.dp),
+            ) { Text("Install") }
+            else -> Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
 // ======================================================================
-//                              Dialogs
+//                               Dialogs
 // ======================================================================
 
 @Composable
@@ -1019,6 +816,43 @@ private fun QualityDialog(
 }
 
 @Composable
+private fun BackendDialog(
+    initialUrl: String,
+    initialToken: String,
+    onSave: (url: String, token: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var url   by remember { mutableStateOf(initialUrl) }
+    var token by remember { mutableStateOf(initialToken) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Backend & HuggingFace") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = url, onValueChange = { url = it },
+                    label = { Text("Backend URL") },
+                    supportingText = { Text("Your StreamCloud FastAPI deployment.") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                )
+                OutlinedTextField(
+                    value = token, onValueChange = { token = it },
+                    label = { Text("HuggingFace token") },
+                    supportingText = { Text("NSFW image gen + image editing.") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(url, token) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
 private fun CollectionsDialog(
     enabled: Set<String>,
     onToggle: (String, Boolean) -> Unit,
@@ -1029,11 +863,9 @@ private fun CollectionsDialog(
         onDismissRequest = onDismiss,
         title = { Text("Home collections") },
         text = {
-            Column(
-                Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
-            ) {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
                 Text(
-                    "Pick which rows show on the Movies tab. The first enabled collection drives the top hero banner.",
+                    "Pick which rows show on the Movies tab.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
@@ -1047,11 +879,8 @@ private fun CollectionsDialog(
                             .clickable { onToggle(c.id, !checked) }
                             .padding(vertical = 4.dp),
                     ) {
-                        Text(
-                            c.emoji,
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
+                        Text(c.emoji, modifier = Modifier.padding(horizontal = 4.dp),
+                            style = MaterialTheme.typography.titleLarge)
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
                             Text(c.title, style = MaterialTheme.typography.titleMedium)
@@ -1068,14 +897,6 @@ private fun CollectionsDialog(
     )
 }
 
-/**
- * Navigation-bar reorder dialog — lets the user shuffle the middle tabs
- * (Movies / Music / AI / Library-or-Adult) with up/down buttons and persists
- * the result as a CSV in [SettingsRepository.setNavTabOrder].
- *
- * Settings is intentionally not in this list — it's pinned at the end of the
- * nav bar so the user can never lose access to this screen.
- */
 @Composable
 private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -1084,15 +905,11 @@ private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
 
     data class NavItem(val id: String, val label: String, val icon: ImageVector)
 
-    // Build the initial ordered list from SettingsRepo. Library is ALWAYS
-    // present; Adult is additive and only appears when the NSFW toggle is on.
-    // Anything missing is appended at the end so a newly-added tab remains
-    // reachable.
     val all = remember(nsfw) {
         buildList {
-            add(NavItem("movies", "Movies", Icons.Default.PlayArrow))
-            add(NavItem("music", "Music", Icons.Default.MusicNote))
-            add(NavItem("ai", "AI", Icons.Default.AutoAwesome))
+            add(NavItem("movies",  "Movies",  Icons.Default.PlayArrow))
+            add(NavItem("music",   "Music",   Icons.Default.MusicNote))
+            add(NavItem("ai",      "AI",      Icons.Default.AutoAwesome))
             add(NavItem("library", "Library", Icons.Default.FormatListBulleted))
             if (nsfw) add(NavItem("adult", "Adult", Icons.Default.Visibility))
         }
@@ -1102,9 +919,9 @@ private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
 
     LaunchedEffect(nsfw) {
         val csv = sl.settings.navTabOrderCsv.first()
-        val savedOrder = csv?.split(",")?.mapNotNull { byId[it.trim()] } ?: emptyList()
-        val remaining = all.filter { it.id !in savedOrder.map(NavItem::id) }
-        order = (savedOrder + remaining).distinctBy { it.id }
+        val saved = csv?.split(",")?.mapNotNull { byId[it.trim()] } ?: emptyList()
+        val remaining = all.filter { it.id !in saved.map(NavItem::id) }
+        order = (saved + remaining).distinctBy { it.id }
     }
 
     AlertDialog(
@@ -1130,31 +947,19 @@ private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
                     ) {
                         Icon(item.icon, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
-                        Text(
-                            item.label,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Text(item.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         IconButton(
                             onClick = {
-                                if (index > 0) {
-                                    order = order.toMutableList().apply {
-                                        val tmp = this[index]
-                                        this[index] = this[index - 1]
-                                        this[index - 1] = tmp
-                                    }
+                                if (index > 0) order = order.toMutableList().apply {
+                                    val t = this[index]; this[index] = this[index - 1]; this[index - 1] = t
                                 }
                             },
                             enabled = index > 0,
                         ) { Icon(Icons.Default.ArrowUpward, "Move up") }
                         IconButton(
                             onClick = {
-                                if (index < order.lastIndex) {
-                                    order = order.toMutableList().apply {
-                                        val tmp = this[index]
-                                        this[index] = this[index + 1]
-                                        this[index + 1] = tmp
-                                    }
+                                if (index < order.lastIndex) order = order.toMutableList().apply {
+                                    val t = this[index]; this[index] = this[index + 1]; this[index + 1] = t
                                 }
                             },
                             enabled = index < order.lastIndex,
@@ -1181,23 +986,21 @@ private fun AboutDialog(onDismiss: () -> Unit) {
         title = { Text("About StreamCloud") },
         text = {
             Column {
-                Text("Version ${BuildConfig.VERSION_NAME} · code ${BuildConfig.VERSION_CODE}",
-                    style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Version ${BuildConfig.VERSION_NAME} · code ${BuildConfig.VERSION_CODE}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 Spacer(Modifier.height(12.dp))
                 TextButton(onClick = {
                     context.startActivity(
-                        Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}"),
-                        ),
+                        Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}")),
                     )
                 }) { Text("Source code (GitHub)") }
                 TextButton(onClick = {
                     context.startActivity(
-                        Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/issues/new"),
-                        ),
+                        Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/issues/new")),
                     )
                 }) {
                     Icon(Icons.Default.BugReport, null, Modifier.size(18.dp))
@@ -1210,192 +1013,13 @@ private fun AboutDialog(onDismiss: () -> Unit) {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun settingsTfColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = MaterialTheme.colorScheme.primary,
-    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-    focusedContainerColor = MaterialTheme.colorScheme.surface,
-    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-)
-
-private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / 1048576.0)
-    bytes >= 1024 -> String.format("%.0f KB", bytes / 1024.0)
-    else -> "$bytes B"
-}
-
-// ======================================================================
-//                              Composite rows
-// ======================================================================
-
-@Composable
-private fun UpdaterRow() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val checker = remember { UpdateChecker(context.applicationContext) }
-
-    var checking by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf<String?>(null) }
-    var update by remember { mutableStateOf<UpdateInfo?>(null) }
-    var downloading by remember { mutableStateOf(false) }
-    var progress by remember { mutableStateOf(0f) }
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = !checking && !downloading) {
-                checking = true; status = null; update = null
-                scope.launch {
-                    try {
-                        val info = checker.fetchLatest(includeOlder = false)
-                        update = info
-                        status = if (info == null) "You're on the latest build."
-                        else "${info.title} available · ${formatBytes(info.sizeBytes)}"
-                    } catch (e: Exception) {
-                        status = "Check failed: ${e.message}"
-                    } finally {
-                        checking = false
-                    }
-                }
-            }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-    ) {
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF5B8DEF).copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Default.SystemUpdate, null, tint = Color(0xFF5B8DEF), modifier = Modifier.size(22.dp))
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                "Updates",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                status ?: "v${BuildConfig.VERSION_NAME} · Tap to check for updates",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (downloading) {
-                Spacer(Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        when {
-            checking || downloading -> CircularProgressIndicator(
-                Modifier.size(20.dp), strokeWidth = 2.dp,
-            )
-            update?.isNewerThanInstalled == true -> Button(
-                onClick = {
-                    val info = update ?: return@Button
-                    downloading = true; progress = 0f
-                    scope.launch {
-                        try {
-                            val apk = checker.downloadApk(info) { progress = it }
-                            checker.launchInstaller(apk)
-                            status = "Launching installer…"
-                        } catch (e: Exception) {
-                            status = "Download failed: ${e.message}"
-                        } finally {
-                            downloading = false
-                        }
-                    }
-                },
-                shape = RoundedCornerShape(10.dp),
-            ) { Text("Install") }
-        }
-    }
-}
-
-/**
- * "YouTube Music account" inline row — tapping opens the WebView login flow
- * which captures the `Cookie:` header and persists it to SettingsRepository.
- */
-@Composable
-private fun YtMusicAccountRow() {
-    val context = LocalContext.current
-    val sl = remember(context) { ServiceLocator.get(context) }
-    val cookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
-    val userName by sl.settings.ytMusicUserName.collectAsState(initial = "")
-    val signedIn = cookie.isNotBlank()
-    val scope = rememberCoroutineScope()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(enabled = !signedIn) {
-                val intent = Intent(
-                    context,
-                    com.aioweb.app.ui.account.YtMusicLoginActivity::class.java,
-                )
-                context.startActivity(intent)
-            }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                if (signedIn) Icons.Default.Logout else Icons.Default.Login,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                if (signedIn) "YouTube Music" else "Sign in to YouTube Music",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                if (signedIn) userName.ifBlank { "Signed in" }
-                else "Personalised mixes, recommendations and library",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (signedIn) {
-            TextButton(onClick = {
-                scope.launch {
-                    sl.settings.clearYtMusicAccount()
-                    com.aioweb.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = ""
-                    runCatching {
-                        android.webkit.CookieManager.getInstance().removeAllCookies(null)
-                    }
-                }
-            }) { Text("Sign out") }
-        }
-    }
-}
-
-
-@Composable
-private fun UiModeDialog(
-    current: String,
-    onPick: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
+private fun UiModeDialog(current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
     val options = listOf(
-        Triple("Auto", "Auto-detect", "Phone, tablet or TV based on the device"),
-        Triple("Mobile", "Mobile", "Compact phone layout"),
-        Triple("Tablet", "Tablet", "Wider canvas, slightly larger text"),
-        Triple("Tv", "TV / leanback", "Largest text, designed for D-pad / remote"),
+        Triple("Auto",   "Auto-detect",  "Phone, tablet or TV based on the device"),
+        Triple("Mobile", "Mobile",       "Compact phone layout"),
+        Triple("Tablet", "Tablet",       "Wider canvas, slightly larger text"),
+        Triple("Tv",     "TV / Leanback","Largest text, designed for D-pad / remote"),
     )
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1403,7 +1027,6 @@ private fun UiModeDialog(
         text = {
             Column {
                 options.forEach { (id, label, sub) ->
-                    val selected = current.equals(id, ignoreCase = true)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -1412,15 +1035,12 @@ private fun UiModeDialog(
                             .clickable { onPick(id) }
                             .padding(horizontal = 8.dp, vertical = 12.dp),
                     ) {
-                        RadioButton(selected = selected, onClick = { onPick(id) })
+                        RadioButton(selected = current.equals(id, ignoreCase = true), onClick = { onPick(id) })
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
                             Text(label, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                sub,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Text(sub, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -1428,4 +1048,10 @@ private fun UiModeDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / 1048576.0)
+    bytes >= 1024        -> String.format("%.0f KB", bytes / 1024.0)
+    else                 -> "$bytes B"
 }
