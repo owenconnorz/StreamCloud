@@ -15,10 +15,13 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
@@ -61,6 +64,7 @@ fun MusicScreen(
     val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
+    var showHistory by remember { mutableStateOf(false) }
     val dlScope = rememberCoroutineScope()
 
     // The Player is now a MediaController bound to our foreground MusicPlaybackService.
@@ -103,7 +107,12 @@ fun MusicScreen(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = if (nowPlaying != null) 96.dp else 12.dp),
         ) {
-            item { MusicHeader(onProfileClick = onProfileClick) }
+            item {
+                MusicHeader(
+                    onProfileClick = onProfileClick,
+                    onHistoryClick = { showHistory = true },
+                )
+            }
             item {
                 MusicSearchField(
                     query = query,
@@ -159,21 +168,6 @@ fun MusicScreen(
                 if (state.liked.isNotEmpty()) {
                     item { SectionTitle("Liked songs") }
                     items(state.liked.take(5), key = { "lib_liked_${it.url}" }) { entity ->
-                        LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
-                            val track = YtTrack(
-                                title = entity.title, uploader = entity.artist,
-                                durationSec = entity.durationSec,
-                                url = entity.url, thumbnail = entity.thumbnail,
-                            )
-                            if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                            else if (state.nowPlayingUrl == track.url) player?.play()
-                            else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
-                        }
-                    }
-                }
-                if (state.recent.isNotEmpty()) {
-                    item { SectionTitle("Recently played") }
-                    items(state.recent.take(8), key = { "lib_rec_${it.url}" }) { entity ->
                         LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
                             val track = YtTrack(
                                 title = entity.title, uploader = entity.artist,
@@ -404,6 +398,25 @@ fun MusicScreen(
         com.aioweb.app.ui.player.GlobalMiniPlayer(
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+
+        if (showHistory) {
+            HistorySheet(
+                recent = state.recent,
+                nowPlayingUrl = state.nowPlayingUrl,
+                isPlaying = isPlaying,
+                onPlay = { entity ->
+                    val track = YtTrack(
+                        title = entity.title, uploader = entity.artist,
+                        durationSec = entity.durationSec,
+                        url = entity.url, thumbnail = entity.thumbnail,
+                    )
+                    if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
+                    else if (state.nowPlayingUrl == track.url) player?.play()
+                    else vm.play(track) { audioUrl -> player?.let { p -> playTrack(p, track, audioUrl) } }
+                },
+                onDismiss = { showHistory = false },
+            )
+        }
     }
 }
 
@@ -446,27 +459,96 @@ private fun playTrack(player: androidx.media3.common.Player, track: YtTrack, aud
 }
 
 @Composable
-private fun MusicHeader(onProfileClick: () -> Unit) {
+private fun MusicHeader(
+    onProfileClick: () -> Unit,
+    onHistoryClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, top = 16.dp, end = 14.dp, bottom = 8.dp),
+            .padding(start = 20.dp, top = 16.dp, end = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                "Listen now",
-                style = MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Black,
+        Text(
+            "Music",
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onHistoryClick) {
+            Icon(
+                Icons.Default.History,
+                contentDescription = "Recently played",
+                tint = MaterialTheme.colorScheme.onBackground,
             )
-            Text(
-                "Your music. From everywhere.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        }
+        IconButton(onClick = {}) {
+            Icon(
+                Icons.Default.TrendingUp,
+                contentDescription = "Trending",
+                tint = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+        IconButton(onClick = {}) {
+            Icon(
+                Icons.Default.Group,
+                contentDescription = "Friends",
+                tint = MaterialTheme.colorScheme.onBackground,
             )
         }
         com.aioweb.app.ui.components.ProfileButton(onClick = onProfileClick)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HistorySheet(
+    recent: List<com.aioweb.app.data.library.TrackEntity>,
+    nowPlayingUrl: String?,
+    isPlaying: Boolean,
+    onPlay: (com.aioweb.app.data.library.TrackEntity) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.background,
+    ) {
+        Text(
+            "Recently played",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        )
+        if (recent.isEmpty()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(48.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Nothing played yet",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            androidx.compose.foundation.lazy.LazyColumn(
+                contentPadding = PaddingValues(bottom = 40.dp),
+            ) {
+                items(recent, key = { "hist_${it.url}" }) { entity ->
+                    LibraryRow(
+                        entity = entity,
+                        isPlaying = isPlaying && nowPlayingUrl == entity.url,
+                        onClick = { onPlay(entity) },
+                    )
+                }
+            }
+        }
     }
 }
 
