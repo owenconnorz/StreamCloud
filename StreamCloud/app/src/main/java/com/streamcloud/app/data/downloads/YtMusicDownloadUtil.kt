@@ -11,6 +11,7 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import com.streamcloud.app.data.newpipe.NewPipeRepository
+import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,8 +70,10 @@ object YtMusicDownloadUtil {
                 return@Factory dataSpec
             }
 
+            val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
             val streamUrl = runBlocking(Dispatchers.IO) {
-                NewPipeRepository.resolveAudioStream(watchUrl)
+                (if (videoId.isNotBlank()) YtPlayerUtils.resolveAudioStream(videoId) else null)
+                    ?: NewPipeRepository.resolveAudioStream(watchUrl)
             }
             dataSpec.withUri(streamUrl.toUri())
         }
