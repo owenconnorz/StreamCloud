@@ -43,7 +43,7 @@ android {
     }
 
     signingConfigs {
-        // Fallback debug-style keystore committed at AioWebAndroid/streamcloud-debug.jks.
+        // Fallback debug-style keystore committed at StreamCloud/streamcloud-debug.jks.
         // Successive CI builds use the same key, so the in-app updater can install updates
         // over previous releases. Anyone can replace it by setting KEYSTORE_PATH (or
         // KEYSTORE_BASE64 in CI) to a real release keystore.

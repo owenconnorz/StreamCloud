@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AioWebAndroid"
+rootProject.name = "StreamCloud"
 include(":app")
