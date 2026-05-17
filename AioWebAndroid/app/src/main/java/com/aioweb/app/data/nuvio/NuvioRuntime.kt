@@ -805,22 +805,58 @@ object NuvioRuntime {
     }
     private fun buildJson(block: JsonBuilder.() -> Unit): String = JsonBuilder().also(block).build()
 
+    /**
+     * Parse the JSON array returned by a provider's `getStreams()` into a list of
+     * [NuvioStream] objects.  Different Nuvio repo forks use slightly different
+     * field names and structures, so we try a range of alternatives:
+     *
+     *  • `url` / `stream_url` / `streamUrl` / `link` / `href`
+     *  • `name` / `label` / `description`  (display label)
+     *  • `quality` / `resolution` / `res` / `qualityTag` / `quality_tag`
+     *  • `headers` as a flat `{key:value}` object OR as an array of
+     *    `[{name:"Referer",value:"https://…"},…]` entries
+     *  • Bare string items in the array are treated as plain URLs
+     */
     private fun parseStreams(json: String): List<NuvioStream> {
         if (json.isBlank() || json == "null") return emptyList()
-        val element = runCatching {
-            kotlinx.serialization.json.Json.parseToJsonElement(json)
-        }.getOrNull() ?: return emptyList()
+        val J = kotlinx.serialization.json.Json
+
+        fun prim(o: kotlinx.serialization.json.JsonObject, vararg keys: String): String? =
+            keys.firstNotNullOfOrNull { k -> (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() } }
+
+        val element = runCatching { J.parseToJsonElement(json) }.getOrNull() ?: return emptyList()
         val arr = element as? kotlinx.serialization.json.JsonArray ?: return emptyList()
         return arr.mapNotNull { item ->
-            val obj = item as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
-            val url = (obj["url"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-                ?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val name = (obj["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-            val title = (obj["title"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-            val quality = (obj["quality"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-            val headers = (obj["headers"] as? kotlinx.serialization.json.JsonObject)
-                ?.mapValues { (_, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() }
-            NuvioStream(name = name, title = title, url = url, quality = quality, headers = headers)
+            when (item) {
+                // Bare string — treat as URL directly.
+                is kotlinx.serialization.json.JsonPrimitive -> {
+                    val u = item.content.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    NuvioStream(url = u)
+                }
+                is kotlinx.serialization.json.JsonObject -> {
+                    val url = prim(item, "url", "stream_url", "streamUrl", "link", "href")
+                        ?: return@mapNotNull null
+                    val name    = prim(item, "name", "label", "description")
+                    val title   = prim(item, "title")
+                    val quality = prim(item, "quality", "resolution", "res", "qualityTag", "quality_tag")
+                    val headers: Map<String, String>? = when (val h = item["headers"]) {
+                        is kotlinx.serialization.json.JsonObject ->
+                            h.mapValues { (_, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() }
+                                .filterKeys { it.isNotBlank() }
+                        is kotlinx.serialization.json.JsonArray ->
+                            // [{name:"Referer", value:"https://…"}, …] format
+                            h.filterIsInstance<kotlinx.serialization.json.JsonObject>()
+                                .mapNotNull { entry ->
+                                    val k = (entry["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                                    val v = (entry["value"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                                    k to v
+                                }.toMap()
+                        else -> null
+                    }
+                    NuvioStream(name = name, title = title, url = url, quality = quality, headers = headers)
+                }
+                else -> null
+            }
         }
     }
 }
