@@ -133,6 +133,13 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var contentLanguage     by remember { mutableStateOf("en") }
     var contentCountry      by remember { mutableStateOf("US") }
 
+    // Lyrics
+    var lyricsSource        by remember { mutableStateOf("lrclib") }
+    var syncedLyrics        by remember { mutableStateOf(true) }
+
+    // Audio
+    var loudnessNorm        by remember { mutableStateOf(false) }
+
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
     var showQualityAudioDialog  by remember { mutableStateOf(false) }
     var showEqDialog            by remember { mutableStateOf(false) }
@@ -145,6 +152,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var showCrossfadeDialog     by remember { mutableStateOf(false) }
     var showLanguageDialog      by remember { mutableStateOf(false) }
     var showCountryDialog       by remember { mutableStateOf(false) }
+    var showLyricsSourceDialog  by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         backendUrl          = sl.settings.backendUrl.first()
@@ -173,6 +181,9 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         crossfadeDuration   = sl.settings.crossfadeDuration.first()
         listenHistory       = sl.settings.listenHistoryEnabled.first()
         pauseListenHistory  = sl.settings.pauseListenHistory.first()
+        lyricsSource        = sl.settings.lyricsSource.first()
+        syncedLyrics        = sl.settings.syncedLyrics.first()
+        loudnessNorm        = sl.settings.loudnessNormalization.first()
         safeSearch          = sl.settings.safeSearch.first()
         explicitContent     = sl.settings.explicitContent.first()
         contentLanguage     = sl.settings.contentLanguage.first()
@@ -349,10 +360,39 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
             SettingDivider()
             SettingToggle(
                 icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                title = "Loudness normalization",
+                subtitle = "Reduce volume differences between tracks",
+                checked = loudnessNorm,
+                onChange = { loudnessNorm = it; scope.launch { sl.settings.setLoudnessNormalization(it) } },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.GraphicEq, tint = ColourPlayer,
                 title = "Bass boost",
                 subtitle = "Adds extra low-end punch",
                 checked = bassBoost,
                 onChange = { bassBoost = it; scope.launch { sl.settings.setBassBoost(it) } },
+            )
+        }
+        SettingsGroup {
+            SubSectionLabel("Lyrics")
+            SettingNav(
+                icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                title = "Lyrics source",
+                value = when (lyricsSource) {
+                    "musixmatch" -> "Musixmatch"
+                    "genius"     -> "Genius"
+                    else         -> "LRCLib"
+                },
+                onClick = { showLyricsSourceDialog = true },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                title = "Synchronized lyrics",
+                subtitle = "Show time-synced scrolling lyrics when available",
+                checked = syncedLyrics,
+                onChange = { syncedLyrics = it; scope.launch { sl.settings.setSyncedLyrics(it) } },
             )
         }
 
@@ -712,6 +752,19 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
             selected = contentCountry,
             onSelect = { contentCountry = it; scope.launch { sl.settings.setContentCountry(it) }; showCountryDialog = false },
             onDismiss = { showCountryDialog = false },
+        )
+    }
+    if (showLyricsSourceDialog) {
+        QualityDialog(
+            title = "Lyrics source",
+            options = listOf(
+                "lrclib"     to "LRCLib (default, free)",
+                "musixmatch" to "Musixmatch",
+                "genius"     to "Genius",
+            ),
+            selected = lyricsSource,
+            onSelect = { lyricsSource = it; scope.launch { sl.settings.setLyricsSource(it) }; showLyricsSourceDialog = false },
+            onDismiss = { showLyricsSourceDialog = false },
         )
     }
     if (showUiModeDialog) {

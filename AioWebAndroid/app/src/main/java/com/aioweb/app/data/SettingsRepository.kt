@@ -59,6 +59,13 @@ object SettingsKeys {
     val EXPLICIT_CONTENT        = booleanPreferencesKey("explicit_content")
     val CONTENT_LANGUAGE        = stringPreferencesKey("content_language")  // BCP-47, e.g. "en"
     val CONTENT_COUNTRY         = stringPreferencesKey("content_country")   // ISO 3166-1, e.g. "US"
+
+    // Lyrics
+    val LYRICS_SOURCE           = stringPreferencesKey("lyrics_source")     // "lrclib" / "musixmatch" / "genius"
+    val SYNCED_LYRICS           = booleanPreferencesKey("synced_lyrics")
+
+    // Audio
+    val LOUDNESS_NORMALIZATION  = booleanPreferencesKey("loudness_normalization")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -222,4 +229,16 @@ class SettingsRepository(private val context: Context) {
     suspend fun setExplicitContent(b: Boolean) = context.dataStore.edit { it[SettingsKeys.EXPLICIT_CONTENT] = b }
     suspend fun setContentLanguage(s: String) = context.dataStore.edit { it[SettingsKeys.CONTENT_LANGUAGE] = s }
     suspend fun setContentCountry(s: String) = context.dataStore.edit { it[SettingsKeys.CONTENT_COUNTRY] = s }
+
+    // Lyrics
+    val lyricsSource: Flow<String> = context.dataStore.data.map { it[SettingsKeys.LYRICS_SOURCE] ?: "lrclib" }
+    val syncedLyrics: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.SYNCED_LYRICS] ?: true }
+
+    suspend fun setLyricsSource(s: String) = context.dataStore.edit { it[SettingsKeys.LYRICS_SOURCE] = s }
+    suspend fun setSyncedLyrics(b: Boolean) = context.dataStore.edit { it[SettingsKeys.SYNCED_LYRICS] = b }
+
+    // Audio
+    val loudnessNormalization: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.LOUDNESS_NORMALIZATION] ?: false }
+
+    suspend fun setLoudnessNormalization(b: Boolean) = context.dataStore.edit { it[SettingsKeys.LOUDNESS_NORMALIZATION] = b }
 }
