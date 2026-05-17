@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.util.Collections
 import java.util.concurrent.TimeUnit
 
 /**
@@ -70,7 +71,7 @@ class TorrServerBinary(private val context: Context) {
             binaryFile.setExecutable(true)
         }
 
-        Log.d(TAG, "Starting TorrServer on port $PORT from ${binaryFile.absolutePath}")
+        Log.d(TAG, "Starting TorrServer port=$PORT binary=${binaryFile.absolutePath}")
         val pb = ProcessBuilder(
             binaryFile.absolutePath,
             "--port", PORT.toString(),
@@ -78,17 +79,33 @@ class TorrServerBinary(private val context: Context) {
         )
         pb.directory(configDir)
         pb.redirectErrorStream(true)
+
+        // Go binaries on Android need HOME and TMPDIR set; without them the runtime
+        // may panic or exit immediately (manifests as exit=127 on some devices).
+        pb.environment().apply {
+            put("HOME", context.filesDir.absolutePath)
+            put("TMPDIR", context.cacheDir.absolutePath)
+            put("PATH", "/system/bin:/system/xbin")
+            // Prevent Go from using a VGA/audio terminal that doesn't exist.
+            put("TERM", "dumb")
+        }
+
         process = pb.start()
 
-        // Forward stdout/stderr to logcat in a daemon thread.
+        // Collect output lines for diagnostics — captures what TorrServer prints
+        // before dying so we can surface the real error message to the user.
+        val outputLines: MutableList<String> = Collections.synchronizedList(mutableListOf())
         val proc = process!!
         Thread {
             try {
-                proc.inputStream.bufferedReader().forEachLine { Log.d(TAG, "[ts] $it") }
+                proc.inputStream.bufferedReader().forEachLine { line ->
+                    Log.d(TAG, "[ts] $line")
+                    outputLines.add(line)
+                }
             } catch (_: Exception) {}
         }.apply { isDaemon = true; start() }
 
-        // Wait for healthy response, detect early crash.
+        // Wait for healthy response; detect early crash.
         val deadline = System.currentTimeMillis() + STARTUP_TIMEOUT_MS
         while (System.currentTimeMillis() < deadline) {
             if (isRunning()) {
@@ -97,14 +114,18 @@ class TorrServerBinary(private val context: Context) {
             }
             if (!isProcessAlive(process)) {
                 val code = runCatching { process?.exitValue() }.getOrNull() ?: -1
+                // Give the output-reader thread a moment to drain remaining lines.
+                Thread.sleep(150)
+                val output = outputLines.take(8).joinToString(" | ").take(300).ifEmpty { "(no output)" }
                 process = null
-                throw TorrentException("TorrServer process died on launch (exit=$code)")
+                throw TorrentException("TorrServer died (exit=$code) $output")
             }
             delay(HEALTH_CHECK_INTERVAL_MS)
         }
 
         stop()
-        throw TorrentException("TorrServer did not respond within ${STARTUP_TIMEOUT_MS / 1000}s")
+        val output = outputLines.take(8).joinToString(" | ").take(300).ifEmpty { "(no output)" }
+        throw TorrentException("TorrServer timeout (${STARTUP_TIMEOUT_MS / 1000}s) $output")
     }
 
     private fun killOrphanedProcess() {
