@@ -612,7 +612,7 @@ private fun SectionTitle(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.headlineSmall,
-        color = MaterialTheme.colorScheme.onBackground,
+        color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
     )
