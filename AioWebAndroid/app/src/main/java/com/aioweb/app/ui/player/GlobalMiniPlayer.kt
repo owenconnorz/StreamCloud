@@ -39,8 +39,10 @@ import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
 import com.aioweb.app.audio.MusicController
 import com.aioweb.app.audio.PlaybackBus
+import com.aioweb.app.data.ServiceLocator
 import com.aioweb.app.data.downloads.MusicDownloader
 import com.aioweb.app.data.library.LibraryDb
+import com.aioweb.app.data.ytmusic.YtMusicLibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -64,6 +66,8 @@ fun GlobalMiniPlayer(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
 
     var controller by remember { mutableStateOf<Player?>(null) }
     var title by remember { mutableStateOf<String?>(null) }
@@ -191,12 +195,16 @@ fun GlobalMiniPlayer(
                 }
                 IconButton(onClick = {
                     val mediaId = nowMediaId ?: return@IconButton
+                    val nowLiked = isLiked
                     scope.launch {
                         withContext(Dispatchers.IO) {
                             val dao = LibraryDb.get(context).tracks()
-                            val now = if (isLiked) null else System.currentTimeMillis()
-                            dao.setLikedAt(mediaId, now)
-                            isLiked = !isLiked
+                            dao.setLikedAt(mediaId, if (nowLiked) null else System.currentTimeMillis())
+                            isLiked = !nowLiked
+                            val videoId = mediaId.substringAfter("v=").substringBefore("&")
+                                .takeIf { it.isNotBlank() } ?: return@withContext
+                            if (nowLiked) YtMusicLibraryRepository.unlikeSong(ytCookie, videoId)
+                            else YtMusicLibraryRepository.likeSong(ytCookie, videoId)
                         }
                     }
                 }) {
