@@ -251,8 +251,24 @@ fun NowPlayingShell(
                     onClick = {
                         val mid = mediaId ?: return@PillButton
                         if (isDownloaded || downloadProgress != null) return@PillButton
-                        scope.launch {
-                            runCatching { MusicDownloader.download(context, mid, title) }
+                        val videoId = mid
+                            .substringAfter("v=", missingDelimiterValue = "")
+                            .substringBefore('&')
+                            .takeIf { it.isNotBlank() }
+                        if (videoId != null) {
+                            com.aioweb.app.data.ytmusic.YtPlayback.downloadSong(
+                                context,
+                                com.aioweb.app.data.ytmusic.YtmSong(
+                                    videoId = videoId,
+                                    title = title,
+                                    artist = "",
+                                    album = null,
+                                    thumbnail = null,
+                                    durationSeconds = null,
+                                ),
+                            )
+                        } else {
+                            scope.launch { runCatching { MusicDownloader.download(context, mid, title) } }
                         }
                     },
                 )
