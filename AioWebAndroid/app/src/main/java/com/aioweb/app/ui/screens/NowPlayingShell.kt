@@ -3,9 +3,13 @@ package com.aioweb.app.ui.screens
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +45,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -149,6 +155,9 @@ fun NowPlayingShell(
     )
     val onBg = if (animDominant.luminance() > 0.5f) Color(0xFF111111) else Color.White
 
+    // ── Artwork swipe (Metrolist) — horizontal drag skips tracks ─────────────
+    val artworkSwipeX = remember { Animatable(0f) }
+
     // ── Lyrics fetch (Metrolist) ─────────────────────────────────────────────
     var showLyrics by remember { mutableStateOf(false) }
     var lyrics by remember(mediaId) { mutableStateOf<com.aioweb.app.data.lyrics.LrcEntry?>(null) }
@@ -213,19 +222,60 @@ fun NowPlayingShell(
 
             Spacer(Modifier.height(12.dp))
 
-            // ── 1:1 high-res artwork
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                AsyncImage(
-                    model = artwork,
-                    contentDescription = title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
+            // ── 1:1 high-res artwork — swipe left = next, right = previous
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .pointerInput(controller) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            var totalX = 0f
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) break
+                                totalX += change.positionChange().x
+                                change.consume()
+                                launch { artworkSwipeX.snapTo(totalX) }
+                            }
+                            val threshold = size.width * 0.28f
+                            when {
+                                totalX < -threshold -> launch {
+                                    artworkSwipeX.animateTo(-size.width.toFloat(), tween(220))
+                                    controller.seekToNextMediaItem()
+                                    artworkSwipeX.snapTo(size.width.toFloat())
+                                    artworkSwipeX.animateTo(0f, tween(300))
+                                }
+                                totalX > threshold -> launch {
+                                    artworkSwipeX.animateTo(size.width.toFloat(), tween(220))
+                                    controller.seekToPreviousMediaItem()
+                                    artworkSwipeX.snapTo(-size.width.toFloat())
+                                    artworkSwipeX.animateTo(0f, tween(300))
+                                }
+                                else -> launch {
+                                    artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
+                                }
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
                         .fillMaxWidth(0.92f)
                         .aspectRatio(1f)
+                        .offset { IntOffset(artworkSwipeX.value.roundToInt(), 0) }
                         .shadow(20.dp, RoundedCornerShape(20.dp))
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color.Black.copy(alpha = 0.25f)),
-                )
+                ) {
+                    AsyncImage(
+                        model = artwork,
+                        contentDescription = title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
 
             Spacer(Modifier.height(20.dp))
