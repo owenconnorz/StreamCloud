@@ -10,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -230,7 +229,6 @@ fun NowPlayingShell(
                 Modifier
                     .fillMaxWidth()
                     .pointerInput(controller) {
-                        val scope = this
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false)
                             var totalX = 0f
@@ -238,27 +236,25 @@ fun NowPlayingShell(
                                 val event = awaitPointerEvent()
                                 val change = event.changes.firstOrNull() ?: break
                                 if (!change.pressed) break
-                                totalX += change.positionChange().x
+                                totalX += (change.position - change.previousPosition).x
                                 change.consume()
-                                scope.launch { artworkSwipeX.snapTo(totalX) }
+                                artworkSwipeX.snapTo(totalX)
                             }
                             val threshold = size.width * 0.28f
                             when {
-                                totalX < -threshold -> scope.launch {
+                                totalX < -threshold -> {
                                     artworkSwipeX.animateTo(-size.width.toFloat(), tween(220))
                                     controller.seekToNextMediaItem()
                                     artworkSwipeX.snapTo(size.width.toFloat())
                                     artworkSwipeX.animateTo(0f, tween(300))
                                 }
-                                totalX > threshold -> scope.launch {
+                                totalX > threshold -> {
                                     artworkSwipeX.animateTo(size.width.toFloat(), tween(220))
                                     controller.seekToPreviousMediaItem()
                                     artworkSwipeX.snapTo(-size.width.toFloat())
                                     artworkSwipeX.animateTo(0f, tween(300))
                                 }
-                                else -> scope.launch {
-                                    artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
-                                }
+                                else -> artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
                             }
                         }
                     },
