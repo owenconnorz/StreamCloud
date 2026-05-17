@@ -39,6 +39,8 @@ import com.aioweb.app.data.ServiceLocator
 import com.aioweb.app.data.ytmusic.YtMusicLibraryRepository
 import com.aioweb.app.data.ytmusic.YtPlayback
 import com.aioweb.app.data.ytmusic.YtmSong
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.aioweb.app.ui.util.verticalScrollbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -164,7 +166,15 @@ fun YtPlaylistScreen(
                 )
             }
 
-            list != null -> LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            list != null -> {
+                val listState = rememberLazyListState()
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .verticalScrollbar(listState),
+                ) {
                 item {
                     PlaylistHero(
                         title = title,
@@ -193,6 +203,8 @@ fun YtPlaylistScreen(
                 }
                 item { Spacer(Modifier.height(80.dp)) }
             }
+            }  // closes list != null branch
+
         }
 
         if (showPlaylistMenu) {
