@@ -59,6 +59,8 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.aioweb.app.torrent.TorrentService
+import com.aioweb.app.torrent.TorrentState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -76,7 +78,7 @@ import kotlinx.coroutines.withContext
  *  - Center: large play/pause button
  *
  * Supports HLS (.m3u8), DASH (.mpd), progressive (MP4/MKV/WEBM) and `magnet:`/`.torrent`
- * (proxied through libtorrent4j + NanoHTTPD via [TorrentStreamServer]).
+ * (proxied through TorrServer Go binary via [com.aioweb.app.torrent.TorrentService]).
  */
 @OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @SuppressLint("UnsafeOptInUsageError")
@@ -110,13 +112,15 @@ fun NativePlayerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // --- Stream resolution (handle magnets through TorrentStreamServer) -------------------------
+    // --- Stream resolution -----------------------------------------------------------------------
+    // Torrents are handled by TorrentService (TorrServer Go binary) which starts a local
+    // HTTP server and streams piece-by-piece to ExoPlayer.  All other URLs resolve directly.
     var resolvedUrl by remember { mutableStateOf<String?>(null) }
     var resolveError by remember { mutableStateOf<String?>(null) }
-    val torrentServer = remember { mutableStateOf<TorrentStreamServer?>(null) }
+    val torrentService = remember { TorrentService(context.applicationContext) }
+    val torrentState by torrentService.state.collectAsState()
 
     LaunchedEffect(streamUrl, restartKey) {
-        // Always reset state so the loading spinner / error clears for each new stream.
         resolvedUrl = null
         resolveError = null
 
@@ -125,31 +129,19 @@ fun NativePlayerScreen(
             streamUrl.endsWith(".torrent", true)
 
         if (isTorrent) {
-            // Tear down any previous torrent session before starting a new one.
-            torrentServer.value?.stop()
-            torrentServer.value = null
-
-            val server = TorrentStreamServer(context.applicationContext)
-            torrentServer.value = server
-            // Run the blocking metadata-fetch + HTTP server startup directly in
-            // this LaunchedEffect coroutine (on IO dispatcher) — NOT in a nested
-            // scope.launch.  A nested launch would outlive any key-change
-            // cancellation of the outer LaunchedEffect, causing multiple concurrent
-            // torrent sessions and stale resolvedUrl overwrites.
             val proxied = withContext(Dispatchers.IO) {
-                // Use try/catch instead of runCatching so CancellationException is
-                // re-thrown and cooperative cancellation works correctly — runCatching
-                // would swallow it and incorrectly set resolveError when the user
-                // navigates away while the torrent is still fetching metadata.
-                try { server.start(streamUrl) } catch (e: Throwable) {
+                try {
+                    torrentService.startStreamFromMagnet(streamUrl)
+                } catch (e: Throwable) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
+                    android.util.Log.e("NativePlayer", "Torrent start failed", e)
                     null
                 }
             }
-            // If the LaunchedEffect was cancelled (user navigated away), the
-            // CancellationException above will have propagated and we never reach here.
-            if (proxied == null) resolveError = "Could not fetch torrent metadata.\nCheck your network or try a different stream."
-            else resolvedUrl = proxied
+            if (proxied == null)
+                resolveError = "Could not start torrent stream.\nCheck your network or try a different stream."
+            else
+                resolvedUrl = proxied
         } else {
             resolvedUrl = streamUrl
         }
@@ -241,8 +233,7 @@ fun NativePlayerScreen(
         onDispose {
             player.value?.release()
             player.value = null
-            torrentServer.value?.stop()
-            torrentServer.value = null
+            torrentService.shutdown()
         }
     }
     // Auto-pause when the app is backgrounded (Home / recent apps) — ExoPlayer
@@ -595,9 +586,24 @@ fun NativePlayerScreen(
                 } else {
                     CircularProgressIndicator(color = Color.White)
                     Spacer(Modifier.height(12.dp))
+                    val loadingText = when {
+                        streamUrl.startsWith("magnet:", true) ||
+                        streamUrl.contains("&_sc_fidx=", ignoreCase = true) -> {
+                            when (val ts = torrentState) {
+                                is TorrentState.Connecting -> "Connecting to peers…"
+                                is TorrentState.Streaming  -> {
+                                    val peers = ts.peers
+                                    val dl    = ts.downloadSpeed / 1024
+                                    if (peers > 0) "Buffering • $peers peers • ${dl} KB/s"
+                                    else "Buffering…"
+                                }
+                                else -> "Connecting to peers…"
+                            }
+                        }
+                        else -> "Loading…"
+                    }
                     Text(
-                        if (streamUrl.startsWith("magnet:", true))
-                            "Connecting to peers…" else "Loading…",
+                        loadingText,
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium,
                     )

@@ -151,12 +151,10 @@ dependencies {
     implementation("androidx.media3:media3-session:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
 
-    // Torrent / P2P streaming (libtorrent4j + tiny embedded HTTP server feeding ExoPlayer)
-    implementation("org.libtorrent4j:libtorrent4j:2.1.0-32")
-    implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-32")
-    implementation("org.libtorrent4j:libtorrent4j-android-arm:2.1.0-32")
-    implementation("org.libtorrent4j:libtorrent4j-android-x86_64:2.1.0-32")
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    // Torrent / P2P streaming via TorrServer (Go binary in jniLibs/).
+    // TorrServer exposes a local HTTP server with Range support that ExoPlayer
+    // can stream from directly — no Java-level piece-gating needed.
+    // (libtorrent4j + nanohttpd replaced; see com.aioweb.app.torrent.*)
 
     // NewPipe Extractor (YouTube music/videos without API keys)
     // We exclude its transitive Rhino artifacts; we already pull mainline

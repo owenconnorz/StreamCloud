@@ -176,7 +176,7 @@ fun StremioDetailScreen(
  *   1. `s.url` — direct HTTP/HTTPS stream or bare magnet link from the addon.
  *   2. `s.infoHash` — build a magnet, enriched with:
  *       • tracker URLs from `s.sources` (items prefixed with "tracker:")
- *       • `_sc_fidx` hint so [TorrentStreamServer] picks the right file
+ *       • `_sc_fidx` hint so [com.aioweb.app.torrent.TorrentService] picks the right file
  *
  * Returns `null` if neither field is populated (stream has no usable URL).
  */
@@ -195,7 +195,7 @@ private fun buildStreamUrl(s: StremioStream): String? {
 
     val magnet = "magnet:?xt=urn:btih:$hash$trackerParams"
 
-    // Append the file index so TorrentStreamServer picks the exact file.
+    // Append the file index so TorrentService picks the exact file.
     return if (s.fileIdx != null) "$magnet&_sc_fidx=${s.fileIdx}" else magnet
 }
 
