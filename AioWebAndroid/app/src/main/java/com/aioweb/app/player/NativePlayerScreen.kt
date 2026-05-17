@@ -116,15 +116,31 @@ fun NativePlayerScreen(
     val torrentServer = remember { mutableStateOf<TorrentStreamServer?>(null) }
 
     LaunchedEffect(streamUrl, restartKey) {
-        val isTorrent = streamUrl.startsWith("magnet:", true) || streamUrl.endsWith(".torrent", true)
+        // Always reset state so the loading spinner / error clears for each new stream.
+        resolvedUrl = null
+        resolveError = null
+
+        val isTorrent = streamUrl.startsWith("magnet:", true) ||
+            streamUrl.contains("&_sc_fidx=", ignoreCase = true) ||
+            streamUrl.endsWith(".torrent", true)
+
         if (isTorrent) {
+            // Tear down any previous torrent session before starting a new one.
+            torrentServer.value?.stop()
+            torrentServer.value = null
+
             val server = TorrentStreamServer(context.applicationContext)
             torrentServer.value = server
-            scope.launch {
-                val proxied = withContext(Dispatchers.IO) {
-                    runCatching { server.start(streamUrl) }.getOrNull()
-                }
-                if (proxied == null) resolveError = "Could not fetch torrent metadata."
+            // Run the blocking metadata-fetch + HTTP server startup directly in
+            // this LaunchedEffect coroutine (on IO dispatcher) — NOT in a nested
+            // scope.launch.  A nested launch would outlive any key-change
+            // cancellation of the outer LaunchedEffect, causing multiple concurrent
+            // torrent sessions and stale resolvedUrl overwrites.
+            val proxied = withContext(Dispatchers.IO) {
+                runCatching { server.start(streamUrl) }.getOrNull()
+            }
+            if (isActive) {  // Guard: composable may have left by the time download finishes.
+                if (proxied == null) resolveError = "Could not fetch torrent metadata.\nCheck your network or try a different stream."
                 else resolvedUrl = proxied
             }
         } else {
