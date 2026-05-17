@@ -211,13 +211,36 @@ object YtMusicLibraryRepository {
             return null
         }
 
-        // Token helper that checks the shelf itself first, then walks up to
-        // sectionListRenderer (which is where YouTube puts the continuation for
-        // musicPlaylistShelfRenderer — the shelf itself has no continuations array).
-        fun tokenFor(shelf: JsonObject): String? =
-            shelfToken(shelf)
-                ?: (response.findFirst("sectionListRenderer") as? JsonObject)?.let { shelfToken(it) }
-                ?: response.findContinuationToken()
+        // Token helper — ONLY follows `continuations[]` arrays with the standard
+        // wrapper types.  Deliberately never falls back to `continuationCommand`
+        // because that key also appears inside individual song items for radio/
+        // autoplay navigation, and using one of those tokens would fetch a radio
+        // mix instead of the next playlist page.
+        fun tokenFor(shelf: JsonObject): String? {
+            // 1. Shelf's own continuations[] (continuation pages carry it here)
+            shelfToken(shelf)?.let { return it }
+            // 2. Parent sectionListRenderer.continuations[] (initial browse pages
+            //    put the playlist token here, not inside musicPlaylistShelfRenderer)
+            (response.findFirst("sectionListRenderer") as? JsonObject)
+                ?.let { shelfToken(it) }?.let { return it }
+            // 3. Any continuations[] anywhere in the response — still only the
+            //    nextContinuationData / timedContinuationData family, no commands.
+            for (cs in response.findAll("continuations")) {
+                val arr = cs as? JsonArray ?: continue
+                for (entry in arr) {
+                    val obj = entry as? JsonObject ?: continue
+                    for (key in listOf(
+                        "nextContinuationData", "nextRadioContinuationData",
+                        "timedContinuationData", "reloadContinuationData",
+                    )) {
+                        (obj[key] as? JsonObject)?.get("continuation")
+                            ?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                            ?.let { return it }
+                    }
+                }
+            }
+            return null  // no more pages
+        }
 
         // ── 1. Initial browse — musicPlaylistShelfRenderer (standard user playlists) ─
         (response.findFirst("musicPlaylistShelfRenderer") as? JsonObject)?.let { shelf ->
