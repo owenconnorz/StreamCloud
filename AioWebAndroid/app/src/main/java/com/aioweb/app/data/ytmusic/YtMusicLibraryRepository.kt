@@ -138,19 +138,68 @@ object YtMusicLibraryRepository {
             val browseId = if (playlistId.startsWith("VL")) playlistId else "VL$playlistId"
             val first = client.browse(browseId) ?: return@withContext emptyList()
 
+            // ── Debug: log the top-level keys and continuation-related keys found ──
+            Log.d(TAG, "playlist[$playlistId] first-page top-level keys: ${first.keys}")
+            val firstContKeys = first.keys.filter { it.contains("continuation", ignoreCase = true) }
+            Log.d(TAG, "playlist[$playlistId] first-page continuation-like keys: $firstContKeys")
+            // Log whether continuationContents / onResponseReceivedActions / continuations present
+            Log.d(TAG, "playlist[$playlistId] has 'continuationContents'=${first.containsKey("continuationContents")}")
+            Log.d(TAG, "playlist[$playlistId] has 'onResponseReceivedActions'=${first.containsKey("onResponseReceivedActions")}")
+            Log.d(TAG, "playlist[$playlistId] findAll('continuations').size=${first.findAll("continuations").size}")
+            Log.d(TAG, "playlist[$playlistId] findAll('continuationItemRenderer').size=${first.findAll("continuationItemRenderer").size}")
+            Log.d(TAG, "playlist[$playlistId] findAll('continuationCommand').size=${first.findAll("continuationCommand").size}")
+            // Dump the wrapper key names inside any continuations arrays found
+            first.findAll("continuations").forEachIndexed { i, cs ->
+                val arr = cs as? kotlinx.serialization.json.JsonArray
+                arr?.forEachIndexed { j, entry ->
+                    val keys = (entry as? kotlinx.serialization.json.JsonObject)?.keys
+                    Log.d(TAG, "playlist[$playlistId] continuations[$i][$j].keys=$keys")
+                }
+            }
+            // ── End debug ──
+
             val collected = mutableListOf<YtmSong>()
-            collected += first.collectResponsiveListItems().mapNotNull { parseResponsiveSong(it) }
+            val firstItems = first.collectResponsiveListItems()
+            val firstSongs = firstItems.mapNotNull { parseResponsiveSong(it) }
+            Log.d(TAG, "playlist[$playlistId] page0: renderers=${firstItems.size} parsed=${firstSongs.size}")
+            collected += firstSongs
 
             var token = first.findContinuationToken()
+            Log.d(TAG, "playlist[$playlistId] page0 token=${token?.take(40)}")
             // Cap at 50 pages (~5000 songs) so a runaway response doesn't loop forever.
             var safetyPages = 50
+            var pageNum = 1
             while (!token.isNullOrBlank() && safetyPages-- > 0) {
-                val page = client.browseContinuation(token) ?: break
+                val page = client.browseContinuation(token) ?: run {
+                    Log.w(TAG, "playlist[$playlistId] page$pageNum: browseContinuation returned null, stopping")
+                    break
+                }
+                Log.d(TAG, "playlist[$playlistId] page$pageNum top-level keys: ${page.keys}")
+                Log.d(TAG, "playlist[$playlistId] page$pageNum has 'continuationContents'=${page.containsKey("continuationContents")}")
+                Log.d(TAG, "playlist[$playlistId] page$pageNum has 'onResponseReceivedActions'=${page.containsKey("onResponseReceivedActions")}")
+                Log.d(TAG, "playlist[$playlistId] page$pageNum findAll('continuations').size=${page.findAll("continuations").size}")
+                Log.d(TAG, "playlist[$playlistId] page$pageNum findAll('continuationItemRenderer').size=${page.findAll("continuationItemRenderer").size}")
+                page.findAll("continuations").forEachIndexed { i, cs ->
+                    val arr = cs as? kotlinx.serialization.json.JsonArray
+                    arr?.forEachIndexed { j, entry ->
+                        val keys = (entry as? kotlinx.serialization.json.JsonObject)?.keys
+                        Log.d(TAG, "playlist[$playlistId] page$pageNum continuations[$i][$j].keys=$keys")
+                    }
+                }
                 val before = collected.size
-                collected += page.collectResponsiveListItems().mapNotNull { parseResponsiveSong(it) }
-                if (collected.size == before) break // no progress, bail
+                val pageItems = page.collectResponsiveListItems()
+                val pageSongs = pageItems.mapNotNull { parseResponsiveSong(it) }
+                Log.d(TAG, "playlist[$playlistId] page$pageNum: renderers=${pageItems.size} parsed=${pageSongs.size}")
+                collected += pageSongs
+                if (collected.size == before) {
+                    Log.w(TAG, "playlist[$playlistId] page$pageNum: no progress (${pageItems.size} renderers, ${pageSongs.size} songs) — stopping")
+                    break
+                }
                 token = page.findContinuationToken()
+                Log.d(TAG, "playlist[$playlistId] page$pageNum token=${token?.take(40)}")
+                pageNum++
             }
+            Log.d(TAG, "playlist[$playlistId] done: total=${collected.size} distinct=${collected.distinctBy { it.videoId }.size}")
             collected.distinctBy { it.videoId }
         }
 
