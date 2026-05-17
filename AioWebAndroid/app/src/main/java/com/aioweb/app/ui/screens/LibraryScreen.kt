@@ -147,7 +147,7 @@ fun LibraryScreen(
         // Secondary chip row — Metrolist parity: sort chip + count label + refresh.
         LibrarySubHeader(
             tab = tab,
-            localTileCount = 4,
+            localTileCount = 3,
             ytLibrary = ytLibrary,
             ytLoading = ytLoading,
             onRefresh = {
@@ -186,8 +186,6 @@ fun LibraryScreen(
                 when (tab) {
                     LibTab.Playlists -> {
                         item { CreatePlaylistTile { showCreatePlaylistDialog = true } }
-                        item { LocalSystemTile("Liked", Icons.Default.Favorite,
-                            liked.size, liked.mapNotNull { it.thumbnail }) { openTile = "liked" } }
                         item { LocalSystemTile("Downloaded", Icons.Default.DownloadDone,
                             downloaded.size, downloaded.mapNotNull { it.thumbnail }) { openTile = "downloaded" } }
                         item { LocalSystemTile("My top 50", Icons.Default.TrendingUp,
