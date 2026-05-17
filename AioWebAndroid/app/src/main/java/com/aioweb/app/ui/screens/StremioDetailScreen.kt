@@ -25,6 +25,7 @@ import com.aioweb.app.data.ServiceLocator
 import com.aioweb.app.data.stremio.StremioMeta
 import com.aioweb.app.data.stremio.StremioStream
 import kotlinx.coroutines.flow.first
+import java.net.URLEncoder
 
 /**
  * Stremio-native detail screen for items that don't have an IMDB id (e.g. NSFW
@@ -160,14 +161,42 @@ fun StremioDetailScreen(
             }
             items(streams, key = { "s_${it.url ?: it.infoHash ?: it.title.orEmpty()}" }) { s ->
                 StreamRow(s) {
-                    val url = s.url
-                        ?: s.infoHash?.let { hash -> "magnet:?xt=urn:btih:$hash" }
-                        ?: return@StreamRow
-                    onPlay(url, meta?.name ?: initialTitle)
+                    val streamUrl = buildStreamUrl(s) ?: return@StreamRow
+                    onPlay(streamUrl, meta?.name ?: initialTitle)
                 }
             }
         }
     }
+}
+
+/**
+ * Builds the best playable URL for a [StremioStream].
+ *
+ * Priority:
+ *   1. `s.url` — direct HTTP/HTTPS stream or bare magnet link from the addon.
+ *   2. `s.infoHash` — build a magnet, enriched with:
+ *       • tracker URLs from `s.sources` (items prefixed with "tracker:")
+ *       • `_sc_fidx` hint so [TorrentStreamServer] picks the right file
+ *
+ * Returns `null` if neither field is populated (stream has no usable URL).
+ */
+private fun buildStreamUrl(s: StremioStream): String? {
+    // Prefer an explicit URL from the addon.
+    s.url?.takeIf { it.isNotBlank() }?.let { return it }
+
+    val hash = s.infoHash?.takeIf { it.isNotBlank() } ?: return null
+
+    // Collect tracker URLs from the `sources` list.
+    // The Stremio protocol uses "tracker:<url>" entries here.
+    val trackerParams = s.sources.orEmpty()
+        .filter { it.startsWith("tracker:", ignoreCase = true) }
+        .mapNotNull { it.substringAfter("tracker:", "").substringAfter("TRACKER:", "").takeIf { url -> url.isNotBlank() } }
+        .joinToString("") { "&tr=" + URLEncoder.encode(it, "UTF-8") }
+
+    val magnet = "magnet:?xt=urn:btih:$hash$trackerParams"
+
+    // Append the file index so TorrentStreamServer picks the exact file.
+    return if (s.fileIdx != null) "$magnet&_sc_fidx=${s.fileIdx}" else magnet
 }
 
 @Composable

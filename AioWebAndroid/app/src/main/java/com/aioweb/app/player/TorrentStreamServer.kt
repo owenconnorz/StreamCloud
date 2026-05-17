@@ -124,57 +124,86 @@ class TorrentStreamServer(context: Context) {
         sessionManager.start()
         configureSession()
 
+        // Extract the _sc_fidx hint (fileIdx encoded by StremioDetailScreen) and
+        // strip it from the URL before passing to libtorrent4j.
+        val fileIdxHint: Int?
+        val cleanedInput: String
+        val fidxRegex = Regex("[&?]_sc_fidx=(\\d+)", RegexOption.IGNORE_CASE)
+        val fidxMatch = fidxRegex.find(magnetOrUrl)
+        if (fidxMatch != null) {
+            fileIdxHint = fidxMatch.groupValues[1].toIntOrNull()
+            cleanedInput = magnetOrUrl.replace(fidxRegex, "")
+            Log.i(TAG, "fileIdx hint from URL: $fileIdxHint")
+        } else {
+            fileIdxHint = null
+            cleanedInput = magnetOrUrl
+        }
+
         // Augment bare magnet links with public trackers so DHT isn't the only
         // peer source — that's what makes "Connecting to peer" succeed within
         // a couple of seconds on fresh sessions instead of stalling 30–120 s.
-        val augmentedMagnet = augmentMagnet(magnetOrUrl)
-        Log.i(TAG, "Starting: ${if (augmentedMagnet.length > 80) augmentedMagnet.take(80) + "…" else augmentedMagnet}")
+        val augmentedMagnet = augmentMagnet(cleanedInput)
+        Log.i(TAG, "Starting: ${if (augmentedMagnet.length > 120) augmentedMagnet.take(120) + "…" else augmentedMagnet}")
 
         // 1. Resolve metadata (magnet → TorrentInfo bytes; .torrent URL → fetched bytes).
         val infoBytes: ByteArray = when {
             augmentedMagnet.startsWith("magnet:", ignoreCase = true) ->
                 sessionManager.fetchMagnet(
                     augmentedMagnet,
-                    (metadataTimeoutMs / 1000).toInt().coerceAtLeast(15),
+                    (metadataTimeoutMs / 1000).toInt().coerceAtLeast(20),
                     downloadDir,
                 ) ?: run {
                     Log.w(TAG, "fetchMagnet returned null after ${metadataTimeoutMs}ms")
                     return null
                 }
             augmentedMagnet.startsWith("http", ignoreCase = true) ->
-                runCatching { URL(augmentedMagnet).openStream().use { it.readBytes() } }.getOrNull()
-                    ?: return null
+                runCatching {
+                    val conn = java.net.URL(augmentedMagnet).openConnection()
+                    conn.connectTimeout = 15_000
+                    conn.readTimeout    = 30_000
+                    conn.inputStream.use { it.readBytes() }
+                }.getOrNull() ?: return null
             else -> File(augmentedMagnet).takeIf { it.exists() }?.readBytes() ?: return null
         }
 
         val torrentInfo = runCatching { TorrentInfo.bdecode(infoBytes) }.getOrNull() ?: return null
 
-        // 2. Wait for TorrentHandle to be ready and largest file index identified.
+        // 2. Wait for TorrentHandle to be ready.
         val handle = withTimeoutOrNull(metadataTimeoutMs) {
             startTorrentAndAwaitHandle(torrentInfo)
         } ?: return null
         injectTrackersOn(handle)
 
-        // 3. Pick the largest file as the playback target.
+        // 3. Pick the target file.
+        //    • fileIdxHint → explicit index provided by the addon (Stremio `fileIdx`)
+        //    • otherwise   → largest media file (best heuristic for single-file torrents)
         val files = torrentInfo.files()
-        var largestIdx = 0
-        var largestSize = 0L
-        for (i in 0 until files.numFiles()) {
-            val size = files.fileSize(i)
-            if (size > largestSize) {
-                largestSize = size
-                largestIdx = i
+        val numFiles = files.numFiles()
+        val targetIdx: Int
+        val targetSize: Long
+        if (fileIdxHint != null && fileIdxHint in 0 until numFiles) {
+            targetIdx  = fileIdxHint
+            targetSize = files.fileSize(fileIdxHint)
+            Log.i(TAG, "Using addon fileIdx=$fileIdxHint")
+        } else {
+            var largestIdx  = 0
+            var largestSize = 0L
+            for (i in 0 until numFiles) {
+                val sz = files.fileSize(i)
+                if (sz > largestSize) { largestSize = sz; largestIdx = i }
             }
+            targetIdx  = largestIdx
+            targetSize = largestSize
         }
-        totalBytes = largestSize
-        val relPath = files.filePath(largestIdx)
+        totalBytes = targetSize
+        val relPath = files.filePath(targetIdx)
         val absFile = File(downloadDir, relPath)
         targetFileRef.set(absFile)
-        Log.i(TAG, "Selected file $relPath ($largestSize bytes)")
+        Log.i(TAG, "Selected file[$targetIdx] $relPath ($targetSize bytes)")
 
         // 4. Sequentially prioritise that file; deprioritise others to save bandwidth.
         val prios = Array(files.numFiles()) { Priority.IGNORE }
-        prios[largestIdx] = Priority.TOP_PRIORITY
+        prios[targetIdx] = Priority.TOP_PRIORITY
         handle.prioritizeFiles(prios)
         runCatching {
             handle.flags = handle.flags.or_(org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
@@ -184,9 +213,9 @@ class TorrentStreamServer(context: Context) {
         // priority + tight deadlines so ExoPlayer's initial header/tail probes
         // succeed within seconds.
         val pieceLen = torrentInfo.pieceLength().toLong()
-        val fileOffset = files.fileOffset(largestIdx)
+        val fileOffset = files.fileOffset(targetIdx)
         val firstPiece = (fileOffset / pieceLen).toInt().coerceAtLeast(0)
-        val lastPiece = ((fileOffset + largestSize - 1) / pieceLen)
+        val lastPiece = ((fileOffset + targetSize - 1) / pieceLen)
             .toInt().coerceIn(0, torrentInfo.numPieces() - 1)
         runCatching {
             val headBoost = 8
@@ -207,7 +236,7 @@ class TorrentStreamServer(context: Context) {
             handle = handle,
             fileOffset = fileOffset,
             pieceLen = pieceLen,
-            fileSize = largestSize,
+            fileSize = targetSize,
             firstPiece = firstPiece,
             lastPiece = lastPiece,
         )
