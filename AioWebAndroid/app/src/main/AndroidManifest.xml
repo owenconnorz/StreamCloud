@@ -22,7 +22,7 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <application
-        android:name=".AioWebApplication"
+        android:name=".StreamCloudApplication"
         android:allowBackup="true"
         android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"
@@ -31,7 +31,7 @@
         android:supportsRtl="true"
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.AioWeb"
+        android:theme="@style/Theme.StreamCloud"
         tools:targetApi="34">
 
         <activity
@@ -39,7 +39,7 @@
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.AioWeb.Splash">
+            android:theme="@style/Theme.StreamCloud.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -97,7 +97,7 @@
              console / app id needed. -->
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
-            android:value="com.aioweb.app.cast.CastOptionsProviderImpl" />
+            android:value="com.streamcloud.app.cast.CastOptionsProviderImpl" />
 
         <!-- Home-screen music widget -->
         <receiver

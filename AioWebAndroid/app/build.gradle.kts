@@ -13,11 +13,11 @@ val keystoreProps = Properties().apply {
 }
 
 android {
-    namespace = "com.aioweb.app"
+    namespace = "com.streamcloud.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.aioweb.app"
+        applicationId = "com.streamcloud.app"
         minSdk = 24
         targetSdk = 34
         // Use CI run number as versionCode so each successive build is treated as an update.
@@ -162,7 +162,7 @@ dependencies {
     // Torrent / P2P streaming via TorrServer (Go binary in jniLibs/).
     // TorrServer exposes a local HTTP server with Range support that ExoPlayer
     // can stream from directly — no Java-level piece-gating needed.
-    // (libtorrent4j + nanohttpd replaced; see com.aioweb.app.torrent.*)
+    // (libtorrent4j + nanohttpd replaced; see com.streamcloud.app.torrent.*)
 
     // NewPipe Extractor (YouTube music/videos without API keys)
     // We exclude its transitive Rhino artifacts; we already pull mainline
