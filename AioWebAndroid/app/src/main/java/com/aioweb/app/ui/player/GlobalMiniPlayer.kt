@@ -108,13 +108,15 @@ fun GlobalMiniPlayer(
             delay(500)
         }
     }
-    // Refresh like / downloaded state from Room whenever the playing track changes.
+    // Refresh like / downloaded state whenever the playing track changes.
+    // Checks: (1) ExoDownload cache, (2) legacy OkHttp local file in Room.
     LaunchedEffect(nowMediaId) {
         val mediaId = nowMediaId ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
             val track = LibraryDb.get(context).tracks().byUrl(mediaId)
             isLiked = track?.likedAt != null
-            isDownloaded = track?.localPath?.let { java.io.File(it).exists() } == true
+            isDownloaded = com.aioweb.app.data.downloads.YtMusicDownloadUtil.isDownloaded(mediaId)
+                || track?.localPath?.let { java.io.File(it).exists() } == true
         }
     }
 
@@ -209,12 +211,26 @@ fun GlobalMiniPlayer(
                     onClick = {
                         val mediaId = nowMediaId ?: return@IconButton
                         val songTitle = title ?: return@IconButton
-                        scope.launch {
-                            runCatching {
-                                MusicDownloader.download(context, mediaId, songTitle)
-                                isDownloaded = true
-                            }
+                        val videoId = mediaId
+                            .substringAfter("v=", missingDelimiterValue = "")
+                            .substringBefore('&')
+                            .takeIf { it.isNotBlank() }
+                        if (videoId != null) {
+                            com.aioweb.app.data.ytmusic.YtPlayback.downloadSong(
+                                context,
+                                com.aioweb.app.data.ytmusic.YtmSong(
+                                    videoId = videoId,
+                                    title = songTitle,
+                                    artist = artist ?: "",
+                                    album = null,
+                                    thumbnail = artworkUri,
+                                    durationSeconds = null,
+                                ),
+                            )
+                        } else {
+                            scope.launch { runCatching { MusicDownloader.download(context, mediaId, songTitle) } }
                         }
+                        isDownloaded = true
                     },
                     enabled = !isDownloaded && downloadProgress == null,
                 ) {

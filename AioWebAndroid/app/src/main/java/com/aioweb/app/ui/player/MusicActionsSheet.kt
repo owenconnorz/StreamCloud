@@ -222,10 +222,27 @@ fun MusicActionsSheet(
             ) {
                 val mid = currentMediaId
                 if (mid.isNullOrBlank()) toast(context, "Nothing playing")
-                else scope.launch {
+                else {
                     toast(context, "Download started")
-                    runCatching { MusicDownloader.download(context, mid, currentTitle) }
-                        .onFailure { toast(context, "Download failed: ${it.message}") }
+                    val vid = videoId
+                    if (vid != null) {
+                        com.aioweb.app.data.ytmusic.YtPlayback.downloadSong(
+                            context,
+                            com.aioweb.app.data.ytmusic.YtmSong(
+                                videoId = vid,
+                                title = currentTitle,
+                                artist = currentArtist,
+                                album = null,
+                                thumbnail = null,
+                                durationSeconds = null,
+                            ),
+                        )
+                    } else {
+                        scope.launch {
+                            runCatching { MusicDownloader.download(context, mid, currentTitle) }
+                                .onFailure { toast(context, "Download failed: ${it.message}") }
+                        }
+                    }
                     onDismiss()
                 }
             }

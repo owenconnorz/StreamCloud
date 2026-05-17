@@ -3,13 +3,14 @@ package com.aioweb.app.audio
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
+import androidx.annotation.OptIn
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -17,6 +18,7 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.aioweb.app.MainActivity
+import com.aioweb.app.data.downloads.DownloadCaches
 import com.aioweb.app.data.library.LibraryDb
 import com.aioweb.app.data.library.TrackEntity
 import com.aioweb.app.data.newpipe.NewPipeRepository
@@ -30,6 +32,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.io.File
 
 /**
@@ -51,40 +54,36 @@ import java.io.File
  * Items are playable when `mediaMetadata.isPlayable = true`; browsable when
  * `isBrowsable = true`. Android Auto renders them automatically as cards
  * with title, subtitle, artwork.
+ *
+ * ── Two-cache architecture (Metrolist parity) ──────────────────────────────
+ * [DownloadCaches.downloadCache] is the outer [CacheDataSource] layer (read-only
+ * from the player's perspective — `.setCacheWriteDataSinkFactory(null)`).
+ * Songs explicitly downloaded by the user live here permanently.
+ *
+ * [DownloadCaches.playerCache] is the inner layer (LRU 256 MB).  Streams that
+ * are played but not explicitly downloaded are cached here temporarily.
+ *
+ * The [ResolvingDataSource.Factory] wrapping both checks the caches first; only
+ * if the content is absent does it call NewPipe to resolve the live stream URL.
  */
-@UnstableApi
+@OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaLibraryService() {
 
     private var session: MediaLibrarySession? = null
-    private var cache: SimpleCache? = null
     private var audioFx: AudioFx? = null
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private lateinit var playerCache: SimpleCache
+    private lateinit var downloadCache: SimpleCache
 
     override fun onCreate() {
         super.onCreate()
 
-        // ── Audio cache (LRU, 256 MB) ─────────────────────────────────────
-        val cacheDir = File(cacheDir, "audio-cache").apply { mkdirs() }
-        cache = SimpleCache(
-            cacheDir,
-            LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
-            StandaloneDatabaseProvider(this),
-        )
+        playerCache = DownloadCaches.playerCache(this)
+        downloadCache = DownloadCaches.downloadCache(this)
 
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(
-                "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-            )
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(30_000)
-        val cacheFactory = CacheDataSource.Factory()
-            .setCache(cache!!)
-            .setUpstreamDataSourceFactory(httpFactory)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(cacheFactory)
+            .setDataSourceFactory(buildDataSourceFactory())
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
@@ -107,6 +106,66 @@ class MusicPlaybackService : MediaLibraryService() {
         audioFx = AudioFx(applicationContext, player.audioSessionId).also { it.start() }
     }
 
+    /**
+     * Builds the Metrolist-style two-cache data source factory:
+     *
+     *   ResolvingDataSource
+     *     └─ CacheDataSource(downloadCache, setCacheWriteDataSinkFactory = null)  ← checks downloads first
+     *           └─ CacheDataSource(playerCache)                                   ← then LRU stream cache
+     *                 └─ DefaultHttpDataSource                                    ← actual network
+     *
+     * The [ResolvingDataSource.Factory] resolver fires when neither cache holds the
+     * content. It checks the legacy `localPath` in Room (old-style OkHttp downloads)
+     * and then falls back to NewPipe stream resolution.
+     */
+    private fun buildDataSourceFactory(): ResolvingDataSource.Factory {
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(
+                "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            )
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(30_000)
+
+        val chainedCacheFactory = CacheDataSource.Factory()
+            .setCache(downloadCache)
+            .setUpstreamDataSourceFactory(
+                CacheDataSource.Factory()
+                    .setCache(playerCache)
+                    .setUpstreamDataSourceFactory(httpFactory),
+            )
+            .setCacheWriteDataSinkFactory(null)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+        return ResolvingDataSource.Factory(chainedCacheFactory) { dataSpec ->
+            val cacheKey = dataSpec.key ?: dataSpec.uri.toString()
+            val length = if (dataSpec.length >= 0) dataSpec.length else 1L
+
+            if (downloadCache.isCached(cacheKey, dataSpec.position, length) ||
+                playerCache.isCached(cacheKey, dataSpec.position, length)
+            ) {
+                return@Factory dataSpec
+            }
+
+            val watchUrl = if (cacheKey.startsWith("http")) cacheKey
+                           else "https://music.youtube.com/watch?v=$cacheKey"
+
+            val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
+            val localPath = runBlocking(Dispatchers.IO) {
+                dao.byUrl(watchUrl)?.localPath
+            }
+            if (localPath != null && File(localPath).exists()) {
+                return@Factory dataSpec.withUri(localPath.toUri())
+            }
+
+            val streamUrl = runBlocking(Dispatchers.IO) {
+                NewPipeRepository.resolveAudioStream(watchUrl)
+            }
+            dataSpec.withUri(streamUrl.toUri())
+        }
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -122,8 +181,6 @@ class MusicPlaybackService : MediaLibraryService() {
             release()
             session = null
         }
-        cache?.release()
-        cache = null
         super.onDestroy()
     }
 
@@ -181,21 +238,19 @@ class MusicPlaybackService : MediaLibraryService() {
         }
 
         /**
-         * Android Auto calls this when the driver taps a playable card. We
-         * have to return MediaItems whose `localConfiguration.uri` is a
-         * direct-playable stream — Auto won't trigger NewPipe extraction for
-         * us. So we resolve every item here, in parallel.
+         * Android Auto calls this when the driver taps a playable card.
+         * With the [ResolvingDataSource.Factory] now handling all resolution, we just need
+         * to return MediaItems with a stable cache key and URI — ExoPlayer resolves at
+         * the data layer.
          */
         override fun onAddMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
         ): ListenableFuture<MutableList<MediaItem>> {
-            val fut = SettableFuture.create<MutableList<MediaItem>>()
-            ioScope.launch {
-                fut.set(mediaItems.map { resolveForPlayback(it) }.toMutableList())
-            }
-            return fut
+            return Futures.immediateFuture(
+                mediaItems.map { attachUri(it) }.toMutableList(),
+            )
         }
     }
 
@@ -237,6 +292,8 @@ class MusicPlaybackService : MediaLibraryService() {
     private fun trackRows(tracks: List<TrackEntity>): List<MediaItem> = tracks.map { t ->
         MediaItem.Builder()
             .setMediaId(t.url)
+            .setUri(t.url)
+            .setCustomCacheKey(t.url)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(t.title)
@@ -264,21 +321,18 @@ class MusicPlaybackService : MediaLibraryService() {
             .build()
 
     /**
-     * Resolves a browse-time MediaItem (no URI) into a playable one. Tries
-     * the local-file path first (if the track was previously downloaded),
-     * else asks [NewPipeRepository] for a streamable audio URL. Falls back
-     * to the watch URL on failure so the player at least reports the error.
+     * Ensures a [MediaItem] has a URI and stable cache key set.
+     * Used for items coming from the browse tree (no URI) and from the in-app player
+     * (already resolved). With [ResolvingDataSource], resolution now happens at the
+     * data layer — we only need to set the URI so ExoPlayer knows what to prepare.
      */
-    private suspend fun resolveForPlayback(item: MediaItem): MediaItem {
-        // Already resolved (e.g. from the in-app player handing us the queue)?
+    private fun attachUri(item: MediaItem): MediaItem {
         if (item.localConfiguration?.uri != null) return item
-        val url = item.mediaId.ifBlank { return item }
-        val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
-        val cached = runCatching { dao.byUrl(url) }.getOrNull()
-        val playable: String = cached?.localPath?.takeIf { File(it).exists() }
-            ?: runCatching { NewPipeRepository.resolveAudioStream(url) }.getOrNull()
-            ?: return item
-        return item.buildUpon().setUri(playable).build()
+        val id = item.mediaId.ifBlank { return item }
+        return item.buildUpon()
+            .setUri(id)
+            .setCustomCacheKey(id)
+            .build()
     }
 
     companion object {
