@@ -25,6 +25,7 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.TrackDao
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.newpipe.NewPipeRepository
+import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
@@ -157,8 +158,10 @@ class MusicPlaybackService : MediaLibraryService() {
                 return@Factory dataSpec.withUri(localPath.toUri())
             }
 
+            val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
             val streamUrl = runBlocking(Dispatchers.IO) {
-                NewPipeRepository.resolveAudioStream(watchUrl)
+                (if (videoId.isNotBlank()) YtPlayerUtils.resolveAudioStream(videoId) else null)
+                    ?: NewPipeRepository.resolveAudioStream(watchUrl)
             }
             dataSpec.withUri(streamUrl.toUri())
         }
