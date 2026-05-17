@@ -33,6 +33,35 @@ object YtMusicLibraryRepository {
     private const val TAG = "YtMusicLibrary"
 
     /**
+     * Like a song on the signed-in YouTube Music account.
+     *
+     * Fires the InnerTube `like/like` endpoint so the song appears in the
+     * user's "Liked Music" YTM playlist. The local Room update (setting
+     * `likedAt`) is handled separately by the caller so the UI stays
+     * optimistic regardless of network outcome.
+     *
+     * @param cookie the user's YTM cookie string (from SettingsRepository)
+     * @param videoId the YouTube video ID (NOT the full watch URL)
+     * @return true if YTM acknowledged the like, false on error / not signed in
+     */
+    suspend fun likeSong(cookie: String, videoId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            if (cookie.isBlank() || videoId.isBlank()) return@withContext false
+            runCatching { InnerTubeClient(cookie).likeSong(videoId) }
+                .getOrElse { Log.w(TAG, "likeSong failed", it); false }
+        }
+
+    /**
+     * Remove a like from the signed-in YouTube Music account.
+     */
+    suspend fun unlikeSong(cookie: String, videoId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            if (cookie.isBlank() || videoId.isBlank()) return@withContext false
+            runCatching { InnerTubeClient(cookie).unlikeSong(videoId) }
+                .getOrElse { Log.w(TAG, "unlikeSong failed", it); false }
+        }
+
+    /**
      * Fetch everything the Library tab shows in one go — playlists, albums, subscribed
      * artists, and the "Liked songs" virtual playlist. All four calls run in parallel,
      * and a failure in one subsection doesn't cancel the others.

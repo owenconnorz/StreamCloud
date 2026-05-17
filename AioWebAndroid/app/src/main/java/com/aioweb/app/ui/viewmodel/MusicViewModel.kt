@@ -74,6 +74,7 @@ class MusicViewModel(context: Context) : ViewModel() {
     val state: StateFlow<MusicState> = _state.asStateFlow()
 
     private val dao: TrackDao = LibraryDb.get(context).tracks()
+    private val settings = com.aioweb.app.data.ServiceLocator.get(context).settings
     private var sleepJob: Job? = null
 
     init {
@@ -249,10 +250,15 @@ class MusicViewModel(context: Context) : ViewModel() {
     // ---- Like / Unlike --------------------------------------------------------------------
     fun toggleLikeCurrent() {
         val url = _state.value.nowPlayingUrl ?: return
+        val currentlyLiked = _state.value.isCurrentLiked
         viewModelScope.launch {
-            val currentlyLiked = _state.value.isCurrentLiked
             dao.setLikedAt(url, if (currentlyLiked) null else System.currentTimeMillis())
             _state.update { it.copy(isCurrentLiked = !currentlyLiked) }
+            val videoId = url.substringAfter("v=").substringBefore("&")
+                .takeIf { it.isNotBlank() } ?: return@launch
+            val cookie = settings.ytMusicCookie.first()
+            if (currentlyLiked) com.aioweb.app.data.ytmusic.YtMusicLibraryRepository.unlikeSong(cookie, videoId)
+            else com.aioweb.app.data.ytmusic.YtMusicLibraryRepository.likeSong(cookie, videoId)
         }
     }
 

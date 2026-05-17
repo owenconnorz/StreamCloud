@@ -53,6 +53,26 @@ internal class InnerTubeClient(private val cookie: String) {
     suspend fun next(body: JsonObject): JsonObject? = postInnerTube("next", body)
 
     /**
+     * `POST /youtubei/v1/like/like` — thumbs-up a video on the signed-in account.
+     * Mirrors what the YTM web app sends when the user clicks the heart.
+     * Returns true on HTTP 2xx, false otherwise (network error, not signed in, etc.).
+     */
+    suspend fun likeSong(videoId: String): Boolean =
+        postInnerTube("like/like", buildJsonObject {
+            putContext()
+            putJsonObject("target") { put("videoId", videoId) }
+        }) != null
+
+    /**
+     * `POST /youtubei/v1/like/removelike` — remove a like from the signed-in account.
+     */
+    suspend fun unlikeSong(videoId: String): Boolean =
+        postInnerTube("like/removelike", buildJsonObject {
+            putContext()
+            putJsonObject("target") { put("videoId", videoId) }
+        }) != null
+
+    /**
      * `POST /youtubei/v1/browse` — page through a playlist or list shelf. The
      * token comes from `nextContinuationData.continuation` (legacy) or
      * `continuationCommand.token` (current) on the previous page.

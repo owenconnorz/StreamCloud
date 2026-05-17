@@ -57,6 +57,7 @@ import coil.request.SuccessResult
 import com.aioweb.app.data.downloads.MusicDownloader
 import com.aioweb.app.data.library.LibraryDb
 import com.aioweb.app.data.lyrics.LyricsRepository
+import com.aioweb.app.data.ytmusic.YtMusicLibraryRepository
 import com.aioweb.app.ui.player.MusicActionsSheet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -86,6 +87,8 @@ fun NowPlayingShell(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val sl = remember(context) { com.aioweb.app.data.ServiceLocator.get(context) }
+    val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
 
     // ── Track + transport state, driven from Player ──────────────────────────
     var positionMs by remember { mutableStateOf(0L) }
@@ -278,9 +281,14 @@ fun NowPlayingShell(
                     contentDescription = if (isLiked) "Unlike" else "Like",
                     onClick = {
                         val mid = mediaId ?: return@PillButton
+                        val nowLiked = isLiked
                         scope.launch {
                             val dao = LibraryDb.get(context.applicationContext).tracks()
-                            dao.setLikedAt(mid, if (isLiked) null else System.currentTimeMillis())
+                            dao.setLikedAt(mid, if (nowLiked) null else System.currentTimeMillis())
+                            val videoId = mid.substringAfter("v=").substringBefore("&")
+                                .takeIf { it.isNotBlank() } ?: return@launch
+                            if (nowLiked) YtMusicLibraryRepository.unlikeSong(ytCookie, videoId)
+                            else YtMusicLibraryRepository.likeSong(ytCookie, videoId)
                         }
                     },
                 )
