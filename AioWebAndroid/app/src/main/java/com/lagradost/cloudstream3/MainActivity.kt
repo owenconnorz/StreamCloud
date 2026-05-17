@@ -24,8 +24,15 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
  *   • `getSharedPrefs()`                 → so inline-reified helpers in plugins work
  */
 
-/** Shared HTTP client every plugin uses. */
-val app: Requests = Requests
+/**
+ * Shared HTTP client every plugin uses via `app.get(...)` / `app.post(...)`.
+ *
+ * MUST be typed as `com.lagradost.nicehttp.Requests` (not the cloudstream3
+ * typealias) so the JVM method descriptor on `MainActivityKt` is exactly:
+ *     getApp()Lcom/lagradost/nicehttp/Requests;
+ * which is what all `.cs3` plugins are compiled against.
+ */
+val app: com.lagradost.nicehttp.Requests = com.lagradost.nicehttp.Requests
 
 /** Shared Jackson mapper used by plugin `parsedSafe<...>()` extensions. */
 val mapper: ObjectMapper by lazy {

@@ -8,6 +8,7 @@ import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.installPrefs
 import com.lagradost.cloudstream3.plugins.Plugin
 import dalvik.system.DexClassLoader
 import dalvik.system.DexFile
@@ -42,6 +43,8 @@ object PluginRuntime {
 
     suspend fun load(context: Context, filePath: String): List<MainAPI> = withContext(Dispatchers.IO) {
         cache[filePath]?.let { return@withContext it.apis }
+        // Initialise SharedPreferences so plugin setKey/getKey calls work.
+        installPrefs(context)
         try {
             val src = File(filePath)
             if (!src.exists()) error("Plugin file missing: $filePath")
