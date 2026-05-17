@@ -73,4 +73,9 @@ object PlaylistCache {
         }.onFailure { Log.w(TAG, "write failed", it) }
         Unit
     }
+
+    fun delete(context: Context, playlistId: String) {
+        runCatching { fileFor(context, playlistId).delete() }
+            .onFailure { Log.w(TAG, "delete failed", it) }
+    }
 }
