@@ -175,29 +175,47 @@ object YtMusicLibraryRepository {
      * Extract the playlist song renderers and the next-page continuation token from a
      * single InnerTube browse/continuation response.
      *
-     * The critical difference from the generic [collectResponsiveListItems] + [findContinuationToken]
-     * pair is that we scope our search to the specific shelf that holds the playlist tracks
-     * rather than deep-walking the entire response tree.  YouTube appends "Related" /
-     * "Recommended" / "Up next" shelves after the playlist content — those shelves also
-     * use `musicResponsiveListItemRenderer` and were causing:
-     *   1. Wrong (unrelated) songs being shown in the playlist, and
-     *   2. The continuation token from those extra shelves being returned instead of the
-     *      playlist shelf's token, which then fetched wrong content and terminated early.
+     * Mirrors Metrolist's YouTube.kt + playlistContinuation() logic exactly:
      *
-     * Returns a [Pair] of (item renderers, continuation token or null).
+     * Initial browse  → twoColumnBrowseResultsRenderer.secondaryContents
+     *                    .sectionListRenderer.contents[0].musicPlaylistShelfRenderer
+     *   Token priority: 1. inlined continuationItemRenderer in contents[]
+     *                   2. musicPlaylistShelfRenderer.continuations[]
+     *                   3. sectionListRenderer.continuations[]
+     *
+     * Continuation    → all four shapes that Metrolist unions together:
+     *   • continuationContents.sectionListContinuation.contents[].musicPlaylistShelfRenderer
+     *   • continuationContents.musicPlaylistShelfContinuation
+     *   • continuationContents.musicShelfContinuation
+     *   • onResponseReceivedActions[0].appendContinuationItemsAction.continuationItems
      */
     private fun extractPlaylistPage(response: JsonObject): Pair<List<JsonObject>, String?> {
-        // ── helpers ─────────────────────────────────────────────────────────────────
-        /** Collect musicResponsiveListItemRenderer objects from a shelf's contents array. */
-        fun shelfItems(shelf: JsonObject): List<JsonObject>? =
-            (shelf["contents"] as? JsonArray)
-                ?.mapNotNull { (it as? JsonObject)?.get("musicResponsiveListItemRenderer") as? JsonObject }
-                ?.takeIf { it.isNotEmpty() }
 
-        /** Read the next-page token directly from a shelf's own `continuations` array. */
-        fun shelfToken(shelf: JsonObject): String? {
-            val arr = shelf["continuations"] as? JsonArray ?: return null
-            for (entry in arr) {
+        // ── local helpers ────────────────────────────────────────────────────────────
+
+        /** Extract song renderers from a shelf/continuation contents array. */
+        fun JsonArray.songItems(): List<JsonObject> =
+            mapNotNull { (it as? JsonObject)?.get("musicResponsiveListItemRenderer") as? JsonObject }
+
+        /**
+         * Metrolist's getContinuation(): look for a `continuationItemRenderer` inlined
+         * as the last element of a shelf's contents[] — this is the primary token source
+         * for musicPlaylistShelfRenderer pages where the "load more" cursor is embedded
+         * in the item list rather than in a separate continuations key.
+         */
+        fun JsonArray.inlinedToken(): String? =
+            firstNotNullOfOrNull { item ->
+                (item as? JsonObject)
+                    ?.let { it["continuationItemRenderer"] as? JsonObject }
+                    ?.let { it["continuationEndpoint"] as? JsonObject }
+                    ?.let { it["continuationCommand"] as? JsonObject }
+                    ?.get("token")?.jsonPrimitive?.contentOrNull
+                    ?.takeIf { it.isNotBlank() }
+            }
+
+        /** Read the next-page token from a `continuations[]` wrapper array. */
+        fun JsonArray.continuationsToken(): String? {
+            for (entry in this) {
                 val obj = entry as? JsonObject ?: continue
                 for (key in listOf(
                     "nextContinuationData", "nextRadioContinuationData",
@@ -211,84 +229,128 @@ object YtMusicLibraryRepository {
             return null
         }
 
-        // Token helper — ONLY follows `continuations[]` arrays with the standard
-        // wrapper types.  Deliberately never falls back to `continuationCommand`
-        // because that key also appears inside individual song items for radio/
-        // autoplay navigation, and using one of those tokens would fetch a radio
-        // mix instead of the next playlist page.
-        fun tokenFor(shelf: JsonObject): String? {
-            // 1. Shelf's own continuations[] (continuation pages carry it here)
-            shelfToken(shelf)?.let { return it }
-            // 2. Parent sectionListRenderer.continuations[] (initial browse pages
-            //    put the playlist token here, not inside musicPlaylistShelfRenderer)
-            (response.findFirst("sectionListRenderer") as? JsonObject)
-                ?.let { shelfToken(it) }?.let { return it }
-            // 3. Any continuations[] anywhere in the response — still only the
-            //    nextContinuationData / timedContinuationData family, no commands.
-            for (cs in response.findAll("continuations")) {
-                val arr = cs as? JsonArray ?: continue
-                for (entry in arr) {
-                    val obj = entry as? JsonObject ?: continue
-                    for (key in listOf(
-                        "nextContinuationData", "nextRadioContinuationData",
-                        "timedContinuationData", "reloadContinuationData",
-                    )) {
-                        (obj[key] as? JsonObject)?.get("continuation")
-                            ?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
-                            ?.let { return it }
-                    }
+        fun JsonObject.continuationsToken(): String? =
+            (this["continuations"] as? JsonArray)?.continuationsToken()
+
+        // ── Path A: initial browse — twoColumnBrowseResultsRenderer ─────────────────
+        // Metrolist: contents.twoColumnBrowseResultsRenderer
+        //              .secondaryContents.sectionListRenderer.contents[0]
+        //              .musicPlaylistShelfRenderer
+        val twoColContents = (response["contents"] as? JsonObject)
+            ?.let { it["twoColumnBrowseResultsRenderer"] as? JsonObject }
+
+        if (twoColContents != null) {
+            val secSectionList = twoColContents
+                .let { it["secondaryContents"] as? JsonObject }
+                ?.let { it["sectionListRenderer"] as? JsonObject }
+
+            val shelf = secSectionList
+                ?.let { it["contents"] as? JsonArray }
+                ?.firstNotNullOfOrNull { (it as? JsonObject)?.get("musicPlaylistShelfRenderer") as? JsonObject }
+                ?: secSectionList
+                    ?.let { it["contents"] as? JsonArray }
+                    ?.firstNotNullOfOrNull { (it as? JsonObject)?.get("musicShelfRenderer") as? JsonObject }
+
+            if (shelf != null) {
+                val contents = shelf["contents"] as? JsonArray
+                val items = contents?.songItems() ?: emptyList()
+                val token = contents?.inlinedToken()
+                    ?: shelf.continuationsToken()
+                    ?: secSectionList?.continuationsToken()
+                if (items.isNotEmpty()) {
+                    Log.d(TAG, "extractPlaylistPage: twoColumn path, items=${items.size} token=${token?.take(30)}")
+                    return items to token
                 }
             }
-            return null  // no more pages
         }
 
-        // ── 1. Initial browse — musicPlaylistShelfRenderer (standard user playlists) ─
-        (response.findFirst("musicPlaylistShelfRenderer") as? JsonObject)?.let { shelf ->
-            val items = shelfItems(shelf)
-            if (!items.isNullOrEmpty()) return items to tokenFor(shelf)
+        // ── Path B: initial browse — singleColumnBrowseResultsRenderer ──────────────
+        val singleColContents = (response["contents"] as? JsonObject)
+            ?.let { it["singleColumnBrowseResultsRenderer"] as? JsonObject }
+
+        if (singleColContents != null) {
+            val sectionList = (singleColContents["tabs"] as? JsonArray)
+                ?.firstOrNull()?.let { it as? JsonObject }
+                ?.let { it["tabRenderer"] as? JsonObject }
+                ?.let { it["content"] as? JsonObject }
+                ?.let { it["sectionListRenderer"] as? JsonObject }
+
+            val shelf = sectionList
+                ?.let { it["contents"] as? JsonArray }
+                ?.firstNotNullOfOrNull { c ->
+                    val obj = c as? JsonObject ?: return@firstNotNullOfOrNull null
+                    (obj["musicPlaylistShelfRenderer"] ?: obj["musicShelfRenderer"]) as? JsonObject
+                }
+
+            if (shelf != null) {
+                val contents = shelf["contents"] as? JsonArray
+                val items = contents?.songItems() ?: emptyList()
+                val token = contents?.inlinedToken()
+                    ?: shelf.continuationsToken()
+                    ?: sectionList?.continuationsToken()
+                if (items.isNotEmpty()) {
+                    Log.d(TAG, "extractPlaylistPage: singleColumn path, items=${items.size} token=${token?.take(30)}")
+                    return items to token
+                }
+            }
         }
 
-        // ── 2. Initial browse — musicShelfRenderer (some playlist/album types) ──────
-        (response.findFirst("musicShelfRenderer") as? JsonObject)?.let { shelf ->
-            val items = shelfItems(shelf)
-            if (!items.isNullOrEmpty()) return items to tokenFor(shelf)
+        // ── Path C: continuation response — union all four Metrolist shapes ──────────
+        val cc = response["continuationContents"] as? JsonObject
+        if (cc != null) {
+            val allItems = mutableListOf<JsonObject>()
+            var token: String? = null
+
+            // C1. sectionListContinuation.contents[].musicPlaylistShelfRenderer/musicShelfRenderer
+            (cc["sectionListContinuation"] as? JsonObject)?.let { slc ->
+                (slc["contents"] as? JsonArray)?.forEach { c ->
+                    val obj = c as? JsonObject ?: return@forEach
+                    val shelfObj = (obj["musicPlaylistShelfRenderer"] ?: obj["musicShelfRenderer"]) as? JsonObject
+                        ?: return@forEach
+                    val contents = shelfObj["contents"] as? JsonArray
+                    allItems += contents?.songItems() ?: emptyList()
+                    if (token == null) token = contents?.inlinedToken() ?: shelfObj.continuationsToken()
+                }
+                if (token == null) token = slc.continuationsToken()
+            }
+
+            // C2. musicPlaylistShelfContinuation
+            (cc["musicPlaylistShelfContinuation"] as? JsonObject)?.let { shelf ->
+                val contents = shelf["contents"] as? JsonArray
+                allItems += contents?.songItems() ?: emptyList()
+                if (token == null) token = contents?.inlinedToken() ?: shelf.continuationsToken()
+            }
+
+            // C3. musicShelfContinuation
+            (cc["musicShelfContinuation"] as? JsonObject)?.let { shelf ->
+                val contents = shelf["contents"] as? JsonArray
+                allItems += contents?.songItems() ?: emptyList()
+                if (token == null) token = contents?.inlinedToken() ?: shelf.continuationsToken()
+            }
+
+            if (allItems.isNotEmpty()) {
+                Log.d(TAG, "extractPlaylistPage: continuationContents path, items=${allItems.size} token=${token?.take(30)}")
+                return allItems to token
+            }
         }
 
-        // ── 3. Continuation page — musicPlaylistShelfContinuation ────────────────────
-        (response.findFirst("musicPlaylistShelfContinuation") as? JsonObject)?.let { shelf ->
-            val items = shelfItems(shelf)
-            if (!items.isNullOrEmpty()) return items to shelfToken(shelf)
-        }
-
-        // ── 4. Continuation page — musicShelfContinuation ────────────────────────────
-        (response.findFirst("musicShelfContinuation") as? JsonObject)?.let { shelf ->
-            val items = shelfItems(shelf)
-            if (!items.isNullOrEmpty()) return items to shelfToken(shelf)
-        }
-
-        // ── 5. Newer 2025+ format — appendContinuationItemsAction ────────────────────
-        // Items AND the load-more button are both inside `continuationItems[]`.
+        // ── Path D: appendContinuationItemsAction (2025+ format) ────────────────────
         val actionItems = (response["onResponseReceivedActions"] as? JsonArray)
             ?.firstOrNull()?.let { it as? JsonObject }
             ?.let { it["appendContinuationItemsAction"] as? JsonObject }
             ?.let { it["continuationItems"] as? JsonArray }
+
         if (actionItems != null) {
-            val items = actionItems.mapNotNull {
-                (it as? JsonObject)?.get("musicResponsiveListItemRenderer") as? JsonObject
+            val items = actionItems.songItems()
+            val token = actionItems.inlinedToken()
+            if (items.isNotEmpty()) {
+                Log.d(TAG, "extractPlaylistPage: appendContinuationItemsAction path, items=${items.size} token=${token?.take(30)}")
+                return items to token
             }
-            val nextToken = actionItems.firstNotNullOfOrNull { item ->
-                (item as? JsonObject)
-                    ?.let { it["continuationItemRenderer"] as? JsonObject }
-                    ?.let { it["continuationEndpoint"] as? JsonObject }
-                    ?.let { it["continuationCommand"] as? JsonObject }
-                    ?.get("token")?.jsonPrimitive?.contentOrNull
-                    ?.takeIf { it.isNotBlank() }
-            }
-            if (items.isNotEmpty()) return items to nextToken
         }
 
-        // ── 6. Fallback — shouldn't normally be reached ───────────────────────────────
-        Log.w(TAG, "extractPlaylistPage: no known shelf found, falling back to tree walk")
+        // ── Fallback ─────────────────────────────────────────────────────────────────
+        Log.w(TAG, "extractPlaylistPage: no known shelf found — keys=${response.keys}")
         return response.collectResponsiveListItems() to response.findContinuationToken()
     }
 
@@ -334,7 +396,13 @@ object YtMusicLibraryRepository {
             ?.get("musicResponsiveListItemFlexColumnRenderer")?.jsonObject
             ?.get("text")
         val title = titleText.runsText() ?: return null
-        val videoId = titleText?.firstNavigationVideoId() ?: return null
+        // Prefer playlistItemData.videoId — it is the direct, always-present video ID
+        // field that Metrolist also uses.  Fall back to the title navigation endpoint
+        // for non-playlist contexts (liked songs, artist pages, etc.).
+        val videoId = (item["playlistItemData"] as? JsonObject)
+            ?.get("videoId")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+            ?: titleText?.firstNavigationVideoId()
+            ?: return null
 
         // Column 1 is usually `Artist · Album · Plays`. We peel off the first two.
         val subtitleRuns = flexColumns.getOrNull(1)?.jsonObject
