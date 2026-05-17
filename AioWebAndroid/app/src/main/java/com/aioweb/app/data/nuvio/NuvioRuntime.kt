@@ -47,7 +47,9 @@ import kotlin.random.Random
  */
 object NuvioRuntime {
     private const val TAG = "NuvioRuntime"
-    private const val MAX_FETCH_BODY_CHARS = 256 * 1024
+    // Official NuvioMobile caps axios at 5 MB; match that so large HTML
+    // pages (4khdhub etc.) are not silently truncated mid-content.
+    private const val MAX_FETCH_BODY_CHARS = 5 * 1024 * 1024
     private val lastErrorByScript = mutableMapOf<String, String>()
 
     private val http = OkHttpClient.Builder()
@@ -92,58 +94,69 @@ object NuvioRuntime {
                 // polyfills, `require()`).
                 evaluate<Any?>(buildPolyfillCode(scriptKey))
 
-                // Wrap the provider so CommonJS-style `module.exports.getStreams =
-                // ...` AND ES-style `function getStreams() {}` both work.
-                evaluate<Any?>(
-                    """
-                    var module = { exports: {} };
-                    var exports = module.exports;
-                    (function() {
-                        $scriptText
-                    })();
-                    """.trimIndent(),
-                )
-
                 val seasonArg = season?.toString() ?: "undefined"
                 val episodeArg = episode?.toString() ?: "undefined"
 
-                // Async IIFE — returns the JSON string AND calls __capture_result.
-                // evaluate<Any?> in com.dokar.quickjs awaits the returned Promise
-                // before handing control back to Kotlin, so by the time it returns
-                // both the side-effect variable and the direct return value are set.
-                val directResult = evaluate<Any?>(
-                    """
-                    (async function() {
-                        try {
-                            // Inject params matching official NuvioMobile contract
-                            // (some providers read params.tmdbId / params.mediaType
-                            //  as free variables in addition to the fn arguments).
-                            globalThis.params = {
-                                tmdbId: ${jsString(tmdbId)},
-                                mediaType: ${jsString(mediaType)},
-                                season: $seasonArg,
-                                episode: $episodeArg,
-                                scraperId: ${jsString(scriptKey)},
-                                settings: globalThis.SCRAPER_SETTINGS || {}
-                            };
-                            var fn = module.exports.getStreams || globalThis.getStreams;
-                            if (typeof fn !== 'function') {
-                                console.error('Plugin error: getStreams() not exported. Exported keys:', Object.keys(module.exports || {}).join(', '));
-                                __capture_result('[]');
-                                return '[]';
-                            }
-                            var arr = await fn(${jsString(tmdbId)}, ${jsString(mediaType)}, $seasonArg, $episodeArg);
-                            var result = JSON.stringify(arr || []);
-                            __capture_result(result);
-                            return result;
-                        } catch (e) {
-                            console.error('getStreams crashed:', (e && e.message) || e, e && e.stack || '');
-                            __capture_result('[]');
-                            return '[]';
-                        }
-                    })()
-                    """.trimIndent(),
-                )
+                // Single combined async IIFE — matches the official NuvioMobile
+                // `new Function(…, code + getStreams call)` pattern exactly:
+                //   • Provider code runs DIRECTLY in this function's scope (no
+                //     inner IIFE wrapper), so `function getStreams() {}` declarations
+                //     are hoisted and visible to the lookup below.
+                //   • params / PRIMARY_KEY / TMDB_API_KEY / SCRAPER_SETTINGS are set
+                //     on globalThis before the code runs (backward compat globals).
+                //   • getStreams is located via the same 3-way lookup the official app
+                //     uses: local var → module.exports → globalThis.
+                //   • evaluate<Any?> awaits the returned Promise; __capture_result
+                //     provides a fallback in case the library returns the Promise
+                //     object instead of its settled value.
+                val directResult = evaluate<Any?>(buildString {
+                    appendLine("(async function() {")
+                    appendLine("  var module = { exports: {} };")
+                    appendLine("  var exports = module.exports;")
+                    appendLine("  // ── Inject per-execution globals (official app contract) ──")
+                    appendLine("  globalThis.params = {")
+                    appendLine("    tmdbId:    ${jsString(tmdbId)},")
+                    appendLine("    mediaType: ${jsString(mediaType)},")
+                    appendLine("    season:    $seasonArg,")
+                    appendLine("    episode:   $episodeArg,")
+                    appendLine("    scraperId: ${jsString(scriptKey)},")
+                    appendLine("    settings:  globalThis.SCRAPER_SETTINGS || {}")
+                    appendLine("  };")
+                    appendLine("  // ── Provider code (runs directly — no extra IIFE wrapper) ──")
+                    appendLine("  // This matches how official NuvioMobile executes plugins inside")
+                    appendLine("  // new Function(), so function declarations are hoisted into the")
+                    appendLine("  // same scope as the getStreams lookup that follows.")
+                    appendLine("  try {")
+                    append(scriptText)
+                    appendLine()
+                    appendLine("  } catch (__loadErr) {")
+                    appendLine("    console.error('[provider-init] definition error:', (__loadErr && __loadErr.message) || __loadErr);")
+                    appendLine("    __capture_result('[]');")
+                    appendLine("    return '[]';")
+                    appendLine("  }")
+                    appendLine("  // ── Locate getStreams (same 3-way lookup as official app) ──")
+                    appendLine("  var __fn =")
+                    appendLine("    (typeof getStreams === 'function')                                    ? getStreams :")
+                    appendLine("    (module.exports && typeof module.exports.getStreams === 'function')  ? module.exports.getStreams :")
+                    appendLine("    (typeof globalThis.getStreams === 'function')                        ? globalThis.getStreams :")
+                    appendLine("    null;")
+                    appendLine("  if (typeof __fn !== 'function') {")
+                    appendLine("    console.error('[provider] getStreams not found. module.exports keys:', Object.keys(module.exports || {}).join(', '));")
+                    appendLine("    __capture_result('[]');")
+                    appendLine("    return '[]';")
+                    appendLine("  }")
+                    appendLine("  try {")
+                    appendLine("    var arr = await __fn(${jsString(tmdbId)}, ${jsString(mediaType)}, $seasonArg, $episodeArg);")
+                    appendLine("    var result = JSON.stringify(arr || []);")
+                    appendLine("    __capture_result(result);")
+                    appendLine("    return result;")
+                    appendLine("  } catch (__runErr) {")
+                    appendLine("    console.error('[provider] getStreams threw:', (__runErr && __runErr.message) || __runErr, (__runErr && __runErr.stack) || '');")
+                    appendLine("    __capture_result('[]');")
+                    appendLine("    return '[]';")
+                    appendLine("  }")
+                    appendLine("})()")
+                })
 
                 // Prefer the direct return value (string from resolved Promise);
                 // fall back to the side-effect capture if evaluate returned the
@@ -464,6 +477,16 @@ object NuvioRuntime {
 
         var fetch = async function(url, options) {
             options = options || {};
+            // If an AbortSignal is already aborted reject immediately (matching
+            // browser behaviour); if not yet aborted, just ignore it — our
+            // synchronous native bridge can't cancel in-flight requests, but
+            // throwing on an already-cancelled signal prevents unnecessary work.
+            var signal = options.signal;
+            if (signal && signal.aborted) {
+                var abortErr = new Error('The operation was aborted.');
+                abortErr.name = 'AbortError';
+                return Promise.reject(abortErr);
+            }
             var method = (options.method || 'GET').toUpperCase();
             var headers = options.headers || {};
             // Some providers pass a Headers instance; extract to plain object.
