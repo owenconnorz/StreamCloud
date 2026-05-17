@@ -137,12 +137,19 @@ fun NativePlayerScreen(
             // cancellation of the outer LaunchedEffect, causing multiple concurrent
             // torrent sessions and stale resolvedUrl overwrites.
             val proxied = withContext(Dispatchers.IO) {
-                runCatching { server.start(streamUrl) }.getOrNull()
+                // Use try/catch instead of runCatching so CancellationException is
+                // re-thrown and cooperative cancellation works correctly — runCatching
+                // would swallow it and incorrectly set resolveError when the user
+                // navigates away while the torrent is still fetching metadata.
+                try { server.start(streamUrl) } catch (e: Throwable) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    null
+                }
             }
-            if (isActive) {  // Guard: composable may have left by the time download finishes.
-                if (proxied == null) resolveError = "Could not fetch torrent metadata.\nCheck your network or try a different stream."
-                else resolvedUrl = proxied
-            }
+            // If the LaunchedEffect was cancelled (user navigated away), the
+            // CancellationException above will have propagated and we never reach here.
+            if (proxied == null) resolveError = "Could not fetch torrent metadata.\nCheck your network or try a different stream."
+            else resolvedUrl = proxied
         } else {
             resolvedUrl = streamUrl
         }
