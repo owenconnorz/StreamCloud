@@ -13,7 +13,13 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 from datetime import datetime, timezone
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+try:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    EMERGENTINTEGRATIONS_AVAILABLE = True
+except ImportError:
+    EMERGENTINTEGRATIONS_AVAILABLE = False
+    LlmChat = None
+    UserMessage = None
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -80,6 +86,8 @@ class ChatResponse(BaseModel):
 
 @api_router.post("/ai/chat", response_model=ChatResponse)
 async def ai_chat(req: ChatRequest):
+    if not EMERGENTINTEGRATIONS_AVAILABLE:
+        raise HTTPException(503, "AI chat unavailable: emergentintegrations not installed")
     if not EMERGENT_LLM_KEY:
         raise HTTPException(500, "EMERGENT_LLM_KEY not configured on backend")
     session_id = req.session_id or str(uuid.uuid4())
@@ -110,6 +118,8 @@ class ImageResponse(BaseModel):
 
 @api_router.post("/ai/image", response_model=ImageResponse)
 async def ai_image(req: ImageRequest):
+    if not EMERGENTINTEGRATIONS_AVAILABLE:
+        raise HTTPException(503, "AI image generation unavailable: emergentintegrations not installed")
     if not EMERGENT_LLM_KEY:
         raise HTTPException(500, "EMERGENT_LLM_KEY not configured")
     try:
