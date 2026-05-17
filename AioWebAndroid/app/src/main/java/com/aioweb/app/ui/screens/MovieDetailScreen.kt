@@ -22,8 +22,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aioweb.app.data.ServiceLocator
 import com.aioweb.app.data.api.TmdbMovie
+import com.aioweb.app.ui.viewmodel.MoviesViewModel
 import com.aioweb.app.data.api.TmdbVideo
 import com.aioweb.app.data.nuvio.InstalledNuvioProvider
 import com.aioweb.app.data.nuvio.NuvioStream
@@ -194,13 +198,43 @@ fun MovieDetailScreen(
                 }
                 Spacer(Modifier.height(20.dp))
 
-                // ── ONE button. ──
-                PlayMovieCta(
-                    addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size,
-                    enabled = imdbId != null && (installedAddons.isNotEmpty() || installedNuvio.isNotEmpty() || installedCsPlugins.isNotEmpty()) && !resolving,
-                    loading = resolving,
-                    onClick = { playMovie() },
-                )
+                // ── ONE button + watchlist icon. ──
+                val moviesVm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
+                val watchlistIds = moviesVm.state.collectAsState().value.watchlist.map { it.tmdbId }.toSet()
+                val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        PlayMovieCta(
+                            addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size,
+                            enabled = imdbId != null && (installedAddons.isNotEmpty() || installedNuvio.isNotEmpty() || installedCsPlugins.isNotEmpty()) && !resolving,
+                            loading = resolving,
+                            onClick = { playMovie() },
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    IconButton(
+                        onClick = {
+                            movie?.let {
+                                moviesVm.toggleWatchlist(
+                                    tmdbId = it.id,
+                                    title = it.displayTitle,
+                                    posterUrl = it.posterUrl,
+                                    mediaType = "movie",
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surface),
+                    ) {
+                        Icon(
+                            if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = if (inWatchlist) "Remove from watchlist" else "Add to watchlist",
+                            tint = if (inWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
                 resolverMessage?.let {
                     Spacer(Modifier.height(8.dp))
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)

@@ -117,6 +117,27 @@ fun MoviesScreen(
                         }
                     }
                 }
+                if (state.watchlist.isNotEmpty()) {
+                    item(key = "watchlist_t") { SectionTitle("Watchlist") }
+                    item(key = "watchlist") {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(state.watchlist, key = { "wl_${it.tmdbId}" }) { entry ->
+                                MidPoster(
+                                    m = com.aioweb.app.data.api.TmdbMovie(
+                                        id = entry.tmdbId,
+                                        title = entry.title,
+                                        posterPath = entry.posterUrl
+                                            ?.removePrefix("https://image.tmdb.org/t/p/w500"),
+                                    ),
+                                    onClick = { onMovieClick(entry.tmdbId) },
+                                )
+                            }
+                        }
+                    }
+                }
                 state.collections.forEachIndexed { _, row ->
                     item(key = "col_t_${row.id}") {
                         SectionTitleWithViewAll(

@@ -103,14 +103,99 @@ interface WatchProgressDao {
     suspend fun byId(tmdbId: Long): WatchProgressEntity?
 }
 
+// ── Watchlist ─────────────────────────────────────────────────────────────
+
+@Entity(tableName = "watchlist")
+data class WatchlistEntity(
+    @PrimaryKey @ColumnInfo(name = "tmdb_id") val tmdbId: Long,
+    val title: String,
+    @ColumnInfo(name = "poster_url") val posterUrl: String?,
+    @ColumnInfo(name = "media_type") val mediaType: String,
+    @ColumnInfo(name = "added_at") val addedAt: Long = System.currentTimeMillis(),
+)
+
+@Dao
+interface WatchlistDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun add(entry: WatchlistEntity)
+
+    @Query("DELETE FROM watchlist WHERE tmdb_id = :tmdbId")
+    suspend fun remove(tmdbId: Long)
+
+    @Query("SELECT * FROM watchlist ORDER BY added_at DESC")
+    fun all(): Flow<List<WatchlistEntity>>
+
+    @Query("SELECT COUNT(*) > 0 FROM watchlist WHERE tmdb_id = :tmdbId")
+    fun isWatchlisted(tmdbId: Long): Flow<Boolean>
+}
+
+// ── Local playlists ───────────────────────────────────────────────────────
+
+@Entity(tableName = "local_playlists")
+data class LocalPlaylistEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(tableName = "playlist_tracks", primaryKeys = ["playlist_id", "track_url"])
+data class PlaylistTrackEntity(
+    @ColumnInfo(name = "playlist_id") val playlistId: Long,
+    @ColumnInfo(name = "track_url") val trackUrl: String,
+    val position: Int = 0,
+    @ColumnInfo(name = "added_at") val addedAt: Long = System.currentTimeMillis(),
+)
+
+@Dao
+interface LocalPlaylistDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun createPlaylist(playlist: LocalPlaylistEntity): Long
+
+    @Query("DELETE FROM local_playlists WHERE id = :id")
+    suspend fun deletePlaylist(id: Long)
+
+    @Query("DELETE FROM playlist_tracks WHERE playlist_id = :id")
+    suspend fun clearPlaylistTracks(id: Long)
+
+    @Query("SELECT * FROM local_playlists ORDER BY created_at DESC")
+    fun allPlaylists(): Flow<List<LocalPlaylistEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun addTrack(entry: PlaylistTrackEntity)
+
+    @Query("DELETE FROM playlist_tracks WHERE playlist_id = :playlistId AND track_url = :trackUrl")
+    suspend fun removeTrack(playlistId: Long, trackUrl: String)
+
+    @Query("""
+        SELECT t.* FROM tracks t
+        INNER JOIN playlist_tracks pt ON t.url = pt.track_url
+        WHERE pt.playlist_id = :playlistId
+        ORDER BY pt.position ASC
+    """)
+    fun tracksForPlaylist(playlistId: Long): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = :playlistId")
+    fun trackCount(playlistId: Long): Flow<Int>
+}
+
+// ── Database ──────────────────────────────────────────────────────────────
+
 @Database(
-    entities = [TrackEntity::class, WatchProgressEntity::class],
-    version = 3,
+    entities = [
+        TrackEntity::class,
+        WatchProgressEntity::class,
+        WatchlistEntity::class,
+        LocalPlaylistEntity::class,
+        PlaylistTrackEntity::class,
+    ],
+    version = 4,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
     abstract fun tracks(): TrackDao
     abstract fun watchProgress(): WatchProgressDao
+    abstract fun watchlist(): WatchlistDao
+    abstract fun localPlaylists(): LocalPlaylistDao
 
     companion object {
         @Volatile private var INSTANCE: LibraryDb? = null
