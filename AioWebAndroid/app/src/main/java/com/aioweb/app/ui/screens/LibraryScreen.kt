@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CloudDone
@@ -95,18 +97,20 @@ fun LibraryScreen(
     var openTile by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
 
+    val localPlaylists by remember(context) {
+        LibraryDb.get(context).localPlaylists().allPlaylists()
+    }.collectAsState(initial = emptyList())
+
     if (showCreatePlaylistDialog) {
         CreateLocalPlaylistDialog(
             onDismiss = { showCreatePlaylistDialog = false },
             onCreate = { name ->
                 showCreatePlaylistDialog = false
-                // Local playlist creation isn't wired through Room yet — surface
-                // a friendly "in progress" hint instead of silently no-op'ing.
-                android.widget.Toast.makeText(
-                    context,
-                    "Local playlist “$name” saved (UI only — sync arrives next).",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
+                scope.launch {
+                    LibraryDb.get(context).localPlaylists().createPlaylist(
+                        com.aioweb.app.data.library.LocalPlaylistEntity(name = name),
+                    )
+                }
             },
         )
     }
@@ -193,6 +197,18 @@ fun LibraryScreen(
                             mostPlayed.size, mostPlayed.mapNotNull { it.thumbnail }) { openTile = "top50" } }
                         item { LocalSystemTile("Cached", Icons.Default.History,
                             recent.size, recent.mapNotNull { it.thumbnail }) { openTile = "cached" } }
+                        items(localPlaylists, key = { "lp_${it.id}" }) { pl ->
+                            LocalPlaylistGridTile(
+                                name = pl.name,
+                                onDelete = {
+                                    scope.launch {
+                                        val dao = LibraryDb.get(context).localPlaylists()
+                                        dao.clearPlaylistTracks(pl.id)
+                                        dao.deletePlaylist(pl.id)
+                                    }
+                                },
+                            )
+                        }
                         items(ytLibrary.playlists, key = { "yp_${it.id}" }) { pl ->
                             YtPlaylistTile(pl) { onOpenPlaylist(pl.id, pl.title) }
                         }
@@ -560,6 +576,74 @@ private fun LocalSystemTile(
         )
         Text(
             "$count songs",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun LocalPlaylistGridTile(
+    name: String,
+    onDelete: () -> Unit,
+) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete playlist") },
+            text = { Text("Delete \"$name\"? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onDelete() }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            },
+        )
+    }
+    Column(
+        modifier = Modifier.clickable { },
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.PlaylistPlay,
+                contentDescription = name,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(48.dp),
+            )
+            IconButton(
+                onClick = { showDeleteConfirm = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
+            ) {
+                Icon(
+                    Icons.Default.Close, "Delete",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            name,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            "Local playlist",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

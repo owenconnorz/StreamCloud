@@ -172,6 +172,7 @@ fun NowPlayingShell(
     // ── Sleep timer (Player.stop after N minutes) ────────────────────────────
     var sleepEndTs by remember { mutableStateOf<Long?>(null) }
     var showSleepDialog by remember { mutableStateOf(false) }
+    var showQueueSheet by remember { mutableStateOf(false) }
     LaunchedEffect(sleepEndTs) {
         val end = sleepEndTs ?: return@LaunchedEffect
         while (System.currentTimeMillis() < end) delay(1000)
@@ -401,7 +402,7 @@ fun NowPlayingShell(
                 repeatMode = repeatMode,
                 sleepActive = sleepEndTs != null,
                 lyricsActive = showLyrics,
-                onQueue = { /* no queue panel yet — passthrough to lyrics for parity */ },
+                onQueue = { showQueueSheet = true },
                 onSleep = {
                     if (sleepEndTs != null) sleepEndTs = null
                     else showSleepDialog = true
@@ -430,6 +431,10 @@ fun NowPlayingShell(
                 )
             }
         }
+    }
+
+    if (showQueueSheet) {
+        QueueSheet(controller = controller, onDismiss = { showQueueSheet = false })
     }
 
     if (showSleepDialog) {

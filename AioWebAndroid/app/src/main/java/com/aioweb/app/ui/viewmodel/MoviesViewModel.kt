@@ -10,6 +10,7 @@ import com.aioweb.app.data.collections.HomeCollection
 import com.aioweb.app.data.collections.HomeCollections
 import com.aioweb.app.data.library.LibraryDb
 import com.aioweb.app.data.library.WatchProgressEntity
+import com.aioweb.app.data.library.WatchlistEntity
 import com.aioweb.app.data.plugins.InstalledPlugin
 import com.aioweb.app.data.plugins.PluginRepository
 import com.aioweb.app.data.stremio.InstalledStremioAddon
@@ -55,6 +56,7 @@ data class MoviesState(
     val installedStremioAddons: List<InstalledStremioAddon> = emptyList(),
     /** Inline NuvioMobile-style addon rows, one per addon catalog (movie/series/etc). */
     val stremioRows: List<StremioHomeRow> = emptyList(),
+    val watchlist: List<WatchlistEntity> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
@@ -89,10 +91,14 @@ class MoviesViewModel(
         viewModelScope.launch {
             sl.settings.homeCollectionsCsv.collectLatest { loadDiscover() }
         }
-        // Continue-watching row is fed by the player whenever the user pauses/exits.
         viewModelScope.launch {
             LibraryDb.get(appContext).watchProgress().continueWatching().collect { rows ->
                 _state.update { it.copy(continueWatching = rows) }
+            }
+        }
+        viewModelScope.launch {
+            LibraryDb.get(appContext).watchlist().all().collect { rows ->
+                _state.update { it.copy(watchlist = rows) }
             }
         }
     }
@@ -164,6 +170,15 @@ class MoviesViewModel(
 
     fun clearNotice() {
         _state.update { it.copy(notice = null) }
+    }
+
+    fun toggleWatchlist(tmdbId: Long, title: String, posterUrl: String?, mediaType: String) {
+        viewModelScope.launch {
+            val db = LibraryDb.get(appContext).watchlist()
+            val alreadyIn = _state.value.watchlist.any { it.tmdbId == tmdbId }
+            if (alreadyIn) db.remove(tmdbId)
+            else db.add(WatchlistEntity(tmdbId = tmdbId, title = title, posterUrl = posterUrl, mediaType = mediaType))
+        }
     }
 
     /**
