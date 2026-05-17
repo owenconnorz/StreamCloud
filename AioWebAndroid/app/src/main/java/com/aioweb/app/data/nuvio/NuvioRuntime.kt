@@ -490,8 +490,17 @@ object NuvioRuntime {
             }
             var method = (options.method || 'GET').toUpperCase();
             var headers = options.headers || {};
-            // Some providers pass a Headers instance; extract to plain object.
-            if (headers && typeof headers.forEach === 'function') {
+            // Normalise headers to a plain {key:value} object regardless of what
+            // the provider passed: Headers instance, array-of-pairs [[k,v],…], or
+            // plain object are all accepted so we don't drop headers silently.
+            if (Array.isArray(headers)) {
+                var plain = {};
+                for (var _hi = 0; _hi < headers.length; _hi++) {
+                    var _hpair = headers[_hi];
+                    if (Array.isArray(_hpair) && _hpair.length >= 2) plain[_hpair[0]] = _hpair[1];
+                }
+                headers = plain;
+            } else if (headers && typeof headers.forEach === 'function') {
                 var plain = {};
                 headers.forEach(function(v, k) { plain[k] = v; });
                 headers = plain;
@@ -571,6 +580,38 @@ object NuvioRuntime {
             globalThis.btoa = function(input) { return __crypto_base64_encode(input); };
         }
 
+        // ── location stub ─────────────────────────────────────────────────────
+        // Providers may read window.location.origin / href to build Referer headers.
+        if (typeof location === 'undefined') {
+            var __loc = { href: 'https://streamcloud.app/', hostname: 'streamcloud.app', host: 'streamcloud.app', origin: 'https://streamcloud.app', pathname: '/', search: '', hash: '', protocol: 'https:' };
+            globalThis.location = __loc;
+            if (typeof globalThis.window !== 'undefined') globalThis.window.location = __loc;
+        }
+
+        // ── document stub ─────────────────────────────────────────────────────
+        // Minimal stub so providers that sniff `typeof document` don't crash.
+        if (typeof document === 'undefined') {
+            globalThis.document = {
+                createElement: function(tag) {
+                    var el = { tagName: (tag||'').toUpperCase(), innerHTML: '', textContent: '', value: '', style: {}, className: '', id: '', href: '', src: '' };
+                    el.setAttribute = function(k, v) { el[k] = v; };
+                    el.getAttribute = function(k) { return el[k] || null; };
+                    el.appendChild = function() {}; el.removeChild = function() {}; el.addEventListener = function() {};
+                    return el;
+                },
+                getElementById: function() { return null; },
+                querySelector: function() { return null; },
+                querySelectorAll: function() { return []; },
+                getElementsByTagName: function() { return []; },
+                head: { appendChild: function() {} },
+                body: { appendChild: function() {}, style: {} },
+                cookie: '',
+                domain: 'streamcloud.app',
+                location: globalThis.location,
+                createElementNS: function(ns, tag) { return this.createElement(tag); },
+            };
+        }
+
         // ── process stub ──────────────────────────────────────────────────────
         // Node.js-targeted providers check process.env, process.browser, etc.
         if (typeof process === 'undefined') {
@@ -580,6 +621,34 @@ object NuvioRuntime {
                 version: 'v18.0.0',
                 platform: 'android',
                 nextTick: function(fn) { try { if (typeof fn === 'function') fn(); } catch(e) {} },
+            };
+        }
+
+        // ── crypto stub ──────────────────────────────────────────────────────
+        // Many providers use crypto.getRandomValues() for nonce/token generation and
+        // crypto.randomUUID() for session ids.  Without this they throw a TypeError
+        // and silently return no streams.
+        if (typeof globalThis.crypto === 'undefined') {
+            globalThis.crypto = {
+                getRandomValues: function(arr) {
+                    for (var _i = 0; _i < arr.length; _i++) arr[_i] = Math.floor(Math.random() * 256);
+                    return arr;
+                },
+                randomUUID: function() {
+                    var b = [];
+                    for (var _i = 0; _i < 16; _i++) b.push(Math.floor(Math.random() * 256));
+                    b[6] = (b[6] & 0x0f) | 0x40;
+                    b[8] = (b[8] & 0x3f) | 0x80;
+                    var h = function(n) { return ('00' + n.toString(16)).slice(-2); };
+                    return h(b[0])+h(b[1])+h(b[2])+h(b[3])+'-'+h(b[4])+h(b[5])+'-'+h(b[6])+h(b[7])+'-'+h(b[8])+h(b[9])+'-'+h(b[10])+h(b[11])+h(b[12])+h(b[13])+h(b[14])+h(b[15]);
+                },
+                subtle: {
+                    digest: function(algo, data) { return Promise.resolve(new ArrayBuffer(32)); },
+                    importKey: function() { return Promise.resolve({}); },
+                    sign: function() { return Promise.resolve(new ArrayBuffer(32)); },
+                    encrypt: function() { return Promise.resolve(new ArrayBuffer(0)); },
+                    decrypt: function() { return Promise.resolve(new ArrayBuffer(0)); },
+                },
             };
         }
 
@@ -661,19 +730,38 @@ object NuvioRuntime {
 
         var URL = function(urlString, base) {
             var fullUrl = urlString;
-            if (base && !/^https?:\/\//i.test(urlString)) {
-                var b = typeof base === 'string' ? base : base.href;
-                if (urlString.charAt(0) === '/') {
-                    var m = b.match(/^(https?:\/\/[^\/]+)/);
-                    fullUrl = m ? m[1] + urlString : urlString;
-                } else { fullUrl = b.replace(/\/[^\/]*$/, '/') + urlString; }
+            if (base) {
+                var b = typeof base === 'string' ? base : (base.href || String(base));
+                if (/^\/\//.test(urlString)) {
+                    // Protocol-relative → inherit protocol from base
+                    var proto = b.match(/^(https?:)/i);
+                    fullUrl = (proto ? proto[1] : 'https:') + urlString;
+                } else if (!/^https?:\/\//i.test(urlString)) {
+                    if (urlString.charAt(0) === '/') {
+                        var m = b.match(/^(https?:\/\/[^\/]+)/);
+                        fullUrl = m ? m[1] + urlString : urlString;
+                    } else { fullUrl = b.replace(/\/[^\/]*$/, '/') + urlString; }
+                }
             }
             var data = JSON.parse(__parse_url(fullUrl));
             this.href = fullUrl;
             this.protocol = data.protocol; this.host = data.host; this.hostname = data.hostname;
             this.port = data.port; this.pathname = data.pathname; this.search = data.search;
             this.hash = data.hash; this.origin = data.protocol + '//' + data.host;
-            this.searchParams = new URLSearchParams(data.search || '');
+            // searchParams whose mutations propagate back to this.href / this.search.
+            var self = this;
+            var sp = new URLSearchParams(data.search || '');
+            var origSet = sp.set.bind(sp), origAppend = sp.append.bind(sp), origDel = sp.delete.bind(sp);
+            function syncHref() {
+                var qs = sp.toString();
+                self.search = qs ? ('?' + qs) : '';
+                var base2 = fullUrl.split('?')[0].split('#')[0];
+                self.href = base2 + self.search + self.hash;
+            }
+            sp.set    = function(k, v) { origSet(k, v);    syncHref(); };
+            sp.append = function(k, v) { origAppend(k, v); syncHref(); };
+            sp.delete = function(k)    { origDel(k);        syncHref(); };
+            this.searchParams = sp;
         };
         URL.prototype.toString = function() { return this.href; };
         globalThis.URL = URL;
@@ -696,11 +784,37 @@ object NuvioRuntime {
                 return encodeURIComponent(k) + '=' + encodeURIComponent(s._params[k]);
             }).join('&');
         };
-        URLSearchParams.prototype.get = function(k) { return this._params[k] || null; };
+        URLSearchParams.prototype.get = function(k) { return Object.prototype.hasOwnProperty.call(this._params, k) ? this._params[k] : null; };
         URLSearchParams.prototype.set = function(k, v) { this._params[k] = String(v); };
         URLSearchParams.prototype.append = function(k, v) { this._params[k] = String(v); };
         URLSearchParams.prototype.has = function(k) { return Object.prototype.hasOwnProperty.call(this._params, k); };
         URLSearchParams.prototype.delete = function(k) { delete this._params[k]; };
+        URLSearchParams.prototype.getAll = function(k) { return this.has(k) ? [this._params[k]] : []; };
+        URLSearchParams.prototype.forEach = function(cb, thisArg) {
+            var self = this;
+            Object.keys(this._params).forEach(function(k) { cb.call(thisArg, self._params[k], k, self); });
+        };
+        URLSearchParams.prototype.entries = function() {
+            var keys = Object.keys(this._params), i = 0, self = this;
+            var iter = { next: function() { return i < keys.length ? { value: [keys[i], self._params[keys[i++]]], done: false } : { value: undefined, done: true }; } };
+            try { iter[Symbol.iterator] = function() { return iter; }; } catch(e) {}
+            return iter;
+        };
+        URLSearchParams.prototype.keys = function() {
+            var keys = Object.keys(this._params), i = 0;
+            var iter = { next: function() { return i < keys.length ? { value: keys[i++], done: false } : { value: undefined, done: true }; } };
+            try { iter[Symbol.iterator] = function() { return iter; }; } catch(e) {}
+            return iter;
+        };
+        URLSearchParams.prototype.values = function() {
+            var keys = Object.keys(this._params), i = 0, self = this;
+            var iter = { next: function() { return i < keys.length ? { value: self._params[keys[i++]], done: false } : { value: undefined, done: true }; } };
+            try { iter[Symbol.iterator] = function() { return iter; }; } catch(e) {}
+            return iter;
+        };
+        try {
+            URLSearchParams.prototype[Symbol.iterator] = URLSearchParams.prototype.entries;
+        } catch(e) {}
         globalThis.URLSearchParams = URLSearchParams;
 
         // ── Cheerio (Jsoup-backed) ──────────────────────────────────────
@@ -956,6 +1070,66 @@ object NuvioRuntime {
             String.prototype.replaceAll = function(s, r) {
                 if (s instanceof RegExp) { if (!s.global) throw new TypeError('replaceAll needs a global RegExp'); return this.replace(s, r); }
                 return this.split(s).join(r);
+            };
+        }
+        if (!String.prototype.trimStart) {
+            String.prototype.trimStart = function() { return this.replace(/^\s+/, ''); };
+            String.prototype.trimEnd   = function() { return this.replace(/\s+${'$'}/, ''); };
+        }
+        if (!String.prototype.at) {
+            String.prototype.at = function(i) { var n = i >= 0 ? i : this.length + i; return this[n]; };
+        }
+        if (!Array.prototype.at) {
+            Array.prototype.at = function(i) { var n = i >= 0 ? i : this.length + i; return this[n]; };
+        }
+        if (typeof Array.from === 'undefined') {
+            Array.from = function(iter, mapFn) {
+                var arr = [];
+                if (iter == null) return arr;
+                if (typeof iter[Symbol.iterator] === 'function') {
+                    var it = iter[Symbol.iterator]();
+                    var step;
+                    while (!(step = it.next()).done) arr.push(mapFn ? mapFn(step.value) : step.value);
+                } else if (typeof iter.length === 'number') {
+                    for (var i = 0; i < iter.length; i++) arr.push(mapFn ? mapFn(iter[i]) : iter[i]);
+                }
+                return arr;
+            };
+        }
+        if (typeof Object.assign === 'undefined') {
+            Object.assign = function(target) {
+                for (var i = 1; i < arguments.length; i++) {
+                    var src = arguments[i];
+                    if (src) for (var k in src) if (Object.prototype.hasOwnProperty.call(src, k)) target[k] = src[k];
+                }
+                return target;
+            };
+        }
+        if (typeof Object.values === 'undefined') {
+            Object.values = function(o) { return Object.keys(o).map(function(k) { return o[k]; }); };
+        }
+        // queueMicrotask — run the callback as a resolved Promise (next microtask tick).
+        if (typeof queueMicrotask === 'undefined') {
+            globalThis.queueMicrotask = function(fn) { Promise.resolve().then(fn); };
+        }
+        // structuredClone — deep copy via JSON round-trip (good enough for provider data).
+        if (typeof structuredClone === 'undefined') {
+            globalThis.structuredClone = function(v) {
+                try { return JSON.parse(JSON.stringify(v)); } catch(e) { return v; }
+            };
+        }
+        // String.prototype.matchAll polyfill (ES2020)
+        if (!String.prototype.matchAll) {
+            String.prototype.matchAll = function(re) {
+                var str = this, flags = re.flags;
+                if (flags.indexOf('g') === -1) re = new RegExp(re.source, flags + 'g');
+                var results = [], m;
+                re.lastIndex = 0;
+                while ((m = re.exec(str)) !== null) results.push(m);
+                var i = 0;
+                var iter = { next: function() { return i < results.length ? { value: results[i++], done: false } : { done: true }; } };
+                try { iter[Symbol.iterator] = function() { return iter; }; } catch(e) {}
+                return iter;
             };
         }
     """.trimIndent()
