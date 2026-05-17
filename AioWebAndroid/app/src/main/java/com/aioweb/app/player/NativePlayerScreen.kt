@@ -129,17 +129,19 @@ fun NativePlayerScreen(
             streamUrl.endsWith(".torrent", true)
 
         if (isTorrent) {
+            var lastError: String? = null
             val proxied = withContext(Dispatchers.IO) {
                 try {
                     torrentService.startStreamFromMagnet(streamUrl)
                 } catch (e: Throwable) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
+                    lastError = "${e.javaClass.simpleName}: ${e.message}"
                     android.util.Log.e("NativePlayer", "Torrent start failed", e)
                     null
                 }
             }
             if (proxied == null)
-                resolveError = "Could not start torrent stream.\nCheck your network or try a different stream."
+                resolveError = "Could not start torrent stream.\n\n${lastError ?: "Unknown error"}"
             else
                 resolvedUrl = proxied
         } else {
