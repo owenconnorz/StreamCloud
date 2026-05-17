@@ -515,6 +515,9 @@ fun AioWebApp() {
                     val active = sources.firstOrNull { it.id == currentId }
                     val subtitle = active?.let { "${it.addonName}${it.qualityTag?.let { q -> " · $q" } ?: ""}" }
                     val refreshScope = rememberCoroutineScope()
+                    // Bumped on every source tap so the player always restarts,
+                    // even when the user picks the URL that's already loaded.
+                    var switchKey by remember(initial) { mutableStateOf(0) }
                     NativePlayerScreen(
                         streamUrl = currentUrl,
                         title = title,
@@ -522,9 +525,11 @@ fun AioWebApp() {
                         headers = active?.headers ?: emptyMap(),
                         sources = sources,
                         selectedSourceId = currentId,
+                        restartKey = switchKey,
                         onSwitchSource = { src ->
                             currentUrl = src.url
                             currentId = src.id
+                            switchKey++
                         },
                         progressKey = com.aioweb.app.player.MoviePlayerSession.progressKey,
                         onBack = { nav.popBackStack() },
