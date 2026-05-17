@@ -170,7 +170,8 @@ object YtMusicLibraryRepository {
             var safetyPages = 50
             var pageNum = 1
             while (!token.isNullOrBlank() && safetyPages-- > 0) {
-                val page = client.browseContinuation(token) ?: run {
+                val page = client.browseContinuation(token)
+                if (page == null) {
                     Log.w(TAG, "playlist[$playlistId] page$pageNum: browseContinuation returned null, stopping")
                     break
                 }
