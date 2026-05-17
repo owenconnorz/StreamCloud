@@ -7,7 +7,11 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,6 +33,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -114,6 +121,9 @@ fun GlobalMiniPlayer(
         }
     }
 
+    // Tracks the horizontal slide offset while the user drags the mini player.
+    val swipeOffsetX = remember { Animatable(0f) }
+
     AnimatedVisibility(
         visible = title != null,
         enter = slideInVertically { it } + fadeIn(),
@@ -124,22 +134,54 @@ fun GlobalMiniPlayer(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 6.dp)
+                .offset { IntOffset(swipeOffsetX.value.roundToInt(), 0) }
                 .clip(RoundedCornerShape(16.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .clickable(onClick = onExpand)
-                // Vertical drag detector — upward fling/drag past ~60px
-                // expands to the full now-playing sheet (Spotify gesture).
-                .pointerInput(Unit) {
-                    var accumulated = 0f
-                    detectVerticalDragGestures(
-                        onDragStart = { accumulated = 0f },
-                        onDragEnd = { accumulated = 0f },
-                        onDragCancel = { accumulated = 0f },
-                    ) { _, drag ->
-                        accumulated += drag
-                        if (accumulated < -60f) {
-                            accumulated = 0f
-                            onExpand()
+                // Unified gesture handler: horizontal swipe skips tracks,
+                // vertical swipe-up expands to full now-playing sheet.
+                .pointerInput(controller) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        var totalX = 0f
+                        var totalY = 0f
+                        var dirLocked = false
+                        var isHorizontal = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) break
+                            val pos = change.positionChange()
+                            totalX += pos.x
+                            totalY += pos.y
+                            if (!dirLocked && (abs(totalX) > 16f || abs(totalY) > 16f)) {
+                                isHorizontal = abs(totalX) > abs(totalY)
+                                dirLocked = true
+                            }
+                            if (dirLocked) {
+                                change.consume()
+                                if (isHorizontal) {
+                                    launch { swipeOffsetX.snapTo(totalX.coerceIn(-280f, 280f)) }
+                                }
+                            }
+                        }
+                        when {
+                            dirLocked && isHorizontal && totalX < -80f -> launch {
+                                swipeOffsetX.animateTo(-90f, tween(100))
+                                controller?.seekToNextMediaItem()
+                                swipeOffsetX.snapTo(90f)
+                                swipeOffsetX.animateTo(0f, tween(220))
+                            }
+                            dirLocked && isHorizontal && totalX > 80f -> launch {
+                                swipeOffsetX.animateTo(90f, tween(100))
+                                controller?.seekToPreviousMediaItem()
+                                swipeOffsetX.snapTo(-90f)
+                                swipeOffsetX.animateTo(0f, tween(220))
+                            }
+                            dirLocked && isHorizontal -> launch {
+                                swipeOffsetX.animateTo(0f, spring())
+                            }
+                            dirLocked && !isHorizontal && totalY < -60f -> onExpand()
                         }
                     }
                 }
