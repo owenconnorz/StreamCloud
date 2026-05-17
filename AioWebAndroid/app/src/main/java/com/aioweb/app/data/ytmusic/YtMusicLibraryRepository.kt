@@ -138,71 +138,128 @@ object YtMusicLibraryRepository {
             val browseId = if (playlistId.startsWith("VL")) playlistId else "VL$playlistId"
             val first = client.browse(browseId) ?: return@withContext emptyList()
 
-            // ── Debug: log the top-level keys and continuation-related keys found ──
-            Log.d(TAG, "playlist[$playlistId] first-page top-level keys: ${first.keys}")
-            val firstContKeys = first.keys.filter { it.contains("continuation", ignoreCase = true) }
-            Log.d(TAG, "playlist[$playlistId] first-page continuation-like keys: $firstContKeys")
-            // Log whether continuationContents / onResponseReceivedActions / continuations present
-            Log.d(TAG, "playlist[$playlistId] has 'continuationContents'=${first.containsKey("continuationContents")}")
-            Log.d(TAG, "playlist[$playlistId] has 'onResponseReceivedActions'=${first.containsKey("onResponseReceivedActions")}")
-            Log.d(TAG, "playlist[$playlistId] findAll('continuations').size=${first.findAll("continuations").size}")
-            Log.d(TAG, "playlist[$playlistId] findAll('continuationItemRenderer').size=${first.findAll("continuationItemRenderer").size}")
-            Log.d(TAG, "playlist[$playlistId] findAll('continuationCommand').size=${first.findAll("continuationCommand").size}")
-            // Dump the wrapper key names inside any continuations arrays found
-            first.findAll("continuations").forEachIndexed { i, cs ->
-                val arr = cs as? kotlinx.serialization.json.JsonArray
-                arr?.forEachIndexed { j, entry ->
-                    val keys = (entry as? kotlinx.serialization.json.JsonObject)?.keys
-                    Log.d(TAG, "playlist[$playlistId] continuations[$i][$j].keys=$keys")
-                }
-            }
-            // ── End debug ──
-
             val collected = mutableListOf<YtmSong>()
-            val firstItems = first.collectResponsiveListItems()
-            val firstSongs = firstItems.mapNotNull { parseResponsiveSong(it) }
-            Log.d(TAG, "playlist[$playlistId] page0: renderers=${firstItems.size} parsed=${firstSongs.size}")
-            collected += firstSongs
-
-            var token = first.findContinuationToken()
-            Log.d(TAG, "playlist[$playlistId] page0 token=${token?.take(40)}")
-            // Cap at 50 pages (~5000 songs) so a runaway response doesn't loop forever.
+            var pageNum = 0
             var safetyPages = 50
-            var pageNum = 1
+
+            // Use the targeted extractor for the first page so we don't accidentally
+            // collect songs from "Related" / "Recommended" shelves that YouTube appends
+            // after the playlist content (those shelves also use musicResponsiveListItemRenderer
+            // and were the source of the "wrong songs" / wrong song count bug).
+            var (renderers, token) = extractPlaylistPage(first)
+            Log.d(TAG, "playlist[$playlistId] page$pageNum: renderers=${renderers.size} token=${token?.take(40)}")
+            collected += renderers.mapNotNull { parseResponsiveSong(it) }
+
             while (!token.isNullOrBlank() && safetyPages-- > 0) {
+                pageNum++
                 val page = client.browseContinuation(token)
                 if (page == null) {
                     Log.w(TAG, "playlist[$playlistId] page$pageNum: browseContinuation returned null, stopping")
                     break
                 }
-                Log.d(TAG, "playlist[$playlistId] page$pageNum top-level keys: ${page.keys}")
-                Log.d(TAG, "playlist[$playlistId] page$pageNum has 'continuationContents'=${page.containsKey("continuationContents")}")
-                Log.d(TAG, "playlist[$playlistId] page$pageNum has 'onResponseReceivedActions'=${page.containsKey("onResponseReceivedActions")}")
-                Log.d(TAG, "playlist[$playlistId] page$pageNum findAll('continuations').size=${page.findAll("continuations").size}")
-                Log.d(TAG, "playlist[$playlistId] page$pageNum findAll('continuationItemRenderer').size=${page.findAll("continuationItemRenderer").size}")
-                page.findAll("continuations").forEachIndexed { i, cs ->
-                    val arr = cs as? kotlinx.serialization.json.JsonArray
-                    arr?.forEachIndexed { j, entry ->
-                        val keys = (entry as? kotlinx.serialization.json.JsonObject)?.keys
-                        Log.d(TAG, "playlist[$playlistId] page$pageNum continuations[$i][$j].keys=$keys")
-                    }
-                }
+                val (pageRenderers, nextToken) = extractPlaylistPage(page)
+                Log.d(TAG, "playlist[$playlistId] page$pageNum: renderers=${pageRenderers.size} token=${nextToken?.take(40)}")
                 val before = collected.size
-                val pageItems = page.collectResponsiveListItems()
-                val pageSongs = pageItems.mapNotNull { parseResponsiveSong(it) }
-                Log.d(TAG, "playlist[$playlistId] page$pageNum: renderers=${pageItems.size} parsed=${pageSongs.size}")
-                collected += pageSongs
+                collected += pageRenderers.mapNotNull { parseResponsiveSong(it) }
                 if (collected.size == before) {
-                    Log.w(TAG, "playlist[$playlistId] page$pageNum: no progress (${pageItems.size} renderers, ${pageSongs.size} songs) — stopping")
+                    Log.w(TAG, "playlist[$playlistId] page$pageNum: no progress — stopping")
                     break
                 }
-                token = page.findContinuationToken()
-                Log.d(TAG, "playlist[$playlistId] page$pageNum token=${token?.take(40)}")
-                pageNum++
+                token = nextToken
             }
             Log.d(TAG, "playlist[$playlistId] done: total=${collected.size} distinct=${collected.distinctBy { it.videoId }.size}")
             collected.distinctBy { it.videoId }
         }
+
+    /**
+     * Extract the playlist song renderers and the next-page continuation token from a
+     * single InnerTube browse/continuation response.
+     *
+     * The critical difference from the generic [collectResponsiveListItems] + [findContinuationToken]
+     * pair is that we scope our search to the specific shelf that holds the playlist tracks
+     * rather than deep-walking the entire response tree.  YouTube appends "Related" /
+     * "Recommended" / "Up next" shelves after the playlist content — those shelves also
+     * use `musicResponsiveListItemRenderer` and were causing:
+     *   1. Wrong (unrelated) songs being shown in the playlist, and
+     *   2. The continuation token from those extra shelves being returned instead of the
+     *      playlist shelf's token, which then fetched wrong content and terminated early.
+     *
+     * Returns a [Pair] of (item renderers, continuation token or null).
+     */
+    private fun extractPlaylistPage(response: JsonObject): Pair<List<JsonObject>, String?> {
+        // ── helpers ─────────────────────────────────────────────────────────────────
+        /** Collect musicResponsiveListItemRenderer objects from a shelf's contents array. */
+        fun shelfItems(shelf: JsonObject): List<JsonObject>? =
+            (shelf["contents"] as? JsonArray)
+                ?.mapNotNull { (it as? JsonObject)?.get("musicResponsiveListItemRenderer") as? JsonObject }
+                ?.takeIf { it.isNotEmpty() }
+
+        /** Read the next-page token directly from a shelf's own `continuations` array. */
+        fun shelfToken(shelf: JsonObject): String? {
+            val arr = shelf["continuations"] as? JsonArray ?: return null
+            for (entry in arr) {
+                val obj = entry as? JsonObject ?: continue
+                for (key in listOf(
+                    "nextContinuationData", "nextRadioContinuationData",
+                    "timedContinuationData", "reloadContinuationData",
+                )) {
+                    val t = (obj[key] as? JsonObject)?.get("continuation")
+                        ?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                    if (t != null) return t
+                }
+            }
+            return null
+        }
+
+        // ── 1. Initial browse — musicPlaylistShelfRenderer (standard user playlists) ─
+        (response.findFirst("musicPlaylistShelfRenderer") as? JsonObject)?.let { shelf ->
+            val items = shelfItems(shelf)
+            if (!items.isNullOrEmpty()) return items to shelfToken(shelf)
+        }
+
+        // ── 2. Initial browse — musicShelfRenderer (some playlist/album types) ──────
+        (response.findFirst("musicShelfRenderer") as? JsonObject)?.let { shelf ->
+            val items = shelfItems(shelf)
+            if (!items.isNullOrEmpty()) return items to shelfToken(shelf)
+        }
+
+        // ── 3. Continuation page — musicPlaylistShelfContinuation ────────────────────
+        (response.findFirst("musicPlaylistShelfContinuation") as? JsonObject)?.let { shelf ->
+            val items = shelfItems(shelf)
+            if (!items.isNullOrEmpty()) return items to shelfToken(shelf)
+        }
+
+        // ── 4. Continuation page — musicShelfContinuation ────────────────────────────
+        (response.findFirst("musicShelfContinuation") as? JsonObject)?.let { shelf ->
+            val items = shelfItems(shelf)
+            if (!items.isNullOrEmpty()) return items to shelfToken(shelf)
+        }
+
+        // ── 5. Newer 2025+ format — appendContinuationItemsAction ────────────────────
+        // Items AND the load-more button are both inside `continuationItems[]`.
+        val actionItems = (response["onResponseReceivedActions"] as? JsonArray)
+            ?.firstOrNull()?.let { it as? JsonObject }
+            ?.let { it["appendContinuationItemsAction"] as? JsonObject }
+            ?.let { it["continuationItems"] as? JsonArray }
+        if (actionItems != null) {
+            val items = actionItems.mapNotNull {
+                (it as? JsonObject)?.get("musicResponsiveListItemRenderer") as? JsonObject
+            }
+            val nextToken = actionItems.firstNotNullOfOrNull { item ->
+                (item as? JsonObject)
+                    ?.let { it["continuationItemRenderer"] as? JsonObject }
+                    ?.let { it["continuationEndpoint"] as? JsonObject }
+                    ?.let { it["continuationCommand"] as? JsonObject }
+                    ?.get("token")?.jsonPrimitive?.contentOrNull
+                    ?.takeIf { it.isNotBlank() }
+            }
+            if (items.isNotEmpty()) return items to nextToken
+        }
+
+        // ── 6. Fallback — shouldn't normally be reached ───────────────────────────────
+        Log.w(TAG, "extractPlaylistPage: no known shelf found, falling back to tree walk")
+        return response.collectResponsiveListItems() to response.findContinuationToken()
+    }
 
     // ───────────────────────── parsers ─────────────────────────
 
