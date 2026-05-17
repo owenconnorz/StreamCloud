@@ -58,13 +58,13 @@ args = "cd frontend && PATH=/nix/store/1lagpgadaybvs1n2312gysg2phjk89y8-nodejs-2
 waitForPort = 5000
 
 [[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
 localPort = 8000
 externalPort = 8000
 exposeLocalhost = true
-
-[[ports]]
-localPort = 5000
-externalPort = 80
 
 [deployment]
 deploymentTarget = "autoscale"

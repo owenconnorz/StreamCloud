@@ -70,7 +70,9 @@ object NuvioRuntime {
         val documentCache = mutableMapOf<String, Document>()
         val elementCache = mutableMapOf<String, Element>()
         val idCounter = AtomicInteger()
-        var resultJson = "[]"
+        // Belt-and-suspenders: populated via __capture_result side-effect AND via
+        // the direct return value of evaluate<Any?> (whichever arrives first wins).
+        var capturedJson = "[]"
         return try {
             quickJs(Dispatchers.IO) {
                 installConsole(scriptKey)
@@ -79,8 +81,9 @@ object NuvioRuntime {
                 installUrlBinding()
                 installCheerioBindings(documentCache, elementCache, idCounter)
 
+                // Side-effect capture — called from inside the async IIFE.
                 function("__capture_result") { args ->
-                    resultJson = args.firstOrNull()?.toString() ?: "[]"
+                    capturedJson = args.firstOrNull()?.toString() ?: "[]"
                     null
                 }
 
@@ -103,26 +106,41 @@ object NuvioRuntime {
 
                 val seasonArg = season?.toString() ?: "undefined"
                 val episodeArg = episode?.toString() ?: "undefined"
-                evaluate<Any?>(
+
+                // Async IIFE — returns the JSON string AND calls __capture_result.
+                // evaluate<Any?> in com.dokar.quickjs awaits the returned Promise
+                // before handing control back to Kotlin, so by the time it returns
+                // both the side-effect variable and the direct return value are set.
+                val directResult = evaluate<Any?>(
                     """
                     (async function() {
                         try {
                             var fn = module.exports.getStreams || globalThis.getStreams;
                             if (typeof fn !== 'function') {
                                 console.error('Plugin error: getStreams() not exported.');
-                                __capture_result(JSON.stringify([]));
-                                return;
+                                __capture_result('[]');
+                                return '[]';
                             }
                             var arr = await fn(${jsString(tmdbId)}, ${jsString(mediaType)}, $seasonArg, $episodeArg);
-                            __capture_result(JSON.stringify(arr || []));
+                            var result = JSON.stringify(arr || []);
+                            __capture_result(result);
+                            return result;
                         } catch (e) {
                             console.error('getStreams crashed:', (e && e.message) || e, e && e.stack || '');
-                            __capture_result(JSON.stringify([]));
+                            __capture_result('[]');
+                            return '[]';
                         }
-                    })();
+                    })()
                     """.trimIndent(),
                 )
-                parseStreams(resultJson)
+
+                // Prefer the direct return value (string from resolved Promise);
+                // fall back to the side-effect capture if evaluate returned the
+                // Promise object itself rather than its resolved value.
+                val finalJson = (directResult as? String)
+                    ?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: capturedJson
+                parseStreams(finalJson)
             }
         } catch (e: QuickJsException) {
             Log.w(TAG, "QuickJS error in $scriptKey: ${e.message}", e)
