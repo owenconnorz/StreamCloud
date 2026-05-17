@@ -66,7 +66,9 @@ import com.aioweb.app.ui.viewmodel.AdultViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import java.net.URLDecoder
@@ -309,7 +311,11 @@ fun AioWebApp() {
                         initialPoster = poster.takeIf { it.isNotBlank() },
                         onBack = { nav.popBackStack() },
                         onPlay = { initialUrl, title, sources, progressKey ->
-                            com.aioweb.app.player.MoviePlayerSession.set(sources, progressKey)
+                            com.aioweb.app.player.MoviePlayerSession.set(
+                                sources, progressKey,
+                                tmdbId = progressKey.tmdbId,
+                                mediaType = progressKey.mediaType,
+                            )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("player/movie/$u/$t")
@@ -324,7 +330,11 @@ fun AioWebApp() {
                         movieId = it.arguments!!.getLong("id"),
                         onBack = { nav.popBackStack() },
                         onPlay = { initialUrl, title, sources, progressKey ->
-                            com.aioweb.app.player.MoviePlayerSession.set(sources, progressKey)
+                            com.aioweb.app.player.MoviePlayerSession.set(
+                                sources, progressKey,
+                                tmdbId = progressKey.tmdbId,
+                                mediaType = progressKey.mediaType,
+                            )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("player/movie/$u/$t")
@@ -495,13 +505,16 @@ fun AioWebApp() {
                 ) { entry ->
                     val initial = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    val sources = com.aioweb.app.player.MoviePlayerSession.sources
+                    // Observe the reactive sources list so newly-resolved streams appear
+                    // in the picker without restarting the player.
+                    val sources by com.aioweb.app.player.MoviePlayerSession.sourcesFlow.collectAsState()
                     var currentUrl by remember(initial) { mutableStateOf(initial) }
                     var currentId by remember(initial) {
                         mutableStateOf(sources.firstOrNull { it.url == initial }?.id)
                     }
                     val active = sources.firstOrNull { it.id == currentId }
                     val subtitle = active?.let { "${it.addonName}${it.qualityTag?.let { q -> " · $q" } ?: ""}" }
+                    val refreshScope = rememberCoroutineScope()
                     NativePlayerScreen(
                         streamUrl = currentUrl,
                         title = title,
@@ -515,6 +528,31 @@ fun AioWebApp() {
                         },
                         progressKey = com.aioweb.app.player.MoviePlayerSession.progressKey,
                         onBack = { nav.popBackStack() },
+                        onRefresh = {
+                            refreshScope.launch {
+                                val tmdbId = com.aioweb.app.player.MoviePlayerSession.tmdbId
+                                val mediaType = com.aioweb.app.player.MoviePlayerSession.mediaType
+                                if (tmdbId == 0L) return@launch
+                                val newSources = runCatching {
+                                    sl.nuvio.resolveAll(tmdbId.toString(), mediaType)
+                                        .map { (provider, stream) ->
+                                            val label = stream.title?.takeIf { it.isNotBlank() }
+                                                ?: stream.name?.takeIf { it.isNotBlank() }
+                                                ?: "Stream"
+                                            com.aioweb.app.player.PlayerSource(
+                                                id = "nuvio::${provider.id}::${stream.url.hashCode()}::${label.hashCode()}",
+                                                url = stream.url,
+                                                label = label,
+                                                addonName = provider.name,
+                                                qualityTag = nuvioQualityTag(stream.quality),
+                                                isMagnet = stream.url.startsWith("magnet:"),
+                                                headers = stream.headers ?: emptyMap(),
+                                            )
+                                        }
+                                }.getOrDefault(emptyList())
+                                com.aioweb.app.player.MoviePlayerSession.mergeSources(newSources)
+                            }
+                        },
                     )
                 }
                 composable(Tab.Settings.route) {
@@ -608,5 +646,25 @@ private fun ScrollableNavBarItem(
             style = MaterialTheme.typography.labelLarge,
             color = if (selected) MaterialTheme.colorScheme.primary else unselectedTint,
         )
+    }
+}
+
+/**
+ * Normalises free-form Nuvio quality strings to the canonical tags used by the
+ * quality sorter ("4K", "1080p", "720p", etc.).  Mirrors the private copy in
+ * MovieDetailScreen — kept here so the player's refresh path doesn't need to
+ * reach into that screen's private scope.
+ */
+private fun nuvioQualityTag(q: String?): String? {
+    if (q.isNullOrBlank()) return null
+    val s = q.trim()
+    return when {
+        s.equals("4K", ignoreCase = true) || s.contains("2160") || s.contains("uhd", ignoreCase = true) -> "4K"
+        s.contains("1440") || s.equals("2K", ignoreCase = true) -> "1440p"
+        s.contains("1080") || s.equals("fhd", ignoreCase = true) || s.equals("fullhd", ignoreCase = true) -> "1080p"
+        s.contains("720")  || s.equals("hd",  ignoreCase = true) -> "720p"
+        s.contains("480")  || s.equals("sd",  ignoreCase = true) -> "480p"
+        s.contains("360") -> "360p"
+        else -> s
     }
 }

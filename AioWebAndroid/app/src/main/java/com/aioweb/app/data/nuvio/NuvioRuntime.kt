@@ -271,6 +271,14 @@ object NuvioRuntime {
             val data = args.getOrNull(0)?.toString() ?: ""
             data.toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) }
         }
+        // base64-encoded string → hex (preserves binary fidelity for token/key processing)
+        function("__crypto_base64_to_hex") { args ->
+            val data = args.getOrNull(0)?.toString() ?: ""
+            runCatching {
+                android.util.Base64.decode(data, android.util.Base64.DEFAULT)
+                    .joinToString("") { "%02x".format(it) }
+            }.getOrDefault("")
+        }
         function("__crypto_hex_to_utf8") { args ->
             val data = args.getOrNull(0)?.toString() ?: ""
             runCatching {
@@ -487,6 +495,94 @@ object NuvioRuntime {
         }
         if (typeof btoa === 'undefined') {
             globalThis.btoa = function(input) { return __crypto_base64_encode(input); };
+        }
+
+        // ── process stub ──────────────────────────────────────────────────────
+        // Node.js-targeted providers check process.env, process.browser, etc.
+        if (typeof process === 'undefined') {
+            globalThis.process = {
+                env: { NODE_ENV: 'production' },
+                browser: true,
+                version: 'v18.0.0',
+                platform: 'android',
+                nextTick: function(fn) { try { if (typeof fn === 'function') fn(); } catch(e) {} },
+            };
+        }
+
+        // ── navigator stub ────────────────────────────────────────────────────
+        // Providers may sniff navigator.userAgent or navigator.language.
+        if (typeof navigator === 'undefined') {
+            globalThis.navigator = {
+                userAgent: 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+                language: 'en-US',
+                languages: ['en-US', 'en'],
+                onLine: true,
+                platform: 'Android',
+            };
+        }
+
+        // ── Buffer shim ───────────────────────────────────────────────────────
+        // Node.js providers commonly use Buffer.from(str, 'base64').toString('hex')
+        // and Buffer.from(str).toString('base64').
+        if (typeof Buffer === 'undefined') {
+            globalThis.Buffer = {
+                from: function(data, encoding) {
+                    var enc = (encoding || 'utf8').toLowerCase();
+                    return {
+                        _data: data, _enc: enc,
+                        toString: function(fmt) {
+                            var f = (fmt || 'utf8').toLowerCase();
+                            if (enc === 'base64') {
+                                if (f === 'hex')              return __crypto_base64_to_hex(data);
+                                if (f === 'base64')           return data;
+                                return __crypto_base64_decode(data);   // utf-8
+                            }
+                            if (enc === 'hex') {
+                                if (f === 'base64') return __crypto_base64_encode(__crypto_hex_to_utf8(data));
+                                if (f === 'hex')    return data;
+                                return __crypto_hex_to_utf8(data);
+                            }
+                            // default: treat input as utf-8 string
+                            if (f === 'base64') return __crypto_base64_encode(data);
+                            if (f === 'hex')    return __crypto_utf8_to_hex(data);
+                            return data;
+                        },
+                        length: (data ? data.length : 0),
+                    };
+                },
+                alloc: function(size) { return { length: size, toString: function() { return ''; } }; },
+                concat: function(list) {
+                    return {
+                        toString: function(fmt) {
+                            return (list || []).map(function(b) { return b.toString(fmt); }).join('');
+                        },
+                    };
+                },
+                isBuffer: function() { return false; },
+                byteLength: function(s) { return s ? s.length : 0; },
+            };
+        }
+
+        // ── TextEncoder / TextDecoder shims ───────────────────────────────────
+        if (typeof TextEncoder === 'undefined') {
+            globalThis.TextEncoder = function() {};
+            TextEncoder.prototype.encode = function(str) {
+                var hex = __crypto_utf8_to_hex(str || '');
+                var len = hex.length >>> 1;
+                var arr = new Uint8Array(len);
+                for (var i = 0; i < len; i++) arr[i] = parseInt(hex.substr(i * 2, 2), 16);
+                return arr;
+            };
+        }
+        if (typeof TextDecoder === 'undefined') {
+            globalThis.TextDecoder = function(enc) { this.encoding = enc || 'utf-8'; };
+            TextDecoder.prototype.decode = function(buf) {
+                if (!buf) return '';
+                if (typeof buf === 'string') return buf;
+                var hex = '';
+                for (var i = 0; i < buf.length; i++) hex += ('00' + buf[i].toString(16)).slice(-2);
+                return __crypto_hex_to_utf8(hex);
+            };
         }
 
         var URL = function(urlString, base) {
@@ -707,6 +803,25 @@ object NuvioRuntime {
             if (name === 'crypto-js' || name === 'crypto-js/core') return CryptoJS;
             if (name === 'axios') return __axiosShim;
             if (name === 'node-fetch' || name === 'cross-fetch' || name === 'isomorphic-fetch') return fetch;
+            // got / ky — popular fetch wrappers; shim them to the fetch polyfill.
+            if (name === 'got' || name === 'got/dist/source' || name === '@sindresorhus/got') {
+                var __got = function(url, opts) {
+                    opts = opts || {};
+                    return {
+                        json: function() { return fetch(url, opts).then(function(r) { return r.json(); }); },
+                        text: function() { return fetch(url, opts).then(function(r) { return r.text(); }); },
+                        then: function(res, rej) { return fetch(url, opts).then(res, rej); },
+                        catch: function(rej) { return fetch(url, opts).catch(rej); },
+                    };
+                };
+                ['get','post','put','patch','delete','head'].forEach(function(m) {
+                    __got[m] = function(url, opts) { return __got(url, Object.assign({}, opts || {}, { method: m.toUpperCase() })); };
+                });
+                __got.extend = function() { return __got; };
+                return __got;
+            }
+            if (name === 'ky' || name === 'ky-universal') return __axiosShim;
+            if (name === 'superagent' || name === 'request' || name === 'needle') return __axiosShim;
             // Unknown module — return a stub instead of throwing so the provider
             // script does not crash during initialisation.
             console.warn('Nuvio runtime: require("' + name + '") is not available, returning empty stub.');
@@ -817,6 +932,19 @@ object NuvioRuntime {
      *    `[{name:"Referer",value:"https://…"},…]` entries
      *  • Bare string items in the array are treated as plain URLs
      */
+    private fun String.looksLikeUrl(): Boolean {
+        if (isBlank()) return false
+        val lower = trimStart()
+        // Accept http(s)://, magnet:, blob:, data: URIs.  Reject JS sentinels.
+        if (!lower.startsWith("http", ignoreCase = true) &&
+            !lower.startsWith("magnet:", ignoreCase = true) &&
+            !lower.startsWith("blob:", ignoreCase = true) &&
+            !lower.startsWith("data:", ignoreCase = true)) return false
+        // Reject the literal strings JavaScript produces for missing values.
+        val sentinel = lower.lowercase()
+        return sentinel != "undefined" && sentinel != "null" && sentinel != "none"
+    }
+
     private fun parseStreams(json: String): List<NuvioStream> {
         if (json.isBlank() || json == "null") return emptyList()
         val J = kotlinx.serialization.json.Json
@@ -830,11 +958,12 @@ object NuvioRuntime {
             when (item) {
                 // Bare string — treat as URL directly.
                 is kotlinx.serialization.json.JsonPrimitive -> {
-                    val u = item.content.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    val u = item.content.takeIf { it.looksLikeUrl() } ?: return@mapNotNull null
                     NuvioStream(url = u)
                 }
                 is kotlinx.serialization.json.JsonObject -> {
                     val url = prim(item, "url", "stream_url", "streamUrl", "link", "href")
+                        ?.takeIf { it.looksLikeUrl() }
                         ?: return@mapNotNull null
                     val name    = prim(item, "name", "label", "description")
                     val title   = prim(item, "title")

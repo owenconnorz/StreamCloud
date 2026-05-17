@@ -99,6 +99,8 @@ fun NativePlayerScreen(
     /** When non-null, the player saves resume-playback state every ~10s and on dispose,
      *  feeding the "Continue Watching" row on the home screen. */
     progressKey: WatchProgressKey? = null,
+    /** When non-null, the refresh icon in the streams sheet is enabled and calls this. */
+    onRefresh: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -512,6 +514,7 @@ fun NativePlayerScreen(
         }
 
         if (showSourcesSheet) {
+            // Pass onRefresh down so the button inside is wired up
             SourcesPickerSheet(
                 sources = sources,
                 selectedSourceId = selectedSourceId,
@@ -520,6 +523,7 @@ fun NativePlayerScreen(
                     onSwitchSource?.invoke(src)
                 },
                 onDismiss = { showSourcesSheet = false },
+                onRefresh = onRefresh,
             )
         }
 
@@ -697,6 +701,7 @@ private fun SourcesPickerSheet(
     selectedSourceId: String?,
     onPick: (PlayerSource) -> Unit,
     onDismiss: () -> Unit,
+    onRefresh: (() -> Unit)? = null,
 ) {
     val safeSources = remember(sources) { sources.distinctBy { it.id } }
     val addonFilters = remember(safeSources) {
@@ -715,8 +720,11 @@ private fun SourcesPickerSheet(
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             // Header: Reload (left) — title (center) — Close (right)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { /* TODO: re-resolve from caller */ }) {
-                    Icon(Icons.Default.Refresh, "Reload", tint = Color.White)
+                IconButton(
+                    onClick = { onRefresh?.invoke() },
+                    enabled = onRefresh != null,
+                ) {
+                    Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
                 }
                 Text(
                     "Streams",
