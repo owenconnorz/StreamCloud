@@ -115,9 +115,20 @@ object NuvioRuntime {
                     """
                     (async function() {
                         try {
+                            // Inject params matching official NuvioMobile contract
+                            // (some providers read params.tmdbId / params.mediaType
+                            //  as free variables in addition to the fn arguments).
+                            globalThis.params = {
+                                tmdbId: ${jsString(tmdbId)},
+                                mediaType: ${jsString(mediaType)},
+                                season: $seasonArg,
+                                episode: $episodeArg,
+                                scraperId: ${jsString(scriptKey)},
+                                settings: globalThis.SCRAPER_SETTINGS || {}
+                            };
                             var fn = module.exports.getStreams || globalThis.getStreams;
                             if (typeof fn !== 'function') {
-                                console.error('Plugin error: getStreams() not exported.');
+                                console.error('Plugin error: getStreams() not exported. Exported keys:', Object.keys(module.exports || {}).join(', '));
                                 __capture_result('[]');
                                 return '[]';
                             }
@@ -205,9 +216,16 @@ object NuvioRuntime {
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
             }
             val client = if (followRedirects) http else http.newBuilder().followRedirects(false).build()
+            // GET/HEAD must have null body; POST/PUT/PATCH need a non-null RequestBody
+            // (OkHttp throws IllegalArgumentException otherwise).
+            val requestBody = when {
+                method == "GET" || method == "HEAD" -> null
+                body.isEmpty() -> ByteArray(0).toRequestBody()
+                else -> body.toRequestBody()
+            }
             val req = Request.Builder().url(url).apply {
                 headers.forEach { (k, v) -> header(k, v) }
-                method(method, if (body.isEmpty()) null else body.toRequestBody())
+                method(method, requestBody)
             }.build()
             client.newCall(req).execute().use { resp ->
                 val text = resp.body?.string().orEmpty().let {
@@ -426,6 +444,24 @@ object NuvioRuntime {
         if (typeof globalThis.window === 'undefined') globalThis.window = globalThis;
         if (typeof globalThis.self === 'undefined') globalThis.self = globalThis;
 
+        // ── Globals injected by official NuvioMobile to match provider contract ──────
+        // Some providers use these as free variables without declaring them.
+        if (typeof globalThis.SCRAPER_SETTINGS === 'undefined') globalThis.SCRAPER_SETTINGS = {};
+        if (typeof globalThis.PRIMARY_KEY === 'undefined')       globalThis.PRIMARY_KEY = '';
+        if (typeof globalThis.TMDB_API_KEY === 'undefined')      globalThis.TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
+        // logger — official app injects a logger object; fall back to console so
+        // providers that call logger.log() instead of console.log() don't crash.
+        if (typeof globalThis.logger === 'undefined') globalThis.logger = {
+            log:   function() { console.log.apply(console, arguments); },
+            info:  function() { console.log.apply(console, arguments); },
+            warn:  function() { console.warn.apply(console, arguments); },
+            error: function() { console.error.apply(console, arguments); },
+            debug: function() { console.log.apply(console, arguments); },
+        };
+        // params — per-execution context object injected by the official app;
+        // populated with real values in the execute IIFE below.
+        if (typeof globalThis.params === 'undefined') globalThis.params = {};
+
         var fetch = async function(url, options) {
             options = options || {};
             var method = (options.method || 'GET').toUpperCase();
@@ -441,17 +477,29 @@ object NuvioRuntime {
             var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             return {
-                ok: parsed.ok, status: parsed.status, statusText: parsed.statusText, url: parsed.url,
-                headers: {
-                    get: function(name) { return parsed.headers[String(name).toLowerCase()] || null; },
-                    has: function(name) { return !!parsed.headers[String(name).toLowerCase()]; },
-                    entries: function() { return Object.entries(parsed.headers); },
-                },
+                ok: parsed.ok, status: parsed.status, statusText: parsed.statusText,
+                url: parsed.url, redirected: parsed.redirected || false, type: 'basic',
+                headers: (function() {
+                    var hdrsObj = parsed.headers || {};
+                    return {
+                        get: function(name) { return hdrsObj[String(name).toLowerCase()] || null; },
+                        has: function(name) { return !!hdrsObj[String(name).toLowerCase()]; },
+                        entries: function() { return Object.entries(hdrsObj); },
+                        keys: function() { return Object.keys(hdrsObj); },
+                        values: function() { return Object.values(hdrsObj); },
+                        forEach: function(cb) {
+                            Object.entries(hdrsObj).forEach(function(e) { cb(e[1], e[0], this); });
+                        },
+                    };
+                })(),
                 text: function() { return Promise.resolve(parsed.body); },
                 json: function() {
                     try { return Promise.resolve(JSON.parse(parsed.body)); }
                     catch (e) { return Promise.resolve(null); }
                 },
+                arrayBuffer: function() { return Promise.resolve(new ArrayBuffer(0)); },
+                blob: function() { return Promise.resolve(null); },
+                formData: function() { return Promise.resolve(null); },
                 clone: function() { return this; },
             };
         };
