@@ -37,6 +37,7 @@ object SettingsKeys {
     val PLAYLIST_THUMBS = stringPreferencesKey("playlist_thumbs") // JSON {playlistId: uriString}
     val UI_MODE = stringPreferencesKey("ui_mode")                 // Auto / Mobile / Tablet / Tv
     val ADULT_REDDIT_SUBS = stringPreferencesKey("adult_reddit_subs") // CSV of user-added subreddits
+    val COLOR_PALETTE = stringPreferencesKey("color_palette")         // default/warm/coral/violet/blue/indigo
 
     // Appearance extras (Metrolist parity)
     val HIGH_REFRESH_RATE       = booleanPreferencesKey("high_refresh_rate")
@@ -182,6 +183,9 @@ class SettingsRepository(private val context: Context) {
         it.remove(SettingsKeys.YT_MUSIC_USER_NAME)
         it.remove(SettingsKeys.YT_MUSIC_USER_AVATAR)
     }
+
+    val colorPalette: Flow<String> = context.dataStore.data.map { it[SettingsKeys.COLOR_PALETTE] ?: "default" }
+    suspend fun setColorPalette(s: String) = context.dataStore.edit { it[SettingsKeys.COLOR_PALETTE] = s }
 
     /** User-added Reddit subreddits (Adult tab). Empty list = use built-in presets only. */
     val adultRedditSubsCsv: Flow<String> = context.dataStore.data.map {
