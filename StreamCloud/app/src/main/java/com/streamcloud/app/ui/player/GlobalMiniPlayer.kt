@@ -10,7 +10,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -123,6 +122,7 @@ fun GlobalMiniPlayer(
 
     // Tracks the horizontal slide offset while the user drags the mini player.
     val swipeOffsetX = remember { Animatable(0f) }
+    var liveDragX by remember { mutableStateOf(0f) }
 
     AnimatedVisibility(
         visible = title != null,
@@ -134,37 +134,40 @@ fun GlobalMiniPlayer(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 6.dp)
-                .offset { IntOffset(swipeOffsetX.value.roundToInt(), 0) }
+                .offset { IntOffset((swipeOffsetX.value + liveDragX).roundToInt(), 0) }
                 .clip(RoundedCornerShape(16.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .clickable(onClick = onExpand)
                 // Unified gesture handler: horizontal swipe skips tracks,
                 // vertical swipe-up expands to full now-playing sheet.
                 .pointerInput(controller) {
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
+                    while (true) {
                         var totalX = 0f
                         var totalY = 0f
                         var dirLocked = false
                         var isHorizontal = false
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull() ?: break
-                            if (!change.pressed) break
-                            val pos = change.position - change.previousPosition
-                            totalX += pos.x
-                            totalY += pos.y
-                            if (!dirLocked && (abs(totalX) > 16f || abs(totalY) > 16f)) {
-                                isHorizontal = abs(totalX) > abs(totalY)
-                                dirLocked = true
-                            }
-                            if (dirLocked) {
-                                change.consume()
-                                if (isHorizontal) {
-                                    swipeOffsetX.snapTo(totalX.coerceIn(-280f, 280f))
+                        awaitPointerEventScope {
+                            awaitFirstDown(requireUnconsumed = false)
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) break
+                                val pos = change.position - change.previousPosition
+                                totalX += pos.x
+                                totalY += pos.y
+                                if (!dirLocked && (abs(totalX) > 16f || abs(totalY) > 16f)) {
+                                    isHorizontal = abs(totalX) > abs(totalY)
+                                    dirLocked = true
+                                }
+                                if (dirLocked && isHorizontal) {
+                                    liveDragX = totalX.coerceIn(-280f, 280f)
+                                    change.consume()
                                 }
                             }
                         }
+                        // Back in unrestricted PointerInputScope — suspend calls are allowed here
+                        swipeOffsetX.snapTo(liveDragX)
+                        liveDragX = 0f
                         when {
                             dirLocked && isHorizontal && totalX < -80f -> {
                                 swipeOffsetX.animateTo(-90f, tween(100))
@@ -180,6 +183,7 @@ fun GlobalMiniPlayer(
                             }
                             dirLocked && isHorizontal -> swipeOffsetX.animateTo(0f, spring())
                             dirLocked && !isHorizontal && totalY < -60f -> onExpand()
+                            else -> swipeOffsetX.snapTo(0f)
                         }
                     }
                 }
