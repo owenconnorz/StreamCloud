@@ -12,7 +12,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.positionChange
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -142,7 +141,6 @@ fun GlobalMiniPlayer(
                 // Unified gesture handler: horizontal swipe skips tracks,
                 // vertical swipe-up expands to full now-playing sheet.
                 .pointerInput(controller) {
-                    val scope = this
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
                         var totalX = 0f
@@ -153,7 +151,7 @@ fun GlobalMiniPlayer(
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull() ?: break
                             if (!change.pressed) break
-                            val pos = change.positionChange()
+                            val pos = change.position - change.previousPosition
                             totalX += pos.x
                             totalY += pos.y
                             if (!dirLocked && (abs(totalX) > 16f || abs(totalY) > 16f)) {
@@ -163,26 +161,24 @@ fun GlobalMiniPlayer(
                             if (dirLocked) {
                                 change.consume()
                                 if (isHorizontal) {
-                                    scope.launch { swipeOffsetX.snapTo(totalX.coerceIn(-280f, 280f)) }
+                                    swipeOffsetX.snapTo(totalX.coerceIn(-280f, 280f))
                                 }
                             }
                         }
                         when {
-                            dirLocked && isHorizontal && totalX < -80f -> scope.launch {
+                            dirLocked && isHorizontal && totalX < -80f -> {
                                 swipeOffsetX.animateTo(-90f, tween(100))
                                 controller?.seekToNextMediaItem()
                                 swipeOffsetX.snapTo(90f)
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
-                            dirLocked && isHorizontal && totalX > 80f -> scope.launch {
+                            dirLocked && isHorizontal && totalX > 80f -> {
                                 swipeOffsetX.animateTo(90f, tween(100))
                                 controller?.seekToPreviousMediaItem()
                                 swipeOffsetX.snapTo(-90f)
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
-                            dirLocked && isHorizontal -> scope.launch {
-                                swipeOffsetX.animateTo(0f, spring())
-                            }
+                            dirLocked && isHorizontal -> swipeOffsetX.animateTo(0f, spring())
                             dirLocked && !isHorizontal && totalY < -60f -> onExpand()
                         }
                     }
