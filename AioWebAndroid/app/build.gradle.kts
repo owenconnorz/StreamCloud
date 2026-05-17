@@ -103,6 +103,11 @@ android {
         }
         jniLibs {
             useLegacyPackaging = true
+            // Prevent AGP's llvm-strip from re-stripping the already-stripped
+            // TorrServer binary — double-stripping corrupts .gnu.version_r
+            // string table, turning "LIBC" → "version"/"oid" which causes
+            // the Android linker to fail with exit=127.
+            keepDebugSymbols += "**/libtorrserver.so"
         }
     }
 }
