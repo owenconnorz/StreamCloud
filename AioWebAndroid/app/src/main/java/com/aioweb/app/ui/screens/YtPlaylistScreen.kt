@@ -143,6 +143,9 @@ fun YtPlaylistScreen(
                 },
             )
         },
+        bottomBar = {
+            com.aioweb.app.ui.player.GlobalMiniPlayer()
+        },
     ) { padding ->
         val list = tracks
         when {
