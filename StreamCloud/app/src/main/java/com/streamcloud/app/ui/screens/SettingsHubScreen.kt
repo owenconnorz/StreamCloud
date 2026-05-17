@@ -3,9 +3,12 @@ package com.streamcloud.app.ui.screens
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -110,6 +113,8 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var bassBoost        by remember { mutableStateOf(false) }
     var enabledCollections by remember { mutableStateOf<Set<String>>(emptySet()) }
     var uiMode           by remember { mutableStateOf("Auto") }
+    var themeMode        by remember { mutableStateOf("dark") }
+    var colorPalette     by remember { mutableStateOf("default") }
 
     // Appearance extras
     var highRefreshRate     by remember { mutableStateOf(true) }
@@ -171,6 +176,8 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         eqPreset            = sl.settings.eqPreset.first()
         bassBoost           = sl.settings.bassBoost.first()
         uiMode              = sl.settings.uiMode.first()
+        themeMode           = sl.settings.theme.first()
+        colorPalette        = sl.settings.colorPalette.first()
         highRefreshRate     = sl.settings.highRefreshRate.first()
         newMiniPlayer       = sl.settings.newMiniPlayerDesign.first()
         pureBlackMiniPlayer = sl.settings.pureBlackMiniPlayer.first()
@@ -209,17 +216,108 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
             modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
         )
 
+        // ── LAYOUT ────────────────────────────────────────────────────────
+        SectionHeader("Layout", ColourAppearance)
+        SettingsGroup {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
+            ) {
+                Text(
+                    "Theme Mode",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    data class TM(val id: String, val label: String, val bg: Color, val useLightIcon: Boolean)
+                    listOf(
+                        TM("system", "Auto",  Color(0xFF2C2826), true),
+                        TM("light",  "Light", Color(0xFFF5F0EE), false),
+                        TM("dark",   "Dark",  Color(0xFF1A1210), true),
+                        TM("black",  "Black", Color.Black,       true),
+                    ).forEach { tm ->
+                        ThemeModeItem(
+                            id       = tm.id,
+                            label    = tm.label,
+                            bg       = tm.bg,
+                            useLightIcon = tm.useLightIcon,
+                            selected = themeMode == tm.id,
+                            accent   = MaterialTheme.colorScheme.primary,
+                            onClick  = {
+                                themeMode = tm.id
+                                scope.launch { sl.settings.setTheme(tm.id) }
+                            },
+                        )
+                    }
+                }
+            }
+            SettingDivider()
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
+            ) {
+                Text(
+                    "Color Palette",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PaletteDynamicItem(
+                        selected = colorPalette == "dynamic",
+                        accent   = MaterialTheme.colorScheme.primary,
+                        outline  = MaterialTheme.colorScheme.outlineVariant,
+                        onClick  = {
+                            colorPalette = "dynamic"
+                            dynamicColor = true
+                            scope.launch {
+                                sl.settings.setColorPalette("dynamic")
+                                sl.settings.setDynamicColor(true)
+                            }
+                        },
+                    )
+                    listOf(
+                        Triple("default", Color(0xFF8B6E6A), Color(0xFFC97B6C)),
+                        Triple("warm",    Color(0xFFE8B87A), Color(0xFFD4824A)),
+                        Triple("coral",   Color(0xFFE8A0A0), Color(0xFFD45858)),
+                        Triple("violet",  Color(0xFFB8A0DC), Color(0xFF7B54C2)),
+                        Triple("blue",    Color(0xFF8AB4E8), Color(0xFF3B6CAC)),
+                        Triple("indigo",  Color(0xFF8888CC), Color(0xFF3B3B9C)),
+                    ).forEach { (id, topC, bottomC) ->
+                        PaletteItem(
+                            topColor    = topC,
+                            bottomColor = bottomC,
+                            selected    = colorPalette == id,
+                            accent      = MaterialTheme.colorScheme.primary,
+                            outline     = MaterialTheme.colorScheme.outlineVariant,
+                            onClick     = {
+                                colorPalette = id
+                                if (dynamicColor) {
+                                    dynamicColor = false
+                                    scope.launch { sl.settings.setDynamicColor(false) }
+                                }
+                                scope.launch { sl.settings.setColorPalette(id) }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
         // ── APPEARANCE ────────────────────────────────────────────────────
         SectionHeader("Appearance", ColourAppearance)
         SettingsGroup {
-            SubSectionLabel("Theme")
-            SettingNav(
-                icon = Icons.Default.Palette, tint = ColourAppearance,
-                title = "Theme",
-                subtitle = "Customize your app theme",
-                onClick = { showUiModeDialog = true },
-            )
-            SettingDivider()
             SettingToggle(
                 icon = Icons.Default.Speed, tint = ColourAppearance,
                 title = "Enable high refresh rate",
@@ -228,13 +326,12 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 onChange = { highRefreshRate = it; scope.launch { sl.settings.setHighRefreshRate(it) } },
             )
             SettingDivider()
-            SettingToggle(
-                icon = Icons.Default.AutoAwesome, tint = ColourAppearance,
-                title = "Enable dynamic theme",
-                subtitle = "Match colours to your wallpaper · Android 12+",
-                checked = dynamicColor,
-                onChange = { dynamicColor = it; scope.launch { sl.settings.setDynamicColor(it) } },
-        )
+            SettingNav(
+                icon = Icons.Default.BrightnessHigh, tint = ColourAppearance,
+                title = "Device layout",
+                subtitle = "Override form factor · Mobile / Tablet / TV",
+                onClick = { showUiModeDialog = true },
+            )
         }
         SettingsGroup {
             SubSectionLabel("Mini-player")
@@ -773,6 +870,175 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
             onPick = { uiMode = it; scope.launch { sl.settings.setUiMode(it) }; showUiModeDialog = false },
             onDismiss = { showUiModeDialog = false },
         )
+    }
+}
+
+// ======================================================================
+//                   Layout pickers (Theme Mode & Color Palette)
+// ======================================================================
+
+@Composable
+private fun ThemeModeItem(
+    id: String,
+    label: String,
+    bg: Color,
+    useLightIcon: Boolean,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    val iconTint = if (useLightIcon) Color.White else Color(0xFF1A1210)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Box(
+            Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(bg)
+                .border(
+                    width = if (selected) 2.5.dp else 1.dp,
+                    color = if (selected) accent else Color.White.copy(alpha = 0.18f),
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            when (id) {
+                "system" -> Icon(
+                    Icons.Default.BrightnessHigh,
+                    contentDescription = label,
+                    tint = iconTint,
+                    modifier = Modifier.size(22.dp),
+                )
+                "light" -> Icon(
+                    Icons.Default.BrightnessHigh,
+                    contentDescription = label,
+                    tint = iconTint,
+                    modifier = Modifier.size(22.dp),
+                )
+                "dark" -> Icon(
+                    Icons.Default.DarkMode,
+                    contentDescription = label,
+                    tint = iconTint,
+                    modifier = Modifier.size(22.dp),
+                )
+                else -> {}
+            }
+            if (selected) {
+                Box(
+                    Modifier
+                        .size(16.dp)
+                        .align(Alignment.BottomEnd)
+                        .clip(CircleShape)
+                        .background(accent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(10.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun PaletteItem(
+    topColor: Color,
+    bottomColor: Color,
+    selected: Boolean,
+    accent: Color,
+    outline: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(50.dp)
+            .clip(CircleShape)
+            .border(
+                width = if (selected) 2.5.dp else 1.dp,
+                color = if (selected) accent else outline.copy(alpha = 0.5f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+    ) {
+        Column(Modifier.fillMaxSize().clip(CircleShape)) {
+            Box(Modifier.weight(1f).fillMaxWidth().background(topColor))
+            Box(Modifier.weight(1f).fillMaxWidth().background(bottomColor))
+        }
+        if (selected) {
+            Box(
+                Modifier
+                    .size(16.dp)
+                    .align(Alignment.BottomEnd)
+                    .clip(CircleShape)
+                    .background(accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(10.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PaletteDynamicItem(
+    selected: Boolean,
+    accent: Color,
+    outline: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(50.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(
+                width = if (selected) 2.5.dp else 1.dp,
+                color = if (selected) accent else outline.copy(alpha = 0.5f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Default.Palette,
+            contentDescription = "Dynamic",
+            tint = accent,
+            modifier = Modifier.size(22.dp),
+        )
+        if (selected) {
+            Box(
+                Modifier
+                    .size(16.dp)
+                    .align(Alignment.BottomEnd)
+                    .clip(CircleShape)
+                    .background(accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(10.dp),
+                )
+            }
+        }
     }
 }
 
