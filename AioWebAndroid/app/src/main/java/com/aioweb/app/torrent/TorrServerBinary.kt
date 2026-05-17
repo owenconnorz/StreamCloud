@@ -14,9 +14,16 @@ import java.util.concurrent.TimeUnit
 /**
  * Manages the TorrServer binary lifecycle.
  *
- * The binary is bundled in `jniLibs/<abi>/libtorrserver.so` and installed
- * to `nativeLibraryDir` by the Android package manager at install time.
- * Because it lives there as a .so file Android marks it executable automatically.
+ * The binary is bundled as `jniLibs/<abi>/libtorrserver.so` and extracted by the
+ * package manager to `nativeLibraryDir` at install time.
+ *
+ * Android 10+ applies strict linker-namespace rules to .so files executed directly
+ * from nativeLibraryDir, which prevents symbol version resolution and causes
+ * "version: inaccessible or not found" + exit=127.
+ *
+ * Fix: copy the binary to the app's private files directory (no .so extension)
+ * before executing — that path is treated as a plain executable, not a shared
+ * library, and gets the default unrestricted linker namespace.
  *
  * Adapted from NuvioTV (https://github.com/NuvioMedia/NuvioTV).
  */
@@ -25,8 +32,9 @@ class TorrServerBinary(private val context: Context) {
     companion object {
         private const val TAG = "TorrServerBinary"
         const val PORT = 8091
-        private const val STARTUP_TIMEOUT_MS = 20_000L
+        private const val STARTUP_TIMEOUT_MS = 25_000L
         private const val HEALTH_CHECK_INTERVAL_MS = 300L
+        private const val BINARY_NAME = "torrserver"      // no .so — avoids namespace issue
     }
 
     private var process: Process? = null
@@ -38,13 +46,18 @@ class TorrServerBinary(private val context: Context) {
 
     val baseUrl: String get() = "http://127.0.0.1:$PORT"
 
-    private val binaryFile: File
+    /** Installed location — has .so extension, subject to namespace restrictions. */
+    private val installedBinary: File
         get() = File(context.applicationInfo.nativeLibraryDir, "libtorrserver.so")
 
-    private val configDir: File
-        get() = File(context.filesDir, "torrserver").also { it.mkdirs() }
+    /** Executable copy in private files dir — no .so, unrestricted namespace. */
+    private val executableBinary: File
+        get() = File(context.filesDir, BINARY_NAME)
 
-    val isBinaryAvailable: Boolean get() = binaryFile.exists()
+    private val configDir: File
+        get() = File(context.filesDir, "torrserver_data").also { it.mkdirs() }
+
+    val isBinaryAvailable: Boolean get() = installedBinary.exists()
 
     fun isRunning(): Boolean {
         return try {
@@ -53,6 +66,30 @@ class TorrServerBinary(private val context: Context) {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Ensure a fresh copy of the binary exists in filesDir.
+     * Re-copies whenever the installed binary is newer or differs in size.
+     */
+    private fun prepareExecutable(): File {
+        val src = installedBinary
+        val dst = executableBinary
+
+        val needsCopy = !dst.exists()
+            || dst.length() != src.length()
+            || dst.lastModified() < src.lastModified()
+
+        if (needsCopy) {
+            Log.d(TAG, "Copying binary ${src.length()} bytes → ${dst.absolutePath}")
+            src.copyTo(dst, overwrite = true)
+        }
+
+        if (!dst.canExecute()) {
+            dst.setExecutable(true, false)
+        }
+
+        return dst
     }
 
     suspend fun start() = withContext(Dispatchers.IO) {
@@ -64,14 +101,12 @@ class TorrServerBinary(private val context: Context) {
         killOrphanedProcess()
 
         if (!isBinaryAvailable) {
-            throw TorrentException("TorrServer binary not found at ${binaryFile.absolutePath}")
+            throw TorrentException("TorrServer binary not found at ${installedBinary.absolutePath}")
         }
 
-        if (!binaryFile.canExecute()) {
-            binaryFile.setExecutable(true)
-        }
-
+        val binaryFile = prepareExecutable()
         Log.d(TAG, "Starting TorrServer port=$PORT binary=${binaryFile.absolutePath}")
+
         val pb = ProcessBuilder(
             binaryFile.absolutePath,
             "--port", PORT.toString(),
@@ -80,20 +115,18 @@ class TorrServerBinary(private val context: Context) {
         pb.directory(configDir)
         pb.redirectErrorStream(true)
 
-        // Go binaries on Android need HOME and TMPDIR set; without them the runtime
-        // may panic or exit immediately (manifests as exit=127 on some devices).
+        // Go binaries on Android need HOME and TMPDIR; without them the runtime
+        // may panic or exit immediately on some devices.
         pb.environment().apply {
             put("HOME", context.filesDir.absolutePath)
             put("TMPDIR", context.cacheDir.absolutePath)
             put("PATH", "/system/bin:/system/xbin")
-            // Prevent Go from using a VGA/audio terminal that doesn't exist.
             put("TERM", "dumb")
         }
 
         process = pb.start()
 
-        // Collect output lines for diagnostics — captures what TorrServer prints
-        // before dying so we can surface the real error message to the user.
+        // Collect output for diagnostics — captures what TorrServer prints before dying.
         val outputLines: MutableList<String> = Collections.synchronizedList(mutableListOf())
         val proc = process!!
         Thread {
@@ -114,9 +147,8 @@ class TorrServerBinary(private val context: Context) {
             }
             if (!isProcessAlive(process)) {
                 val code = runCatching { process?.exitValue() }.getOrNull() ?: -1
-                // Give the output-reader thread a moment to drain remaining lines.
-                Thread.sleep(150)
-                val output = outputLines.take(8).joinToString(" | ").take(300).ifEmpty { "(no output)" }
+                Thread.sleep(200)
+                val output = outputLines.take(10).joinToString(" | ").take(500).ifEmpty { "(no output)" }
                 process = null
                 throw TorrentException("TorrServer died (exit=$code) $output")
             }
@@ -124,7 +156,7 @@ class TorrServerBinary(private val context: Context) {
         }
 
         stop()
-        val output = outputLines.take(8).joinToString(" | ").take(300).ifEmpty { "(no output)" }
+        val output = outputLines.take(10).joinToString(" | ").take(500).ifEmpty { "(no output)" }
         throw TorrentException("TorrServer timeout (${STARTUP_TIMEOUT_MS / 1000}s) $output")
     }
 
