@@ -8,7 +8,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
@@ -158,6 +157,7 @@ fun NowPlayingShell(
 
     // ── Artwork swipe (Metrolist) — horizontal drag skips tracks ─────────────
     val artworkSwipeX = remember { Animatable(0f) }
+    var artworkDragX by remember { mutableStateOf(0f) }
 
     // ── Lyrics fetch (Metrolist) ─────────────────────────────────────────────
     var showLyrics by remember { mutableStateOf(false) }
@@ -229,29 +229,35 @@ fun NowPlayingShell(
                 Modifier
                     .fillMaxWidth()
                     .pointerInput(controller) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
+                        while (true) {
                             var totalX = 0f
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull() ?: break
-                                if (!change.pressed) break
-                                totalX += (change.position - change.previousPosition).x
-                                change.consume()
-                                artworkSwipeX.snapTo(totalX)
+                            val widthPx = size.width.toFloat()
+                            awaitPointerEventScope {
+                                awaitFirstDown(requireUnconsumed = false)
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull() ?: break
+                                    if (!change.pressed) break
+                                    totalX += (change.position - change.previousPosition).x
+                                    artworkDragX = totalX
+                                    change.consume()
+                                }
                             }
-                            val threshold = size.width * 0.28f
+                            // Back in unrestricted PointerInputScope — suspend calls are allowed here
+                            artworkSwipeX.snapTo(artworkDragX)
+                            artworkDragX = 0f
+                            val threshold = widthPx * 0.28f
                             when {
                                 totalX < -threshold -> {
-                                    artworkSwipeX.animateTo(-size.width.toFloat(), tween(220))
+                                    artworkSwipeX.animateTo(-widthPx, tween(220))
                                     controller.seekToNextMediaItem()
-                                    artworkSwipeX.snapTo(size.width.toFloat())
+                                    artworkSwipeX.snapTo(widthPx)
                                     artworkSwipeX.animateTo(0f, tween(300))
                                 }
                                 totalX > threshold -> {
-                                    artworkSwipeX.animateTo(size.width.toFloat(), tween(220))
+                                    artworkSwipeX.animateTo(widthPx, tween(220))
                                     controller.seekToPreviousMediaItem()
-                                    artworkSwipeX.snapTo(-size.width.toFloat())
+                                    artworkSwipeX.snapTo(-widthPx)
                                     artworkSwipeX.animateTo(0f, tween(300))
                                 }
                                 else -> artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
@@ -264,7 +270,7 @@ fun NowPlayingShell(
                     Modifier
                         .fillMaxWidth(0.92f)
                         .aspectRatio(1f)
-                        .offset { IntOffset(artworkSwipeX.value.roundToInt(), 0) }
+                        .offset { IntOffset((artworkSwipeX.value + artworkDragX).roundToInt(), 0) }
                         .shadow(20.dp, RoundedCornerShape(20.dp))
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color.Black.copy(alpha = 0.25f)),
