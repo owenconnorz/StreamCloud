@@ -125,7 +125,7 @@ class TorrServerBinary(private val context: Context) {
         process?.let { proc ->
             try {
                 Thread.sleep(2_000)
-                if (isProcessAlive(proc)) proc.destroyForcibly()
+                if (isProcessAlive(proc)) proc.destroyForcibly() else Unit
             } catch (_: Exception) {
                 proc.destroyForcibly()
             }
