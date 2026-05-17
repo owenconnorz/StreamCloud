@@ -6,28 +6,29 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -48,14 +49,12 @@ import kotlinx.coroutines.withContext
  * Layout:
  *   1. Hero header with large cover art (derived from the first track's artwork
  *      if the playlist doesn't have its own) + title + track count + Play /
- *      Shuffle buttons.
+ *      Shuffle / MoreVert buttons.
  *   2. Track list where each row exposes a 3-dot menu with Play, Play next,
  *      Add to queue, Download / Remove download, Share.
  *
- * Playback routes through [YtPlayback] → the global [MusicController], so
- * starting a song here immediately drives the app-wide MiniPlayer on every tab.
- * Downloaded tracks (TrackEntity.localPath != null) are played from the cached
- * M4A file — no network needed.
+ * Tapping the MoreVert (⋮) button next to Shuffle opens [PlaylistActionsSheet]
+ * with: Edit, Sync, Add to queue, Download all, Share, Delete.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,12 +71,12 @@ fun YtPlaylistScreen(
     var error by remember(playlistId) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
+    var showPlaylistMenu by remember { mutableStateOf(false) }
+    var syncTrigger by remember { mutableStateOf(0) }
+
     val downloadProgress by com.aioweb.app.data.downloads.MusicDownloader.progressFlow
         .collectAsState(initial = emptyMap())
 
-    // Custom playlist thumbnail (user-picked from device storage). Falls back
-    // to the first track's artwork when no override is set. Stored in
-    // SettingsRepository as a JSON map, persisted across app restarts.
     val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
     val customThumbUri = remember(playlistThumbsJson, playlistId) {
         val regex = Regex("\"${Regex.escape(playlistId)}\"\\s*:\\s*\"([^\"]+)\"")
@@ -87,26 +86,22 @@ fun YtPlaylistScreen(
         contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        // Persist read access across reboots so Coil can load the URI later.
         runCatching {
             context.contentResolver.takePersistableUriPermission(
                 uri,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
         }
         scope.launch { sl.settings.setPlaylistThumb(playlistId, uri.toString()) }
     }
 
-    LaunchedEffect(playlistId, cookie) {
+    LaunchedEffect(playlistId, cookie, syncTrigger) {
         if (cookie.isBlank()) {
             error = "Not signed in."
             return@LaunchedEffect
         }
         error = null
 
-        // Instant-load: render the cached track list immediately so the user
-        // sees songs the moment they tap a playlist. Network fetch then
-        // refreshes in the background and replaces the list when complete.
         val cached = withContext(Dispatchers.IO) {
             com.aioweb.app.data.ytmusic.PlaylistCache.read(context, playlistId)
         }
@@ -121,8 +116,6 @@ fun YtPlaylistScreen(
         }
         if (fresh != null) {
             tracks = fresh
-            // Persist for next-open instant-load. Skip on empty so we never
-            // poison the cache with an aborted fetch.
             if (fresh.isNotEmpty()) {
                 com.aioweb.app.data.ytmusic.PlaylistCache.write(context, playlistId, fresh)
             }
@@ -146,22 +139,6 @@ fun YtPlaylistScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                actions = {
-                    val list = tracks
-                    if (!list.isNullOrEmpty()) {
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    list.forEach { s ->
-                                        runCatching { YtPlayback.downloadSong(context, s) }
-                                    }
-                                }
-                            },
-                        ) {
-                            Icon(Icons.Default.CloudDownload, "Download all")
-                        }
                     }
                 },
             )
@@ -198,6 +175,7 @@ fun YtPlaylistScreen(
                             }
                         },
                         onEditCover = { pickThumb.launch(arrayOf("image/*")) },
+                        onMoreOptions = { showPlaylistMenu = true },
                     )
                 }
                 itemsIndexed(
@@ -213,6 +191,58 @@ fun YtPlaylistScreen(
                 item { Spacer(Modifier.height(80.dp)) }
             }
         }
+
+        if (showPlaylistMenu) {
+            val currentList = tracks ?: emptyList()
+            PlaylistActionsSheet(
+                playlistId = playlistId,
+                playlistTitle = title,
+                songs = currentList,
+                onDismiss = { showPlaylistMenu = false },
+                onEdit = {
+                    showPlaylistMenu = false
+                    pickThumb.launch(arrayOf("image/*"))
+                },
+                onSync = {
+                    showPlaylistMenu = false
+                    syncTrigger++
+                },
+                onAddToQueue = {
+                    showPlaylistMenu = false
+                    scope.launch {
+                        currentList.forEach { s ->
+                            runCatching { YtPlayback.addToQueue(context, s) }
+                        }
+                    }
+                },
+                onDownloadAll = {
+                    showPlaylistMenu = false
+                    currentList.forEach { s ->
+                        runCatching { YtPlayback.downloadSong(context, s) }
+                    }
+                },
+                onShare = {
+                    showPlaylistMenu = false
+                    val url = "https://music.youtube.com/playlist?list=$playlistId"
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, url)
+                    }
+                    context.startActivity(Intent.createChooser(send, "Share playlist"))
+                },
+                onDelete = {
+                    showPlaylistMenu = false
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                com.aioweb.app.data.ytmusic.PlaylistCache.delete(context, playlistId)
+                            }
+                        }
+                        onBack()
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -225,6 +255,7 @@ private fun PlaylistHero(
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
     onEditCover: () -> Unit,
+    onMoreOptions: () -> Unit,
 ) {
     Column(
         Modifier
@@ -261,8 +292,6 @@ private fun PlaylistHero(
                     modifier = Modifier.size(64.dp),
                 )
             }
-            // Pencil overlay — bottom-right, opens the system file picker so
-            // the user can swap the playlist cover with any image on device.
             androidx.compose.material3.SmallFloatingActionButton(
                 onClick = onEditCover,
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
@@ -295,7 +324,8 @@ private fun PlaylistHero(
         Spacer(Modifier.height(16.dp))
         Row(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Button(
                 onClick = onPlay,
@@ -313,9 +343,147 @@ private fun PlaylistHero(
                 Spacer(Modifier.width(6.dp))
                 Text("Shuffle")
             }
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(onClick = onMoreOptions),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = "More options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
 }
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaylistActionsSheet(
+    playlistId: String,
+    playlistTitle: String,
+    songs: List<YtmSong>,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit,
+    onSync: () -> Unit,
+    onAddToQueue: () -> Unit,
+    onDownloadAll: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF111111),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = {
+            Box(
+                Modifier
+                    .padding(top = 12.dp, bottom = 4.dp)
+                    .width(36.dp)
+                    .height(4.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.25f)),
+            )
+        },
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 24.dp),
+        ) {
+            PlaylistActionRow(
+                icon = Icons.Default.Edit,
+                title = "Edit",
+                subtitle = "Edit playlist",
+                onClick = onEdit,
+            )
+            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
+            PlaylistActionRow(
+                icon = Icons.Default.Refresh,
+                title = "Sync",
+                subtitle = "Sync playlist with YouTube Music",
+                onClick = onSync,
+            )
+            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
+            PlaylistActionRow(
+                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                title = "Add to queue",
+                subtitle = "Add to the bottom of your queue",
+                onClick = onAddToQueue,
+            )
+            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
+            PlaylistActionRow(
+                icon = Icons.Default.Download,
+                title = "Download",
+                subtitle = "Download all songs for offline playback",
+                onClick = onDownloadAll,
+            )
+            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
+            PlaylistActionRow(
+                icon = Icons.Default.Share,
+                title = "Share",
+                subtitle = "Share this playlist with others",
+                onClick = onShare,
+            )
+            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
+            PlaylistActionRow(
+                icon = Icons.Default.Delete,
+                title = "Delete",
+                subtitle = "Remove this playlist permanently",
+                tint = MaterialTheme.colorScheme.error,
+                onClick = onDelete,
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun PlaylistActionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    tint: Color = Color.White,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(26.dp),
+        )
+        Spacer(Modifier.width(20.dp))
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = tint,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.55f),
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun PlaylistTrackRow(
@@ -325,8 +493,6 @@ private fun PlaylistTrackRow(
 ) {
     val context = LocalContext.current
 
-    // Reactively track "is this song downloaded" — flips to DownloadDone as soon
-    // as the file lands on disk.
     var downloaded by remember(song.videoId) {
         mutableStateOf(YtPlayback.isDownloaded(context, song))
     }
@@ -334,7 +500,6 @@ private fun PlaylistTrackRow(
         if (downloadFraction == null) downloaded = YtPlayback.isDownloaded(context, song)
     }
 
-    // Currently-playing tracking — Metrolist parity.
     val nowPlayingId by com.aioweb.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState()
     val isPlaying by com.aioweb.app.audio.PlaybackBus.isPlaying.collectAsState()
     val rowMediaId = YtPlayback.watchUrl(song.videoId)
@@ -361,8 +526,6 @@ private fun PlaylistTrackRow(
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             )
-            // Animated equalizer bars overlay the artwork on the active track —
-            // identical to Metrolist / OpenTune's signature playing indicator.
             if (isCurrent) {
                 com.aioweb.app.ui.components.PlayingBars(
                     modifier = Modifier.fillMaxSize(),
@@ -405,7 +568,6 @@ private fun PlaylistTrackRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        // In-progress download ring takes priority over the 3-dot menu.
         if (downloadFraction != null) {
             Box(
                 Modifier.size(40.dp),
