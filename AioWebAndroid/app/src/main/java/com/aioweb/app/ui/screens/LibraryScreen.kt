@@ -121,8 +121,9 @@ fun LibraryScreen(
         ) {
             Text(
                 "Library",
-                style = MaterialTheme.typography.displayLarge,
+                style = MaterialTheme.typography.headlineLarge,
                 color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
             com.aioweb.app.ui.components.ProfileButton(onClick = onProfileClick)

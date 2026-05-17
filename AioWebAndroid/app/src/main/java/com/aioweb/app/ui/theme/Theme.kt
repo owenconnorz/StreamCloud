@@ -21,13 +21,13 @@ import androidx.core.view.WindowCompat
 import com.aioweb.app.data.ServiceLocator
 
 private val AioColors = darkColorScheme(
-    primary = Violet,
+    primary = Salmon,
     onPrimary = TextPrimary,
-    primaryContainer = VioletDark,
+    primaryContainer = SalmonDark,
     onPrimaryContainer = TextPrimary,
-    secondary = Cyan,
+    secondary = Teal,
     onSecondary = Bg,
-    tertiary = Pink,
+    tertiary = Rose,
     onTertiary = TextPrimary,
     background = Bg,
     onBackground = TextPrimary,
