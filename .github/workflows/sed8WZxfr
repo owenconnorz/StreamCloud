@@ -1,4 +1,4 @@
-name: Build StreamCloud Android APK
+name: Build AioWeb Android APK
 
 on:
   push:
