@@ -101,6 +101,10 @@ fun NativePlayerScreen(
     progressKey: WatchProgressKey? = null,
     /** When non-null, the refresh icon in the streams sheet is enabled and calls this. */
     onRefresh: (() -> Unit)? = null,
+    /** Bump this value to force the player to restart even when [streamUrl] hasn't
+     *  changed.  Needed when the user taps the stream that is already loaded — the
+     *  URL equality check in LaunchedEffect would otherwise swallow the tap. */
+    restartKey: Any? = null,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -111,7 +115,7 @@ fun NativePlayerScreen(
     var resolveError by remember { mutableStateOf<String?>(null) }
     val torrentServer = remember { mutableStateOf<TorrentStreamServer?>(null) }
 
-    LaunchedEffect(streamUrl) {
+    LaunchedEffect(streamUrl, restartKey) {
         val isTorrent = streamUrl.startsWith("magnet:", true) || streamUrl.endsWith(".torrent", true)
         if (isTorrent) {
             val server = TorrentStreamServer(context.applicationContext)
@@ -151,7 +155,7 @@ fun NativePlayerScreen(
              u.endsWith(".html") || u.endsWith("/"))
     }
 
-    LaunchedEffect(resolvedUrl, needsWebView) {
+    LaunchedEffect(resolvedUrl, needsWebView, restartKey) {
         // Always tear down any previously-built ExoPlayer before resolving a new
         // URL — otherwise switching sources / closing+reopening the player leaks
         // an orphan that keeps playing in the background until the app dies.
@@ -867,10 +871,28 @@ private fun EmbedWebView(url: String) {
                 settings.allowContentAccess = false
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
+                // Spoof a real Chrome UA — the default Android WebView UA is
+                // fingerprinted and blocked by Cloudflare and most embed hosts.
+                settings.userAgentString =
+                    "Mozilla/5.0 (Linux; Android 14; Pixel 8) " +
+                    "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                    "Chrome/124.0.0.0 Mobile Safari/537.36"
+                // Allow cookies so the Cloudflare clearance cookie (cf_clearance)
+                // and any session tokens survive across navigations inside the embed.
+                android.webkit.CookieManager.getInstance().let { cm ->
+                    cm.setAcceptCookie(true)
+                    cm.setAcceptThirdPartyCookies(this, true)
+                }
                 webChromeClient = android.webkit.WebChromeClient()
                 webViewClient = android.webkit.WebViewClient()
                 loadUrl(url)
             }
+        },
+        // Reload when the user switches to a different embed source.
+        // Without this, AndroidView keeps the old WebView and the new URL is ignored.
+        update = { webView ->
+            val current = webView.originalUrl ?: webView.url
+            if (current != url) webView.loadUrl(url)
         },
     )
 }
