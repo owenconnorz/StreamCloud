@@ -176,6 +176,7 @@ fun LibraryScreen(
             // Metrolist layout: single 2-column grid that merges the 4 local system
             // tiles with the user's YouTube Music playlists / albums / artists.
             // Each tab narrows the grid to the relevant content type.
+            Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 modifier = Modifier.fillMaxSize(),
@@ -185,7 +186,6 @@ fun LibraryScreen(
             ) {
                 when (tab) {
                     LibTab.Playlists -> {
-                        item { CreatePlaylistTile { showCreatePlaylistDialog = true } }
                         item { LocalSystemTile("Downloaded", Icons.Default.DownloadDone,
                             downloaded.size, downloaded.mapNotNull { it.thumbnail }) { openTile = "downloaded" } }
                         item { LocalSystemTile("My top 50", Icons.Default.TrendingUp,
@@ -247,6 +247,20 @@ fun LibraryScreen(
                     }
                 }
             }
+            if (tab == LibTab.Playlists) {
+                FloatingActionButton(
+                    onClick = { showCreatePlaylistDialog = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = 88.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New playlist")
+                }
+            }
+            } // closes Box
         }
     }
 }
