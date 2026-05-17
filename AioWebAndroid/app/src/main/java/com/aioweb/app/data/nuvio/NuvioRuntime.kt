@@ -122,18 +122,15 @@ object NuvioRuntime {
                     appendLine("    scraperId: ${jsString(scriptKey)},")
                     appendLine("    settings:  globalThis.SCRAPER_SETTINGS || {}")
                     appendLine("  };")
-                    appendLine("  // ── Provider code (runs directly — no extra IIFE wrapper) ──")
-                    appendLine("  // This matches how official NuvioMobile executes plugins inside")
-                    appendLine("  // new Function(), so function declarations are hoisted into the")
-                    appendLine("  // same scope as the getStreams lookup that follows.")
-                    appendLine("  try {")
+                    appendLine("  // ── Provider code (runs directly — no try-catch wrapper) ──────────────")
+                    appendLine("  // Exactly mirrors official NuvioMobile new Function() body: provider")
+                    appendLine("  // code is NOT wrapped in any inner scope, so function declarations")
+                    appendLine("  // (e.g. function getStreams() {}) are hoisted into the async IIFE's")
+                    appendLine("  // own scope and are visible to the 3-way lookup that follows.")
+                    appendLine("  // If the provider throws at init time the QuickJsException bubbles")
+                    appendLine("  // up to the Kotlin catch block and is surfaced via lastError().")
                     append(scriptText)
                     appendLine()
-                    appendLine("  } catch (__loadErr) {")
-                    appendLine("    console.error('[provider-init] definition error:', (__loadErr && __loadErr.message) || __loadErr);")
-                    appendLine("    __capture_result('[]');")
-                    appendLine("    return '[]';")
-                    appendLine("  }")
                     appendLine("  // ── Locate getStreams (same 3-way lookup as official app) ──")
                     appendLine("  var __fn =")
                     appendLine("    (typeof getStreams === 'function')                                    ? getStreams :")
@@ -205,7 +202,11 @@ object NuvioRuntime {
     // ─────────────────────────────── Fetch ───────────────────────────────
 
     private fun com.dokar.quickjs.QuickJs.installFetchBridge() {
-        function("__native_fetch") { args ->
+        // asyncFunction — each HTTP call runs as a Kotlin coroutine and resolves
+        // through QuickJS's native Promise mechanism (the library's awaitAsyncJobs
+        // loop).  This is the correct integration model; the synchronous function()
+        // approach blocked executePendingJob which is not what the library expects.
+        asyncFunction("__native_fetch") { args ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
             val headersJson = args.getOrNull(2)?.toString() ?: "{}"
@@ -497,7 +498,9 @@ object NuvioRuntime {
             }
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
-            var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
+            // __native_fetch is now an asyncFunction (returns a Promise); await it so
+            // QuickJS processes it through the proper coroutine → Promise mechanism.
+            var result = await __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             return {
                 ok: parsed.ok, status: parsed.status, statusText: parsed.statusText,
