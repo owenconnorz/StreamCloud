@@ -3,7 +3,7 @@
          we don't need com.google.android.material XML themes here.
          Using android:Theme.Material.NoActionBar avoids dependency on Material lib styles
          while still giving us a no-action-bar Activity host. -->
-    <style name="Theme.AioWeb" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.StreamCloud" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/bg_primary</item>
         <item name="android:statusBarColor">@color/bg_primary</item>
         <item name="android:navigationBarColor">@color/bg_primary</item>
@@ -12,7 +12,7 @@
         <item name="android:windowTranslucentStatus">false</item>
     </style>
 
-    <style name="Theme.AioWeb.Splash" parent="Theme.AioWeb">
+    <style name="Theme.StreamCloud.Splash" parent="Theme.StreamCloud">
         <item name="android:windowBackground">@drawable/splash_background</item>
     </style>
 </resources>
