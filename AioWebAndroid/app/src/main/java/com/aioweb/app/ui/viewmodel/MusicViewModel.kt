@@ -62,6 +62,8 @@ data class MusicState(
     val sections: MusicSearchSections = MusicSearchSections(),
     val albumResults: List<YtAlbum> = emptyList(),
     val artistResults: List<YtArtist> = emptyList(),
+    val suggestions: List<String> = emptyList(),
+    val suggestionsLoading: Boolean = false,
 
     // ── Metrolist-style home feed (YouTube Music personalised sections) ──────
     val ytHome: YtMusicHomeFeed = YtMusicHomeFeed(),
@@ -123,6 +125,21 @@ class MusicViewModel(context: Context) : ViewModel() {
         _state.update { it.copy(searchMode = mode) }
         val q = _state.value.searchQuery
         if (q.length >= 2) search(q)
+    }
+
+    private var suggestionsJob: Job? = null
+
+    fun fetchSuggestions(query: String) {
+        suggestionsJob?.cancel()
+        if (query.isBlank()) {
+            _state.update { it.copy(suggestions = emptyList(), suggestionsLoading = false) }
+            return
+        }
+        suggestionsJob = viewModelScope.launch {
+            _state.update { it.copy(suggestionsLoading = true) }
+            val list = runCatching { NewPipeRepository.searchSuggestions(query) }.getOrDefault(emptyList())
+            _state.update { it.copy(suggestions = list, suggestionsLoading = false) }
+        }
     }
 
     fun search(query: String) {

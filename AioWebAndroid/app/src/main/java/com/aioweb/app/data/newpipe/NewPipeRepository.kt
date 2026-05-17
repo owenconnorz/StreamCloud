@@ -52,6 +52,19 @@ data class MusicSearchSections(
 object NewPipeRepository {
 
     /**
+     * Fetch autocomplete suggestions from YouTube for the given partial query.
+     * Falls back to an empty list on any error so callers never crash.
+     */
+    suspend fun searchSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        try {
+            ServiceList.YouTube.suggestionExtractor.suggestionList(query)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
      * Search YouTube Music and return tracks. Uses the "music_songs" content filter so
      * results are MV-stripped songs (matches Metrolist's home/search behaviour).
      */
