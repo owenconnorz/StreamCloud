@@ -17,6 +17,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
@@ -60,14 +61,19 @@ internal class InnerTubeClient(private val cookie: String) {
      * (current spec) — InnerTube tolerates the redundancy and ignoring
      * either-shape is what made paging silently truncate at ~100 entries.
      */
-    suspend fun browseContinuation(token: String): JsonObject? = postInnerTube(
-        endpoint = "browse",
-        body = buildJsonObject {
-            putContext()
-            put("continuation", token)
-        },
-        extraQuery = "&ctoken=$token&continuation=$token&type=next",
-    )
+    suspend fun browseContinuation(token: String): JsonObject? {
+        // URL-encode the token for the query-string — base64 tokens contain '=' and
+        // sometimes '+' / '/' which corrupt the URL if appended raw.
+        val enc = URLEncoder.encode(token, "UTF-8")
+        return postInnerTube(
+            endpoint = "browse",
+            body = buildJsonObject {
+                putContext()
+                put("continuation", token)   // body JSON needs the raw (unencoded) token
+            },
+            extraQuery = "&ctoken=$enc&continuation=$enc&type=next",
+        )
+    }
 
     private suspend fun postInnerTube(
         endpoint: String,
@@ -127,8 +133,9 @@ internal class InnerTubeClient(private val cookie: String) {
 
     companion object {
         private const val TAG = "InnerTube"
-        // Version harvested from music.youtube.com on 2026-02 — tracked by Metrolist too.
-        private const val CLIENT_VERSION = "1.20250127.01.00"
+        // Version harvested from music.youtube.com — update periodically by inspecting
+        // the `INNERTUBE_CONTEXT_CLIENT_VERSION` variable in the YTM web app source.
+        private const val CLIENT_VERSION = "1.20260501.01.00"
     }
 }
 
@@ -183,26 +190,61 @@ internal fun JsonElement.collectTwoRowItems(): List<JsonObject> =
         .mapNotNull { it as? JsonObject }
 
 /**
- * Pull a `continuations[].nextContinuationData.continuation` (or
- * `continuationCommand.token`) out of any place YT Music nests it. Returns
- * null when the page has no continuation, indicating the playlist is fully
- * loaded.
+ * Extract the next-page token from anywhere YouTube Music might put it.
+ *
+ * YouTube has used several shapes over the years — all are tried in order:
+ *
+ * 1. `continuations[].{nextContinuationData|nextRadioContinuationData|
+ *     timedContinuationData|reloadContinuationData}.continuation`
+ *    — classic "shelf with continuations array" shape used in browse and
+ *      continuation responses alike.
+ *
+ * 2. `continuationItemRenderer.continuationEndpoint.continuationCommand.token`
+ *    — newer "appendContinuationItemsAction" shape where the load-more button
+ *      is injected as the LAST item inside the items list rather than as a
+ *      separate `continuations` key.  Started appearing in 2025 playlist
+ *      responses and is what causes pagination to stop silently at ~100 songs
+ *      when not handled.
+ *
+ * 3. `continuationCommand.token` anywhere — catch-all fallback.
+ *
+ * Returns null when the page is the last one (no token present).
  */
 internal fun JsonElement.findContinuationToken(): String? {
+    // ── Shape 1: continuations[] array with typed wrapper objects ──────────
+    val CONTINUATION_WRAPPER_KEYS = listOf(
+        "nextContinuationData",
+        "nextRadioContinuationData",
+        "timedContinuationData",
+        "reloadContinuationData",
+    )
     val continuations = findAll("continuations")
     for (cs in continuations) {
         val arr = cs as? JsonArray ?: continue
         for (entry in arr) {
             val obj = entry as? JsonObject ?: continue
-            (obj["nextContinuationData"] as? JsonObject)?.get("continuation")
-                ?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
-                ?.let { return it }
-            (obj["nextRadioContinuationData"] as? JsonObject)?.get("continuation")
-                ?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
-                ?.let { return it }
+            for (key in CONTINUATION_WRAPPER_KEYS) {
+                (obj[key] as? JsonObject)?.get("continuation")
+                    ?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                    ?.let { return it }
+            }
         }
     }
-    // Newer responses wrap in `continuationCommand.token`.
+
+    // ── Shape 2: continuationItemRenderer (2025+ appendContinuationItemsAction) ──
+    // The token is embedded as the last item in the content list rather than in a
+    // separate `continuations` key.  Walk every continuationItemRenderer and pick
+    // the first one that carries a continuationCommand.token.
+    for (item in findAll("continuationItemRenderer")) {
+        val token = (item as? JsonObject)
+            ?.let { it["continuationEndpoint"] as? JsonObject }
+            ?.let { it["continuationCommand"] as? JsonObject }
+            ?.get("token")?.jsonPrimitive?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+        if (token != null) return token
+    }
+
+    // ── Shape 3: bare continuationCommand.token anywhere ───────────────────
     return findAll("continuationCommand")
         .mapNotNull { (it as? JsonObject)?.get("token")?.jsonPrimitive?.contentOrNull }
         .firstOrNull { it.isNotBlank() }
