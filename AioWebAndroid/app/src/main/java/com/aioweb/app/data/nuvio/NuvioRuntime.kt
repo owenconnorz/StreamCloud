@@ -422,25 +422,52 @@ object NuvioRuntime {
             options = options || {};
             var method = (options.method || 'GET').toUpperCase();
             var headers = options.headers || {};
+            // Some providers pass a Headers instance; extract to plain object.
+            if (headers && typeof headers.forEach === 'function') {
+                var plain = {};
+                headers.forEach(function(v, k) { plain[k] = v; });
+                headers = plain;
+            }
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
             var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             return {
                 ok: parsed.ok, status: parsed.status, statusText: parsed.statusText, url: parsed.url,
-                headers: { get: function(name) {
-                    return parsed.headers[String(name).toLowerCase()] || null;
-                } },
+                headers: {
+                    get: function(name) { return parsed.headers[String(name).toLowerCase()] || null; },
+                    has: function(name) { return !!parsed.headers[String(name).toLowerCase()]; },
+                    entries: function() { return Object.entries(parsed.headers); },
+                },
                 text: function() { return Promise.resolve(parsed.body); },
                 json: function() {
                     try { return Promise.resolve(JSON.parse(parsed.body)); }
                     catch (e) { return Promise.resolve(null); }
                 },
+                clone: function() { return this; },
             };
         };
+        // Make fetch reachable via every global alias providers might use.
+        globalThis.fetch = fetch;
+
         // Legacy positional signature used by D3adlyRocket / phisher98 forks.
         async function fetchv2(url, headers, method, body, encodeUrl, encoding) {
             return await fetch(url, { method: method || 'GET', headers: headers || {}, body: body });
+        }
+        globalThis.fetchv2 = fetchv2;
+
+        // setTimeout / clearTimeout stubs — providers sometimes call these even if
+        // they don't rely on real timing (e.g. to "yield" or schedule cleanup).
+        // We execute the callback immediately so async flows are not blocked.
+        if (typeof setTimeout === 'undefined') {
+            var __timerSeq = 0;
+            globalThis.setTimeout = function(fn, ms) {
+                try { if (typeof fn === 'function') fn(); } catch(e) {}
+                return ++__timerSeq;
+            };
+            globalThis.clearTimeout  = function() {};
+            globalThis.setInterval   = function(fn, ms) { return ++__timerSeq; };
+            globalThis.clearInterval = function() {};
         }
 
         if (typeof AbortSignal === 'undefined') {
@@ -644,12 +671,75 @@ object NuvioRuntime {
         };
         globalThis.CryptoJS = CryptoJS;
 
+        // Minimal axios shim — redirects to the fetch polyfill so providers that
+        // do require('axios') or require('node-fetch') still work.
+        var __axiosShim = (function() {
+            function doRequest(cfg) {
+                var url = cfg.url || '';
+                var method = (cfg.method || 'GET').toUpperCase();
+                var headers = cfg.headers || {};
+                var body = cfg.data != null ? (typeof cfg.data === 'string' ? cfg.data : JSON.stringify(cfg.data)) : '';
+                return fetch(url, { method: method, headers: headers, body: body }).then(function(r) {
+                    return r.text().then(function(text) {
+                        var data;
+                        try { data = JSON.parse(text); } catch(e) { data = text; }
+                        return { data: data, status: r.status, statusText: r.statusText,
+                                 headers: r.headers, config: cfg, request: {} };
+                    });
+                });
+            }
+            var instance = function(cfg) { return doRequest(typeof cfg === 'string' ? { url: cfg } : cfg); };
+            instance.get     = function(url, cfg) { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'GET' })); };
+            instance.post    = function(url, data, cfg) { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'POST', data: data })); };
+            instance.put     = function(url, data, cfg) { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'PUT', data: data })); };
+            instance.patch   = function(url, data, cfg) { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'PATCH', data: data })); };
+            instance.delete  = function(url, cfg)       { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'DELETE' })); };
+            instance.head    = function(url, cfg)       { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'HEAD' })); };
+            instance.create  = function() { return instance; };
+            instance.defaults = { headers: { common: {} } };
+            instance.interceptors = { request: { use: function() {} }, response: { use: function() {} } };
+            return instance;
+        })();
+        globalThis.axios = __axiosShim;
+
         var require = function(name) {
             if (name === 'cheerio' || name === 'cheerio-without-node-native' || name === 'react-native-cheerio') return cheerio;
-            if (name === 'crypto-js') return CryptoJS;
-            throw new Error("Module '" + name + "' is not available");
+            if (name === 'crypto-js' || name === 'crypto-js/core') return CryptoJS;
+            if (name === 'axios') return __axiosShim;
+            if (name === 'node-fetch' || name === 'cross-fetch' || name === 'isomorphic-fetch') return fetch;
+            // Unknown module — return a stub instead of throwing so the provider
+            // script does not crash during initialisation.
+            console.warn('Nuvio runtime: require("' + name + '") is not available, returning empty stub.');
+            return {};
         };
         globalThis.require = require;
+
+        // Promise.allSettled polyfill (ES2020 — QuickJS may not have it).
+        if (typeof Promise.allSettled === 'undefined') {
+            Promise.allSettled = function(promises) {
+                return Promise.all(promises.map(function(p) {
+                    return Promise.resolve(p).then(
+                        function(v) { return { status: 'fulfilled', value: v }; },
+                        function(r) { return { status: 'rejected',  reason: r }; }
+                    );
+                }));
+            };
+        }
+        // Promise.any polyfill
+        if (typeof Promise.any === 'undefined') {
+            Promise.any = function(promises) {
+                return new Promise(function(resolve, reject) {
+                    var errors = [], n = promises.length;
+                    if (!n) { reject(new Error('All promises were rejected')); return; }
+                    promises.forEach(function(p, i) {
+                        Promise.resolve(p).then(resolve, function(e) {
+                            errors[i] = e;
+                            if (--n === 0) reject(new Error('All promises were rejected'));
+                        });
+                    });
+                });
+            };
+        }
 
         if (!Array.prototype.flat) {
             Array.prototype.flat = function(d) {
