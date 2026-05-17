@@ -1,0 +1,4 @@
+AioWebAndroid/app/src/main/jniLibs/arm64-v8a/libtorrserver.so filter=lfs diff=lfs merge=lfs -text
+AioWebAndroid/app/src/main/jniLibs/armeabi-v7a/libtorrserver.so filter=lfs diff=lfs merge=lfs -text
+AioWebAndroid/app/src/main/jniLibs/x86/libtorrserver.so filter=lfs diff=lfs merge=lfs -text
+AioWebAndroid/app/src/main/jniLibs/x86_64/libtorrserver.so filter=lfs diff=lfs merge=lfs -text
