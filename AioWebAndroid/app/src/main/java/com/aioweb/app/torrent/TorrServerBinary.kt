@@ -73,8 +73,8 @@ class TorrServerBinary(private val context: Context) {
         Log.d(TAG, "Starting TorrServer on port $PORT from ${binaryFile.absolutePath}")
         val pb = ProcessBuilder(
             binaryFile.absolutePath,
-            "-p", PORT.toString(),
-            "-d", configDir.absolutePath,
+            "--port", PORT.toString(),
+            "--path", configDir.absolutePath,
         )
         pb.directory(configDir)
         pb.redirectErrorStream(true)

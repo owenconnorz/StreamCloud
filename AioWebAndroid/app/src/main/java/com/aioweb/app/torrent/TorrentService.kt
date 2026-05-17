@@ -15,6 +15,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.net.URLDecoder
 import java.net.URLEncoder
 
 private val VIDEO_EXTENSIONS = setOf(
@@ -101,39 +102,37 @@ class TorrentService(context: Context) {
 
     /**
      * Overload that accepts a ready-made magnet URI (from [StremioDetailScreen] which
-     * already embedded trackers + `_sc_fidx`).  The `_sc_fidx` param is stripped and
-     * used as the file-index hint before the magnet is handed to TorrServer.
+     * already embedded trackers + `_sc_fidx`).
+     *
+     * Parses infoHash, file-index hint, and tracker list from the magnet, then
+     * delegates to [startStream] which rebuilds a fresh, correctly-encoded magnet.
+     * This avoids double-encoding issues when the caller has already URL-encoded
+     * the tracker parameters inside the magnet string.
      */
     suspend fun startStreamFromMagnet(magnet: String): String = withContext(Dispatchers.IO) {
-        stopStream()
-        _state.value = TorrentState.Connecting
-
-        binary.start()
-
-        // Strip our internal _sc_fidx param and extract the hint.
+        // Strip internal _sc_fidx hint.
         val fidxRegex = Regex("[&?]_sc_fidx=(\\d+)", RegexOption.IGNORE_CASE)
-        val fidxMatch = fidxRegex.find(magnet)
-        val fileIdxHint = fidxMatch?.groupValues?.get(1)?.toIntOrNull()
+        val fileIdxHint = fidxRegex.find(magnet)?.groupValues?.get(1)?.toIntOrNull()
         val cleanMagnet = magnet.replace(fidxRegex, "")
 
-        // Extract infoHash from the magnet URI.
-        val infoHash = Regex("urn:btih:([a-fA-F0-9]{40})", RegexOption.IGNORE_CASE)
+        // Extract infoHash — accepts both 40-char hex and 32-char base32.
+        val infoHash = Regex("urn:btih:([a-zA-Z0-9]{32,40})", RegexOption.IGNORE_CASE)
             .find(cleanMagnet)?.groupValues?.get(1)
             ?: throw TorrentException("Could not parse infoHash from magnet: ${cleanMagnet.take(80)}")
 
-        Log.d(TAG, "startStreamFromMagnet infoHash=$infoHash fileIdxHint=$fileIdxHint")
+        // Extract tracker URLs — decode any URL-encoding so startStream can re-encode cleanly.
+        val trackers = Regex("[&?]tr=([^&]+)").findAll(cleanMagnet)
+            .map {
+                runCatching { URLDecoder.decode(it.groupValues[1], "UTF-8") }
+                    .getOrDefault(it.groupValues[1])
+            }
+            .filter { it.isNotBlank() }
+            .toList()
 
-        val hash = api.addTorrent(cleanMagnet)
-            ?: throw TorrentException("TorrServer rejected the torrent")
-        currentHash = hash
+        Log.d(TAG, "startStreamFromMagnet infoHash=$infoHash fileIdxHint=$fileIdxHint trackers=${trackers.size}")
 
-        val resolvedIdx = resolveFileIndex(hash, fileIdxHint, filename = null)
-        val streamUrl   = api.getStreamUrl(cleanMagnet, resolvedIdx)
-        Log.d(TAG, "Stream URL → $streamUrl")
-
-        startStatsPolling(hash)
-        _state.value = TorrentState.Streaming(localUrl = streamUrl)
-        streamUrl
+        // Delegate to startStream — builds a fresh, cleanly-encoded magnet internally.
+        startStream(infoHash = infoHash, fileIdx = fileIdxHint, filename = null, trackers = trackers)
     }
 
     fun stopStream() {
