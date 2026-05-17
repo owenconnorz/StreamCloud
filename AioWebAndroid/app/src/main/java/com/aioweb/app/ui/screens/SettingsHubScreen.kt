@@ -12,19 +12,24 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
@@ -32,13 +37,20 @@ import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Reorder
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -99,6 +111,28 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var enabledCollections by remember { mutableStateOf<Set<String>>(emptySet()) }
     var uiMode           by remember { mutableStateOf("Auto") }
 
+    // Appearance extras
+    var highRefreshRate     by remember { mutableStateOf(true) }
+    var newMiniPlayer       by remember { mutableStateOf(true) }
+    var pureBlackMiniPlayer by remember { mutableStateOf(false) }
+    var newPlayerDesign     by remember { mutableStateOf(true) }
+
+    // Player extras
+    var skipSilence         by remember { mutableStateOf(false) }
+    var keepScreenOn        by remember { mutableStateOf(false) }
+    var persistentQueue     by remember { mutableStateOf(true) }
+    var crossfadeDuration   by remember { mutableStateOf("0") }
+
+    // Privacy
+    var listenHistory       by remember { mutableStateOf(true) }
+    var pauseListenHistory  by remember { mutableStateOf(false) }
+
+    // Content extras
+    var safeSearch          by remember { mutableStateOf(false) }
+    var explicitContent     by remember { mutableStateOf(true) }
+    var contentLanguage     by remember { mutableStateOf("en") }
+    var contentCountry      by remember { mutableStateOf("US") }
+
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
     var showQualityAudioDialog  by remember { mutableStateOf(false) }
     var showEqDialog            by remember { mutableStateOf(false) }
@@ -108,28 +142,45 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var showUiModeDialog        by remember { mutableStateOf(false) }
     var showAiDialog            by remember { mutableStateOf(false) }
     var showBackendDialog       by remember { mutableStateOf(false) }
+    var showCrossfadeDialog     by remember { mutableStateOf(false) }
+    var showLanguageDialog      by remember { mutableStateOf(false) }
+    var showCountryDialog       by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        backendUrl   = sl.settings.backendUrl.first()
-        provider     = sl.settings.aiProvider.first()
-        model        = sl.settings.aiModel.first()
-        nsfw         = sl.settings.nsfwEnabled.first()
-        videoQuality = sl.settings.videoQuality.first()
-        audioQuality = sl.settings.audioQuality.first()
-        extLinks     = sl.settings.externalLinksInBrowser.first()
-        autoplay     = sl.settings.autoplayNext.first()
-        subs         = sl.settings.subtitlesEnabled.first()
-        dlWifi       = sl.settings.downloadOverWifiOnly.first()
-        hfToken      = sl.settings.hfToken.first()
-        dynamicColor = sl.settings.dynamicColor.first()
-        eqEnabled    = sl.settings.eqEnabled.first()
-        eqPreset     = sl.settings.eqPreset.first()
-        bassBoost    = sl.settings.bassBoost.first()
-        uiMode       = sl.settings.uiMode.first()
+        backendUrl          = sl.settings.backendUrl.first()
+        provider            = sl.settings.aiProvider.first()
+        model               = sl.settings.aiModel.first()
+        nsfw                = sl.settings.nsfwEnabled.first()
+        videoQuality        = sl.settings.videoQuality.first()
+        audioQuality        = sl.settings.audioQuality.first()
+        extLinks            = sl.settings.externalLinksInBrowser.first()
+        autoplay            = sl.settings.autoplayNext.first()
+        subs                = sl.settings.subtitlesEnabled.first()
+        dlWifi              = sl.settings.downloadOverWifiOnly.first()
+        hfToken             = sl.settings.hfToken.first()
+        dynamicColor        = sl.settings.dynamicColor.first()
+        eqEnabled           = sl.settings.eqEnabled.first()
+        eqPreset            = sl.settings.eqPreset.first()
+        bassBoost           = sl.settings.bassBoost.first()
+        uiMode              = sl.settings.uiMode.first()
+        highRefreshRate     = sl.settings.highRefreshRate.first()
+        newMiniPlayer       = sl.settings.newMiniPlayerDesign.first()
+        pureBlackMiniPlayer = sl.settings.pureBlackMiniPlayer.first()
+        newPlayerDesign     = sl.settings.newPlayerDesign.first()
+        skipSilence         = sl.settings.skipSilence.first()
+        keepScreenOn        = sl.settings.keepScreenOn.first()
+        persistentQueue     = sl.settings.persistentQueue.first()
+        crossfadeDuration   = sl.settings.crossfadeDuration.first()
+        listenHistory       = sl.settings.listenHistoryEnabled.first()
+        pauseListenHistory  = sl.settings.pauseListenHistory.first()
+        safeSearch          = sl.settings.safeSearch.first()
+        explicitContent     = sl.settings.explicitContent.first()
+        contentLanguage     = sl.settings.contentLanguage.first()
+        contentCountry      = sl.settings.contentCountry.first()
         val csv = sl.settings.homeCollectionsCsv.first()
-        enabledCollections = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet()
+        enabledCollections  = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet()
             ?: HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
-        pluginsCacheBytes = pluginRepo.pluginsCacheSize()
+        pluginsCacheBytes   = pluginRepo.pluginsCacheSize()
     }
 
     Column(
@@ -150,24 +201,53 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         // ── APPEARANCE ────────────────────────────────────────────────────
         SectionHeader("Appearance", ColourAppearance)
         SettingsGroup {
+            SubSectionLabel("Theme")
+            SettingNav(
+                icon = Icons.Default.Palette, tint = ColourAppearance,
+                title = "Theme",
+                subtitle = "Customize your app theme",
+                onClick = { showUiModeDialog = true },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.Speed, tint = ColourAppearance,
+                title = "Enable high refresh rate",
+                subtitle = "Force the display to run at the highest supported refresh rate (e.g. 120Hz)",
+                checked = highRefreshRate,
+                onChange = { highRefreshRate = it; scope.launch { sl.settings.setHighRefreshRate(it) } },
+            )
+            SettingDivider()
             SettingToggle(
                 icon = Icons.Default.AutoAwesome, tint = ColourAppearance,
-                title = "Material You (Monet)",
+                title = "Enable dynamic theme",
                 subtitle = "Match colours to your wallpaper · Android 12+",
                 checked = dynamicColor,
                 onChange = { dynamicColor = it; scope.launch { sl.settings.setDynamicColor(it) } },
+        )
+        }
+        SettingsGroup {
+            SubSectionLabel("Mini-player")
+            SettingToggle(
+                icon = Icons.Default.AspectRatio, tint = ColourAppearance,
+                title = "New mini player design",
+                checked = newMiniPlayer,
+                onChange = { newMiniPlayer = it; scope.launch { sl.settings.setNewMiniPlayerDesign(it) } },
             )
             SettingDivider()
-            SettingNav(
-                icon = Icons.Default.Visibility, tint = ColourAppearance,
-                title = "Layout / device",
-                value = when (uiMode) {
-                    "Mobile" -> "Mobile"
-                    "Tablet" -> "Tablet"
-                    "Tv"     -> "TV / Leanback"
-                    else     -> "Auto"
-                },
-                onClick = { showUiModeDialog = true },
+            SettingToggle(
+                icon = Icons.Default.DarkMode, tint = ColourAppearance,
+                title = "Pure black mini-player",
+                checked = pureBlackMiniPlayer,
+                onChange = { pureBlackMiniPlayer = it; scope.launch { sl.settings.setPureBlackMiniPlayer(it) } },
+            )
+        }
+        SettingsGroup {
+            SubSectionLabel("Player")
+            SettingToggle(
+                icon = Icons.Default.Palette, tint = ColourAppearance,
+                title = "New player design",
+                checked = newPlayerDesign,
+                onChange = { newPlayerDesign = it; scope.launch { sl.settings.setNewPlayerDesign(it) } },
             )
             SettingDivider()
             SettingNav(
@@ -208,6 +288,37 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 subtitle = "Continue with the next song / episode automatically",
                 checked = autoplay,
                 onChange = { autoplay = it; scope.launch { sl.settings.setAutoplayNext(it) } },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.VolumeOff, tint = ColourPlayer,
+                title = "Skip silence",
+                subtitle = "Automatically skip silent parts in tracks",
+                checked = skipSilence,
+                onChange = { skipSilence = it; scope.launch { sl.settings.setSkipSilence(it) } },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.BrightnessHigh, tint = ColourPlayer,
+                title = "Keep screen on",
+                subtitle = "Prevent screen from turning off while playing",
+                checked = keepScreenOn,
+                onChange = { keepScreenOn = it; scope.launch { sl.settings.setKeepScreenOn(it) } },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.QueueMusic, tint = ColourPlayer,
+                title = "Persistent queue",
+                subtitle = "Restore your queue when you reopen the app",
+                checked = persistentQueue,
+                onChange = { persistentQueue = it; scope.launch { sl.settings.setPersistentQueue(it) } },
+            )
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                title = "Crossfade",
+                value = if (crossfadeDuration == "0") "Off" else "${crossfadeDuration}s",
+                onClick = { showCrossfadeDialog = true },
             )
             SettingDivider()
             SettingToggle(
@@ -265,10 +376,25 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         SectionHeader("Content", ColourContent)
         SettingsGroup {
             SettingNav(
-                icon = Icons.Default.Language, tint = ColourContent,
-                title = "Backend URL",
-                subtitle = backendUrl.ifBlank { "Not set" },
-                onClick = { showBackendDialog = true },
+                icon = Icons.Default.Translate, tint = ColourContent,
+                title = "Content language",
+                value = contentLanguage.uppercase(),
+                onClick = { showLanguageDialog = true },
+            )
+            SettingDivider()
+            SettingNav(
+                icon = Icons.Default.Public, tint = ColourContent,
+                title = "Content country",
+                value = contentCountry.uppercase(),
+                onClick = { showCountryDialog = true },
+            )
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.Block, tint = ColourContent,
+                title = "Explicit content",
+                subtitle = "Show songs and videos with explicit lyrics",
+                checked = explicitContent,
+                onChange = { explicitContent = it; scope.launch { sl.settings.setExplicitContent(it) } },
             )
             SettingDivider()
             SettingNav(
@@ -287,6 +413,13 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
             )
             SettingDivider()
             SettingNav(
+                icon = Icons.Default.Language, tint = ColourContent,
+                title = "Backend URL",
+                subtitle = backendUrl.ifBlank { "Not set" },
+                onClick = { showBackendDialog = true },
+            )
+            SettingDivider()
+            SettingNav(
                 icon = Icons.Default.Chat, tint = Color(0xFF7289DA),
                 title = "Discord community",
                 subtitle = "Join the StreamCloud server",
@@ -302,6 +435,44 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         // ── PRIVACY ───────────────────────────────────────────────────────
         SectionHeader("Privacy", ColourPrivacy)
         SettingsGroup {
+            SettingToggle(
+                icon = Icons.Default.History, tint = ColourPrivacy,
+                title = "Enable listening history",
+                subtitle = "Track the songs you play",
+                checked = listenHistory,
+                onChange = { listenHistory = it; scope.launch { sl.settings.setListenHistoryEnabled(it) } },
+            )
+            if (listenHistory) {
+                SettingDivider()
+                SettingToggle(
+                    icon = Icons.Default.History, tint = ColourPrivacy,
+                    title = "Pause listening history",
+                    subtitle = "Temporarily stop recording new plays",
+                    checked = pauseListenHistory,
+                    onChange = { pauseListenHistory = it; scope.launch { sl.settings.setPauseListenHistory(it) } },
+                )
+                SettingDivider()
+                SettingNav(
+                    icon = Icons.Default.DeleteSweep, tint = ColourPrivacy,
+                    title = "Clear listening history",
+                    subtitle = "Remove all recently played tracks",
+                    onClick = {
+                        scope.launch {
+                            com.aioweb.app.data.library.LibraryDb.get(context).tracks().clearRecent()
+                            android.widget.Toast.makeText(context, "Listening history cleared", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
+            }
+            SettingDivider()
+            SettingToggle(
+                icon = Icons.Default.Shield, tint = ColourPrivacy,
+                title = "Safe search",
+                subtitle = "Filter explicit search results",
+                checked = safeSearch,
+                onChange = { safeSearch = it; scope.launch { sl.settings.setSafeSearch(it) } },
+            )
+            SettingDivider()
             SettingToggle(
                 icon = Icons.Default.OpenInBrowser, tint = ColourPrivacy,
                 title = "Open external links in browser",
@@ -487,6 +658,62 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     if (showAboutDialog) {
         AboutDialog(onDismiss = { showAboutDialog = false })
     }
+    if (showCrossfadeDialog) {
+        QualityDialog(
+            title = "Crossfade duration",
+            options = listOf(
+                "0" to "Off",
+                "3" to "3 seconds",
+                "5" to "5 seconds",
+                "8" to "8 seconds",
+            ),
+            selected = crossfadeDuration,
+            onSelect = { crossfadeDuration = it; scope.launch { sl.settings.setCrossfadeDuration(it) }; showCrossfadeDialog = false },
+            onDismiss = { showCrossfadeDialog = false },
+        )
+    }
+    if (showLanguageDialog) {
+        QualityDialog(
+            title = "Content language",
+            options = listOf(
+                "en" to "English",
+                "es" to "Spanish",
+                "fr" to "French",
+                "de" to "German",
+                "pt" to "Portuguese",
+                "ja" to "Japanese",
+                "ko" to "Korean",
+                "zh" to "Chinese",
+                "ar" to "Arabic",
+                "hi" to "Hindi",
+            ),
+            selected = contentLanguage,
+            onSelect = { contentLanguage = it; scope.launch { sl.settings.setContentLanguage(it) }; showLanguageDialog = false },
+            onDismiss = { showLanguageDialog = false },
+        )
+    }
+    if (showCountryDialog) {
+        QualityDialog(
+            title = "Content country",
+            options = listOf(
+                "US" to "United States",
+                "GB" to "United Kingdom",
+                "AU" to "Australia",
+                "CA" to "Canada",
+                "DE" to "Germany",
+                "FR" to "France",
+                "ES" to "Spain",
+                "BR" to "Brazil",
+                "IN" to "India",
+                "JP" to "Japan",
+                "KR" to "South Korea",
+                "ZA" to "South Africa",
+            ),
+            selected = contentCountry,
+            onSelect = { contentCountry = it; scope.launch { sl.settings.setContentCountry(it) }; showCountryDialog = false },
+            onDismiss = { showCountryDialog = false },
+        )
+    }
     if (showUiModeDialog) {
         UiModeDialog(
             current = uiMode,
@@ -503,13 +730,23 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
 @Composable
 private fun SectionHeader(title: String, color: Color) {
     Text(
-        title.uppercase(),
-        style = MaterialTheme.typography.labelLarge.copy(
+        title,
+        style = MaterialTheme.typography.titleSmall.copy(
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.8.sp,
+            letterSpacing = 0.sp,
         ),
         color = color,
         modifier = Modifier.padding(start = 4.dp, top = 24.dp, bottom = 6.dp),
+    )
+}
+
+@Composable
+private fun SubSectionLabel(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 2.dp),
     )
 }
 

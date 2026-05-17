@@ -57,6 +57,9 @@ interface TrackDao {
 
     @Query("SELECT liked_at IS NOT NULL FROM tracks WHERE url = :url")
     fun isLiked(url: String): Flow<Boolean?>
+
+    @Query("UPDATE tracks SET last_played = NULL WHERE last_played IS NOT NULL")
+    suspend fun clearRecent()
 }
 
 /**

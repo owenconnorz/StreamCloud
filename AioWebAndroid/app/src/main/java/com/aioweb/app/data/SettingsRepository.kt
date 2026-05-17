@@ -37,6 +37,28 @@ object SettingsKeys {
     val PLAYLIST_THUMBS = stringPreferencesKey("playlist_thumbs") // JSON {playlistId: uriString}
     val UI_MODE = stringPreferencesKey("ui_mode")                 // Auto / Mobile / Tablet / Tv
     val ADULT_REDDIT_SUBS = stringPreferencesKey("adult_reddit_subs") // CSV of user-added subreddits
+
+    // Appearance extras (Metrolist parity)
+    val HIGH_REFRESH_RATE       = booleanPreferencesKey("high_refresh_rate")
+    val NEW_MINI_PLAYER_DESIGN  = booleanPreferencesKey("new_mini_player_design")
+    val PURE_BLACK_MINI_PLAYER  = booleanPreferencesKey("pure_black_mini_player")
+    val NEW_PLAYER_DESIGN       = booleanPreferencesKey("new_player_design")
+
+    // Player extras
+    val SKIP_SILENCE            = booleanPreferencesKey("skip_silence")
+    val KEEP_SCREEN_ON          = booleanPreferencesKey("keep_screen_on")
+    val PERSISTENT_QUEUE        = booleanPreferencesKey("persistent_queue")
+    val CROSSFADE_DURATION      = stringPreferencesKey("crossfade_duration") // "0" / "3" / "5" / "8"
+
+    // Privacy
+    val LISTEN_HISTORY_ENABLED  = booleanPreferencesKey("listen_history_enabled")
+    val PAUSE_LISTEN_HISTORY    = booleanPreferencesKey("pause_listen_history")
+
+    // Content
+    val SAFE_SEARCH             = booleanPreferencesKey("safe_search")
+    val EXPLICIT_CONTENT        = booleanPreferencesKey("explicit_content")
+    val CONTENT_LANGUAGE        = stringPreferencesKey("content_language")  // BCP-47, e.g. "en"
+    val CONTENT_COUNTRY         = stringPreferencesKey("content_country")   // ISO 3166-1, e.g. "US"
 }
 
 class SettingsRepository(private val context: Context) {
@@ -160,4 +182,44 @@ class SettingsRepository(private val context: Context) {
     }
     suspend fun setAdultRedditSubs(csv: String) =
         context.dataStore.edit { it[SettingsKeys.ADULT_REDDIT_SUBS] = csv }
+
+    // Appearance extras
+    val highRefreshRate: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HIGH_REFRESH_RATE] ?: true }
+    val newMiniPlayerDesign: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NEW_MINI_PLAYER_DESIGN] ?: true }
+    val pureBlackMiniPlayer: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.PURE_BLACK_MINI_PLAYER] ?: false }
+    val newPlayerDesign: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NEW_PLAYER_DESIGN] ?: true }
+
+    suspend fun setHighRefreshRate(b: Boolean) = context.dataStore.edit { it[SettingsKeys.HIGH_REFRESH_RATE] = b }
+    suspend fun setNewMiniPlayerDesign(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NEW_MINI_PLAYER_DESIGN] = b }
+    suspend fun setPureBlackMiniPlayer(b: Boolean) = context.dataStore.edit { it[SettingsKeys.PURE_BLACK_MINI_PLAYER] = b }
+    suspend fun setNewPlayerDesign(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NEW_PLAYER_DESIGN] = b }
+
+    // Player extras
+    val skipSilence: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.SKIP_SILENCE] ?: false }
+    val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.KEEP_SCREEN_ON] ?: false }
+    val persistentQueue: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.PERSISTENT_QUEUE] ?: true }
+    val crossfadeDuration: Flow<String> = context.dataStore.data.map { it[SettingsKeys.CROSSFADE_DURATION] ?: "0" }
+
+    suspend fun setSkipSilence(b: Boolean) = context.dataStore.edit { it[SettingsKeys.SKIP_SILENCE] = b }
+    suspend fun setKeepScreenOn(b: Boolean) = context.dataStore.edit { it[SettingsKeys.KEEP_SCREEN_ON] = b }
+    suspend fun setPersistentQueue(b: Boolean) = context.dataStore.edit { it[SettingsKeys.PERSISTENT_QUEUE] = b }
+    suspend fun setCrossfadeDuration(s: String) = context.dataStore.edit { it[SettingsKeys.CROSSFADE_DURATION] = s }
+
+    // Privacy
+    val listenHistoryEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.LISTEN_HISTORY_ENABLED] ?: true }
+    val pauseListenHistory: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.PAUSE_LISTEN_HISTORY] ?: false }
+
+    suspend fun setListenHistoryEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.LISTEN_HISTORY_ENABLED] = b }
+    suspend fun setPauseListenHistory(b: Boolean) = context.dataStore.edit { it[SettingsKeys.PAUSE_LISTEN_HISTORY] = b }
+
+    // Content extras
+    val safeSearch: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.SAFE_SEARCH] ?: false }
+    val explicitContent: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.EXPLICIT_CONTENT] ?: true }
+    val contentLanguage: Flow<String> = context.dataStore.data.map { it[SettingsKeys.CONTENT_LANGUAGE] ?: "en" }
+    val contentCountry: Flow<String> = context.dataStore.data.map { it[SettingsKeys.CONTENT_COUNTRY] ?: "US" }
+
+    suspend fun setSafeSearch(b: Boolean) = context.dataStore.edit { it[SettingsKeys.SAFE_SEARCH] = b }
+    suspend fun setExplicitContent(b: Boolean) = context.dataStore.edit { it[SettingsKeys.EXPLICIT_CONTENT] = b }
+    suspend fun setContentLanguage(s: String) = context.dataStore.edit { it[SettingsKeys.CONTENT_LANGUAGE] = s }
+    suspend fun setContentCountry(s: String) = context.dataStore.edit { it[SettingsKeys.CONTENT_COUNTRY] = s }
 }
