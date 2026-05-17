@@ -211,16 +211,24 @@ object YtMusicLibraryRepository {
             return null
         }
 
+        // Token helper that checks the shelf itself first, then walks up to
+        // sectionListRenderer (which is where YouTube puts the continuation for
+        // musicPlaylistShelfRenderer — the shelf itself has no continuations array).
+        fun tokenFor(shelf: JsonObject): String? =
+            shelfToken(shelf)
+                ?: (response.findFirst("sectionListRenderer") as? JsonObject)?.let { shelfToken(it) }
+                ?: response.findContinuationToken()
+
         // ── 1. Initial browse — musicPlaylistShelfRenderer (standard user playlists) ─
         (response.findFirst("musicPlaylistShelfRenderer") as? JsonObject)?.let { shelf ->
             val items = shelfItems(shelf)
-            if (!items.isNullOrEmpty()) return items to shelfToken(shelf)
+            if (!items.isNullOrEmpty()) return items to tokenFor(shelf)
         }
 
         // ── 2. Initial browse — musicShelfRenderer (some playlist/album types) ──────
         (response.findFirst("musicShelfRenderer") as? JsonObject)?.let { shelf ->
             val items = shelfItems(shelf)
-            if (!items.isNullOrEmpty()) return items to shelfToken(shelf)
+            if (!items.isNullOrEmpty()) return items to tokenFor(shelf)
         }
 
         // ── 3. Continuation page — musicPlaylistShelfContinuation ────────────────────
