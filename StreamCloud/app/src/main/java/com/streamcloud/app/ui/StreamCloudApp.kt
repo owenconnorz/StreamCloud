@@ -469,6 +469,7 @@ fun StreamCloudApp() {
                         NativePlayerScreen(
                             streamUrl = resolved!!,
                             title = title,
+                            headers = mapOf("Referer" to "https://www.eporner.com/"),
                             onBack = { nav.popBackStack() },
                         )
                     } else {
