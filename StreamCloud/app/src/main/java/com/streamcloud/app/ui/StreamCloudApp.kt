@@ -408,15 +408,6 @@ fun StreamCloudApp() {
                         onPlay = { /* TODO: wire to MusicPlaybackService via session */ },
                     )
                 }
-                composable(Tab.Search.route) {
-                    com.streamcloud.app.ui.screens.SearchScreen(
-                        onMovieClick = { id -> nav.navigate("movie/$id") },
-                        onArtistClick = { url ->
-                            val u = URLEncoder.encode(url, "UTF-8")
-                            nav.navigate("artist/$u")
-                        },
-                    )
-                }
                 composable(Tab.Ai.route)       { AiScreen() }
                 composable(Tab.Library.route)  {
                     LibraryScreen(
