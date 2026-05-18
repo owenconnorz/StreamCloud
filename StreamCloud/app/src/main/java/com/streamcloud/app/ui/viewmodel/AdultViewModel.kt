@@ -140,17 +140,24 @@ class AdultViewModel : ViewModel() {
      * resolved stream URL inline (set by [AdultScreen.routeId]).
      */
     suspend fun resolveStreamUrl(videoId: String, fallbackEmbed: String): String {
+        // Normalize protocol-relative (//host/…) or path-relative (/path) embed URLs
+        // returned by the Eporner API so the WebView fallback can actually load them.
+        val normalizedEmbed = when {
+            fallbackEmbed.startsWith("//") -> "https:$fallbackEmbed"
+            fallbackEmbed.startsWith("/")  -> "https://www.eporner.com$fallbackEmbed"
+            else -> fallbackEmbed
+        }
         if (videoId.startsWith("direct://")) {
             val direct = videoId.removePrefix("direct://")
-            return direct.ifBlank { fallbackEmbed }
+            return direct.ifBlank { normalizedEmbed }
         }
         _state.update { it.copy(resolvingId = videoId, error = null) }
         return try {
             val resp = eporner.details(id = videoId)
-            resp.videos.firstOrNull()?.bestMp4() ?: fallbackEmbed
+            resp.videos.firstOrNull()?.bestMp4() ?: normalizedEmbed
         } catch (e: Exception) {
             _state.update { it.copy(error = "Stream resolve failed: ${e.message}") }
-            fallbackEmbed
+            normalizedEmbed
         } finally {
             _state.update { it.copy(resolvingId = null) }
         }
