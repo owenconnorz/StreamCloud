@@ -14,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
@@ -121,11 +122,13 @@ private val AioTypography = Typography(
 fun StreamCloudTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
-    val dynamicEnabled by sl.settings.dynamicColor.collectAsState(initial = false)
-    val albumArtAccent by AlbumArtThemeBus.accent.collectAsState()
-    val uiModeStr by sl.settings.uiMode.collectAsState(initial = "Auto")
-    val themeMode by sl.settings.theme.collectAsState(initial = "dark")
-    val colorPaletteId by sl.settings.colorPalette.collectAsState(initial = "default")
+    val dynamicEnabled  by sl.settings.dynamicColor.collectAsState(initial = false)
+    val albumArtAccent  by AlbumArtThemeBus.accent.collectAsState()
+    val albumArtSecond  by AlbumArtThemeBus.accentSecondary.collectAsState()
+    val hasArtwork      by AlbumArtThemeBus.hasArtwork.collectAsState()
+    val uiModeStr       by sl.settings.uiMode.collectAsState(initial = "Auto")
+    val themeMode       by sl.settings.theme.collectAsState(initial = "dark")
+    val colorPaletteId  by sl.settings.colorPalette.collectAsState(initial = "default")
     val isSystemDark = isSystemInDarkTheme()
 
     val formFactor = remember(uiModeStr, context) {
@@ -139,9 +142,54 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     }
 
     val supportsDynamic = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val baseColors = when {
-        dynamicEnabled && supportsDynamic && useDark  -> dynamicDarkColorScheme(context)
-        dynamicEnabled && supportsDynamic && !useDark -> dynamicLightColorScheme(context)
+
+    // ── Base color scheme ────────────────────────────────────────────────────
+    // Priority (Metrolist parity):
+    //  1. Monet / Android 12+ dynamic wallpaper colors   (dynamicEnabled + S+)
+    //  2. Music-driven Metrolist-style full tonal scheme  (track playing with artwork)
+    //  3. User-selected preset palette                    (static)
+    val colors = when {
+        // 1. Monet — let Android handle everything; don't layer album art on top
+        dynamicEnabled && supportsDynamic -> {
+            if (useDark) dynamicDarkColorScheme(context)
+            else         dynamicLightColorScheme(context)
+        }
+
+        // 2. Album-art driven scheme (dark mode only, matching Metrolist behaviour)
+        useDark && hasArtwork -> {
+            // Metrolist seeds the full dark scheme from the palette swatches:
+            //  • primary / tertiary        → vibrant swatch (the "pop" color)
+            //  • secondary / container     → muted swatch (softer complement)
+            //  • surface / background      → very dark tint toward the accent
+            val accent   = albumArtAccent
+            val muted    = albumArtSecond
+
+            // Subtle background tint: blend 6 % of the accent into the base dark bg
+            val tintedBg      = lerp(Bg,          accent, 0.06f)
+            val tintedSurface = lerp(BgElevated,  accent, 0.08f)
+            val tintedVariant = lerp(BgSurface,   accent, 0.10f)
+
+            AioColors.copy(
+                primary              = accent,
+                onPrimary            = Color.White,
+                primaryContainer     = lerp(Color.Black, accent, 0.35f),
+                onPrimaryContainer   = accent.copy(alpha = 0.9f),
+                secondary            = muted,
+                onSecondary          = Color.White,
+                secondaryContainer   = lerp(Color.Black, muted, 0.30f),
+                onSecondaryContainer = muted.copy(alpha = 0.9f),
+                tertiary             = lerp(accent, muted, 0.4f),
+                onTertiary           = Color.White,
+                background           = tintedBg,
+                onBackground         = TextPrimary,
+                surface              = tintedSurface,
+                onSurface            = TextPrimary,
+                surfaceVariant       = tintedVariant,
+                onSurfaceVariant     = TextSecondary,
+            )
+        }
+
+        // 3. Static preset palette (or light mode)
         !useDark -> AioLightColors
         else -> {
             val p = palettes[colorPaletteId] ?: palettes["default"]!!
@@ -158,21 +206,12 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
         }
     }
 
-    val colors = if (useDark) {
-        baseColors.copy(
-            primary          = albumArtAccent,
-            primaryContainer = albumArtAccent.copy(alpha = 0.32f),
-        )
-    } else {
-        baseColors
-    }
-
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? android.app.Activity)?.window
             if (window != null) {
-                window.statusBarColor = colors.background.toArgbInt()
+                window.statusBarColor     = colors.background.toArgbInt()
                 window.navigationBarColor = colors.background.toArgbInt()
                 WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !useDark
             }
