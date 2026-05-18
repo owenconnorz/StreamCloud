@@ -895,6 +895,10 @@ private fun EmbedWebView(url: String) {
         factory = { ctx ->
             android.webkit.WebView(ctx).apply {
                 setBackgroundColor(android.graphics.Color.BLACK)
+                // Explicit hardware acceleration is required for <video> elements
+                // rendered via SurfaceView inside the WebView — without it the
+                // video frame is composited in software and shows as black.
+                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.mediaPlaybackRequiresUserGesture = false
@@ -902,6 +906,11 @@ private fun EmbedWebView(url: String) {
                 settings.allowContentAccess = false
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
+                // Allow mixed HTTP/HTTPS content — many embed CDNs serve assets
+                // over plain HTTP even when the page itself is HTTPS.
+                @Suppress("DEPRECATION")
+                settings.mixedContentMode =
+                    android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 // Spoof a real Chrome UA — the default Android WebView UA is
                 // fingerprinted and blocked by Cloudflare and most embed hosts.
                 settings.userAgentString =
@@ -914,7 +923,47 @@ private fun EmbedWebView(url: String) {
                     cm.setAcceptCookie(true)
                     cm.setAcceptThirdPartyCookies(this, true)
                 }
-                webChromeClient = android.webkit.WebChromeClient()
+                // A bare WebChromeClient() drops onShowCustomView on the floor —
+                // HTML5 video players (including Eporner's embed) call that API to
+                // present their fullscreen video frame. Without a real handler the
+                // frame is never added to the window, producing an all-black screen.
+                // We attach the custom view directly to the Activity's decor view
+                // so it covers the whole display, then tear it down on hide.
+                val activity = ctx as? android.app.Activity
+                var customVideoView: android.view.View? = null
+                var customViewCallback:
+                    android.webkit.WebChromeClient.CustomViewCallback? = null
+                webChromeClient = object : android.webkit.WebChromeClient() {
+                    override fun onShowCustomView(
+                        view: android.view.View,
+                        callback: android.webkit.WebChromeClient.CustomViewCallback,
+                    ) {
+                        customVideoView?.let { old ->
+                            (activity?.window?.decorView as? android.view.ViewGroup)
+                                ?.removeView(old)
+                        }
+                        customVideoView  = view
+                        customViewCallback = callback
+                        (activity?.window?.decorView as? android.view.ViewGroup)
+                            ?.addView(
+                                view,
+                                android.view.ViewGroup.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                ),
+                            )
+                    }
+
+                    override fun onHideCustomView() {
+                        customVideoView?.let { view ->
+                            (activity?.window?.decorView as? android.view.ViewGroup)
+                                ?.removeView(view)
+                        }
+                        customVideoView = null
+                        customViewCallback?.onCustomViewHidden()
+                        customViewCallback = null
+                    }
+                }
                 webViewClient = android.webkit.WebViewClient()
                 loadUrl(url)
             }
