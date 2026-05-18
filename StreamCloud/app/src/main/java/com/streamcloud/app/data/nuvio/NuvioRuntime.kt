@@ -163,7 +163,14 @@ object NuvioRuntime {
                 val finalJson = (directResult as? String)
                     ?.takeIf { it.isNotBlank() && it != "null" }
                     ?: capturedJson
-                parseStreams(finalJson)
+                val streams = parseStreams(finalJson)
+                Log.i(TAG, "$scriptKey returned ${streams.size} stream(s)")
+                if (streams.isEmpty() && !lastErrorByScript.containsKey(scriptKey)) {
+                    lastErrorByScript[scriptKey] = "No streams found (provider returned empty list)"
+                } else if (streams.isNotEmpty()) {
+                    lastErrorByScript.remove(scriptKey)
+                }
+                streams
             }
             } ?: run {
                 Log.w(TAG, "Provider $scriptKey timed out after 60s")
@@ -454,6 +461,55 @@ object NuvioRuntime {
             val prevId = "$docId:prev:${prev.hashCode()}"
             elementCache[prevId] = prev
             prevId
+        }
+        function("__cheerio_parent") { args ->
+            val docId = args.getOrNull(0)?.toString().orEmpty()
+            val elementId = args.getOrNull(1)?.toString().orEmpty()
+            val el = elementCache[elementId] ?: return@function "__NONE__"
+            val parent = el.parent() ?: return@function "__NONE__"
+            val parentId = "$docId:par:${parent.hashCode()}"
+            elementCache[parentId] = parent
+            parentId
+        }
+        function("__cheerio_closest") { args ->
+            val docId = args.getOrNull(0)?.toString().orEmpty()
+            val elementId = args.getOrNull(1)?.toString().orEmpty()
+            val selector = args.getOrNull(2)?.toString().orEmpty()
+            val el = elementCache[elementId] ?: return@function "__NONE__"
+            runCatching {
+                var cur: Element? = el
+                while (cur != null) {
+                    if (cur.`is`(selector)) {
+                        val id = "$docId:cls:${cur.hashCode()}"
+                        elementCache[id] = cur
+                        return@runCatching id
+                    }
+                    cur = cur.parent()
+                }
+                "__NONE__"
+            }.getOrDefault("__NONE__")
+        }
+        function("__cheerio_matches") { args ->
+            val elementId = args.getOrNull(1)?.toString().orEmpty()
+            val selector = args.getOrNull(2)?.toString().orEmpty()
+            val el = elementCache[elementId] ?: return@function false
+            runCatching { el.`is`(selector) }.getOrDefault(false)
+        }
+        function("__cheerio_siblings") { args ->
+            val docId = args.getOrNull(0)?.toString().orEmpty()
+            val elementId = args.getOrNull(1)?.toString().orEmpty()
+            val selector = args.getOrNull(2)?.toString().orEmpty()
+            val el = elementCache[elementId] ?: return@function "[]"
+            runCatching {
+                val siblings = el.siblingElements()
+                    .filter { it !== el && (selector.isEmpty() || it.`is`(selector)) }
+                val ids = siblings.mapIndexed { i, sib ->
+                    val id = "$docId:sib:$i:${sib.hashCode()}"
+                    elementCache[id] = sib
+                    id
+                }
+                ids.toJsonStringArray()
+            }.getOrDefault("[]")
         }
     }
 
@@ -918,9 +974,73 @@ object NuvioRuntime {
                         }
                         return __createWrapperFromIds(docId, keep);
                     }
+                    if (typeof predOrSel === 'string') {
+                        var keep2 = [];
+                        for (var i = 0; i < ids.length; i++) {
+                            if (__cheerio_matches(docId, ids[i], predOrSel)) keep2.push(ids[i]);
+                        }
+                        return __createWrapperFromIds(docId, keep2);
+                    }
                     return wrapper;
                 },
                 children: function(sel) { return this.find(sel || '*'); },
+                parent: function() {
+                    var pids = [];
+                    for (var i = 0; i < ids.length; i++) {
+                        var p = __cheerio_parent(docId, ids[i]);
+                        if (p && p !== '__NONE__') pids.push(p);
+                    }
+                    return __createWrapperFromIds(docId, pids);
+                },
+                parents: function(sel) {
+                    var pids = [], seen = {};
+                    for (var i = 0; i < ids.length; i++) {
+                        var p = __cheerio_parent(docId, ids[i]);
+                        while (p && p !== '__NONE__') {
+                            if (seen[p]) break;
+                            seen[p] = true;
+                            var el = __createWrapperFromIds(docId, [p]);
+                            if (!sel || el.is(sel)) pids.push(p);
+                            p = __cheerio_parent(docId, p);
+                        }
+                    }
+                    return __createWrapperFromIds(docId, pids);
+                },
+                closest: function(sel) {
+                    var cids = [];
+                    for (var i = 0; i < ids.length; i++) {
+                        var c = __cheerio_closest(docId, ids[i], sel);
+                        if (c && c !== '__NONE__') cids.push(c);
+                    }
+                    return __createWrapperFromIds(docId, cids);
+                },
+                is: function(sel) {
+                    if (!ids.length) return false;
+                    if (typeof sel === 'string') return !!__cheerio_matches(docId, ids[0], sel);
+                    return false;
+                },
+                hasClass: function(cls) {
+                    if (!ids.length) return false;
+                    var v = __cheerio_attr(docId, ids[0], 'class');
+                    if (v === '__UNDEFINED__') return false;
+                    return (' ' + v + ' ').indexOf(' ' + cls + ' ') >= 0;
+                },
+                removeClass: function(cls) { return wrapper; },
+                addClass: function(cls) { return wrapper; },
+                data: function(key) {
+                    if (!ids.length) return undefined;
+                    var v = __cheerio_attr(docId, ids[0], 'data-' + key);
+                    return v === '__UNDEFINED__' ? undefined : v;
+                },
+                outerHtml: function() { return ids.length ? __cheerio_html(docId, ids[0]) : ''; },
+                siblings: function(sel) {
+                    var sids = [];
+                    for (var i = 0; i < ids.length; i++) {
+                        var sub = JSON.parse(__cheerio_siblings(docId, ids[i], sel || ''));
+                        for (var j = 0; j < sub.length; j++) sids.push(sub[j]);
+                    }
+                    return __createWrapperFromIds(docId, sids);
+                },
                 toArray: function() { return ids.map(function(id) { return __createWrapperFromIds(docId, [id]); }); }
             };
             return wrapper;
