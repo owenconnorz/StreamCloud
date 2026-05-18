@@ -123,7 +123,7 @@ class NuvioRepository(private val context: Context) {
      *
      * Cached in memory so repeated tmdb→imdb hops on the same screen are free.
      */
-    private val tmdbIdCache = mutableMapOf<String, String>()
+    private val tmdbIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private suspend fun resolveTmdbId(raw: String, mediaType: String): String? {
         val trimmed = raw.trim()
         if (trimmed.isBlank()) return null
