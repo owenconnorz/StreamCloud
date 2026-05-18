@@ -21,7 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.filled.Whatshot
@@ -78,7 +77,6 @@ import java.net.URLEncoder
 private sealed class Tab(val route: String, val label: String, val icon: ImageVector) {
     data object Movies   : Tab("movies",   "Movies",   Icons.Filled.Theaters)
     data object Music    : Tab("music",    "Music",    Icons.Filled.MusicNote)
-    data object Search   : Tab("search",   "Search",   Icons.Filled.Search)
     data object Ai       : Tab("ai",       "AI",       Icons.Filled.AutoAwesome)
     data object Library  : Tab("library",  "Library",  Icons.Filled.Bookmarks)
     data object Adult    : Tab("adult",    "Adult",    Icons.Filled.Whatshot)
@@ -112,7 +110,6 @@ fun StreamCloudApp() {
         val pool: Map<String, Tab> = buildMap {
             put(Tab.Movies.route, Tab.Movies)
             put(Tab.Music.route, Tab.Music)
-            put(Tab.Search.route, Tab.Search)
             put(Tab.Ai.route, Tab.Ai)
             put(Tab.Library.route, Tab.Library)
             if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
