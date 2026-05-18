@@ -547,18 +547,49 @@ object NuvioRuntime {
         }
         globalThis.fetchv2 = fetchv2;
 
-        // setTimeout / clearTimeout stubs — providers sometimes call these even if
-        // they don't rely on real timing (e.g. to "yield" or schedule cleanup).
-        // We execute the callback immediately so async flows are not blocked.
+        // setTimeout / clearTimeout stubs.
+        //
+        // IMPORTANT: do NOT fire non-zero-delay callbacks synchronously.
+        // The most common Nuvio provider pattern is:
+        //   const controller = new AbortController();
+        //   setTimeout(() => controller.abort(), 10000);
+        //   const res = await fetch(url, { signal: controller.signal });
+        //   clearTimeout(id);
+        //
+        // If we call controller.abort() synchronously before the fetch() call,
+        // our fetch shim (line: `if (signal && signal.aborted) reject`) fires
+        // immediately and EVERY network request is aborted → provider returns [].
+        //
+        // Fix: store non-zero-delay callbacks but never fire them — clearTimeout()
+        // removes them so they are no-ops, exactly as in a real browser where the
+        // fetch completes long before the timeout fires.
+        // Zero-delay / no-delay timeouts (used as Promise-yield / queueMicrotask
+        // equivalents) are executed via Promise.resolve().then() so they run
+        // at the next microtask checkpoint, which is what providers expect.
         if (typeof setTimeout === 'undefined') {
             var __timerSeq = 0;
+            var __pendingTimers = {};
             globalThis.setTimeout = function(fn, ms) {
-                try { if (typeof fn === 'function') fn(); } catch(e) {}
-                return ++__timerSeq;
+                var id = ++__timerSeq;
+                if (typeof fn !== 'function') return id;
+                if (!ms || ms <= 0) {
+                    // Zero / no delay — yield to next microtask tick.
+                    __pendingTimers[id] = fn;
+                    Promise.resolve().then(function() {
+                        var f = __pendingTimers[id];
+                        if (f) { delete __pendingTimers[id]; try { f(); } catch(e) {} }
+                    });
+                } else {
+                    // Non-zero delay — store without firing.  clearTimeout() removes
+                    // it; if never cleared it is simply never called (the QuickJS
+                    // coroutine loop has no real timer mechanism).
+                    __pendingTimers[id] = fn;
+                }
+                return id;
             };
-            globalThis.clearTimeout  = function() {};
+            globalThis.clearTimeout  = function(id) { if (id) delete __pendingTimers[id]; };
             globalThis.setInterval   = function(fn, ms) { return ++__timerSeq; };
-            globalThis.clearInterval = function() {};
+            globalThis.clearInterval = function(id) { if (id) delete __pendingTimers[id]; };
         }
 
         if (typeof AbortSignal === 'undefined') {
