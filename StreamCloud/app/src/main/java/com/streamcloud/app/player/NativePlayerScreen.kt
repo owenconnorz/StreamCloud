@@ -103,6 +103,8 @@ fun NativePlayerScreen(
     progressKey: WatchProgressKey? = null,
     /** When non-null, the refresh icon in the streams sheet is enabled and calls this. */
     onRefresh: (() -> Unit)? = null,
+    /** True while a background Nuvio scan is running — shows a spinner in the Sources sheet. */
+    nuvioScanning: Boolean = false,
     /** Bump this value to force the player to restart even when [streamUrl] hasn't
      *  changed.  Needed when the user taps the stream that is already loaded — the
      *  URL equality check in LaunchedEffect would otherwise swallow the tap. */
@@ -534,7 +536,6 @@ fun NativePlayerScreen(
         }
 
         if (showSourcesSheet) {
-            // Pass onRefresh down so the button inside is wired up
             SourcesPickerSheet(
                 sources = sources,
                 selectedSourceId = selectedSourceId,
@@ -544,6 +545,7 @@ fun NativePlayerScreen(
                 },
                 onDismiss = { showSourcesSheet = false },
                 onRefresh = onRefresh,
+                nuvioScanning = nuvioScanning,
             )
         }
 
@@ -737,6 +739,7 @@ private fun SourcesPickerSheet(
     onPick: (PlayerSource) -> Unit,
     onDismiss: () -> Unit,
     onRefresh: (() -> Unit)? = null,
+    nuvioScanning: Boolean = false,
 ) {
     val safeSources = remember(sources) { sources.distinctBy { it.id } }
     val addonFilters = remember(safeSources) {
@@ -757,9 +760,17 @@ private fun SourcesPickerSheet(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                     onClick = { onRefresh?.invoke() },
-                    enabled = onRefresh != null,
+                    enabled = onRefresh != null && !nuvioScanning,
                 ) {
-                    Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
+                    if (nuvioScanning) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
+                    }
                 }
                 Text(
                     "Streams",
@@ -772,6 +783,30 @@ private fun SourcesPickerSheet(
                         Icons.Default.Close,
                         "Close",
                         tint = Color.White,
+                    )
+                }
+            }
+            // Scanning banner — visible while Nuvio providers are running
+            androidx.compose.animation.AnimatedVisibility(visible = nuvioScanning) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        color = Color.White.copy(alpha = 0.7f),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Scanning Nuvio providers…",
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
@@ -804,7 +839,7 @@ private fun SourcesPickerSheet(
                 if (filtered.isEmpty()) {
                     item {
                         Text(
-                            "No streams from $activeFilter.",
+                            if (nuvioScanning) "Scanning for streams…" else "No streams from $activeFilter.",
                             color = Color.White.copy(alpha = 0.6f),
                             modifier = Modifier.padding(20.dp),
                         )

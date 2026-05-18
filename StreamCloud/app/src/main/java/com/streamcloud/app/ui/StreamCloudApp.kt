@@ -509,6 +509,7 @@ fun StreamCloudApp() {
                     // Observe the reactive sources list so newly-resolved streams appear
                     // in the picker without restarting the player.
                     val sources by com.streamcloud.app.player.MoviePlayerSession.sourcesFlow.collectAsState()
+                    val nuvioScanning by com.streamcloud.app.player.MoviePlayerSession.nuvioScanningFlow.collectAsState()
                     var currentUrl by remember(initial) { mutableStateOf(initial) }
                     var currentId by remember(initial) {
                         mutableStateOf(sources.firstOrNull { it.url == initial }?.id)
@@ -527,6 +528,7 @@ fun StreamCloudApp() {
                         sources = sources,
                         selectedSourceId = currentId,
                         restartKey = switchKey,
+                        nuvioScanning = nuvioScanning,
                         onSwitchSource = { src ->
                             currentUrl = src.url
                             currentId = src.id
@@ -539,6 +541,7 @@ fun StreamCloudApp() {
                                 val tmdbId = com.streamcloud.app.player.MoviePlayerSession.tmdbId
                                 val mediaType = com.streamcloud.app.player.MoviePlayerSession.mediaType
                                 if (tmdbId == 0L) return@launch
+                                com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
                                 val newSources = runCatching {
                                     sl.nuvio.resolveAll(tmdbId.toString(), mediaType)
                                         .map { (provider, stream) ->
@@ -556,6 +559,7 @@ fun StreamCloudApp() {
                                             )
                                         }
                                 }.getOrDefault(emptyList())
+                                com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(false)
                                 com.streamcloud.app.player.MoviePlayerSession.mergeSources(newSources)
                             }
                         },
