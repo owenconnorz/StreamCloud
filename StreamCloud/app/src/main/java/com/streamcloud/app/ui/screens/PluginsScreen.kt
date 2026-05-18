@@ -475,6 +475,7 @@ private fun NuvioProviderRow(
     p: com.streamcloud.app.data.nuvio.InstalledNuvioProvider,
     onRemove: () -> Unit,
 ) {
+    val lastError = com.streamcloud.app.data.nuvio.NuvioRuntime.lastError(p.id)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -495,7 +496,8 @@ private fun NuvioProviderRow(
         } else {
             Icon(
                 Icons.Default.Extension, null,
-                tint = MaterialTheme.colorScheme.tertiary,
+                tint = if (lastError != null) MaterialTheme.colorScheme.error
+                       else MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.size(36.dp),
             )
         }
@@ -506,12 +508,21 @@ private fun NuvioProviderRow(
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                "Nuvio provider · JS",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
+            if (lastError != null) {
+                Text(
+                    lastError,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Text(
+                    "Nuvio provider · JS",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         IconButton(onClick = onRemove) {
             Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error)
