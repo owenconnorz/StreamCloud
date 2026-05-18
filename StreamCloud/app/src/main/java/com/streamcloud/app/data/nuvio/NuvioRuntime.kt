@@ -10,6 +10,7 @@ import com.dokar.quickjs.binding.toJsObject
 import com.dokar.quickjs.quickJs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -76,6 +77,7 @@ object NuvioRuntime {
         // the direct return value of evaluate<Any?> (whichever arrives first wins).
         var capturedJson = "[]"
         return try {
+            withTimeoutOrNull(60_000L) {
             quickJs(Dispatchers.IO) {
                 installConsole(scriptKey)
                 installFetchBridge()
@@ -162,6 +164,11 @@ object NuvioRuntime {
                     ?.takeIf { it.isNotBlank() && it != "null" }
                     ?: capturedJson
                 parseStreams(finalJson)
+            }
+            } ?: run {
+                Log.w(TAG, "Provider $scriptKey timed out after 60s")
+                lastErrorByScript[scriptKey] = "Timed out after 60s"
+                emptyList()
             }
         } catch (e: QuickJsException) {
             Log.w(TAG, "QuickJS error in $scriptKey: ${e.message}", e)
@@ -986,34 +993,76 @@ object NuvioRuntime {
         };
         globalThis.CryptoJS = CryptoJS;
 
-        // Minimal axios shim — redirects to the fetch polyfill so providers that
-        // do require('axios') or require('node-fetch') still work.
+        // Full-featured axios / ky / got shim.
+        // Supports: create()/extend() with baseURL/prefixUrl, default headers,
+        // params/searchParams query building, json request option, and
+        // .json()/.text() response chaining (ky/got style).
         var __axiosShim = (function() {
+            function _resolveUrl(base, url) {
+                if (!url) return url || '';
+                if (/^https?:\/\//i.test(url)) return url;
+                if (!base) return url;
+                return base.replace(/\/$/, '') + (url.charAt(0) === '/' ? url : '/' + url);
+            }
+            function _mergeHdrs(base, extra) {
+                var b = Object.assign({}, base || {});
+                if (b.common) { Object.assign(b, b.common); delete b.common; }
+                return Object.assign(b, extra || {});
+            }
             function doRequest(cfg) {
                 var url = cfg.url || '';
                 var method = (cfg.method || 'GET').toUpperCase();
-                var headers = cfg.headers || {};
-                var body = cfg.data != null ? (typeof cfg.data === 'string' ? cfg.data : JSON.stringify(cfg.data)) : '';
-                return fetch(url, { method: method, headers: headers, body: body }).then(function(r) {
+                var headers = _mergeHdrs(cfg.headers);
+                var body = '';
+                if (cfg.json != null) {
+                    body = JSON.stringify(cfg.json);
+                    if (!headers['content-type'] && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+                } else if (cfg.data != null) {
+                    body = typeof cfg.data === 'string' ? cfg.data : JSON.stringify(cfg.data);
+                }
+                var qp = cfg.params || cfg.searchParams;
+                if (qp) {
+                    var qs;
+                    if (typeof qp === 'string') qs = qp.replace(/^\?/, '');
+                    else qs = Object.keys(qp).map(function(k) { return encodeURIComponent(k) + '=' + encodeURIComponent(qp[k]); }).join('&');
+                    if (qs) url += (url.indexOf('?') >= 0 ? '&' : '?') + qs;
+                }
+                var p = fetch(url, { method: method, headers: headers, body: body }).then(function(r) {
                     return r.text().then(function(text) {
                         var data;
                         try { data = JSON.parse(text); } catch(e) { data = text; }
-                        return { data: data, status: r.status, statusText: r.statusText,
-                                 headers: r.headers, config: cfg, request: {} };
+                        return { data: data, _body: text, status: r.status, statusText: r.statusText,
+                                 headers: r.headers, config: cfg, request: {}, ok: r.ok };
                     });
                 });
+                p.json = function() { return p.then(function(r) { return r.data; }); };
+                p.text = function() { return p.then(function(r) { return r._body; }); };
+                p.buffer = function() { return p.then(function(r) { return r._body; }); };
+                return p;
             }
-            var instance = function(cfg) { return doRequest(typeof cfg === 'string' ? { url: cfg } : cfg); };
-            instance.get     = function(url, cfg) { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'GET' })); };
-            instance.post    = function(url, data, cfg) { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'POST', data: data })); };
-            instance.put     = function(url, data, cfg) { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'PUT', data: data })); };
-            instance.patch   = function(url, data, cfg) { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'PATCH', data: data })); };
-            instance.delete  = function(url, cfg)       { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'DELETE' })); };
-            instance.head    = function(url, cfg)       { return doRequest(Object.assign({}, cfg || {}, { url: url, method: 'HEAD' })); };
-            instance.create  = function() { return instance; };
-            instance.defaults = { headers: { common: {} } };
-            instance.interceptors = { request: { use: function() {} }, response: { use: function() {} } };
-            return instance;
+            function makeInstance(defaults) {
+                defaults = defaults || {};
+                var bURL = (defaults.baseURL || defaults.prefixUrl || '').replace(/\/$/, '');
+                var bHdrs = defaults.headers || {};
+                function resolve(url) { return _resolveUrl(bURL, url); }
+                function hdrs(extra) { return _mergeHdrs(Object.assign({}, bHdrs, extra || {})); }
+                var inst = function(cfg) {
+                    var c = typeof cfg === 'string' ? { url: cfg } : (cfg || {});
+                    return doRequest(Object.assign({}, defaults, c, { url: resolve(c.url || ''), headers: hdrs(c.headers) }));
+                };
+                inst.get    = function(url, cfg) { return doRequest(Object.assign({}, defaults, cfg||{}, { url: resolve(url), method: 'GET',    headers: hdrs((cfg||{}).headers) })); };
+                inst.post   = function(url, d, cfg) { return doRequest(Object.assign({}, defaults, cfg||{}, { url: resolve(url), method: 'POST',   data: d, headers: hdrs((cfg||{}).headers) })); };
+                inst.put    = function(url, d, cfg) { return doRequest(Object.assign({}, defaults, cfg||{}, { url: resolve(url), method: 'PUT',    data: d, headers: hdrs((cfg||{}).headers) })); };
+                inst.patch  = function(url, d, cfg) { return doRequest(Object.assign({}, defaults, cfg||{}, { url: resolve(url), method: 'PATCH',  data: d, headers: hdrs((cfg||{}).headers) })); };
+                inst.delete = function(url, cfg)    { return doRequest(Object.assign({}, defaults, cfg||{}, { url: resolve(url), method: 'DELETE', headers: hdrs((cfg||{}).headers) })); };
+                inst.head   = function(url, cfg)    { return doRequest(Object.assign({}, defaults, cfg||{}, { url: resolve(url), method: 'HEAD',   headers: hdrs((cfg||{}).headers) })); };
+                inst.create = function(d2) { return makeInstance(Object.assign({}, defaults, d2 || {})); };
+                inst.extend = function(d2) { return makeInstance(Object.assign({}, defaults, d2 || {})); };
+                inst.defaults = { headers: Object.assign({ common: {} }, bHdrs), baseURL: bURL };
+                inst.interceptors = { request: { use: function() {}, eject: function() {} }, response: { use: function() {}, eject: function() {} } };
+                return inst;
+            }
+            return makeInstance({});
         })();
         globalThis.axios = __axiosShim;
 
@@ -1022,24 +1071,86 @@ object NuvioRuntime {
             if (name === 'crypto-js' || name === 'crypto-js/core') return CryptoJS;
             if (name === 'axios') return __axiosShim;
             if (name === 'node-fetch' || name === 'cross-fetch' || name === 'isomorphic-fetch') return fetch;
-            // got / ky — popular fetch wrappers; shim them to the fetch polyfill.
+            // got — supports extend({prefixUrl}) and .json()/.text() response chaining.
             if (name === 'got' || name === 'got/dist/source' || name === '@sindresorhus/got') {
-                var __got = function(url, opts) {
-                    opts = opts || {};
-                    return {
-                        json: function() { return fetch(url, opts).then(function(r) { return r.json(); }); },
-                        text: function() { return fetch(url, opts).then(function(r) { return r.text(); }); },
-                        then: function(res, rej) { return fetch(url, opts).then(res, rej); },
-                        catch: function(rej) { return fetch(url, opts).catch(rej); },
+                function makeGot(defs) {
+                    defs = defs || {};
+                    var base = (defs.prefixUrl || defs.baseURL || '').replace(/\/$/, '');
+                    var dHdrs = defs.headers || {};
+                    function resolveGot(url) {
+                        if (!url) return url || '';
+                        if (/^https?:\/\//i.test(url)) return url;
+                        return base ? base + (url.charAt(0) === '/' ? url : '/' + url) : url;
+                    }
+                    var g = function(url, opts) {
+                        opts = opts || {};
+                        var fullUrl = resolveGot(url);
+                        var hdr = Object.assign({}, dHdrs, opts.headers || {});
+                        var params = opts.searchParams;
+                        if (params) {
+                            var qs = Object.keys(params).map(function(k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
+                            if (qs) fullUrl += (fullUrl.indexOf('?') >= 0 ? '&' : '?') + qs;
+                        }
+                        var p = fetch(fullUrl, Object.assign({}, opts, { headers: hdr }));
+                        return {
+                            json: function() { return p.then(function(r) { return r.json(); }); },
+                            text: function() { return p.then(function(r) { return r.text(); }); },
+                            then: function(res, rej) { return p.then(res, rej); },
+                            catch: function(rej) { return p.catch(rej); },
+                        };
                     };
-                };
-                ['get','post','put','patch','delete','head'].forEach(function(m) {
-                    __got[m] = function(url, opts) { return __got(url, Object.assign({}, opts || {}, { method: m.toUpperCase() })); };
-                });
-                __got.extend = function() { return __got; };
-                return __got;
+                    ['get','post','put','patch','delete','head'].forEach(function(m) {
+                        g[m] = function(url, opts) { return g(url, Object.assign({}, opts || {}, { method: m.toUpperCase() })); };
+                    });
+                    g.extend = function(d2) { return makeGot(Object.assign({}, defs, d2 || {})); };
+                    g.create = function(d2) { return makeGot(Object.assign({}, defs, d2 || {})); };
+                    return g;
+                }
+                return makeGot({});
             }
-            if (name === 'ky' || name === 'ky-universal') return __axiosShim;
+            // ky — primary API is ky.get(url, {searchParams, json}).json()
+            if (name === 'ky' || name === 'ky-universal') {
+                function makeKy(defs) {
+                    defs = defs || {};
+                    var base = (defs.prefixUrl || defs.baseURL || '').replace(/\/$/, '');
+                    var dHdrs = defs.headers || {};
+                    function resolveKy(url) {
+                        if (!url) return url || '';
+                        if (/^https?:\/\//i.test(url)) return url;
+                        return base ? base + (url.charAt(0) === '/' ? url : '/' + url) : url;
+                    }
+                    function kyReq(url, opts) {
+                        opts = opts || {};
+                        var fullUrl = resolveKy(url);
+                        var hdr = Object.assign({}, dHdrs, opts.headers || {});
+                        var params = opts.searchParams;
+                        if (params) {
+                            var qs = Object.keys(params).map(function(k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
+                            if (qs) fullUrl += (fullUrl.indexOf('?') >= 0 ? '&' : '?') + qs;
+                        }
+                        var body = '';
+                        if (opts.json != null) {
+                            body = JSON.stringify(opts.json);
+                            if (!hdr['content-type'] && !hdr['Content-Type']) hdr['Content-Type'] = 'application/json';
+                        } else if (opts.body != null) { body = opts.body; }
+                        var p = fetch(fullUrl, { method: (opts.method || 'GET').toUpperCase(), headers: hdr, body: body });
+                        return {
+                            json: function() { return p.then(function(r) { return r.json(); }); },
+                            text: function() { return p.then(function(r) { return r.text(); }); },
+                            arrayBuffer: function() { return p.then(function(r) { return r.arrayBuffer ? r.arrayBuffer() : r.text(); }); },
+                            then: function(res, rej) { return p.then(res, rej); },
+                            catch: function(rej) { return p.catch(rej); },
+                        };
+                    }
+                    ['get','post','put','patch','delete','head'].forEach(function(m) {
+                        kyReq[m] = function(url, opts) { return kyReq(url, Object.assign({}, opts || {}, { method: m.toUpperCase() })); };
+                    });
+                    kyReq.extend = function(d2) { return makeKy(Object.assign({}, defs, d2 || {})); };
+                    kyReq.create = function(d2) { return makeKy(Object.assign({}, defs, d2 || {})); };
+                    return kyReq;
+                }
+                return makeKy({});
+            }
             if (name === 'superagent' || name === 'request' || name === 'needle') return __axiosShim;
             // Unknown module — return a stub instead of throwing so the provider
             // script does not crash during initialisation.
