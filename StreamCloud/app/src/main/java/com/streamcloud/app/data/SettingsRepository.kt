@@ -25,6 +25,7 @@ object SettingsKeys {
     val SAFE_MODE_PIN = stringPreferencesKey("safe_mode_pin")     // 4-digit PIN for NSFW
     val THEME = stringPreferencesKey("theme")                     // dark / system
     val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")    // Monet (Android 12+)
+    val COLOR_PALETTE = stringPreferencesKey("color_palette")     // default/warm/coral/violet/blue/indigo
     val EQ_ENABLED = booleanPreferencesKey("eq_enabled")
     val EQ_PRESET = stringPreferencesKey("eq_preset")             // flat / pop / rock / jazz / bass / vocal
     val BASS_BOOST = booleanPreferencesKey("bass_boost")
@@ -84,6 +85,7 @@ class SettingsRepository(private val context: Context) {
     val safeModePin: Flow<String> = context.dataStore.data.map { it[SettingsKeys.SAFE_MODE_PIN] ?: "" }
     val theme: Flow<String> = context.dataStore.data.map { it[SettingsKeys.THEME] ?: "dark" }
     val dynamicColor: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.DYNAMIC_COLOR] ?: false }
+    val colorPalette: Flow<String> = context.dataStore.data.map { it[SettingsKeys.COLOR_PALETTE] ?: "default" }
     val eqEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.EQ_ENABLED] ?: false }
     val eqPreset: Flow<String> = context.dataStore.data.map { it[SettingsKeys.EQ_PRESET] ?: "flat" }
     val bassBoost: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.BASS_BOOST] ?: false }
@@ -135,6 +137,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSafeModePin(p: String) = context.dataStore.edit { it[SettingsKeys.SAFE_MODE_PIN] = p }
     suspend fun setTheme(t: String) = context.dataStore.edit { it[SettingsKeys.THEME] = t }
     suspend fun setDynamicColor(b: Boolean) = context.dataStore.edit { it[SettingsKeys.DYNAMIC_COLOR] = b }
+    suspend fun setColorPalette(s: String) = context.dataStore.edit { it[SettingsKeys.COLOR_PALETTE] = s }
     suspend fun setEqEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.EQ_ENABLED] = b }
     suspend fun setEqPreset(p: String) = context.dataStore.edit { it[SettingsKeys.EQ_PRESET] = p }
     suspend fun setBassBoost(b: Boolean) = context.dataStore.edit { it[SettingsKeys.BASS_BOOST] = b }
