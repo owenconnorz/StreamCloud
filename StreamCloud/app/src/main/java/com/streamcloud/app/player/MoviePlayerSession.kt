@@ -23,6 +23,10 @@ object MoviePlayerSession {
     /** Non-reactive read for callers that just need the current snapshot. */
     val sources: List<PlayerSource> get() = _sources.value
 
+    /** True while a background Nuvio provider scan is in progress. */
+    private val _nuvioScanning = MutableStateFlow(false)
+    val nuvioScanningFlow: StateFlow<Boolean> = _nuvioScanning.asStateFlow()
+
     var progressKey: WatchProgressKey? = null
         private set
 
@@ -45,6 +49,8 @@ object MoviePlayerSession {
         this.tmdbId = tmdbId
         this.mediaType = mediaType
     }
+
+    fun setNuvioScanning(scanning: Boolean) { _nuvioScanning.value = scanning }
 
     /**
      * Merges [additionalSources] into the current list, deduplicating by id.
