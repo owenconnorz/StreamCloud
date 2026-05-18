@@ -101,10 +101,10 @@ fun MovieDetailScreen(
             resolving = true
             resolverMessage = null
             try {
-                // Fan out to ALL THREE systems in parallel:
-                //   • Stremio addons keyed by IMDB tt
-                //   • Nuvio JS providers keyed by TMDB id
-                //   • CloudStream `.cs3` plugins — title search → load → loadLinks
+                // Fan out to Stremio + CloudStream first (fast path).
+                // Nuvio JS providers run separately in the background so they
+                // don't block the player from opening — they stream into the
+                // Sources sheet via MoviePlayerSession.mergeSources().
                 val stremioJob = async {
                     installedAddons.map { addon ->
                         async {
@@ -114,12 +114,6 @@ fun MovieDetailScreen(
                         }
                     }.awaitAll().flatten()
                 }
-                val nuvioJob = async {
-                    runCatching {
-                        sl.nuvio.resolveAll(movieId.toString(), "movie")
-                            .map { (provider, stream) -> stream.toPlayerSource(provider) }
-                    }.getOrDefault(emptyList())
-                }
                 val csJob = async {
                     val title = movie?.displayTitle.orEmpty()
                     if (title.isBlank()) emptyList<PlayerSource>()
@@ -127,14 +121,9 @@ fun MovieDetailScreen(
                         async { resolveCsPluginForMovie(context, plugin, title, movie?.year()) }
                     }.awaitAll().flatten()
                 }
-                val all = stremioJob.await() + nuvioJob.await() + csJob.await()
-                if (all.isEmpty()) {
-                    val total = installedAddons.size + installedNuvio.size + installedCsPlugins.size
-                    resolverMessage = "No streams found across $total source(s)."
-                    return@launch
-                }
-                val sorted = all.sortedByDescending { it.qualityScore() }
-                val best = sorted.first()
+
+                val fastSources = stremioJob.await() + csJob.await()
+
                 val m = movie
                 val displayTitle = m?.displayTitle ?: "Playback"
                 val progressKey = WatchProgressKey(
@@ -143,7 +132,49 @@ fun MovieDetailScreen(
                     posterUrl = m?.posterUrl ?: m?.backdropUrl,
                     mediaType = "movie",
                 )
-                onPlay(best.url, displayTitle, sorted, progressKey)
+
+                if (fastSources.isNotEmpty()) {
+                    // Launch the player immediately with Stremio/CS streams.
+                    // Nuvio providers will scan in the background and merge.
+                    val sorted = fastSources.sortedByDescending { it.qualityScore() }
+
+                    // Flag scanning BEFORE navigating so the Sources sheet shows
+                    // the indicator from the moment it first opens.
+                    if (installedNuvio.isNotEmpty()) {
+                        com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
+                    }
+                    // onPlay calls MoviePlayerSession.set() then navigates.
+                    onPlay(sorted.first().url, displayTitle, sorted, progressKey)
+
+                    // Background Nuvio scan — results merge into the Sources sheet live.
+                    if (installedNuvio.isNotEmpty()) {
+                        scope.launch {
+                            val nuvioSources = runCatching {
+                                sl.nuvio.resolveAll(movieId.toString(), "movie")
+                                    .map { (provider, stream) -> stream.toPlayerSource(provider) }
+                            }.getOrDefault(emptyList())
+                            com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(false)
+                            if (nuvioSources.isNotEmpty()) {
+                                com.streamcloud.app.player.MoviePlayerSession.mergeSources(nuvioSources)
+                            }
+                        }
+                    }
+                } else {
+                    // No fast sources — wait for Nuvio as the only hope.
+                    val nuvioSources = runCatching {
+                        sl.nuvio.resolveAll(movieId.toString(), "movie")
+                            .map { (provider, stream) -> stream.toPlayerSource(provider) }
+                    }.getOrDefault(emptyList())
+
+                    val all = nuvioSources
+                    if (all.isEmpty()) {
+                        val total = installedAddons.size + installedNuvio.size + installedCsPlugins.size
+                        resolverMessage = "No streams found across $total source(s)."
+                        return@launch
+                    }
+                    val sorted = all.sortedByDescending { it.qualityScore() }
+                    onPlay(sorted.first().url, displayTitle, sorted, progressKey)
+                }
             } finally {
                 resolving = false
             }
