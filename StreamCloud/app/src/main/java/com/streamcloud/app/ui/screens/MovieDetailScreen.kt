@@ -76,14 +76,12 @@ fun MovieDetailScreen(
     var resolverMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(movieId) {
-        scope.launch {
-            try {
-                movie = sl.tmdb.details(movieId, sl.tmdbApiKey)
-                videos = sl.tmdb.videos(movieId, sl.tmdbApiKey).results
-                imdbId = sl.tmdb.externalIds(movieId, sl.tmdbApiKey).imdbId
-            } catch (e: Exception) {
-                error = "Failed to load: ${e.message}"
-            }
+        try {
+            movie = sl.tmdb.details(movieId, sl.tmdbApiKey)
+            videos = sl.tmdb.videos(movieId, sl.tmdbApiKey).results
+            imdbId = sl.tmdb.externalIds(movieId, sl.tmdbApiKey).imdbId
+        } catch (e: Exception) {
+            error = "Failed to load: ${e.message}"
         }
     }
 
@@ -149,13 +147,16 @@ fun MovieDetailScreen(
                     // Background Nuvio scan — results merge into the Sources sheet live.
                     if (installedNuvio.isNotEmpty()) {
                         scope.launch {
-                            val nuvioSources = runCatching {
-                                sl.nuvio.resolveAll(movieId.toString(), "movie")
-                                    .map { (provider, stream) -> stream.toPlayerSource(provider) }
-                            }.getOrDefault(emptyList())
-                            com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(false)
-                            if (nuvioSources.isNotEmpty()) {
-                                com.streamcloud.app.player.MoviePlayerSession.mergeSources(nuvioSources)
+                            try {
+                                val nuvioSources = runCatching {
+                                    sl.nuvio.resolveAll(movieId.toString(), "movie")
+                                        .map { (provider, stream) -> stream.toPlayerSource(provider) }
+                                }.getOrDefault(emptyList())
+                                if (nuvioSources.isNotEmpty()) {
+                                    com.streamcloud.app.player.MoviePlayerSession.mergeSources(nuvioSources)
+                                }
+                            } finally {
+                                com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(false)
                             }
                         }
                     }

@@ -50,7 +50,7 @@ object NuvioRuntime {
     // Official NuvioMobile caps axios at 5 MB; match that so large HTML
     // pages (4khdhub etc.) are not silently truncated mid-content.
     private const val MAX_FETCH_BODY_CHARS = 5 * 1024 * 1024
-    private val lastErrorByScript = mutableMapOf<String, String>()
+    private val lastErrorByScript = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)

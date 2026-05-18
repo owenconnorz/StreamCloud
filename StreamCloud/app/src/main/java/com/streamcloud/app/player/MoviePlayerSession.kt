@@ -48,6 +48,7 @@ object MoviePlayerSession {
         this.progressKey = progressKey
         this.tmdbId = tmdbId
         this.mediaType = mediaType
+        _nuvioScanning.value = false
     }
 
     fun setNuvioScanning(scanning: Boolean) { _nuvioScanning.value = scanning }
@@ -73,6 +74,7 @@ object MoviePlayerSession {
 
     fun clear() {
         _sources.value = emptyList()
+        _nuvioScanning.value = false
         progressKey = null
         tmdbId = 0L
         mediaType = "movie"
