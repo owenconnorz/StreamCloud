@@ -177,9 +177,8 @@ fun PluginsScreen(onBack: () -> Unit) {
                                 "Examples:\n" +
                                 "• https://raw.githubusercontent.com/yoruix/nuvio-providers/main/\n" +
                                 "• https://raw.githubusercontent.com/phisher98/phisher-nuvio-providers/main/\n\n" +
-                                "Nuvio providers run inside an embedded JavaScript engine (Mozilla " +
-                                "Rhino) — no native libraries needed. Some advanced providers may not " +
-                                "be fully compatible.",
+                                "Nuvio providers run inside an embedded JavaScript engine (QuickJS) — " +
+                                "no native libraries needed. Some advanced providers may not be fully compatible.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
