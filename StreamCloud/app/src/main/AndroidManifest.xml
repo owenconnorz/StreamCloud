@@ -71,6 +71,14 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- Video playback foreground service — keeps the process alive at
+             "foreground" priority while a movie/episode is streaming so Android's
+             process killer cannot terminate it mid-playback. -->
+        <service
+            android:name=".player.VideoPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

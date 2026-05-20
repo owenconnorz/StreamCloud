@@ -90,8 +90,16 @@ class MusicPlaybackService : MediaLibraryService() {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(buildDataSourceFactory())
 
+        val musicAudioAttrs = androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            // Pause automatically on incoming calls and when another app (YouTube,
+            // podcasts, etc.) requests audio focus, then resume when they release it.
+            .setAudioAttributes(musicAudioAttrs, /* handleAudioFocus= */ true)
+            // Pause when headphones are unplugged.
             .setHandleAudioBecomingNoisy(true)
             .build()
             .apply { playWhenReady = false }
