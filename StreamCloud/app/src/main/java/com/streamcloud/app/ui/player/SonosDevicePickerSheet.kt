@@ -10,6 +10,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.SpeakerGroup
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -118,6 +120,7 @@ fun SonosDevicePickerSheet(
                 }
 
                 is SonosRepository.CastState.Casting -> {
+                    val sonosVolume by SonosRepository.sonosVolume.collectAsState()
                     Column(
                         Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -148,6 +151,48 @@ fun SonosDevicePickerSheet(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Spacer(Modifier.height(20.dp))
+
+                        // ── Volume slider ─────────────────────────────────
+                        Text(
+                            "Volume",
+                            color = Color.White.copy(alpha = 0.55f),
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.align(Alignment.Start),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.VolumeDown,
+                                contentDescription = "Volume down",
+                                tint = Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Slider(
+                                value = sonosVolume / 100f,
+                                onValueChange = { SonosRepository.setVolume((it * 100).toInt()) },
+                                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF4FC3F7),
+                                    activeTrackColor = Color(0xFF4FC3F7),
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.2f),
+                                ),
+                            )
+                            Icon(
+                                Icons.Default.VolumeUp,
+                                contentDescription = "Volume up",
+                                tint = Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        Text(
+                            "$sonosVolume%",
+                            color = Color.White.copy(alpha = 0.4f),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Spacer(Modifier.height(16.dp))
                         Button(
                             onClick = {
                                 SonosRepository.disconnect()

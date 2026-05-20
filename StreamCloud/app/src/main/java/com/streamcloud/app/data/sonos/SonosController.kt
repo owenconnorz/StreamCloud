@@ -27,7 +27,9 @@ object SonosController {
 
     private const val TAG = "SonosController"
     private const val AV_TRANSPORT_SERVICE = "urn:schemas-upnp-org:service:AVTransport:1"
-    private const val AV_TRANSPORT_PATH = "/MediaRenderer/AVTransport/Control"
+    private const val AV_TRANSPORT_PATH    = "/MediaRenderer/AVTransport/Control"
+    private const val RENDERING_SERVICE    = "urn:schemas-upnp-org:service:RenderingControl:1"
+    private const val RENDERING_PATH       = "/MediaRenderer/RenderingControl/Control"
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -85,6 +87,73 @@ object SonosController {
             null
         }
     }
+
+    // ── RenderingControl (volume) ──────────────────────────────────────────
+
+    /** Returns the Sonos zone player's Master volume (0–100), or null on error. */
+    suspend fun getVolume(device: SonosDevice): Int? = withContext(Dispatchers.IO) {
+        try {
+            val envelope = renderingEnvelope(
+                "GetVolume",
+                "<InstanceID>0</InstanceID><Channel>Master</Channel>",
+            )
+            val req = Request.Builder()
+                .url("http://${device.host}:${device.port}$RENDERING_PATH")
+                .post(envelope.toRequestBody("text/xml; charset=utf-8".toMediaType()))
+                .header("SOAPACTION", "\"$RENDERING_SERVICE#GetVolume\"")
+                .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                .build()
+            val body = http.newCall(req).execute().use { it.body?.string() } ?: return@withContext null
+            Regex("<CurrentVolume>([0-9]+)</CurrentVolume>")
+                .find(body)?.groupValues?.get(1)?.toIntOrNull()
+        } catch (e: Exception) {
+            Log.w(TAG, "getVolume failed: ${e.message}")
+            null
+        }
+    }
+
+    /** Sets the Sonos zone player's Master volume to [volume] (0–100). */
+    suspend fun setVolume(device: SonosDevice, volume: Int): Boolean {
+        val clamped = volume.coerceIn(0, 100)
+        return renderingSoap(
+            device,
+            "SetVolume",
+            "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>$clamped</DesiredVolume>",
+        )
+    }
+
+    private suspend fun renderingSoap(device: SonosDevice, action: String, body: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val envelope = renderingEnvelope(action, body)
+                val req = Request.Builder()
+                    .url("http://${device.host}:${device.port}$RENDERING_PATH")
+                    .post(envelope.toRequestBody("text/xml; charset=utf-8".toMediaType()))
+                    .header("SOAPACTION", "\"$RENDERING_SERVICE#$action\"")
+                    .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                    .build()
+                val resp = http.newCall(req).execute()
+                val ok = resp.isSuccessful
+                if (!ok) Log.w(TAG, "Rendering SOAP $action → HTTP ${resp.code}")
+                resp.body?.close()
+                ok
+            } catch (e: Exception) {
+                Log.w(TAG, "Rendering SOAP $action failed: ${e.message}")
+                false
+            }
+        }
+
+    private fun renderingEnvelope(action: String, body: String): String = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+            s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:$action xmlns:u="$RENDERING_SERVICE">
+              $body
+            </u:$action>
+          </s:Body>
+        </s:Envelope>
+    """.trimIndent()
 
     // ──────────────────────────────────────────────────────────────────────
 
