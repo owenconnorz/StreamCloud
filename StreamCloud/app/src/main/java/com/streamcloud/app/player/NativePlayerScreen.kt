@@ -200,8 +200,17 @@ fun NativePlayerScreen(
             url.contains(".mpd", true)  -> DashMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
             else -> ProgressiveMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
         }
+        val videoAudioAttrs = androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
         val ex = ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dsFactory))
+            // Request audio focus so that phone calls and other media (YouTube, Spotify, etc.)
+            // automatically pause this player and resume it when they finish.
+            .setAudioAttributes(videoAudioAttrs, /* handleAudioFocus= */ true)
+            // Pause when headphones are unplugged mid-stream.
+            .setHandleAudioBecomingNoisy(true)
             .build()
             .apply {
                 setMediaSource(source)
@@ -242,6 +251,13 @@ fun NativePlayerScreen(
             player.value = null
             torrentService.shutdown()
         }
+    }
+    // Foreground service — prevents Android from killing the process while streaming.
+    // VideoPlaybackService shows a persistent silent notification that promotes this
+    // process to "foreground" priority (same level as a phone call or navigation app).
+    DisposableEffect(Unit) {
+        VideoPlaybackService.start(context.applicationContext, title)
+        onDispose { VideoPlaybackService.stop(context.applicationContext) }
     }
     // Auto-pause when the app is backgrounded (Home / recent apps) — ExoPlayer
     // doesn't observe activity lifecycle on its own, so without this it keeps
