@@ -511,6 +511,23 @@ private fun PlaylistTrackRow(
     var downloaded by remember(song.videoId) {
         mutableStateOf(YtPlayback.isDownloaded(context, song))
     }
+
+    // Reactively track Media3 DownloadManager state (mirrors Metrolist's
+    // downloadUtil.downloads.collect { ... } pattern). Without this collector
+    // the icon never updates after a Media3 download completes because
+    // downloadFraction (sourced from MusicDownloader.progressFlow) stays null
+    // throughout a YtMusicDownloadUtil download and the LaunchedEffect below
+    // never re-fires.
+    LaunchedEffect(song.videoId) {
+        val url = YtPlayback.watchUrl(song.videoId)
+        com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads.collect { dlMap ->
+            val state = dlMap[url]?.state
+            downloaded = (state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED)
+                || com.streamcloud.app.data.downloads.MusicDownloader.isDownloaded(context, url)
+        }
+    }
+
+    // Also handle legacy MusicDownloader (OkHttp) progress → completion transitions.
     LaunchedEffect(song.videoId, downloadFraction) {
         if (downloadFraction == null) downloaded = YtPlayback.isDownloaded(context, song)
     }
