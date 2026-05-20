@@ -203,7 +203,7 @@ fun NowPlayingShell(
     }
     val sonosCastWatchUrl = remember(mediaId, videoId) {
         when {
-            mediaId?.startsWith("http") == true -> mediaId
+            mediaId?.startsWith("http") == true -> mediaId.orEmpty()
             videoId.isNotBlank() -> "https://music.youtube.com/watch?v=$videoId"
             else -> ""
         }
