@@ -2,6 +2,7 @@ package com.streamcloud.app.data.sonos
 
 import android.content.Context
 import android.util.Log
+import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import kotlinx.coroutines.CoroutineScope
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Application-level orchestrator for Sonos device discovery and cast control.
@@ -20,7 +22,16 @@ import kotlinx.coroutines.launch
  *   1. Call [startDiscovery] — populates [devices] within a few seconds.
  *   2. Call [connect] with the chosen device + current track info —
  *      starts the proxy server, resolves + sends the stream URL to Sonos.
+ *      The local phone player is automatically paused so only Sonos plays.
  *   3. Call [pause] / [resume] / [disconnect] to control or end the session.
+ *      [disconnect] resumes phone playback.
+ *
+ * Volume:
+ *   [sonosVolume] reflects the current Sonos speaker volume (0–100).
+ *   [adjustVolume] / [setVolume] update Sonos via RenderingControl SOAP and
+ *   update the local [sonosVolume] optimistically so the UI responds instantly.
+ *   MainActivity intercepts hardware volume keys and calls [adjustVolume] when
+ *   casting is active.
  *
  * The [castState] flow drives the cast button and now-playing cast banner.
  */
@@ -45,7 +56,16 @@ object SonosRepository {
     private val _devices = MutableStateFlow<List<SonosDevice>>(emptyList())
     val devices: StateFlow<List<SonosDevice>> = _devices.asStateFlow()
 
+    /** Current Sonos speaker volume, 0–100. Updated optimistically on change. */
+    private val _sonosVolume = MutableStateFlow(50)
+    val sonosVolume: StateFlow<Int> = _sonosVolume.asStateFlow()
+
     private var activeDevice: SonosDevice? = null
+
+    /** Retained so [disconnect] can resume the phone player without a Context parameter. */
+    private var appContext: Context? = null
+
+    // ── Discovery ─────────────────────────────────────────────────────────
 
     fun startDiscovery(context: Context) {
         _castState.update { CastState.Discovering }
@@ -58,6 +78,8 @@ object SonosRepository {
             }
         }
     }
+
+    // ── Connect ───────────────────────────────────────────────────────────
 
     fun connect(
         context: Context,
@@ -77,7 +99,7 @@ object SonosRepository {
 
                 // Pre-resolve the audio stream URL so the proxy can answer
                 // Sonos's HEAD probe immediately (no 300-800 ms Innertube RTT
-                // on the critical path which would trigger Sonos's probe timeout).
+                // on the critical path, which would trigger Sonos's probe timeout).
                 val resolvedUrl = if (videoId.isNotBlank()) {
                     YtPlayerUtils.resolveAudioStream(videoId)
                         ?: runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
@@ -109,10 +131,24 @@ object SonosRepository {
 
                 if (ok) {
                     activeDevice = device
+                    appContext = context.applicationContext
+
+                    // Pause the local phone player — Sonos is now the speaker.
+                    runCatching {
+                        withContext(Dispatchers.Main) {
+                            MusicController.get(context.applicationContext).pause()
+                        }
+                    }
+
+                    // Fetch Sonos's current volume so the slider starts at the right position.
+                    SonosController.getVolume(device)?.let { _sonosVolume.value = it }
+
                     _castState.update { CastState.Casting(device, title) }
                 } else {
                     SonosProxyServer.stop()
-                    _castState.update { CastState.Error("Sonos rejected the stream. Check that the device is on the same network.") }
+                    _castState.update {
+                        CastState.Error("Sonos rejected the stream. Check that the device is on the same network.")
+                    }
                 }
             } catch (e: Exception) {
                 SonosProxyServer.stop()
@@ -121,6 +157,8 @@ object SonosRepository {
             }
         }
     }
+
+    // ── Playback control ──────────────────────────────────────────────────
 
     /** Pause the Sonos player (does not stop the proxy). */
     fun pause() {
@@ -152,13 +190,51 @@ object SonosRepository {
         }
     }
 
-    /** Stop casting and tear down the proxy. */
+    // ── Volume ────────────────────────────────────────────────────────────
+
+    /**
+     * Adjust Sonos volume by [delta] percent (positive = louder, negative = quieter).
+     * The local [sonosVolume] state is updated optimistically so the UI responds
+     * instantly; the SOAP command is sent asynchronously.
+     */
+    fun adjustVolume(delta: Int) {
+        val device = activeDevice ?: return
+        val newVol = (_sonosVolume.value + delta).coerceIn(0, 100)
+        _sonosVolume.value = newVol
+        scope.launch { SonosController.setVolume(device, newVol) }
+    }
+
+    /** Set Sonos volume to an absolute [level] (0–100). */
+    fun setVolume(level: Int) {
+        val device = activeDevice ?: return
+        val clamped = level.coerceIn(0, 100)
+        _sonosVolume.value = clamped
+        scope.launch { SonosController.setVolume(device, clamped) }
+    }
+
+    // ── Disconnect ────────────────────────────────────────────────────────
+
+    /** Stop casting, tear down the proxy, and resume the phone's local player. */
     fun disconnect() {
         val device = activeDevice
+        val ctx = appContext
         activeDevice = null
+        appContext = null
         SonosProxyServer.stop()
         if (device != null) scope.launch { SonosController.stop(device) }
         _castState.update { CastState.Idle }
         _devices.value = emptyList()
+        _sonosVolume.value = 50
+
+        // Resume the phone player now that Sonos is no longer the output.
+        if (ctx != null) {
+            scope.launch {
+                runCatching {
+                    withContext(Dispatchers.Main) {
+                        MusicController.get(ctx).play()
+                    }
+                }
+            }
+        }
     }
 }
