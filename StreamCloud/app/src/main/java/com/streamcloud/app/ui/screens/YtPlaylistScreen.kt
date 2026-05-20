@@ -76,8 +76,31 @@ fun YtPlaylistScreen(
     var showPlaylistMenu by remember { mutableStateOf(false) }
     var syncTrigger by remember { mutableStateOf(0) }
 
-    val downloadProgress by com.streamcloud.app.data.downloads.MusicDownloader.progressFlow
+    // OkHttp (MusicDownloader) progress — covers legacy direct-download path.
+    val okhttpProgress by com.streamcloud.app.data.downloads.MusicDownloader.progressFlow
         .collectAsState(initial = emptyMap())
+
+    // Media3 DownloadManager progress — covers "Download all" (YtMusicDownloadUtil).
+    // Without this, downloadFraction is always null for Media3 downloads so the
+    // spinner never appears and the icon never updates mid-download.
+    val exoDownloads by com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads
+        .collectAsState()
+
+    // Merge both sources into a single url→fraction map.
+    val downloadProgress = remember(okhttpProgress, exoDownloads) {
+        val merged = okhttpProgress.toMutableMap()
+        exoDownloads.forEach { (url, dl) ->
+            if (!merged.containsKey(url)) {
+                when (dl.state) {
+                    androidx.media3.exoplayer.offline.Download.STATE_QUEUED,
+                    androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING ->
+                        merged[url] = dl.percentDownloaded.coerceIn(0f, 100f) / 100f
+                    else -> Unit
+                }
+            }
+        }
+        merged
+    }
 
     val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
     val customThumbUri = remember(playlistThumbsJson, playlistId) {

@@ -51,17 +51,21 @@ class MusicExoDownloadService : DownloadService(
         downloads: MutableList<Download>,
         notMetRequirements: Int,
     ): Notification {
-        val cancelIntent = PendingIntent.getService(
+        // contentIntent opens the app when the user taps the notification body.
+        // Previously cancelIntent was passed here — tapping the notification was
+        // immediately cancelling all downloads.
+        val contentIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MusicExoDownloadService::class.java).setAction(ACTION_CANCEL_ALL),
-            PendingIntent.FLAG_IMMUTABLE,
+            Intent(this, com.streamcloud.app.MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return YtMusicDownloadUtil.downloadNotificationHelper(this)
             .buildProgressNotification(
                 this,
                 android.R.drawable.stat_sys_download,
-                cancelIntent,
+                contentIntent,
                 when {
                     downloads.size == 1 -> Util.fromUtf8Bytes(downloads[0].request.data)
                     else -> "${downloads.size} songs downloading"

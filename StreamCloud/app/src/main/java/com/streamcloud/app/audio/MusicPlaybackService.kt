@@ -130,14 +130,18 @@ class MusicPlaybackService : MediaLibraryService() {
     // ── Data source factory ───────────────────────────────────────────────
 
     private fun buildDataSourceFactory(): ResolvingDataSource.Factory {
+        // User-Agent must match YtPlayerUtils (ANDROID_MUSIC client) exactly.
+        // YouTube stream URLs are bound to the client that obtained them — using a
+        // browser UA here causes YouTube to cut off the stream after the initial
+        // buffer (manifests as playback stopping at ~10 s or not starting at all).
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(
-                "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                "com.google.android.apps.youtube.music/7.27.52 " +
+                    "(Linux; U; Android 11) gzip",
             )
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(30_000)
+            .setReadTimeoutMs(60_000)
 
         val chainedCacheFactory = CacheDataSource.Factory()
             .setCache(downloadCache)
