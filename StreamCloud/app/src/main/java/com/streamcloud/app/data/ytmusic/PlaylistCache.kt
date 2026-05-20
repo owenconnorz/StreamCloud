@@ -1,6 +1,5 @@
 package com.streamcloud.app.data.ytmusic
 
-import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -10,13 +9,16 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
- * Lightweight on-disk cache for YT Music playlist track lists. Lets the
- * playlist screen render its list immediately on open while a fresh fetch
- * happens in the background.
+ * Persistent on-disk cache for YT Music playlist track lists.
  *
- * Storage: one JSON file per playlist id under `cacheDir/playlist_tracks/`.
- * No expiry — the UI always replaces with the network result once it lands,
- * so a stale cache never persists for more than a few seconds of viewing.
+ * Stored in [android.content.Context.filesDir] (not cacheDir) so the data
+ * survives "Clear Cache" and is only removed on "Clear Storage / Data".
+ * This matches Metrolist's approach — playlist caches are treated as user
+ * data, not throwaway HTTP caches.
+ *
+ * Stale-while-revalidate: the UI renders cached data immediately while a
+ * fresh fetch happens in the background. The cache is replaced once the
+ * network result lands.
  */
 object PlaylistCache {
     private const val TAG = "PlaylistCache"
@@ -32,13 +34,13 @@ object PlaylistCache {
         val durationSeconds: Long? = null,
     )
 
-    private fun dir(context: Context): File =
-        File(context.cacheDir, "playlist_tracks").apply { mkdirs() }
+    private fun dir(context: android.content.Context): File =
+        File(context.filesDir, "playlist_tracks").apply { mkdirs() }
 
-    private fun fileFor(context: Context, playlistId: String): File =
+    private fun fileFor(context: android.content.Context, playlistId: String): File =
         File(dir(context), "$playlistId.json")
 
-    suspend fun read(context: Context, playlistId: String): List<YtmSong>? = withContext(Dispatchers.IO) {
+    suspend fun read(context: android.content.Context, playlistId: String): List<YtmSong>? = withContext(Dispatchers.IO) {
         val f = fileFor(context, playlistId)
         if (!f.exists() || f.length() == 0L) return@withContext null
         runCatching {
@@ -55,7 +57,7 @@ object PlaylistCache {
         }.onFailure { Log.w(TAG, "read failed", it) }.getOrNull()
     }
 
-    suspend fun write(context: Context, playlistId: String, songs: List<YtmSong>) = withContext(Dispatchers.IO) {
+    suspend fun write(context: android.content.Context, playlistId: String, songs: List<YtmSong>) = withContext(Dispatchers.IO) {
         runCatching {
             val payload = songs.map {
                 CachedSong(
@@ -74,7 +76,7 @@ object PlaylistCache {
         Unit
     }
 
-    fun delete(context: Context, playlistId: String) {
+    fun delete(context: android.content.Context, playlistId: String) {
         runCatching { fileFor(context, playlistId).delete() }
             .onFailure { Log.w(TAG, "delete failed", it) }
     }

@@ -45,8 +45,10 @@ import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtmLibraryArtist
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class LibTab(val label: String) {
     Playlists("Playlists"),
@@ -80,9 +82,28 @@ fun LibraryScreen(
             )
             return@LaunchedEffect
         }
-        ytLoading = true
-        ytLibrary = com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository.sync(ytCookie)
+
+        // Step 1: show cached library immediately — no spinner, no wait
+        val cached = withContext(Dispatchers.IO) {
+            com.streamcloud.app.data.ytmusic.LibraryCache.read(context)
+        }
+        if (cached != null) {
+            ytLibrary = cached
+        } else {
+            ytLoading = true
+        }
+
+        // Step 2: fetch fresh data in background
+        val fresh = com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository.sync(ytCookie)
+        ytLibrary = fresh
         ytLoading = false
+
+        // Step 3: persist fresh result so next open is instant
+        if (fresh.failureReason == null) {
+            withContext(Dispatchers.IO) {
+                com.streamcloud.app.data.ytmusic.LibraryCache.write(context, fresh)
+            }
+        }
     }
 
     val combined by remember(dao) {
