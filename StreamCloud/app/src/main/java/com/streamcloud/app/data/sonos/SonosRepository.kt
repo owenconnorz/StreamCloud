@@ -129,6 +129,10 @@ object SonosRepository {
                 )
                 Log.d(TAG, "Proxy URL: $proxyUrl")
 
+                // Stop any current playback first — Sonos firmwares return HTTP 500
+                // on SetAVTransportURI if the transport is in PLAYING state.
+                SonosController.stop(device)
+
                 // Send SetAVTransportURI + Play to Sonos
                 val ok = SonosController.setUri(device, proxyUrl, title) &&
                     SonosController.play(device)
