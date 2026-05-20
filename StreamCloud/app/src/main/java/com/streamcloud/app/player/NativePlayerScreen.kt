@@ -101,6 +101,8 @@ fun NativePlayerScreen(
     /** When non-null, the player saves resume-playback state every ~10s and on dispose,
      *  feeding the "Continue Watching" row on the home screen. */
     progressKey: WatchProgressKey? = null,
+    /** Optional poster/backdrop URL forwarded to the Cast receiver for its Now Playing card. */
+    artworkUrl: String? = null,
     /** When non-null, the refresh icon in the streams sheet is enabled and calls this. */
     onRefresh: (() -> Unit)? = null,
     /** True while a background Nuvio scan is running — shows a spinner in the Sources sheet. */
@@ -161,6 +163,7 @@ fun NativePlayerScreen(
     com.streamcloud.app.cast.rememberCastController(
         streamUrl = resolvedUrl.orEmpty(),
         title = title,
+        artworkUrl = artworkUrl,
     )
     val needsWebView = remember(resolvedUrl) {
         val u = resolvedUrl?.lowercase().orEmpty()
