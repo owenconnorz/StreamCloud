@@ -169,8 +169,12 @@ object SonosController {
                     .build()
                 val resp = http.newCall(req).execute()
                 val ok = resp.isSuccessful
-                if (!ok) Log.w(TAG, "SOAP $action → HTTP ${resp.code}")
-                resp.body?.close()
+                if (!ok) {
+                    val errBody = runCatching { resp.body?.string() }.getOrNull() ?: ""
+                    Log.w(TAG, "SOAP $action → HTTP ${resp.code}: $errBody")
+                } else {
+                    resp.body?.close()
+                }
                 ok
             } catch (e: Exception) {
                 Log.w(TAG, "SOAP $action failed: ${e.message}")
@@ -193,26 +197,26 @@ object SonosController {
     /**
      * Minimal DIDL-Lite metadata so Sonos shows the track title on its display.
      *
-     * protocolInfo uses audio/mp4 which matches the AAC-LC streams YouTube
-     * serves via the ANDROID_MUSIC Innertube client. Using audio/mpeg (MP3)
-     * causes Sonos to reject the stream even though the HTTP 200 succeeds,
-     * because Sonos validates the declared MIME type against what it receives.
-     * The wildcard fourth field (*) means "no additional constraints".
+     * Notes:
+     *  - parentID must be "-1" (UPnP root), NOT "0" — strict Sonos firmwares
+     *    return a SOAP fault for parentID="0" on external streams.
+     *  - restricted="true" is the correct boolean string per UPnP spec.
+     *  - protocolInfo uses audio/mp4 matching the AAC-LC stream YouTube serves
+     *    via the ANDROID_MUSIC Innertube client.
+     *  - Namespaces are declared on the root element in the order Sonos expects.
      */
     private fun buildDIDL(title: String, uri: String): String {
         val safeTitle = title.xmlEscape()
         val safeUri = uri.xmlEscape()
-        return """
-            <DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"
-                xmlns:dc="http://purl.org/dc/elements/1.1/"
-                xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
-              <item id="1" parentID="0" restricted="1">
-                <dc:title>$safeTitle</dc:title>
-                <upnp:class>object.item.audioItem.musicTrack</upnp:class>
-                <res protocolInfo="http-get:*:audio/mp4:*">$safeUri</res>
-              </item>
-            </DIDL-Lite>
-        """.trimIndent()
+        return "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
+            "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
+            "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
+            "<item id=\"1\" parentID=\"-1\" restricted=\"true\">" +
+            "<dc:title>$safeTitle</dc:title>" +
+            "<upnp:class>object.item.audioItem.musicTrack</upnp:class>" +
+            "<res protocolInfo=\"http-get:*:audio/mp4:*\">$safeUri</res>" +
+            "</item>" +
+            "</DIDL-Lite>"
     }
 
     private fun String.xmlEscape() = this
