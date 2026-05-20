@@ -5,7 +5,10 @@ import kotlinx.serialization.json.Json
 import okhttp3.Cache
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.logging.HttpLoggingInterceptor
+import okio.GzipSource
+import okio.buffer
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.io.File
@@ -33,22 +36,33 @@ object Net {
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
-        // ── Gzip-cache fix ────────────────────────────────────────────────────
-        // OkHttp's BridgeInterceptor normally adds "Accept-Encoding: gzip"
-        // and transparently decompresses responses.  However when a server
-        // also sends "Transfer-Encoding: chunked", the decompressed bytes can
-        // be stored in the disk cache WITH the "Content-Encoding: gzip" header
-        // still present.  On the next cache hit OkHttp tries to decompress the
-        // already-plain bytes → "gzip finished without exhausting source".
+        // ── Gzip-before-cache decompression ──────────────────────────────────
+        // Network interceptors run AFTER the wire but BEFORE the disk cache.
+        // If the server sends Content-Encoding: gzip we decompress here and
+        // strip the header so the cache always stores plain JSON.
         //
-        // Fix: tell every server we only accept identity (no compression).
-        // Responses are stored as plain JSON — zero risk of double-decompression.
-        // The bandwidth cost for typical API payloads (< 100 KB) is negligible.
-        .addInterceptor { chain ->
-            val req = chain.request().newBuilder()
-                .header("Accept-Encoding", "identity")
-                .build()
-            chain.proceed(req)
+        // Without this, the cache can store compressed bytes with the gzip
+        // header still attached. On the next cache hit OkHttp's GzipSource
+        // tries to decompress already-plain bytes → "gzip finished without
+        // exhausting source" / JSON parse errors.
+        .addNetworkInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            val encoding = response.header("Content-Encoding")
+            if (encoding.equals("gzip", ignoreCase = true)) {
+                val body = response.body
+                if (body != null) {
+                    val decompressed = GzipSource(body.source()).buffer()
+                    val newBody = decompressed.readByteArray()
+                        .toResponseBody(body.contentType())
+                    response.newBuilder()
+                        .removeHeader("Content-Encoding")
+                        .removeHeader("Content-Length")
+                        .body(newBody)
+                        .build()
+                } else response
+            } else {
+                response
+            }
         }
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
