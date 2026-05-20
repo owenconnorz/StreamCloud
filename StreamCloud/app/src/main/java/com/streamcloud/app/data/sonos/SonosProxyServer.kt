@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedReader
@@ -18,31 +19,31 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Minimal HTTP proxy server that runs on a random local port and streams
- * audio to Sonos on behalf of the app.
+ * Minimal HTTP proxy server that streams YouTube audio to Sonos.
  *
  * Why a proxy?
- *  • YouTube audio stream URLs are short-lived (~6 h) and are keyed to the
- *    requesting IP address when fetched via the InnerTube ANDROID_MUSIC client.
- *    If Sonos (different IP) tries to use the URL the phone resolved, YouTube
- *    may reject it. The proxy solves this: Sonos streams from the phone, the
- *    phone streams from YouTube — one consistent IP throughout.
- *  • YouTube CDN requires a matching User-Agent; the proxy injects it.
+ *  - YouTube stream URLs are IP-keyed. Sonos (different IP) can't use the URL
+ *    the phone resolved. The proxy keeps a single consistent IP on the CDN side.
+ *  - YouTube CDN requires a matching User-Agent; the proxy injects it.
  *
- * Usage:
- *  1. Call [start] to bind the ServerSocket and begin accepting connections.
- *  2. Call [setTrack] before (or any time during) playback to update the
- *     current videoId + title. The proxy resolves a fresh stream URL on every
- *     new TCP connection, so URL expiry is never an issue.
- *  3. The proxy URL exposed by [proxyUrl] is what you hand to Sonos via
- *     [SonosController.setUri].
- *  4. Call [stop] when casting ends to free the port.
+ * Key behaviours:
+ *  - Handles both HEAD (Sonos stream probe) and GET (actual playback).
+ *  - The resolved stream URL is pre-cached by [SonosRepository.connect] so the
+ *    first Sonos probe gets an immediate response (no 300-800 ms Innertube RTT
+ *    on the critical path that would trigger Sonos's probe timeout).
+ *  - A fresh URL is re-resolved on every new GET connection so expiry is moot.
  */
 object SonosProxyServer {
 
     private const val TAG = "SonosProxy"
 
-    data class TrackInfo(val videoId: String, val title: String, val watchUrl: String)
+    data class TrackInfo(
+        val videoId: String,
+        val title: String,
+        val watchUrl: String,
+        /** Pre-resolved audio stream URL (set before starting, refreshed per GET). */
+        val resolvedUrl: String? = null,
+    )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val currentTrack = AtomicReference<TrackInfo?>(null)
@@ -51,8 +52,6 @@ object SonosProxyServer {
 
     @Volatile var port: Int = 0
         private set
-
-    val proxyUrl: String get() = "http://{{LOCAL_IP}}:$port/stream"
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -90,12 +89,23 @@ object SonosProxyServer {
         }
     }
 
-    private suspend fun handleClient(client: Socket) {
+    private fun resolveStreamUrl(track: TrackInfo): String? {
+        // Use the pre-resolved URL if available (avoids Sonos probe timeout).
+        track.resolvedUrl?.let { return it }
+        return runBlocking {
+            (if (track.videoId.isNotBlank()) YtPlayerUtils.resolveAudioStream(track.videoId) else null)
+                ?: runCatching { NewPipeRepository.resolveAudioStream(track.watchUrl) }.getOrNull()
+        }
+    }
+
+    private fun handleClient(client: Socket) {
         try {
             val reader = BufferedReader(InputStreamReader(client.getInputStream()))
             val requestLine = reader.readLine() ?: return
+            val method = requestLine.split(" ").firstOrNull() ?: "GET"
 
-            if (!requestLine.startsWith("GET")) {
+            // Accept HEAD (Sonos probe) and GET (actual streaming); reject the rest.
+            if (method != "GET" && method != "HEAD") {
                 client.getOutputStream().write("HTTP/1.0 405 Method Not Allowed\r\n\r\n".toByteArray())
                 client.close()
                 return
@@ -107,10 +117,7 @@ object SonosProxyServer {
                 return
             }
 
-            // Resolve a fresh stream URL for this connection
-            val streamUrl = YtPlayerUtils.resolveAudioStream(track.videoId)
-                ?: runCatching { NewPipeRepository.resolveAudioStream(track.watchUrl) }.getOrNull()
-
+            val streamUrl = resolveStreamUrl(track)
             if (streamUrl == null) {
                 Log.w(TAG, "Could not resolve stream for ${track.videoId}")
                 client.getOutputStream().write("HTTP/1.0 502 Stream Resolve Failed\r\n\r\n".toByteArray())
@@ -118,39 +125,52 @@ object SonosProxyServer {
                 return
             }
 
+            // For GET connections store the fresh URL back so the next GET reuses it
+            // until we explicitly change the track.
+            if (method == "GET") {
+                currentTrack.set(track.copy(resolvedUrl = streamUrl))
+            }
+
             val req = Request.Builder()
                 .url(streamUrl)
-                .header("User-Agent", "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip")
+                .header(
+                    "User-Agent",
+                    "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
+                )
                 .header("Accept", "*/*")
+                // HEAD probe: just fetch headers from upstream so we can reply accurately.
+                .apply { if (method == "HEAD") head() }
                 .build()
 
             http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
-                    client.getOutputStream().write("HTTP/1.0 ${resp.code} Upstream Error\r\n\r\n".toByteArray())
+                    client.getOutputStream()
+                        .write("HTTP/1.0 ${resp.code} Upstream Error\r\n\r\n".toByteArray())
                     return
                 }
 
-                val contentType = resp.header("Content-Type", "audio/mp4") ?: "audio/mp4"
+                val contentType = resp.header("Content-Type") ?: "audio/mp4"
                 val contentLength = resp.header("Content-Length")
 
                 val out = client.getOutputStream()
-                val headerBuilder = StringBuilder()
-                headerBuilder.append("HTTP/1.0 200 OK\r\n")
-                headerBuilder.append("Content-Type: $contentType\r\n")
-                headerBuilder.append("Accept-Ranges: none\r\n")
-                if (contentLength != null) headerBuilder.append("Content-Length: $contentLength\r\n")
-                headerBuilder.append("Connection: close\r\n")
-                headerBuilder.append("\r\n")
-                out.write(headerBuilder.toString().toByteArray())
+                val sb = StringBuilder()
+                sb.append("HTTP/1.0 200 OK\r\n")
+                sb.append("Content-Type: $contentType\r\n")
+                if (contentLength != null) sb.append("Content-Length: $contentLength\r\n")
+                sb.append("Connection: close\r\n")
+                sb.append("\r\n")
+                out.write(sb.toString().toByteArray())
 
-                resp.body?.byteStream()?.use { input ->
-                    val buf = ByteArray(32 * 1024)
-                    var n: Int
-                    while (input.read(buf).also { n = it } >= 0) {
-                        out.write(buf, 0, n)
+                if (method == "GET") {
+                    resp.body?.byteStream()?.use { input ->
+                        val buf = ByteArray(32 * 1024)
+                        var n: Int
+                        while (input.read(buf).also { n = it } >= 0) {
+                            out.write(buf, 0, n)
+                        }
                     }
+                    out.flush()
                 }
-                out.flush()
             }
         } catch (e: Exception) {
             Log.w(TAG, "Client handler error: ${e.message}")

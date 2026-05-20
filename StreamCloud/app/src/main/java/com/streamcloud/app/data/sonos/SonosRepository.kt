@@ -2,6 +2,8 @@ package com.streamcloud.app.data.sonos
 
 import android.content.Context
 import android.util.Log
+import com.streamcloud.app.data.newpipe.NewPipeRepository
+import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -73,12 +75,27 @@ object SonosRepository {
                     return@launch
                 }
 
-                // Tell the proxy which track to serve
+                // Pre-resolve the audio stream URL so the proxy can answer
+                // Sonos's HEAD probe immediately (no 300-800 ms Innertube RTT
+                // on the critical path which would trigger Sonos's probe timeout).
+                val resolvedUrl = if (videoId.isNotBlank()) {
+                    YtPlayerUtils.resolveAudioStream(videoId)
+                        ?: runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+                } else {
+                    runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+                }
+                if (resolvedUrl == null) {
+                    _castState.update { CastState.Error("Could not resolve audio stream for this track.") }
+                    return@launch
+                }
+
+                // Tell the proxy which track to serve (including the pre-resolved URL)
                 SonosProxyServer.setTrack(
                     SonosProxyServer.TrackInfo(
                         videoId = videoId,
                         title = title,
                         watchUrl = watchUrl,
+                        resolvedUrl = resolvedUrl,
                     ),
                 )
 
