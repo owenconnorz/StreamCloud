@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.BedtimeOff
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
@@ -63,8 +64,10 @@ import coil.request.SuccessResult
 import com.streamcloud.app.data.downloads.MusicDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.lyrics.LyricsRepository
+import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.ui.player.MusicActionsSheet
+import com.streamcloud.app.ui.player.SonosDevicePickerSheet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -179,6 +182,14 @@ fun NowPlayingShell(
         while (System.currentTimeMillis() < end) delay(1000)
         controller.pause()
         sleepEndTs = null
+    }
+
+    // ── Sonos cast sheet visibility + current video id ───────────────────────
+    var showSonos by remember { mutableStateOf(false) }
+    val castState by SonosRepository.castState.collectAsState()
+    val isCasting = castState is SonosRepository.CastState.Casting
+    val videoId = remember(mediaId) {
+        mediaId?.substringAfter("v=", "")?.substringBefore("&")?.takeIf { it.isNotBlank() } ?: ""
     }
 
     // ── 3-dot actions sheet visibility ───────────────────────────────────────
@@ -413,7 +424,8 @@ fun NowPlayingShell(
                     else showSleepDialog = true
                 },
                 onLyrics = { showLyrics = !showLyrics },
-                onComments = { /* Comments — placeholder for future YT comments wiring. */ },
+                onCast = { showSonos = true },
+                isCasting = isCasting,
                 onShuffle = { controller.shuffleModeEnabled = !controller.shuffleModeEnabled },
                 onRepeat = {
                     val next = when (controller.repeatMode) {
@@ -449,6 +461,15 @@ fun NowPlayingShell(
                 sleepEndTs = System.currentTimeMillis() + mins * 60_000L
                 showSleepDialog = false
             },
+        )
+    }
+
+    if (showSonos) {
+        SonosDevicePickerSheet(
+            videoId = videoId,
+            title = title,
+            watchUrl = mediaId ?: "",
+            onDismiss = { showSonos = false },
         )
     }
 
@@ -566,10 +587,11 @@ private fun BottomToolbar(
     repeatMode: Int,
     sleepActive: Boolean,
     lyricsActive: Boolean,
+    isCasting: Boolean,
     onQueue: () -> Unit,
     onSleep: () -> Unit,
     onLyrics: () -> Unit,
-    onComments: () -> Unit,
+    onCast: () -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
     onMore: () -> Unit,
@@ -584,7 +606,7 @@ private fun BottomToolbar(
             "Sleep timer", sleepActive, false, onSleep, Modifier.weight(1f),
         )
         ToolbarChip(Icons.Default.Lyrics, "Lyrics", lyricsActive, false, onLyrics, Modifier.weight(1f))
-        ToolbarChip(Icons.Default.Lyrics, "Comments", false, false, onComments, Modifier.weight(1f))
+        ToolbarChip(Icons.Default.Cast, "Cast to Sonos", isCasting, false, onCast, Modifier.weight(1f))
         ToolbarChip(Icons.Default.Shuffle, "Shuffle", shuffleOn, false, onShuffle, Modifier.weight(1f))
         ToolbarChip(
             if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOneOn else Icons.Default.Repeat,
