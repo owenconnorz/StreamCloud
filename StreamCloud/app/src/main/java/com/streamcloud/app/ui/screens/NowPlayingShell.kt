@@ -188,8 +188,25 @@ fun NowPlayingShell(
     var showSonos by remember { mutableStateOf(false) }
     val castState by SonosRepository.castState.collectAsState()
     val isCasting = castState is SonosRepository.CastState.Casting
+    // mediaId is either a full YouTube URL ("https://music.youtube.com/watch?v=ID")
+    // or a bare video ID ("ID"). Handle both so the Sonos resolver always gets a
+    // valid videoId and a valid watch URL.
     val videoId = remember(mediaId) {
-        mediaId?.substringAfter("v=", "")?.substringBefore("&")?.takeIf { it.isNotBlank() } ?: ""
+        val mid = mediaId ?: return@remember ""
+        if (mid.startsWith("http")) {
+            // Full URL — extract the v= query param.
+            mid.substringAfter("v=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: ""
+        } else {
+            // Bare video ID — use it directly.
+            mid
+        }
+    }
+    val sonosCastWatchUrl = remember(mediaId, videoId) {
+        when {
+            mediaId?.startsWith("http") == true -> mediaId
+            videoId.isNotBlank() -> "https://music.youtube.com/watch?v=$videoId"
+            else -> ""
+        }
     }
 
     // ── 3-dot actions sheet visibility ───────────────────────────────────────
@@ -478,7 +495,7 @@ fun NowPlayingShell(
         SonosDevicePickerSheet(
             videoId = videoId,
             title = title,
-            watchUrl = mediaId ?: "",
+            watchUrl = sonosCastWatchUrl,
             onDismiss = { showSonos = false },
         )
     }
