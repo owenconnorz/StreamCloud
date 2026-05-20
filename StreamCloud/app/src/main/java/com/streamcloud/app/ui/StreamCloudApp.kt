@@ -529,6 +529,7 @@ fun StreamCloudApp() {
                         selectedSourceId = currentId,
                         restartKey = switchKey,
                         nuvioScanning = nuvioScanning,
+                        artworkUrl = com.streamcloud.app.player.MoviePlayerSession.progressKey?.posterUrl,
                         onSwitchSource = { src ->
                             currentUrl = src.url
                             currentId = src.id

@@ -322,6 +322,11 @@ private fun loadRemoteMedia(
     artworkUrl: String?,
     contentType: String?,
 ) {
+    // Guard: never send a blank or localhost URL to the receiver.
+    // A blank URL occurs when the player first renders before resolvedUrl is set —
+    // sending it causes the Cast receiver to enter an error state that silently
+    // swallows the correct URL that arrives moments later.
+    if (streamUrl.isBlank()) return
     val client = session.remoteMediaClient ?: return
     if (streamUrl.startsWith("http://127.0.0.1") || streamUrl.startsWith("http://localhost")) {
         return
