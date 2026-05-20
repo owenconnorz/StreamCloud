@@ -111,7 +111,14 @@ object SonosRepository {
                     return@launch
                 }
 
-                // Tell the proxy which track to serve (including the pre-resolved URL)
+                // Start proxy first (start() calls stop() internally which would wipe
+                // any previously-set track, so we must set the track AFTER start()).
+                val proxyUrl = SonosProxyServer.start(localIp)
+
+                // Now set the track — this must happen before SetAVTransportURI is sent
+                // because Sonos immediately sends a HEAD probe to the proxy URL while
+                // processing that SOAP command. If currentTrack is null the proxy
+                // returns 503 and Sonos rejects the stream.
                 SonosProxyServer.setTrack(
                     SonosProxyServer.TrackInfo(
                         videoId = videoId,
@@ -120,9 +127,6 @@ object SonosRepository {
                         resolvedUrl = resolvedUrl,
                     ),
                 )
-
-                // Start proxy and get the URL Sonos will stream from
-                val proxyUrl = SonosProxyServer.start(localIp)
                 Log.d(TAG, "Proxy URL: $proxyUrl")
 
                 // Send SetAVTransportURI + Play to Sonos
