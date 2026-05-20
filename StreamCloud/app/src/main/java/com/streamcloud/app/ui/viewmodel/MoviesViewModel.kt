@@ -16,7 +16,9 @@ import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioRepository
+import com.streamcloud.app.data.util.PageCache
 import kotlinx.coroutines.Job
+import kotlinx.serialization.Serializable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
 
 /**
  * Compatibility token still referenced by the player's source-picker code.
@@ -34,6 +37,7 @@ import kotlinx.coroutines.launch
  */
 const val SOURCE_BUILTIN = "builtin"
 
+@Serializable
 data class CollectionRow(
     val id: String,
     val title: String,
@@ -105,17 +109,32 @@ class MoviesViewModel(
 
     fun loadDiscover() {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
+            // ── Step 1: serve cached data instantly (no spinner if cache hit) ──────
+            val cachedJson = PageCache.getStale(appContext, PageCache.KEY_TMDB_COLLECTIONS)
+            if (cachedJson != null) {
+                runCatching {
+                    val rows = com.streamcloud.app.data.network.Net.json
+                        .decodeFromString(ListSerializer(CollectionRow.serializer()), cachedJson)
+                    applyCollectionRows(rows, loading = false)
+                }
+            }
+
+            // ── Step 2: skip network if cache is fresh ────────────────────────────
+            val isFresh = PageCache.getFresh(appContext, PageCache.KEY_TMDB_COLLECTIONS, PageCache.TTL_TMDB_MS) != null
+            if (isFresh && cachedJson != null) return@launch
+
+            // Only show spinner when there is no cached content at all.
+            if (cachedJson == null) _state.update { it.copy(loading = true, error = null) }
+
+            // ── Step 3: fetch fresh data in background ────────────────────────────
             try {
                 val key = sl.tmdbApiKey
 
-                // Resolve which collections to render based on user settings — fall back to defaults.
                 val csv = sl.settings.homeCollectionsCsv.first()
                 val ids = csv?.takeIf { it.isNotBlank() }?.split(',')
                     ?: HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }
                 val collections: List<HomeCollection> = ids.mapNotNull { HomeCollections.byId(it) }
 
-                // Fan out — fetch all enabled rows in parallel.
                 val rows = collections.map { def ->
                     async {
                         val items = runCatching { def.fetch(sl.tmdb, key) }.getOrDefault(emptyList())
@@ -124,29 +143,41 @@ class MoviesViewModel(
                     }
                 }.awaitAll().filterNotNull()
 
-                // Compatibility shim: keep populated trending/popular/topRated/nowPlaying for any
-                // older UI paths still pulling from them directly.
-                val byId = rows.associateBy { it.id }
-                _state.update {
-                    it.copy(
-                        trending = byId["trending"]?.items ?: emptyList(),
-                        popular = byId["popular"]?.items ?: emptyList(),
-                        topRated = byId["top_rated"]?.items ?: emptyList(),
-                        nowPlaying = byId["now_playing"]?.items ?: emptyList(),
-                        collections = rows,
-                        heroBanner = (byId["trending"]?.items
-                            ?: byId["now_playing"]?.items
-                            ?: rows.firstOrNull()?.items
-                            ?: emptyList()).take(7),
-                        loading = false,
-                    )
+                // ── Step 4: persist to cache ──────────────────────────────────────
+                runCatching {
+                    val json = com.streamcloud.app.data.network.Net.json
+                        .encodeToString(ListSerializer(CollectionRow.serializer()), rows)
+                    PageCache.put(appContext, PageCache.KEY_TMDB_COLLECTIONS, json)
                 }
-                // Kick off Stremio aggregation in the background — TMDB rows show
-                // first; addon rows trickle in below as each addon resolves.
+
+                applyCollectionRows(rows, loading = false)
                 refreshStremioRows(_state.value.installedStremioAddons)
             } catch (e: Exception) {
-                _state.update { it.copy(error = "Failed to load: ${e.message}", loading = false) }
+                if (cachedJson != null) {
+                    // Silent background failure — user already sees cached content.
+                    _state.update { it.copy(loading = false) }
+                } else {
+                    _state.update { it.copy(error = "Failed to load: ${e.message}", loading = false) }
+                }
             }
+        }
+    }
+
+    private fun applyCollectionRows(rows: List<CollectionRow>, loading: Boolean) {
+        val byId = rows.associateBy { it.id }
+        _state.update {
+            it.copy(
+                trending   = byId["trending"]?.items   ?: emptyList(),
+                popular    = byId["popular"]?.items    ?: emptyList(),
+                topRated   = byId["top_rated"]?.items  ?: emptyList(),
+                nowPlaying = byId["now_playing"]?.items ?: emptyList(),
+                collections = rows,
+                heroBanner  = (byId["trending"]?.items
+                    ?: byId["now_playing"]?.items
+                    ?: rows.firstOrNull()?.items
+                    ?: emptyList()).take(7),
+                loading = loading,
+            )
         }
     }
 
@@ -154,16 +185,42 @@ class MoviesViewModel(
      * Aggregate every installed Stremio addon's non-search catalogs into a flat
      * row list (NuvioMobile parity). Each addon × catalog becomes one row,
      * fanned out in parallel + capped at 18 items per row.
+     *
+     * Stale-while-revalidate: cached rows are shown immediately; fresh rows
+     * replace them when the network fetch completes (or silently on error).
      */
     private fun refreshStremioRows(addons: List<InstalledStremioAddon>) {
         if (addons.isEmpty()) {
             _state.update { it.copy(stremioRows = emptyList()) }
+            PageCache.clear(appContext, PageCache.KEY_STREMIO_ROWS)
             return
         }
         viewModelScope.launch {
+            // ── Step 1: show cached Stremio rows immediately ──────────────────
+            val cachedJson = PageCache.getStale(appContext, PageCache.KEY_STREMIO_ROWS)
+            if (cachedJson != null) {
+                runCatching {
+                    val rows = com.streamcloud.app.data.network.Net.json
+                        .decodeFromString(ListSerializer(StremioHomeRow.serializer()), cachedJson)
+                    _state.update { it.copy(stremioRows = rows) }
+                }
+            }
+
+            // ── Step 2: skip network if cache is fresh ────────────────────────
+            val isFresh = PageCache.getFresh(appContext, PageCache.KEY_STREMIO_ROWS, PageCache.TTL_STREMIO_MS) != null
+            if (isFresh && cachedJson != null) return@launch
+
+            // ── Step 3: fetch fresh catalog rows in background ────────────────
             val rows = addons.map { addon ->
                 async { runCatching { stremioRepo.fetchAllHomeCatalogs(addon) }.getOrDefault(emptyList()) }
             }.awaitAll().flatten()
+
+            // ── Step 4: persist and update UI ─────────────────────────────────
+            runCatching {
+                val json = com.streamcloud.app.data.network.Net.json
+                    .encodeToString(ListSerializer(StremioHomeRow.serializer()), rows)
+                PageCache.put(appContext, PageCache.KEY_STREMIO_ROWS, json)
+            }
             _state.update { it.copy(stremioRows = rows) }
         }
     }

@@ -38,6 +38,11 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         // NewPipe Extractor needs a Downloader, a Localization and a ContentCountry.
         // Without all three, music search/stream extraction silently produces empty results
         // on some YouTube responses (PoToken / visitor_data flows).
+        // Initialise the OkHttp HTTP disk cache before any Retrofit client is created.
+        // TMDB returns Cache-Control: public, max-age=28800 (8 h) — subsequent launches
+        // serve all home-page data from disk in milliseconds instead of hitting the network.
+        com.streamcloud.app.data.network.Net.init(cacheDir)
+
         NewPipe.init(
             com.streamcloud.app.data.newpipe.NewPipeDownloader.instance,
             Localization.DEFAULT,           // en/US

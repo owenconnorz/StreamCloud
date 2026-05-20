@@ -130,6 +130,7 @@ data class InstalledStremioAddon(
  * catalog. Mirrors NuvioMobile's `HomeCatalogSection` minus the disk-cache
  * machinery — we re-fetch on every `loadDiscover()` for now.
  */
+@Serializable
 data class StremioHomeRow(
     val addonId: String,
     val addonName: String,
