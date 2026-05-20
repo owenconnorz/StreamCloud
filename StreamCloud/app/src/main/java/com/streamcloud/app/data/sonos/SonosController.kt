@@ -121,7 +121,15 @@ object SonosController {
         </s:Envelope>
     """.trimIndent()
 
-    /** Minimal DIDL-Lite metadata so Sonos shows the track title on its display. */
+    /**
+     * Minimal DIDL-Lite metadata so Sonos shows the track title on its display.
+     *
+     * protocolInfo uses audio/mp4 which matches the AAC-LC streams YouTube
+     * serves via the ANDROID_MUSIC Innertube client. Using audio/mpeg (MP3)
+     * causes Sonos to reject the stream even though the HTTP 200 succeeds,
+     * because Sonos validates the declared MIME type against what it receives.
+     * The wildcard fourth field (*) means "no additional constraints".
+     */
     private fun buildDIDL(title: String, uri: String): String {
         val safeTitle = title.xmlEscape()
         val safeUri = uri.xmlEscape()
@@ -132,7 +140,7 @@ object SonosController {
               <item id="1" parentID="0" restricted="1">
                 <dc:title>$safeTitle</dc:title>
                 <upnp:class>object.item.audioItem.musicTrack</upnp:class>
-                <res protocolInfo="http-get:*:audio/mpeg:*">$safeUri</res>
+                <res protocolInfo="http-get:*:audio/mp4:*">$safeUri</res>
               </item>
             </DIDL-Lite>
         """.trimIndent()
