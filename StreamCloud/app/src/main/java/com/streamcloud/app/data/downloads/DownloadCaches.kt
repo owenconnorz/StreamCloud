@@ -12,16 +12,18 @@ import java.io.File
 /**
  * Application-scoped singletons for the two Media3 [SimpleCache] instances used for music:
  *
- *  • [playerCache]   — LRU 256 MB ephemeral buffer for streamed playback (same role as
- *                      Metrolist's @PlayerCache). Old entries are evicted when the cache is full.
+ *  • [playerCache]   — LRU 256 MB ephemeral buffer for streamed playback. Stored in
+ *                      [Context.cacheDir] so Android can reclaim space when needed.
  *
- *  • [downloadCache] — Permanent store for explicitly downloaded songs (Metrolist's @DownloadCache).
- *                      [NoOpCacheEvictor] means nothing is ever evicted automatically; the user
- *                      must explicitly delete a download.
+ *  • [downloadCache] — Permanent store for explicitly downloaded songs (Metrolist's
+ *                      @DownloadCache). Stored in [Context.getExternalFilesDir] so that
+ *                      "Clear Cache" on the app settings page can never erase downloads —
+ *                      only "Clear Storage / Data" can do that. Falls back to
+ *                      [Context.filesDir] if external storage is unavailable.
+ *                      [NoOpCacheEvictor] means nothing is ever evicted automatically.
  *
- * Both caches share a single [StandaloneDatabaseProvider] which maps to a SQLite database in
- * [Context.filesDir].  This is safe — each [SimpleCache] directory acts as its own namespace
- * within the database.
+ * Both caches share a single [StandaloneDatabaseProvider] which maps to a SQLite database
+ * in the app's databases directory. Each [SimpleCache] directory acts as its own namespace.
  */
 @OptIn(UnstableApi::class)
 object DownloadCaches {
@@ -39,7 +41,7 @@ object DownloadCaches {
     @Synchronized
     fun playerCache(context: Context): SimpleCache =
         _playerCache ?: run {
-            val dir = File(context.applicationContext.filesDir, "exoplayer").apply { mkdirs() }
+            val dir = File(context.applicationContext.cacheDir, "exoplayer").apply { mkdirs() }
             SimpleCache(
                 dir,
                 LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
@@ -50,11 +52,13 @@ object DownloadCaches {
     @Synchronized
     fun downloadCache(context: Context): SimpleCache =
         _downloadCache ?: run {
-            val dir = File(context.applicationContext.filesDir, "download").apply { mkdirs() }
+            val ctx = context.applicationContext
+            val externalDir = ctx.getExternalFilesDir("exoplayer_downloads")
+            val dir = (externalDir ?: File(ctx.filesDir, "exoplayer_downloads")).apply { mkdirs() }
             SimpleCache(
                 dir,
                 NoOpCacheEvictor(),
-                databaseProvider(context),
+                databaseProvider(ctx),
             ).also { _downloadCache = it }
         }
 }
