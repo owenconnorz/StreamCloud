@@ -72,7 +72,8 @@ object SonosDiscovery {
                     val buf = ByteArray(4096)
                     while (true) {
                         val pkt = DatagramPacket(buf, buf.size)
-                        runCatching { socket.receive(pkt) }.onFailure { break }
+                        val received = try { socket.receive(pkt); true } catch (_: Exception) { false }
+                        if (!received) break
                         val response = String(pkt.data, 0, pkt.length)
                         val location = response.lines()
                             .firstOrNull { it.startsWith("LOCATION:", ignoreCase = true) }

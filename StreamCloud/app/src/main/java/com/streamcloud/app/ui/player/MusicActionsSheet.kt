@@ -238,10 +238,17 @@ fun MusicActionsSheet(
                             ),
                         )
                     } else {
-                        scope.launch {
-                            runCatching { MusicDownloader.download(context, mid, currentTitle) }
-                                .onFailure { toast(context, "Download failed: ${it.message}") }
-                        }
+                        val req = androidx.media3.exoplayer.offline.DownloadRequest
+                            .Builder(mid, android.net.Uri.parse(mid))
+                            .setData(currentTitle.toByteArray(Charsets.UTF_8))
+                            .setCustomCacheKey(mid)
+                            .build()
+                        androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                            context,
+                            com.streamcloud.app.data.downloads.MusicExoDownloadService::class.java,
+                            req,
+                            false,
+                        )
                     }
                     onDismiss()
                 }
