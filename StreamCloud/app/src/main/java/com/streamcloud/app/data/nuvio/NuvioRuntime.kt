@@ -501,7 +501,7 @@ object NuvioRuntime {
             val selector = args.getOrNull(2)?.toString().orEmpty()
             val el = elementCache[elementId] ?: return@function "[]"
             runCatching {
-                val siblings = el.siblingElements()
+                val siblings = el.siblingElements().toList()
                     .filter { it !== el && (selector.isEmpty() || it.`is`(selector)) }
                 val ids = siblings.mapIndexed { i, sib ->
                     val id = "$docId:sib:$i:${sib.hashCode()}"
