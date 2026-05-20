@@ -117,6 +117,20 @@ object SonosProxyServer {
                 return
             }
 
+            // HEAD = Sonos stream-capability probe.
+            // YouTube CDN frequently returns 403 or 405 to HEAD requests, so we
+            // must NOT forward the probe upstream — that would make Sonos reject
+            // the stream before playback even starts. Instead, reply immediately
+            // with synthetic headers: Sonos only needs Content-Type + 200 OK.
+            if (method == "HEAD") {
+                client.getOutputStream().write(
+                    "HTTP/1.0 200 OK\r\nContent-Type: audio/mp4\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
+                        .toByteArray(),
+                )
+                return
+            }
+
+            // GET — resolve the stream URL and pipe the audio bytes through.
             val streamUrl = resolveStreamUrl(track)
             if (streamUrl == null) {
                 Log.w(TAG, "Could not resolve stream for ${track.videoId}")
@@ -125,11 +139,8 @@ object SonosProxyServer {
                 return
             }
 
-            // For GET connections store the fresh URL back so the next GET reuses it
-            // until we explicitly change the track.
-            if (method == "GET") {
-                currentTrack.set(track.copy(resolvedUrl = streamUrl))
-            }
+            // Cache the freshly resolved URL so the next GET reuses it.
+            currentTrack.set(track.copy(resolvedUrl = streamUrl))
 
             val req = Request.Builder()
                 .url(streamUrl)
@@ -138,8 +149,6 @@ object SonosProxyServer {
                     "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
                 )
                 .header("Accept", "*/*")
-                // HEAD probe: just fetch headers from upstream so we can reply accurately.
-                .apply { if (method == "HEAD") head() }
                 .build()
 
             http.newCall(req).execute().use { resp ->
@@ -157,20 +166,19 @@ object SonosProxyServer {
                 sb.append("HTTP/1.0 200 OK\r\n")
                 sb.append("Content-Type: $contentType\r\n")
                 if (contentLength != null) sb.append("Content-Length: $contentLength\r\n")
+                sb.append("Accept-Ranges: bytes\r\n")
                 sb.append("Connection: close\r\n")
                 sb.append("\r\n")
                 out.write(sb.toString().toByteArray())
 
-                if (method == "GET") {
-                    resp.body?.byteStream()?.use { input ->
-                        val buf = ByteArray(32 * 1024)
-                        var n: Int
-                        while (input.read(buf).also { n = it } >= 0) {
-                            out.write(buf, 0, n)
-                        }
+                resp.body?.byteStream()?.use { input ->
+                    val buf = ByteArray(32 * 1024)
+                    var n: Int
+                    while (input.read(buf).also { n = it } >= 0) {
+                        out.write(buf, 0, n)
                     }
-                    out.flush()
                 }
+                out.flush()
             }
         } catch (e: Exception) {
             Log.w(TAG, "Client handler error: ${e.message}")
