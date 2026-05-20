@@ -338,7 +338,17 @@ fun NowPlayingShell(
                                 ),
                             )
                         } else {
-                            scope.launch { runCatching { MusicDownloader.download(context, mid, title) } }
+                            val req = androidx.media3.exoplayer.offline.DownloadRequest
+                                .Builder(mid, android.net.Uri.parse(mid))
+                                .setData(title.toByteArray(Charsets.UTF_8))
+                                .setCustomCacheKey(mid)
+                                .build()
+                            androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                                context,
+                                com.streamcloud.app.data.downloads.MusicExoDownloadService::class.java,
+                                req,
+                                false,
+                            )
                         }
                     },
                 )
