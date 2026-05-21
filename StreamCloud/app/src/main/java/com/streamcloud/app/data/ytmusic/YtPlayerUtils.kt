@@ -21,20 +21,23 @@ import java.util.concurrent.TimeUnit
 /**
  * Audio stream resolver — multi-client Innertube waterfall.
  *
- * Client priority (based on Metrolist's validated order):
+ * Client priority (tuned for Android HTTP stack compatibility):
  *
- *   1. ANDROID_VR 1.61.48 — Oculus Quest 3 client, returns plain URLs,
- *      no PoToken or cipher required.  Most reliable as of 2025.
- *   2. ANDROID_VR 1.43.32 — Older Oculus VR client, same properties.
- *   3. IOS 21.03.1        — iPhone client, historically PoToken-exempt,
- *      pre-signed plain URLs.
- *   4. IPADOS 21.03.3     — iPad variant of the IOS client.
- *   5. TV_EMBEDDED        — TVHTML5_SIMPLY_EMBEDDED_PLAYER (id=85),
+ *   1. ANDROID_MUSIC 7.27.52 — YTM-specific, best loudnessDb metadata.
+ *      Returns plain Android-compatible URLs.  No bot detection.
+ *   2. ANDROID 21.03.38   — Standard YouTube Android client.  Plain URLs,
+ *      no cipher, no bot detection, works with Android HttpURLConnection.
+ *   3. TV_EMBEDDED        — TVHTML5_SIMPLY_EMBEDDED_PLAYER (id=85),
  *      bypass for age-restricted content.  embedUrl must be video-specific.
- *   6. ANDROID 21.03.38   — General fallback.
- *   7. ANDROID_MUSIC 7.27.52 — YTM-specific, best loudnessDb metadata.
+ *   4. ANDROID_VR 1.61.48 — Oculus Quest 3 client.  Gets bot-detection
+ *      "Sign in to confirm…" without X-Goog-Visitor-Id / PoToken.
+ *   5. ANDROID_VR 1.43.32 — Older Oculus VR client, same limitation.
+ *   6. IOS 21.03.1        — iPhone client.  Resolves plain URLs but
+ *      YouTube CDN enforces iOS-specific constraints (TLS fingerprint,
+ *      alr=yes handling) that reject Android HttpURLConnection fetches.
+ *   7. IPADOS 21.03.3     — iPad IOS variant, same CDN limitation as IOS.
  *
- * All clients except TV_EMBEDDED return plain stream URLs without cipher,
+ * All clients return plain stream URLs without cipher when they succeed,
  * so no WebView-based cipher deobfuscation is required.
  */
 object YtPlayerUtils {
@@ -64,7 +67,56 @@ object YtPlayerUtils {
 
     private val CLIENTS = listOf(
 
-        // ── 1. ANDROID_VR 1.61.48 — most reliable, plain URLs ────────────
+        // ── 1. ANDROID_MUSIC 7.27.52 — best for YT Music, plain Android URLs
+        // Returns plain stream URLs designed for Android HTTP stack.
+        // No bot-detection issues.  Best loudnessDb metadata for music.
+        ClientConfig(
+            label         = "ANDROID_MUSIC",
+            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_MUSIC",
+            clientId      = "21",
+            clientVersion = "7.27.52",
+            userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "11",
+                "androidSdkVersion" to "30",
+            ),
+        ),
+
+        // ── 2. ANDROID 21.03.38 — standard YouTube Android client ────────
+        // Plain URLs, no cipher, no bot-detection.  Compatible with Android
+        // HttpURLConnection / DefaultHttpDataSource.
+        ClientConfig(
+            label         = "ANDROID",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID",
+            clientId      = "3",
+            clientVersion = "21.03.38",
+            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "14",
+                "androidSdkVersion" to "34",
+            ),
+        ),
+
+        // ── 3. TV_EMBEDDED — age-restriction bypass ───────────────────────
+        // TVHTML5_SIMPLY_EMBEDDED_PLAYER (id=85).
+        // embedUrl must be video-specific: watch?v=<videoId>.
+        ClientConfig(
+            label            = "TV_EMBEDDED",
+            playerUrl        = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName       = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientId         = "85",
+            clientVersion    = "2.0",
+            userAgent        = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+            embedUrlTemplate = "https://www.youtube.com/watch?v=%VIDEO_ID%",
+        ),
+
+        // ── 4. ANDROID_VR 1.61.48 — Oculus Quest 3 ───────────────────────
+        // Gets "Sign in to confirm you're not a bot" without PoToken /
+        // X-Goog-Visitor-Id.  Kept as fallback in case bot-detection eases.
         ClientConfig(
             label         = "ANDROID_VR_1_61_48",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -73,15 +125,15 @@ object YtPlayerUtils {
             clientVersion = "1.61.48",
             userAgent     = "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
             extraClientFields = mapOf(
-                "osName"           to "Android",
-                "osVersion"        to "12",
-                "deviceMake"       to "Oculus",
-                "deviceModel"      to "Quest 3",
+                "osName"            to "Android",
+                "osVersion"         to "12",
+                "deviceMake"        to "Oculus",
+                "deviceModel"       to "Quest 3",
                 "androidSdkVersion" to "32",
             ),
         ),
 
-        // ── 2. ANDROID_VR 1.43.32 — second VR client ─────────────────────
+        // ── 5. ANDROID_VR 1.43.32 — older Oculus VR client ──────────────
         ClientConfig(
             label         = "ANDROID_VR_1_43_32",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -90,15 +142,18 @@ object YtPlayerUtils {
             clientVersion = "1.43.32",
             userAgent     = "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
             extraClientFields = mapOf(
-                "osName"           to "Android",
-                "osVersion"        to "12",
-                "deviceMake"       to "Oculus",
-                "deviceModel"      to "Quest 3",
+                "osName"            to "Android",
+                "osVersion"         to "12",
+                "deviceMake"        to "Oculus",
+                "deviceModel"       to "Quest 3",
                 "androidSdkVersion" to "32",
             ),
         ),
 
-        // ── 3. IOS 21.03.1 — pre-signed URLs, PoToken-exempt ─────────────
+        // ── 6. IOS 21.03.1 — iPhone client ───────────────────────────────
+        // Resolves plain URLs but YouTube CDN enforces iOS-specific
+        // constraints (TLS fingerprint, alr=yes handling) that cause HTTP 403
+        // when bytes are fetched via Android's HttpURLConnection.
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -114,7 +169,7 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 4. IPADOS 21.03.3 — iPad IOS variant ─────────────────────────
+        // ── 7. IPADOS 21.03.3 — iPad IOS variant — same CDN limitation ───
         ClientConfig(
             label         = "IPADOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -127,48 +182,6 @@ object YtPlayerUtils {
                 "deviceModel" to "iPad7,6",
                 "osName"      to "iPadOS",
                 "osVersion"   to "17.7.10.21H450",
-            ),
-        ),
-
-        // ── 5. TV_EMBEDDED — age-restriction bypass ───────────────────────
-        // embedUrl must be video-specific: Metrolist uses watch?v=<videoId>
-        ClientConfig(
-            label             = "TV_EMBEDDED",
-            playerUrl         = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName        = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientId          = "85",
-            clientVersion     = "2.0",
-            userAgent         = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
-            embedUrlTemplate  = "https://www.youtube.com/watch?v=%VIDEO_ID%",
-        ),
-
-        // ── 6. ANDROID 21.03.38 — general fallback ───────────────────────
-        ClientConfig(
-            label         = "ANDROID",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID",
-            clientId      = "3",
-            clientVersion = "21.03.38",
-            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
-            extraClientFields = mapOf(
-                "osName"           to "Android",
-                "osVersion"        to "14",
-                "androidSdkVersion" to "34",
-            ),
-        ),
-
-        // ── 7. ANDROID_MUSIC 7.27.52 — YTM-specific last resort ──────────
-        ClientConfig(
-            label         = "ANDROID_MUSIC",
-            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_MUSIC",
-            clientId      = "21",
-            clientVersion = "7.27.52",
-            userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf(
-                "osName"           to "Android",
-                "osVersion"        to "11",
-                "androidSdkVersion" to "30",
             ),
         ),
     )
