@@ -219,7 +219,7 @@ object YtPlayerUtils {
     )
 
     private val http = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
@@ -318,6 +318,13 @@ object YtPlayerUtils {
     )
 
     // ── Public API ────────────────────────────────────────────────────────
+
+    /**
+     * Pre-warm the Innertube visitorData in the background.
+     * Call once at service startup so the first track resolve doesn't pay
+     * the extra ~500 ms cold-start penalty of fetching visitorData.
+     */
+    suspend fun warmUp() = withContext(Dispatchers.IO) { ensureVisitorData() }
 
     suspend fun resolveAudioFormatInfo(
         videoId: String,
