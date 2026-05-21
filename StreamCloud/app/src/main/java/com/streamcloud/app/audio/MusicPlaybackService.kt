@@ -110,6 +110,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
 
+        YtPlayerUtils.appContext = applicationContext
         ioScope.launch { YtPlayerUtils.warmUp() }
 
 

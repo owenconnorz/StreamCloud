@@ -1,7 +1,9 @@
 package com.streamcloud.app.data.ytmusic
 
+import android.content.Context
 import android.util.Log
 import com.streamcloud.app.data.AppLogger
+import com.streamcloud.app.data.ytmusic.potoken.PoTokenGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -12,6 +14,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,100 +26,21 @@ object YtPlayerUtils {
 
     private const val TAG = "YtPlayerUtils"
 
-
-
     private data class ClientConfig(
         val label: String,
-
         val playerUrl: String,
         val clientName: String,
-
         val clientId: String,
         val clientVersion: String,
         val userAgent: String,
-
         val extraClientFields: Map<String, Any> = emptyMap(),
-
         val embedUrlTemplate: String? = null,
-
         val requiresAuth: Boolean = false,
+        val supportsAuth: Boolean = true,
+        val useWebPoTokens: Boolean = false,
     )
 
     private val CLIENTS = listOf(
-
-
-
-
-        ClientConfig(
-            label         = "ANDROID_MUSIC",
-            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_MUSIC",
-            clientId      = "21",
-            clientVersion = "7.27.52",
-            userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "11",
-                "androidSdkVersion" to "30",
-            ),
-        ),
-
-
-
-        ClientConfig(
-            label         = "ANDROID",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID",
-            clientId      = "3",
-            clientVersion = "21.03.38",
-            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "14",
-                "androidSdkVersion" to "34",
-            ),
-        ),
-
-
-
-
-
-
-
-
-        ClientConfig(
-            label         = "ANDROID_TESTSUITE",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_TESTSUITE",
-            clientId      = "30",
-            clientVersion = "1.9",
-            userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "11",
-                "androidSdkVersion" to "30",
-            ),
-        ),
-
-
-
-
-        ClientConfig(
-            label         = "ANDROID_VR_1_61_48",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_VR",
-            clientId      = "28",
-            clientVersion = "1.61.48",
-            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "12",
-                "deviceMake"        to "Oculus",
-                "deviceModel"       to "Quest 3",
-                "androidSdkVersion" to "32",
-            ),
-        ),
-
 
         ClientConfig(
             label         = "ANDROID_VR_1_43_32",
@@ -132,10 +56,78 @@ object YtPlayerUtils {
                 "deviceModel"       to "Quest 3",
                 "androidSdkVersion" to "32",
             ),
+            supportsAuth = false,
         ),
 
+        ClientConfig(
+            label         = "ANDROID_VR_1_61_48",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_VR",
+            clientId      = "28",
+            clientVersion = "1.61.48",
+            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "12",
+                "deviceMake"        to "Oculus",
+                "deviceModel"       to "Quest 3",
+                "androidSdkVersion" to "32",
+            ),
+            supportsAuth = false,
+        ),
 
+        ClientConfig(
+            label         = "ANDROID_MUSIC",
+            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_MUSIC",
+            clientId      = "21",
+            clientVersion = "7.27.52",
+            userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "11",
+                "androidSdkVersion" to "30",
+            ),
+        ),
 
+        ClientConfig(
+            label         = "ANDROID",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID",
+            clientId      = "3",
+            clientVersion = "21.03.38",
+            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "14",
+                "androidSdkVersion" to "34",
+            ),
+        ),
+
+        ClientConfig(
+            label         = "ANDROID_TESTSUITE",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_TESTSUITE",
+            clientId      = "30",
+            clientVersion = "1.9",
+            userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "11",
+                "androidSdkVersion" to "30",
+            ),
+        ),
+
+        ClientConfig(
+            label            = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            playerUrl        = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName       = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientId         = "85",
+            clientVersion    = "2.0",
+            userAgent        = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+            embedUrlTemplate = "https://www.youtube.com/embed/%VIDEO_ID%",
+            supportsAuth     = false,
+        ),
 
         ClientConfig(
             label         = "IOS",
@@ -152,7 +144,6 @@ object YtPlayerUtils {
             ),
         ),
 
-
         ClientConfig(
             label         = "IPADOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -167,11 +158,6 @@ object YtPlayerUtils {
                 "osVersion"   to "17.7.10.21H450",
             ),
         ),
-
-
-
-
-
 
         ClientConfig(
             label         = "ANDROID_CREATOR",
@@ -191,23 +177,22 @@ object YtPlayerUtils {
     )
 
     private val http = OkHttpClient.Builder()
+        .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
+    private val poTokenGenerator = PoTokenGenerator()
 
+    @Volatile var appContext: Context? = null
     @Volatile var ytMusicCookie: String = ""
-
-
     @Volatile var contentLanguage: String = "en"
     @Volatile var contentCountry:  String = "US"
 
-
     @Volatile private var cachedVisitorData: String? = null
     @Volatile private var visitorDataFetchedAt: Long = 0L
-
 
     private fun ensureVisitorData() {
         val now = System.currentTimeMillis()
@@ -226,11 +211,7 @@ object YtPlayerUtils {
             val req = Request.Builder()
                 .url("https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false&alt=json")
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
-                .header(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                )
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 .header("Content-Type", "application/json")
                 .header("Origin", "https://www.youtube.com")
                 .build()
@@ -248,11 +229,8 @@ object YtPlayerUtils {
         }
     }
 
-
-
     data class AudioFormatInfo(
         val url: String,
-
         val userAgent: String,
         val itag: Int,
         val mimeType: String,
@@ -268,9 +246,6 @@ object YtPlayerUtils {
         val contentLength: Long?,
     )
 
-
-
-
     suspend fun warmUp() = withContext(Dispatchers.IO) { ensureVisitorData() }
 
     suspend fun resolveAudioFormatInfo(
@@ -280,47 +255,46 @@ object YtPlayerUtils {
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
         ensureVisitorData()
         val isLoggedIn = ytMusicCookie.isNotBlank()
-        var ageGateDetected = false
+        val sessionId = cachedVisitorData
 
         for (client in CLIENTS) {
-
-
             if (client.requiresAuth && !isLoggedIn) {
-                Log.d(TAG, "[${client.label}] skipped — requires login (not signed in)")
+                Log.d(TAG, "[${client.label}] skipped — requires auth")
                 continue
             }
 
-            val result = tryClient(client, videoId, preferItag, preferHighQuality)
-            when (result) {
-                is ClientResult.Success -> {
-                    AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} ${result.info.mimeType.substringBefore(';')}")
-                    return@withContext result.info
-                }
-                is ClientResult.CipheredOnly -> {
-                    AppLogger.w(TAG, "[${client.label}] $videoId — all streams ciphered, trying next client")
-                    Log.d(TAG, "[${client.label}] $videoId ciphered-only")
-                }
-                is ClientResult.NoStreams -> {
-                    val why = result.reason?.let { " (reason: $it)" } ?: ""
-
-                    val isAgeGate = result.status != null && result.status in AGE_GATE_STATUSES
-                    if (isAgeGate && !ageGateDetected) {
-                        ageGateDetected = true
-                        AppLogger.w(TAG, "[${client.label}] $videoId — age-gate/region-block detected (status=${result.status}); continuing to TVHTML5_SIMPLY_EMBEDDED_PLAYER + WEB_CREATOR")
-                    } else {
-                        AppLogger.w(TAG, "[${client.label}] $videoId — no audio streams$why, trying next client")
+            var poToken: String? = null
+            if (client.useWebPoTokens && sessionId != null) {
+                val ctx = appContext
+                if (ctx != null) {
+                    try {
+                        poToken = poTokenGenerator.getWebClientPoToken(ctx, videoId, sessionId)
+                            ?.playerRequestPoToken
+                    } catch (e: Exception) {
+                        Log.d(TAG, "[${client.label}] PoToken generation failed: ${e.message}")
                     }
-                    Log.d(TAG, "[${client.label}] $videoId no streams status=${result.status}$why")
-                }
-                is ClientResult.Error -> {
-                    AppLogger.w(TAG, "[${client.label}] $videoId — request failed: ${result.cause?.message}")
-                    Log.d(TAG, "[${client.label}] $videoId error", result.cause)
                 }
             }
+
+            val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken)
+            when (result) {
+                is ClientResult.Success -> {
+                    AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag}")
+                    return@withContext result.info
+                }
+                is ClientResult.CipheredOnly ->
+                    AppLogger.w(TAG, "[${client.label}] $videoId — ciphered only, trying next")
+                is ClientResult.NoStreams -> {
+                    val why = result.reason?.let { " ($it)" } ?: ""
+                    AppLogger.w(TAG, "[${client.label}] $videoId — no streams$why, trying next")
+                    Log.d(TAG, "[${client.label}] no streams status=${result.status}")
+                }
+                is ClientResult.Error ->
+                    AppLogger.w(TAG, "[${client.label}] $videoId — error: ${result.cause?.message}")
+            }
         }
-        val suffix = if (ageGateDetected) " (PoToken/age-gate or region block)" else ""
-        AppLogger.e(TAG, "Both Innertube and NewPipe failed to resolve stream for $videoId$suffix")
-        throw IllegalStateException("YouTube returned no audio streams for this track.$suffix")
+        AppLogger.e(TAG, "All clients failed for $videoId")
+        throw IllegalStateException("YouTube returned no audio streams for $videoId")
     }
 
     suspend fun resolveAudioStreamInfo(videoId: String): AudioStreamInfo? =
@@ -328,10 +302,6 @@ object YtPlayerUtils {
 
     suspend fun resolveAudioStream(videoId: String): String? =
         resolveAudioFormatInfo(videoId)?.url
-
-
-
-
 
     private val AGE_GATE_STATUSES = setOf(
         "AGE_CHECK_REQUIRED",
@@ -343,7 +313,6 @@ object YtPlayerUtils {
     private sealed interface ClientResult {
         data class Success(val info: AudioFormatInfo) : ClientResult
         data object CipheredOnly : ClientResult
-
         data class NoStreams(val reason: String? = null, val status: String? = null) : ClientResult
         data class Error(val cause: Throwable?) : ClientResult
     }
@@ -353,9 +322,10 @@ object YtPlayerUtils {
         videoId: String,
         preferItag: Int?,
         preferHighQuality: Boolean,
+        poToken: String?,
     ): ClientResult {
         return try {
-            val root = fetchPlayerResponse(client, videoId)
+            val root = fetchPlayerResponse(client, videoId, poToken)
                 ?: return ClientResult.Error(null)
 
             val playabilityStatusObj = root["playabilityStatus"]?.jsonObject
@@ -387,8 +357,7 @@ object YtPlayerUtils {
                     ?: selectHighQuality(plainUrl)
                     ?: selectByQuality(plainUrl, preferHighQuality)
             } else {
-                selectHighQuality(plainUrl)
-                    ?: selectByQuality(plainUrl, preferHighQuality)
+                selectHighQuality(plainUrl) ?: selectByQuality(plainUrl, preferHighQuality)
             }
 
             val cpn = generateCpn()
@@ -414,7 +383,7 @@ object YtPlayerUtils {
                     mimeType         = best["mimeType"]?.jsonPrimitive?.content.orEmpty(),
                     bitrate          = best["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
                     sampleRate       = best["audioSampleRate"]?.jsonPrimitive?.content?.toIntOrNull(),
-                    contentLength    = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull(),
+                    contentLength    = contentLength,
                     loudnessDb       = loudnessDb,
                     expiresInSeconds = expiresInSeconds,
                 )
@@ -424,15 +393,14 @@ object YtPlayerUtils {
         }
     }
 
-    private fun fetchPlayerResponse(client: ClientConfig, videoId: String): JsonObject? {
-        val resolvedEmbedUrl = client.embedUrlTemplate?.replace("%VIDEO_ID%", videoId)
-
-
-
-
+    private fun fetchPlayerResponse(
+        client: ClientConfig,
+        videoId: String,
+        poToken: String?,
+    ): JsonObject? {
+        val embedUrl = client.embedUrlTemplate?.replace("%VIDEO_ID%", videoId)
         val requestOrigin = if (client.playerUrl.contains("music.youtube.com"))
             "https://music.youtube.com" else "https://www.youtube.com"
-
         val vd = cachedVisitorData
 
         val body = buildJsonObject {
@@ -443,8 +411,6 @@ object YtPlayerUtils {
                     put("userAgent", client.userAgent)
                     put("hl", contentLanguage)
                     put("gl", contentCountry)
-
-
                     if (vd != null) put("visitorData", vd)
                     client.extraClientFields.forEach { (k, v) ->
                         when (v) {
@@ -455,9 +421,7 @@ object YtPlayerUtils {
                         }
                     }
                 }
-
-
-                resolvedEmbedUrl?.let { embedUrl ->
+                if (embedUrl != null) {
                     putJsonObject("thirdParty") {
                         put("embedUrl", embedUrl)
                     }
@@ -466,6 +430,11 @@ object YtPlayerUtils {
             put("videoId", videoId)
             put("contentCheckOk", true)
             put("racyCheckOk", true)
+            if (poToken != null) {
+                putJsonObject("serviceIntegrityDimensions") {
+                    put("poToken", poToken)
+                }
+            }
         }
 
         val reqBuilder = Request.Builder()
@@ -478,29 +447,19 @@ object YtPlayerUtils {
             .header("Content-Type", "application/json")
             .header("Accept-Language", "en-US,en;q=0.9")
 
-
-
         if (vd != null) reqBuilder.header("X-Goog-Visitor-Id", vd)
 
-
-
-
-
-
         val cookie = ytMusicCookie
-        if (cookie.isNotBlank() && client.label != "TV_EMBEDDED") {
+        if (cookie.isNotBlank() && client.supportsAuth) {
             reqBuilder.header("Cookie", cookie)
             reqBuilder.header("Origin", requestOrigin)
             val auth = YtMusicAuth.sapisidHashHeader(cookie, requestOrigin)
             if (auth != null) reqBuilder.header("Authorization", auth)
         }
 
-        val request = reqBuilder.build()
-
-        return http.newCall(request).execute().use { resp ->
+        return http.newCall(reqBuilder.build()).execute().use { resp ->
             if (!resp.isSuccessful) {
                 AppLogger.w(TAG, "[${client.label}] $videoId — HTTP ${resp.code}")
-                Log.d(TAG, "[${client.label}] HTTP ${resp.code} for $videoId")
                 return null
             }
             val text = resp.body?.string() ?: return null
@@ -508,16 +467,13 @@ object YtPlayerUtils {
         }
     }
 
-    private fun selectByQuality(
-        audioFormats: List<JsonObject>,
-        preferHighQuality: Boolean,
-    ): JsonObject = audioFormats.maxByOrNull { fmt ->
-        val bitrate = fmt["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
-        val isOpus  = fmt["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
-        val sign    = if (preferHighQuality) 1L else -1L
-        bitrate * sign + (if (isOpus) 10_240L else 0L)
-    } ?: audioFormats.first()
-
+    private fun selectByQuality(audioFormats: List<JsonObject>, preferHighQuality: Boolean): JsonObject =
+        audioFormats.maxByOrNull { fmt ->
+            val bitrate = fmt["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
+            val isOpus  = fmt["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
+            val sign    = if (preferHighQuality) 1L else -1L
+            bitrate * sign + (if (isOpus) 10_240L else 0L)
+        } ?: audioFormats.first()
 
     private fun selectHighQuality(audioFormats: List<JsonObject>): JsonObject? {
         val high = audioFormats.filter {
@@ -529,7 +485,6 @@ object YtPlayerUtils {
             ?: high.firstOrNull { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 141 }
             ?: high.first()
     }
-
 
     private fun generateCpn(): String {
         val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"

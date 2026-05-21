@@ -5,38 +5,32 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.abs
-import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -50,6 +44,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -66,14 +62,11 @@ fun GlobalMiniPlayer(
     var title by remember { mutableStateOf<String?>(null) }
     var artist by remember { mutableStateOf<String?>(null) }
     var artworkUri by remember { mutableStateOf<String?>(null) }
-    var positionMs by remember { mutableStateOf(0L) }
-    var durationMs by remember { mutableStateOf(0L) }
 
     val isPlaying by PlaybackBus.isPlaying.collectAsState()
     val nowMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
 
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
-
 
     LaunchedEffect(Unit) {
         runCatching { MusicController.get(context.applicationContext) }
@@ -82,8 +75,6 @@ fun GlobalMiniPlayer(
                 title = c.mediaMetadata.title?.toString()
                 artist = c.mediaMetadata.artist?.toString()
                 artworkUri = c.mediaMetadata.artworkUri?.toString()
-                positionMs = c.currentPosition
-                durationMs = c.duration.coerceAtLeast(0L)
                 c.addListener(object : Player.Listener {
                     override fun onMediaMetadataChanged(md: androidx.media3.common.MediaMetadata) {
                         title = md.title?.toString()
@@ -94,14 +85,6 @@ fun GlobalMiniPlayer(
             }
     }
 
-    LaunchedEffect(controller, isPlaying) {
-        while (controller != null) {
-            positionMs = controller!!.currentPosition
-            durationMs = controller!!.duration.coerceAtLeast(0L)
-            delay(500)
-        }
-    }
-
     LaunchedEffect(nowMediaId) {
         val mediaId = nowMediaId ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
@@ -109,7 +92,6 @@ fun GlobalMiniPlayer(
             isLiked = track?.likedAt != null
         }
     }
-
 
     val swipeOffsetX = remember { Animatable(0f) }
     var liveDragX by remember { mutableStateOf(0f) }
@@ -120,16 +102,15 @@ fun GlobalMiniPlayer(
         exit = slideOutVertically { it } + fadeOut(),
         modifier = modifier,
     ) {
-        Column(
-            Modifier
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
                 .offset { IntOffset((swipeOffsetX.value + liveDragX).roundToInt(), 0) }
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.surface)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF1C1C1E))
                 .clickable(onClick = onExpand)
-
-
                 .pointerInput(controller) {
                     while (true) {
                         var totalX = 0f
@@ -155,7 +136,6 @@ fun GlobalMiniPlayer(
                                 }
                             }
                         }
-
                         swipeOffsetX.snapTo(liveDragX)
                         liveDragX = 0f
                         when {
@@ -177,97 +157,82 @@ fun GlobalMiniPlayer(
                         }
                     }
                 }
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                ) {
-                    AsyncImage(
-                        model = artworkUri,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        title.orEmpty(),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        artist.orEmpty(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                IconButton(onClick = {
-                    val mediaId = nowMediaId ?: return@IconButton
-                    val nowLiked = isLiked
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            val dao = LibraryDb.get(context).tracks()
-                            dao.setLikedAt(mediaId, if (nowLiked) null else System.currentTimeMillis())
-                            isLiked = !nowLiked
-                            val videoId = mediaId.substringAfter("v=").substringBefore("&")
-                                .takeIf { it.isNotBlank() } ?: return@withContext
-                            if (nowLiked) YtMusicLibraryRepository.unlikeSong(ytCookie, videoId)
-                            else YtMusicLibraryRepository.likeSong(ytCookie, videoId)
-                        }
-                    }
-                }) {
-                    Icon(
-                        if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        if (isLiked) "Unlike" else "Like",
-                        tint = if (isLiked) MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = { controller?.seekToPreviousMediaItem() }) {
-                    Icon(
-                        Icons.Default.SkipPrevious,
-                        "Previous",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = {
-                    controller?.let { if (it.isPlaying) it.pause() else it.play() }
-                }) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp),
-                    )
-                }
-                IconButton(onClick = { controller?.seekToNextMediaItem() }) {
-                    Icon(
-                        Icons.Default.SkipNext,
-                        "Skip next",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable {
+                        controller?.let { if (it.isPlaying) it.pause() else it.play() }
+                    },
+            ) {
+                AsyncImage(
+                    model = artworkUri,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape),
+                )
             }
 
-            val progress = if (durationMs > 0) positionMs.toFloat() / durationMs.toFloat() else 0f
-            LinearProgressIndicator(
-                progress = { progress.coerceIn(0f, 1f) },
+            Spacer(Modifier.width(14.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = title.orEmpty(),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = artist.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFAAAAAA),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .padding(top = 4.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-            )
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (isLiked) Color(0xFFE91E63) else Color(0xFF2C2C2E))
+                    .clickable {
+                        val mediaId = nowMediaId ?: return@clickable
+                        val nowLiked = isLiked
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                val dao = LibraryDb.get(context).tracks()
+                                dao.setLikedAt(mediaId, if (nowLiked) null else System.currentTimeMillis())
+                                isLiked = !nowLiked
+                                val videoId = mediaId.substringAfter("v=").substringBefore("&")
+                                    .takeIf { it.isNotBlank() } ?: return@withContext
+                                if (nowLiked) YtMusicLibraryRepository.unlikeSong(ytCookie, videoId)
+                                else YtMusicLibraryRepository.likeSong(ytCookie, videoId)
+                            }
+                        }
+                    },
+            ) {
+                Icon(
+                    imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = if (isLiked) "Unlike" else "Like",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
 }
