@@ -53,9 +53,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import com.streamcloud.app.data.spotify.SpotifyCanvasRepository
 import androidx.palette.graphics.Palette
 import coil.ImageLoader
 import coil.compose.AsyncImage
@@ -212,20 +218,51 @@ fun NowPlayingShell(
     // ── 3-dot actions sheet visibility ───────────────────────────────────────
     var showActions by remember { mutableStateOf(false) }
 
+    // ── Spotify Canvas ────────────────────────────────────────────────────────
+    val canvasEnabled by sl.settings.canvasEnabled.collectAsState(initial = false)
+    var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(mediaId, title, artist, canvasEnabled) {
+        canvasUrl = null
+        if (!canvasEnabled || title.isBlank() || videoId.isBlank()) return@LaunchedEffect
+        canvasUrl = runCatching {
+            SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
+        }.getOrNull()
+    }
+    val activeCanvas = if (canvasEnabled) canvasUrl else null
+
     Box(
         Modifier
             .fillMaxSize()
             .background(Color(0xFF0E0E0E))
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        animDominant,
-                        animDominant.copy(alpha = 0.55f).compositeOver(Color(0xFF161616)),
-                        Color(0xFF0E0E0E),
+            .then(
+                if (activeCanvas == null) Modifier.background(
+                    Brush.verticalGradient(
+                        listOf(
+                            animDominant,
+                            animDominant.copy(alpha = 0.55f).compositeOver(Color(0xFF161616)),
+                            Color(0xFF0E0E0E),
+                        )
                     )
-                )
+                ) else Modifier
             )
     ) {
+        // Canvas video plays behind all controls when Spotify Canvas is available
+        if (activeCanvas != null) {
+            CanvasVideoLayer(url = activeCanvas, modifier = Modifier.fillMaxSize())
+            // Gradient scrim so title, slider and buttons remain readable
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Black.copy(alpha = 0.30f),
+                                Color.Black.copy(alpha = 0.60f),
+                            )
+                        )
+                    )
+            )
+        }
         Column(
             Modifier
                 .fillMaxSize()
@@ -770,4 +807,37 @@ private fun formatTime(ms: Long): String {
     val m = totalSec / 60
     val s = totalSec % 60
     return "%d:%02d".format(m, s)
+}
+
+/**
+ * Full-bleed looping silent video layer — used for Spotify Canvas.
+ * A separate ExoPlayer instance is used so the canvas video is independent
+ * of the main music playback session.  Volume is set to 0 (muted).
+ */
+@OptIn(UnstableApi::class)
+@Composable
+private fun CanvasVideoLayer(url: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val player = remember(url) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(url))
+            repeatMode = Player.REPEAT_MODE_ONE
+            volume = 0f
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                this.player = player
+                useController = false
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            }
+        },
+        modifier = modifier,
+    )
 }
