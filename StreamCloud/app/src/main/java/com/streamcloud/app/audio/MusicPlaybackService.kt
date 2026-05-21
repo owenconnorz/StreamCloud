@@ -10,9 +10,11 @@ import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -82,6 +84,13 @@ class MusicPlaybackService : MediaLibraryService() {
     /** Cached YT Music library — refreshed at startup and on cookie change. */
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
 
+    /**
+     * Kept in sync with the DataStore cookie so the OkHttp stream interceptor
+     * can read it without blocking.  Also forwarded to [YtPlayerUtils] so that
+     * Innertube player requests are sent as a signed-in user.
+     */
+    @Volatile private var ytMusicCookieForStream: String = ""
+
     // Stream URL resolution is delegated to the app-wide [StreamUrlCache] singleton.
     // That object is also populated by [YtPlaylistScreen] when a playlist opens so
     // that every track's URL is pre-resolved before the user taps play.
@@ -125,8 +134,12 @@ class MusicPlaybackService : MediaLibraryService() {
         audioFx = AudioFx(applicationContext, player.audioSessionId).also { it.start() }
 
         // Sync YTM library at startup + re-sync whenever the signed-in cookie changes.
+        // Also forward the cookie to YtPlayerUtils (Innertube player requests) and
+        // keep ytMusicCookieForStream up-to-date for the OkHttp stream interceptor.
         ioScope.launch {
             sl.settings.ytMusicCookie.collect { cookie ->
+                ytMusicCookieForStream = cookie
+                YtPlayerUtils.ytMusicCookie = cookie
                 if (cookie.isNotBlank()) {
                     ytLibrary = YtMusicLibraryRepository.sync(cookie)
                 }
@@ -137,14 +150,32 @@ class MusicPlaybackService : MediaLibraryService() {
     // ── Data source factory ───────────────────────────────────────────────
 
     private fun buildDataSourceFactory(): ResolvingDataSource.Factory {
-        // No static User-Agent here — the correct UA is set per-DataSpec in the
-        // ResolvingDataSource lambda below, matching whichever Innertube client
-        // produced the stream URL.  YouTube CDN binds URLs to the requesting UA:
-        // a mismatched UA returns HTTP 403.
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(60_000)
+        // OkHttpDataSource is used instead of DefaultHttpDataSource because
+        // YouTube CDN URLs produced by the IOS/IPADOS Innertube clients require
+        // OkHttp's HTTP/2 stack and redirect-handling — Android's HttpURLConnection
+        // returns HTTP 403 on the same URLs.  This matches Metrolist's approach.
+        //
+        // The User-Agent is NOT set here; it is applied per-DataSpec in the
+        // ResolvingDataSource lambda below so it always matches the client that
+        // produced the stream URL (IOS UA for IOS URLs, ANDROID_MUSIC UA for
+        // ANDROID_MUSIC URLs, etc.).
+        val streamOkHttp = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .addNetworkInterceptor { chain ->
+                // Attach the session cookie if the user is signed in.
+                // YouTube CDN doesn't strictly require the cookie, but having it
+                // in the request makes the CDN treat the client as authenticated,
+                // which avoids throttling on certain IPs and regions.
+                val cookie = ytMusicCookieForStream
+                val req = if (cookie.isNotBlank())
+                    chain.request().newBuilder().header("Cookie", cookie).build()
+                else chain.request()
+                chain.proceed(req)
+            }
+            .build()
+
+        val httpFactory = OkHttpDataSource.Factory(streamOkHttp)
 
         val chainedCacheFactory = CacheDataSource.Factory()
             .setCache(downloadCache)
