@@ -21,31 +21,32 @@ import java.util.concurrent.TimeUnit
 /**
  * Fast audio stream resolver — multi-client Innertube approach.
  *
- * Tries three YouTube Innertube clients in priority order until one returns
- * pre-signed (un-ciphered) audio stream URLs:
+ * YouTube's bot-detection (PoToken) causes many clients to receive either ciphered
+ * stream URLs (signatureCipher instead of url) or empty adaptiveFormats.  We try
+ * four clients in priority order, stopping at the first that returns a plain,
+ * un-ciphered audio stream URL:
  *
- *   1. ANDROID (client id 3) — youtube.com endpoint, historically the most
- *      reliable for pre-signed URLs without po_token / nsig decoding.
- *   2. ANDROID_MUSIC (client id 21) — music.youtube.com endpoint, best for
- *      YT-Music–specific metadata such as loudnessDb.
- *   3. TVHTML5_SIMPLY_EMBEDDED_PLAYER (client id 85) — embedded player, usually
- *      skips cipher requirements, useful as a last-resort Innertube path.
+ *   1. IOS (client id 5) — historically the most reliable client that bypasses
+ *      PoToken requirements and returns pre-signed URLs for all content.
+ *   2. TVHTML5_SIMPLY_EMBEDDED_PLAYER (client id 85) — embedded TV player with
+ *      thirdParty.embedUrl context; designed for third-party embedding and exempt
+ *      from PoToken requirements.
+ *   3. ANDROID (client id 3) — reliable for most content, some videos now require
+ *      PoToken since mid-2024 which may cause cipher-only responses.
+ *   4. ANDROID_MUSIC (client id 21) — YouTube Music specific, best for YTM
+ *      metadata (loudnessDb), kept as last-resort Innertube attempt.
  *
- * "Pre-signed" means the adaptive format object carries a top-level `url` field.
- * Ciphered formats carry `signatureCipher` / `cipher` instead — those require
- * JavaScript nsig deobfuscation which we do not perform here; if every client
- * returns only cipher formats we return null so MusicPlaybackService can fall
- * back to NewPipe.
+ * If every client returns only cipher formats or no audio, null is returned and
+ * MusicPlaybackService falls back to NewPipe.
  */
 object YtPlayerUtils {
 
     private const val TAG = "YtPlayerUtils"
-    private const val ANDROID_SDK_VERSION = 30
 
     // ── Innertube client descriptors ─────────────────────────────────────
 
     private data class ClientConfig(
-        /** Human-readable label for logging. */
+        /** Human-readable label for logging / AppLogger. */
         val label: String,
         val playerUrl: String,
         val clientName: String,
@@ -53,32 +54,33 @@ object YtPlayerUtils {
         val clientId: String,
         val clientVersion: String,
         val userAgent: String,
-        /** Extra fields injected into context.client JSON (e.g. androidSdkVersion). */
+        /** Additional fields injected into the JSON context.client object. */
         val extraClientFields: Map<String, Any> = emptyMap(),
+        /**
+         * If non-null, a `thirdParty { embedUrl }` object is added to the
+         * Innertube context.  Required for TVHTML5_SIMPLY_EMBEDDED_PLAYER to
+         * correctly bypass PoToken restrictions.
+         */
+        val embedUrl: String? = null,
     )
 
     private val CLIENTS = listOf(
-        // ── 1. ANDROID — www.youtube.com, most reliable for pre-signed URLs ──
+        // ── 1. IOS — most reliable PoToken bypass, pre-signed URLs ───────────
         ClientConfig(
-            label         = "ANDROID",
+            label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID",
-            clientId      = "3",
-            clientVersion = "19.44.38",
-            userAgent     = "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf("androidSdkVersion" to ANDROID_SDK_VERSION),
+            clientName    = "IOS",
+            clientId      = "5",
+            clientVersion = "19.45.4",
+            userAgent     = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)",
+            extraClientFields = mapOf(
+                "deviceMake"  to "Apple",
+                "deviceModel" to "iPhone16,2",
+                "osName"      to "iPhone",
+                "osVersion"   to "18.1.0.22B83",
+            ),
         ),
-        // ── 2. ANDROID_MUSIC — music.youtube.com, best for YTM-specific metadata ──
-        ClientConfig(
-            label         = "ANDROID_MUSIC",
-            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_MUSIC",
-            clientId      = "21",
-            clientVersion = "7.27.52",
-            userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf("androidSdkVersion" to ANDROID_SDK_VERSION),
-        ),
-        // ── 3. TVHTML5_SIMPLY_EMBEDDED_PLAYER — embedded TV player, bypasses cipher ──
+        // ── 2. TVHTML5_SIMPLY_EMBEDDED_PLAYER — embedded, PoToken-exempt ─────
         ClientConfig(
             label         = "TV_EMBEDDED",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -86,6 +88,27 @@ object YtPlayerUtils {
             clientId      = "85",
             clientVersion = "2.0",
             userAgent     = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/6.0 TV Safari/538.1",
+            embedUrl      = "https://www.youtube.com/",
+        ),
+        // ── 3. ANDROID — good general coverage ───────────────────────────────
+        ClientConfig(
+            label         = "ANDROID",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID",
+            clientId      = "3",
+            clientVersion = "19.44.38",
+            userAgent     = "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip",
+            extraClientFields = mapOf("androidSdkVersion" to 30),
+        ),
+        // ── 4. ANDROID_MUSIC — YTM-specific metadata fallback ────────────────
+        ClientConfig(
+            label         = "ANDROID_MUSIC",
+            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_MUSIC",
+            clientId      = "21",
+            clientVersion = "7.27.52",
+            userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
+            extraClientFields = mapOf("androidSdkVersion" to 30),
         ),
     )
 
@@ -98,33 +121,17 @@ object YtPlayerUtils {
 
     // ── Public data classes ───────────────────────────────────────────────
 
-    /**
-     * Full format metadata returned by the Innertube player endpoint.
-     *
-     * Mirrors InnerTune's FormatEntity so that our download resolver can
-     * store exactly the same fields in Room.
-     */
     data class AudioFormatInfo(
         val url: String,
-        /** YouTube adaptive format itag (e.g. 140 = m4a 128 kbps, 251 = opus 160 kbps). */
         val itag: Int,
-        /** Full MIME type string, e.g. `audio/mp4; codecs="mp4a.40.2"`. */
         val mimeType: String,
         val bitrate: Long,
         val sampleRate: Int?,
-        /** Declared content length in bytes — used to append `&range=0-N`. */
         val contentLength: Long?,
-        /** Loudness normalisation offset in dB from playerConfig.audioConfig. */
         val loudnessDb: Double?,
-        /**
-         * Seconds until the CDN URL expires (typically 21600 = 6 h).
-         * Used as the URL-cache TTL so we re-resolve only when the URL is
-         * actually stale rather than on a fixed 3-hour schedule.
-         */
         val expiresInSeconds: Long,
     )
 
-    /** Lightweight wrapper for callers that only need url + contentLength. */
     data class AudioStreamInfo(
         val url: String,
         val contentLength: Long?,
@@ -132,11 +139,6 @@ object YtPlayerUtils {
 
     // ── Public API ────────────────────────────────────────────────────────
 
-    /**
-     * Resolve the best audio-only stream for [videoId] by trying each Innertube
-     * client in [CLIENTS] order.  Skips clients that return only ciphered formats.
-     * Returns null if all clients fail so callers can fall back to NewPipe.
-     */
     suspend fun resolveAudioFormatInfo(
         videoId: String,
         preferItag: Int? = null,
@@ -146,20 +148,21 @@ object YtPlayerUtils {
             val result = tryClient(client, videoId, preferItag, preferHighQuality)
             when (result) {
                 is ClientResult.Success -> {
-                    AppLogger.i(TAG, "[${ client.label}] resolved $videoId itag=${result.info.itag}")
+                    AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} ${result.info.mimeType.substringBefore(';')}")
                     return@withContext result.info
                 }
                 is ClientResult.CipheredOnly -> {
-                    AppLogger.w(TAG, "[${client.label}] $videoId returned only ciphered streams — trying next client")
-                    Log.d(TAG, "[${client.label}] $videoId ciphered-only, trying next")
+                    AppLogger.w(TAG, "[${client.label}] $videoId — all streams ciphered (PoToken required), trying next client")
+                    Log.d(TAG, "[${client.label}] $videoId ciphered-only")
                 }
                 is ClientResult.NoStreams -> {
-                    AppLogger.w(TAG, "[${client.label}] $videoId returned no audio streams — trying next client")
-                    Log.d(TAG, "[${client.label}] $videoId no streams, trying next")
+                    val why = result.reason?.let { " (reason: $it)" } ?: ""
+                    AppLogger.w(TAG, "[${client.label}] $videoId — no audio streams$why, trying next client")
+                    Log.d(TAG, "[${client.label}] $videoId no streams$why")
                 }
                 is ClientResult.Error -> {
-                    AppLogger.w(TAG, "[${client.label}] $videoId failed: ${result.cause?.message}")
-                    Log.d(TAG, "[${client.label}] $videoId error: ${result.cause?.message}")
+                    AppLogger.w(TAG, "[${client.label}] $videoId — request failed: ${result.cause?.message}")
+                    Log.d(TAG, "[${client.label}] $videoId error", result.cause)
                 }
             }
         }
@@ -167,22 +170,18 @@ object YtPlayerUtils {
         null
     }
 
-    /** Backward-compat wrapper — returns (url, contentLength). */
     suspend fun resolveAudioStreamInfo(videoId: String): AudioStreamInfo? =
         resolveAudioFormatInfo(videoId)?.let { AudioStreamInfo(it.url, it.contentLength) }
 
-    /** URL-only backward-compat wrapper used by MusicPlaybackService. */
     suspend fun resolveAudioStream(videoId: String): String? =
         resolveAudioFormatInfo(videoId)?.url
 
-    // ── Internal helpers ──────────────────────────────────────────────────
+    // ── Internal ──────────────────────────────────────────────────────────
 
     private sealed interface ClientResult {
         data class Success(val info: AudioFormatInfo) : ClientResult
-        /** Server returned formats but all have signatureCipher / cipher instead of url. */
         data object CipheredOnly : ClientResult
-        /** Server returned a valid response but no audio-only adaptive formats at all. */
-        data object NoStreams : ClientResult
+        data class NoStreams(val reason: String? = null) : ClientResult
         data class Error(val cause: Throwable?) : ClientResult
     }
 
@@ -191,74 +190,67 @@ object YtPlayerUtils {
         videoId: String,
         preferItag: Int?,
         preferHighQuality: Boolean,
-    ): ClientResult {
-        return try {
-            val root = fetchPlayerResponse(client, videoId)
-                ?: return ClientResult.Error(null)
+    ): ClientResult = try {
+        val root = fetchPlayerResponse(client, videoId)
+            ?: return ClientResult.Error(null)
 
-            val streamingData = root["streamingData"]?.jsonObject
-            if (streamingData == null) {
-                val reason = root["playabilityStatus"]?.jsonObject
-                    ?.get("reason")?.jsonPrimitive?.content
-                Log.d(TAG, "[${client.label}] no streamingData for $videoId, reason=$reason")
-                return ClientResult.NoStreams
-            }
+        val playabilityStatus = root["playabilityStatus"]?.jsonObject
+        val playabilityReason = playabilityStatus?.get("reason")?.jsonPrimitive?.content
 
-            val adaptiveFormats = streamingData["adaptiveFormats"]?.jsonArray
-            if (adaptiveFormats == null) {
-                return ClientResult.NoStreams
-            }
-
-            val audioOnly = adaptiveFormats
-                .mapNotNull { it as? JsonObject }
-                .filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/") }
-
-            if (audioOnly.isEmpty()) return ClientResult.NoStreams
-
-            // Check if all returned formats are ciphered (no plain `url` field).
-            val anyPlainUrl = audioOnly.any { fmt ->
-                fmt["url"]?.jsonPrimitive?.content?.isNotBlank() == true
-            }
-            if (!anyPlainUrl) return ClientResult.CipheredOnly
-
-            val best = if (preferItag != null) {
-                audioOnly.find {
-                    it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == preferItag
-                            && it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
-                } ?: selectByQuality(audioOnly.filter {
-                    it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
-                }, preferHighQuality)
-            } else {
-                selectByQuality(audioOnly.filter {
-                    it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
-                }, preferHighQuality)
-            }
-
-            val url = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                ?: return ClientResult.CipheredOnly
-
-            val expiresInSeconds =
-                streamingData["expiresInSeconds"]?.jsonPrimitive?.content?.toLongOrNull() ?: 21_600L
-            val loudnessDb = root["playerConfig"]
-                ?.jsonObject?.get("audioConfig")
-                ?.jsonObject?.get("loudnessDb")
-                ?.jsonPrimitive?.content?.toDoubleOrNull()
-
-            ClientResult.Success(
-                AudioFormatInfo(
-                    url             = url,
-                    itag            = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
-                    mimeType        = best["mimeType"]?.jsonPrimitive?.content.orEmpty(),
-                    bitrate         = best["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
-                    sampleRate      = best["audioSampleRate"]?.jsonPrimitive?.content?.toIntOrNull(),
-                    contentLength   = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull(),
-                    loudnessDb      = loudnessDb,
-                    expiresInSeconds = expiresInSeconds,
-                )
-            )
-        } catch (e: Exception) {
-            ClientResult.Error(e)
+        val streamingData = root["streamingData"]?.jsonObject
+        if (streamingData == null) {
+            return ClientResult.NoStreams(playabilityReason)
         }
+
+        val adaptiveFormats = streamingData["adaptiveFormats"]?.jsonArray
+        if (adaptiveFormats == null) {
+            return ClientResult.NoStreams(playabilityReason)
+        }
+
+        val audioOnly = adaptiveFormats
+            .mapNotNull { it as? JsonObject }
+            .filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/") }
+
+        if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason)
+
+        // Filter to formats that have a plain url (not signatureCipher).
+        val plainUrl = audioOnly.filter {
+            it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
+        }
+        if (plainUrl.isEmpty()) return ClientResult.CipheredOnly
+
+        val expiresInSeconds =
+            streamingData["expiresInSeconds"]?.jsonPrimitive?.content?.toLongOrNull() ?: 21_600L
+
+        val best = if (preferItag != null) {
+            plainUrl.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == preferItag }
+                ?: selectByQuality(plainUrl, preferHighQuality)
+        } else {
+            selectByQuality(plainUrl, preferHighQuality)
+        }
+
+        val url = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            ?: return ClientResult.CipheredOnly
+
+        val loudnessDb = root["playerConfig"]
+            ?.jsonObject?.get("audioConfig")
+            ?.jsonObject?.get("loudnessDb")
+            ?.jsonPrimitive?.content?.toDoubleOrNull()
+
+        ClientResult.Success(
+            AudioFormatInfo(
+                url              = url,
+                itag             = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                mimeType         = best["mimeType"]?.jsonPrimitive?.content.orEmpty(),
+                bitrate          = best["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                sampleRate       = best["audioSampleRate"]?.jsonPrimitive?.content?.toIntOrNull(),
+                contentLength    = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull(),
+                loudnessDb       = loudnessDb,
+                expiresInSeconds = expiresInSeconds,
+            )
+        )
+    } catch (e: Exception) {
+        ClientResult.Error(e)
     }
 
     private fun fetchPlayerResponse(client: ClientConfig, videoId: String): JsonObject? {
@@ -272,11 +264,18 @@ object YtPlayerUtils {
                     put("gl", "US")
                     client.extraClientFields.forEach { (k, v) ->
                         when (v) {
-                            is Int    -> put(k, v)
-                            is Long   -> put(k, v)
-                            is Boolean-> put(k, v)
-                            else      -> put(k, v.toString())
+                            is Int     -> put(k, v)
+                            is Long    -> put(k, v)
+                            is Boolean -> put(k, v)
+                            else       -> put(k, v.toString())
                         }
+                    }
+                }
+                // TVHTML5_SIMPLY_EMBEDDED_PLAYER requires thirdParty.embedUrl to
+                // signal it's running inside an iframe, which bypasses PoToken.
+                client.embedUrl?.let { embedUrl ->
+                    putJsonObject("thirdParty") {
+                        put("embedUrl", embedUrl)
                     }
                 }
             }
@@ -306,21 +305,13 @@ object YtPlayerUtils {
         }
     }
 
-    /**
-     * Rank audio formats by quality score — identical to InnerTune's comparator.
-     *
-     * HIGH: max score  → highest bitrate, opus preferred
-     * LOW:  min score  → lowest bitrate (data saving)
-     */
     private fun selectByQuality(
         audioFormats: List<JsonObject>,
         preferHighQuality: Boolean,
-    ): JsonObject {
-        return audioFormats.maxByOrNull { fmt ->
-            val bitrate = fmt["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
-            val isOpus  = fmt["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
-            val sign    = if (preferHighQuality) 1L else -1L
-            bitrate * sign + (if (isOpus) 10_240L else 0L)
-        } ?: audioFormats.first()
-    }
+    ): JsonObject = audioFormats.maxByOrNull { fmt ->
+        val bitrate = fmt["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
+        val isOpus  = fmt["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
+        val sign    = if (preferHighQuality) 1L else -1L
+        bitrate * sign + (if (isOpus) 10_240L else 0L)
+    } ?: audioFormats.first()
 }
