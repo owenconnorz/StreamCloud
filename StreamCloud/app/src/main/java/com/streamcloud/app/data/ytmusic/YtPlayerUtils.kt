@@ -193,6 +193,15 @@ object YtPlayerUtils {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
+    /**
+     * Raw `Cookie:` header from music.youtube.com — set by [MusicPlaybackService]
+     * when the user is signed in.  When present, it is sent with every Innertube
+     * player request so that ANDROID_MUSIC / ANDROID clients resolve URLs as an
+     * authenticated user, bypassing YouTube's bot-detection quota that blocks
+     * anonymous requests from those clients.
+     */
+    @Volatile var ytMusicCookie: String = ""
+
     // ── Public data classes ───────────────────────────────────────────────
 
     data class AudioFormatInfo(
@@ -362,7 +371,7 @@ object YtPlayerUtils {
             put("racyCheckOk", true)
         }
 
-        val request = Request.Builder()
+        val reqBuilder = Request.Builder()
             .url(client.playerUrl)
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .header("User-Agent", client.userAgent)
@@ -371,7 +380,20 @@ object YtPlayerUtils {
             .header("X-Goog-Api-Format-Version", "1")
             .header("Content-Type", "application/json")
             .header("Accept-Language", "en-US,en;q=0.9")
-            .build()
+
+        // When the user is signed in, attach their session cookie and the
+        // SAPISIDHASH Authorization header.  This is required for ANDROID_MUSIC
+        // and ANDROID clients to bypass YouTube's bot-detection for anonymous
+        // requests; signed-in requests are trusted and return plain stream URLs.
+        val cookie = ytMusicCookie
+        if (cookie.isNotBlank()) {
+            reqBuilder.header("Cookie", cookie)
+            reqBuilder.header("Origin", YtMusicAuth.ORIGIN)
+            val auth = YtMusicAuth.sapisidHashHeader(cookie)
+            if (auth != null) reqBuilder.header("Authorization", auth)
+        }
+
+        val request = reqBuilder.build()
 
         return http.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) {
