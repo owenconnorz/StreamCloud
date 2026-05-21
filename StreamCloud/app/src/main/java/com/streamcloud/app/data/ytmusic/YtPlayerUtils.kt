@@ -18,13 +18,23 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * Fast audio stream resolver — mirrors Metrolist's YTPlayerUtils.
+ * Fast audio stream resolver — mirrors Metrolist/InnerTune's YTPlayerUtils.
  *
  * Instead of the NewPipe path (download watch-page HTML + player JS → regex-parse
  * 2–4 MB → deobfuscate nsig → 3–8 s per track), we POST to the YouTube Innertube
  * /player endpoint using the **ANDROID_MUSIC** client.  That client ID causes
  * YouTube to return pre-deciphered stream URLs in a plain JSON response, so the
  * whole operation is a single round-trip — typically 300–800 ms.
+ *
+ * [resolveAudioStreamInfo] returns the URL **and** the declared `contentLength` from
+ * the player response.  The download path appends `&range=0-{contentLength}` to the
+ * CDN URL — the same trick InnerTune uses — which instructs YouTube's CDN to deliver
+ * the entire audio file in one response instead of using its default internal chunking
+ * with bandwidth throttling.  Without this parameter downloads are throttled to a
+ * fraction of available bandwidth; with it they run at full line speed.
+ *
+ * [resolveAudioStream] is kept for backward-compat callers that only need the URL
+ * (e.g. the playback resolver in MusicPlaybackService).
  *
  * Returns **null** on any error; callers should fall back to NewPipe in that case.
  */
@@ -43,65 +53,87 @@ object YtPlayerUtils {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
+    /** Full result of stream resolution — URL and the CDN-declared byte count. */
+    data class AudioStreamInfo(
+        val url: String,
+        /** Declared content length in bytes, or null if not present in the response. */
+        val contentLength: Long?,
+    )
+
     /**
-     * Resolve the best audio-only stream URL for [videoId] via a single Innertube POST.
-     * Returns null if the request fails or no audio stream is found; caller should
-     * fall back to NewPipe.
+     * Resolve the best audio-only stream URL **and** its content length for [videoId]
+     * via a single Innertube POST.
+     *
+     * The content length is used by the download resolver to append `&range=0-N` to
+     * the CDN URL, forcing full-speed delivery instead of YouTube's throttled chunked
+     * streaming.  See [resolveAudioStream] for the URL-only convenience wrapper.
+     *
+     * Returns null if the request fails or no audio stream is found.
      */
-    suspend fun resolveAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
-        try {
-            val body = buildJsonObject {
-                putJsonObject("context") {
-                    putJsonObject("client") {
-                        put("clientName", "ANDROID_MUSIC")
-                        put("clientVersion", CLIENT_VERSION)
-                        put("androidSdkVersion", ANDROID_SDK_VERSION)
-                        put(
-                            "userAgent",
-                            "com.google.android.apps.youtube.music/$CLIENT_VERSION " +
-                                "(Linux; U; Android 11) gzip",
-                        )
-                        put("hl", "en")
-                        put("gl", "US")
+    suspend fun resolveAudioStreamInfo(videoId: String): AudioStreamInfo? =
+        withContext(Dispatchers.IO) {
+            try {
+                val body = buildJsonObject {
+                    putJsonObject("context") {
+                        putJsonObject("client") {
+                            put("clientName", "ANDROID_MUSIC")
+                            put("clientVersion", CLIENT_VERSION)
+                            put("androidSdkVersion", ANDROID_SDK_VERSION)
+                            put(
+                                "userAgent",
+                                "com.google.android.apps.youtube.music/$CLIENT_VERSION " +
+                                    "(Linux; U; Android 11) gzip",
+                            )
+                            put("hl", "en")
+                            put("gl", "US")
+                        }
                     }
+                    put("videoId", videoId)
+                    put("contentCheckOk", true)
+                    put("racyCheckOk", true)
                 }
-                put("videoId", videoId)
-                put("contentCheckOk", true)
-                put("racyCheckOk", true)
-            }
 
-            val request = Request.Builder()
-                .url(PLAYER_URL)
-                .post(body.toString().toRequestBody("application/json".toMediaType()))
-                .header(
-                    "User-Agent",
-                    "com.google.android.apps.youtube.music/$CLIENT_VERSION " +
-                        "(Linux; U; Android 11) gzip",
-                )
-                .header("X-Goog-Api-Format-Version", "1")
-                .header("Content-Type", "application/json")
-                .build()
+                val request = Request.Builder()
+                    .url(PLAYER_URL)
+                    .post(body.toString().toRequestBody("application/json".toMediaType()))
+                    .header(
+                        "User-Agent",
+                        "com.google.android.apps.youtube.music/$CLIENT_VERSION " +
+                            "(Linux; U; Android 11) gzip",
+                    )
+                    .header("X-Goog-Api-Format-Version", "1")
+                    .header("Content-Type", "application/json")
+                    .build()
 
-            val root = http.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    Log.d(TAG, "player HTTP ${resp.code} for $videoId")
-                    return@withContext null
+                val root = http.newCall(request).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        Log.d(TAG, "player HTTP ${resp.code} for $videoId")
+                        return@withContext null
+                    }
+                    val text = resp.body?.string() ?: return@withContext null
+                    json.parseToJsonElement(text).jsonObject
                 }
-                val text = resp.body?.string() ?: return@withContext null
-                json.parseToJsonElement(text).jsonObject
-            }
 
-            pickBestAudio(root).also { url ->
-                if (url == null) Log.d(TAG, "no audio stream found for $videoId")
+                pickBestAudioInfo(root).also { info ->
+                    if (info == null) Log.d(TAG, "no audio stream found for $videoId")
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Innertube player failed for $videoId: ${e.message}")
+                null
             }
-        } catch (e: Exception) {
-            Log.d(TAG, "Innertube player failed for $videoId: ${e.message}")
-            null
         }
-    }
 
     /**
-     * Pick the highest-bitrate audio-only format from [root].
+     * URL-only convenience wrapper around [resolveAudioStreamInfo].
+     * Used by [com.streamcloud.app.audio.MusicPlaybackService] which does not need
+     * the content length (playback streams don't use the `&range=` trick).
+     */
+    suspend fun resolveAudioStream(videoId: String): String? =
+        resolveAudioStreamInfo(videoId)?.url
+
+    /**
+     * Pick the highest-bitrate audio-only format from [root] and return both its URL
+     * and its declared `contentLength`.
      *
      * Preference order:
      *  1. M4A (itag 140 / 141) — widest hardware decoder support on Android
@@ -110,7 +142,7 @@ object YtPlayerUtils {
      * The ANDROID_MUSIC client returns plain `url` fields (no signatureCipher),
      * so no deobfuscation step is needed.
      */
-    private fun pickBestAudio(root: JsonObject): String? {
+    private fun pickBestAudioInfo(root: JsonObject): AudioStreamInfo? {
         val adaptiveFormats = root["streamingData"]
             ?.jsonObject?.get("adaptiveFormats")
             ?.jsonArray ?: return null
@@ -133,6 +165,10 @@ object YtPlayerUtils {
             fmt["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
         } ?: return null
 
-        return best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+        val url = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            ?: return null
+        val contentLength = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull()
+
+        return AudioStreamInfo(url = url, contentLength = contentLength)
     }
 }

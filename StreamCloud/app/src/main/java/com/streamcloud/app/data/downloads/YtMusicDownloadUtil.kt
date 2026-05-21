@@ -136,9 +136,21 @@ object YtMusicDownloadUtil {
 
             val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
             val streamUrl = runBlocking {
-                (if (videoId.isNotBlank()) YtPlayerUtils.resolveAudioStream(videoId) else null)
-                    ?: NewPipeRepository.resolveAudioStream(watchUrl)
-            }
+                if (videoId.isNotBlank()) {
+                    val info = YtPlayerUtils.resolveAudioStreamInfo(videoId)
+                    if (info != null) {
+                        // KEY DOWNLOAD OPTIMISATION (mirrors InnerTune/Metrolist):
+                        // Append &range=0-{contentLength} to the CDN URL. Without this,
+                        // YouTube's CDN serves audio using its own internal chunking with
+                        // aggressive bandwidth throttling. With the range parameter the CDN
+                        // delivers the entire file in one response at full network speed.
+                        // Fallback: use 10 MB cap when contentLength is unknown — enough
+                        // for any typical music track at any quality.
+                        val len = info.contentLength ?: 10_000_000L
+                        "${info.url}&range=0-$len"
+                    } else null
+                } else null
+            } ?: NewPipeRepository.resolveAudioStream(watchUrl)
 
             // Cache for 3 hours (YouTube CDN URLs typically expire after ~6 h).
             urlCache[cacheKey] = streamUrl to (System.currentTimeMillis() + URL_CACHE_TTL_MS)
