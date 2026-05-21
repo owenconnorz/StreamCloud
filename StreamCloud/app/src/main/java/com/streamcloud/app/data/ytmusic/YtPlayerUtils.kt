@@ -17,6 +17,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 /**
  * Audio stream resolver — multi-client Innertube waterfall.
@@ -374,13 +375,22 @@ object YtPlayerUtils {
 
             val best = if (preferItag != null) {
                 plainUrl.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == preferItag }
+                    ?: selectHighQuality(plainUrl)
                     ?: selectByQuality(plainUrl, preferHighQuality)
             } else {
-                selectByQuality(plainUrl, preferHighQuality)
+                selectHighQuality(plainUrl)
+                    ?: selectByQuality(plainUrl, preferHighQuality)
             }
 
-            val url = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            val cpn = generateCpn()
+            val rawUrl = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                 ?: return ClientResult.CipheredOnly
+            val contentLength = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull()
+            val url = buildString {
+                append(rawUrl)
+                append("&cpn=").append(cpn)
+                append("&range=0-").append(contentLength ?: 10_000_000L)
+            }
 
             val loudnessDb = root["playerConfig"]
                 ?.jsonObject?.get("audioConfig")
@@ -498,4 +508,29 @@ object YtPlayerUtils {
         val sign    = if (preferHighQuality) 1L else -1L
         bitrate * sign + (if (isOpus) 10_240L else 0L)
     } ?: audioFormats.first()
+
+    /**
+     * Mirrors SimpMusic's superFormat selection: prefer AUDIO_QUALITY_HIGH formats, with
+     * itag 774 (WebM Opus 256 kbps, YT Premium) first, then itag 141 (AAC 256 kbps).
+     * Returns null if no HIGH-quality format is available, allowing fallback to selectByQuality.
+     */
+    private fun selectHighQuality(audioFormats: List<JsonObject>): JsonObject? {
+        val high = audioFormats.filter {
+            it["audioQuality"]?.jsonPrimitive?.content == "AUDIO_QUALITY_HIGH"
+                && it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
+        }
+        if (high.isEmpty()) return null
+        return high.firstOrNull { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 774 }
+            ?: high.firstOrNull { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 141 }
+            ?: high.first()
+    }
+
+    /**
+     * Generates a 16-character Client Playback Nonce (cpn) using YouTube's base64url alphabet.
+     * The CPN is required by YouTube for playback tracking; omitting it can cause rate-limiting.
+     */
+    private fun generateCpn(): String {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        return (1..16).map { alphabet[Random.nextInt(alphabet.length)] }.joinToString("")
+    }
 }
