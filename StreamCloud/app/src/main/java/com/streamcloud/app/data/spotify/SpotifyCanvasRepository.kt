@@ -96,16 +96,19 @@ object SpotifyCanvasRepository {
                 .header("Cookie", "sp_t=$spT; sp_new=1")
                 .header("Referer", "https://open.spotify.com/")
                 .get().build()
-            http.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) { Log.d(TAG, "Token HTTP ${resp.code}"); return null }
-                val obj = json.parseToJsonElement(resp.body?.string() ?: return null).jsonObject
-                val t   = obj["accessToken"]?.jsonPrimitive?.content ?: return null
-                val exp = obj["accessTokenExpirationTimestampMs"]
-                    ?.jsonPrimitive?.content?.toLongOrNull() ?: (now + 3_600_000L)
-                cachedToken    = t
-                tokenExpiryMs  = exp
-                t
-            }
+            // Execute outside the runCatching lambda so non-successful responses can
+            // exit via return@runCatching (labeled return) rather than non-local return.
+            val body = http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) { Log.d(TAG, "Token HTTP ${resp.code}"); null }
+                else resp.body?.string()
+            } ?: return@runCatching null
+            val obj = json.parseToJsonElement(body).jsonObject
+            val t   = obj["accessToken"]?.jsonPrimitive?.content ?: return@runCatching null
+            val exp = obj["accessTokenExpirationTimestampMs"]
+                ?.jsonPrimitive?.content?.toLongOrNull() ?: (now + 3_600_000L)
+            cachedToken   = t
+            tokenExpiryMs = exp
+            t
         }.getOrElse { Log.d(TAG, "Token error: ${it.message}"); null }
     }
 
@@ -122,14 +125,14 @@ object SpotifyCanvasRepository {
             )
             .get().build()
         return runCatching {
-            http.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return null
-                json.parseToJsonElement(resp.body?.string() ?: return null).jsonObject
-                    ["tracks"]?.jsonObject
-                    ?.get("items")?.jsonArray
-                    ?.firstOrNull()?.jsonObject
-                    ?.get("uri")?.jsonPrimitive?.content
-            }
+            val body = http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) null else resp.body?.string()
+            } ?: return@runCatching null
+            json.parseToJsonElement(body).jsonObject
+                .get("tracks")?.jsonObject
+                ?.get("items")?.jsonArray
+                ?.firstOrNull()?.jsonObject
+                ?.get("uri")?.jsonPrimitive?.content
         }.getOrNull()
     }
 
@@ -144,10 +147,11 @@ object SpotifyCanvasRepository {
             .header("User-Agent", "Spotify/8.6.72 Android/29 (Pixel 4)")
             .build()
         return runCatching {
-            http.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) { Log.d(TAG, "Canvas API HTTP ${resp.code}"); return null }
-                parseCanvasResponse(resp.body?.bytes() ?: return null)
-            }
+            val bytes = http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) { Log.d(TAG, "Canvas API HTTP ${resp.code}"); null }
+                else resp.body?.bytes()
+            } ?: return@runCatching null
+            parseCanvasResponse(bytes)
         }.getOrNull()
     }
 
