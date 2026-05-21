@@ -137,15 +137,11 @@ class MusicPlaybackService : MediaLibraryService() {
     // ── Data source factory ───────────────────────────────────────────────
 
     private fun buildDataSourceFactory(): ResolvingDataSource.Factory {
-        // User-Agent must match YtPlayerUtils (ANDROID_MUSIC client) exactly.
-        // YouTube stream URLs are bound to the client that obtained them — using a
-        // browser UA here causes YouTube to cut off the stream after the initial
-        // buffer (manifests as playback stopping at ~10 s or not starting at all).
+        // No static User-Agent here — the correct UA is set per-DataSpec in the
+        // ResolvingDataSource lambda below, matching whichever Innertube client
+        // produced the stream URL.  YouTube CDN binds URLs to the requesting UA:
+        // a mismatched UA returns HTTP 403.
         val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(
-                "com.google.android.apps.youtube.music/7.27.52 " +
-                    "(Linux; U; Android 11) gzip",
-            )
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(60_000)
@@ -182,8 +178,17 @@ class MusicPlaybackService : MediaLibraryService() {
             }
 
             val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
-            val streamUrl = resolveStreamUrl(videoId, watchUrl)
-            dataSpec.withUri(streamUrl.toUri())
+            val (streamUrl, userAgent) = resolveStreamUrl(videoId, watchUrl)
+
+            // Apply the UA that matches the Innertube client that produced this URL.
+            // YouTube CDN binds stream URLs to the requesting client — a different
+            // UA returns HTTP 403.
+            dataSpec.buildUpon()
+                .setUri(streamUrl.toUri())
+                .setHttpRequestHeaders(
+                    dataSpec.httpRequestHeaders + mapOf("User-Agent" to userAgent)
+                )
+                .build()
         }
     }
 
@@ -203,34 +208,39 @@ class MusicPlaybackService : MediaLibraryService() {
      *
      * Throws if both resolvers fail so ExoPlayer can surface a proper error
      * to the UI instead of silently crashing on a null URI.
+     *
+     * Returns `Pair(streamUrl, userAgent)` — the UA must be passed to ExoPlayer
+     * because YouTube CDN binds stream URLs to the requesting client.
      */
-    private fun resolveStreamUrl(videoId: String, watchUrl: String): String {
+    private fun resolveStreamUrl(videoId: String, watchUrl: String): Pair<String, String> {
         val now = System.currentTimeMillis()
 
         // 1. Shared cache hit (may have been pre-warmed by playlist open).
-        StreamUrlCache.get(videoId)?.let { url ->
+        StreamUrlCache.getEntry(videoId)?.let { entry ->
             val ttl = StreamUrlCache.ttlSeconds(videoId) ?: 0
             Log.d(TAG, "StreamUrlCache hit for $videoId (ttl=${ttl}s)")
-            return url
+            return Pair(entry.url, entry.userAgent)
         }
 
         // 2. Innertube path — single POST, 300–800 ms.
-        val innertubeError = runBlocking(Dispatchers.IO) {
+        val innertubeResult = runBlocking(Dispatchers.IO) {
             runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }
         }
-        val info = innertubeError.getOrNull()
-        if (innertubeError.isFailure) {
-            AppLogger.w(TAG, "Innertube failed for $videoId", innertubeError.exceptionOrNull())
+        val info = innertubeResult.getOrNull()
+        if (innertubeResult.isFailure) {
+            AppLogger.w(TAG, "Innertube failed for $videoId", innertubeResult.exceptionOrNull())
         }
         if (info != null) {
             val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
-            StreamUrlCache.put(videoId, info.url, expiryMs)
+            StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs)
             AppLogger.i(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
-            Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
-            return info.url
+            Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} ua=${info.userAgent.take(40)}")
+            return Pair(info.url, info.userAgent)
         }
 
         // 3. NewPipe fallback (slower — parses watch-page HTML + deobfuscates nsig).
+        // NewPipe returns plain stream URLs; use a neutral YouTube UA for the request.
+        val npUserAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip"
         AppLogger.w(TAG, "Innertube returned no result for $videoId — falling back to NewPipe")
         Log.d(TAG, "Innertube failed for $videoId — falling back to NewPipe")
         val npResult = runBlocking(Dispatchers.IO) {
@@ -244,9 +254,9 @@ class MusicPlaybackService : MediaLibraryService() {
             }
 
         // Cache NewPipe URLs for 1 hour (YouTube doesn't report their expiry).
-        StreamUrlCache.put(videoId, npUrl, now + 3_600_000L)
+        StreamUrlCache.put(videoId, npUrl, npUserAgent, now + 3_600_000L)
         Log.d(TAG, "NewPipe resolved $videoId (cached 1 h)")
-        return npUrl
+        return Pair(npUrl, npUserAgent)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session

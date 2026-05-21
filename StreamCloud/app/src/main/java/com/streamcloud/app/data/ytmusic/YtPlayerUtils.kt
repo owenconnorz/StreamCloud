@@ -184,6 +184,10 @@ object YtPlayerUtils {
 
     data class AudioFormatInfo(
         val url: String,
+        /** User-Agent of the client that produced this URL.
+         *  The stream request MUST use this exact UA — YouTube CDN binds
+         *  stream URLs to the client that requested them. */
+        val userAgent: String,
         val itag: Int,
         val mimeType: String,
         val bitrate: Long,
@@ -297,6 +301,7 @@ object YtPlayerUtils {
             ClientResult.Success(
                 AudioFormatInfo(
                     url              = url,
+                    userAgent        = client.userAgent,
                     itag             = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
                     mimeType         = best["mimeType"]?.jsonPrimitive?.content.orEmpty(),
                     bitrate          = best["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
