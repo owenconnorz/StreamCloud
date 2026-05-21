@@ -125,7 +125,12 @@ fun NowPlayingSheet(
                     )
                 )
         ) {
-            Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
                 // Top row: chevron-down — title — sleep chip
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     NpIconButton(onClick = onDismiss, tint = onBg) {
