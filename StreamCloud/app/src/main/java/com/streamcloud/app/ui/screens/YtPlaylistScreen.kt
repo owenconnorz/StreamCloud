@@ -143,6 +143,11 @@ fun YtPlaylistScreen(
             tracks = fresh
             if (fresh.isNotEmpty()) {
                 com.streamcloud.app.data.ytmusic.PlaylistCache.write(context, playlistId, fresh)
+                // Persist the real track count so the library card shows the correct
+                // number next time — YouTube's subtitle text is often stale/wrong.
+                com.streamcloud.app.data.ytmusic.LibraryCache.updatePlaylistCount(
+                    context, playlistId, fresh.size,
+                )
             }
         } else if (cached == null) {
             tracks = emptyList()
