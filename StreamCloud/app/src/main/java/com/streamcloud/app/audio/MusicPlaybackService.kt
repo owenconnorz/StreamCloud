@@ -153,12 +153,9 @@ class MusicPlaybackService : MediaLibraryService() {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .addNetworkInterceptor { chain ->
-
-
-
-
                 val cookie = ytMusicCookieForStream
-                val req = if (cookie.isNotBlank())
+                val host = chain.request().url.host
+                val req = if (cookie.isNotBlank() && !host.endsWith("googlevideo.com"))
                     chain.request().newBuilder().header("Cookie", cookie).build()
                 else chain.request()
                 chain.proceed(req)
