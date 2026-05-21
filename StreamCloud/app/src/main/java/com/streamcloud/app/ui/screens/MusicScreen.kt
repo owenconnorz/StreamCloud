@@ -1065,7 +1065,15 @@ private fun YtHomePlaylistCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        pl.subtitle?.let {
+        // Prefer the real paginated count over YouTube's stale subtitle count.
+        // cachedTrackCount is null until the playlist has been opened at least
+        // once — at that point it holds the actual track count from full pagination.
+        val displaySubtitle = if (pl.cachedTrackCount != null) {
+            pl.subtitle
+                ?.replace(Regex("\\d+\\s+songs?", RegexOption.IGNORE_CASE), "${pl.cachedTrackCount} songs")
+                ?: "${pl.cachedTrackCount} songs"
+        } else pl.subtitle
+        displaySubtitle?.let {
             Text(
                 it,
                 style = MaterialTheme.typography.bodySmall,
