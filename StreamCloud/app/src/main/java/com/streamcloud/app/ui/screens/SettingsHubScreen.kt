@@ -78,6 +78,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamcloud.app.BuildConfig
+import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.plugins.PluginRepository
@@ -105,7 +106,7 @@ private val ColourSonos      = Color(0xFF56C8D8)
 private enum class SettingsPage {
     SystemUpdate, Appearance, PlayerAudio, Account,
     ListenTogether, Content, AiLyrics, Privacy,
-    Storage, BackupRestore, About
+    Storage, BackupRestore, About, Logs
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -847,6 +848,9 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                     )
                 }
             }
+
+            // ── App logs ──────────────────────────────────────────────────
+            SettingsPage.Logs -> LogsPage(onBack = { currentPage = null })
         }
     }
 
@@ -1004,6 +1008,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit) {
     val context = LocalContext.current
     val checker = remember { UpdateChecker(context.applicationContext) }
     var updateLabel by remember { mutableStateOf<String?>(null) }
+    val errorCount by AppLogger.errorCount.collectAsState()
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -1017,6 +1022,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit) {
         val icon: ImageVector,
         val title: String,
         val badge: String? = null,
+        val badgeError: Boolean = false,
     )
 
     val items = listOf(
@@ -1031,6 +1037,13 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit) {
         HubItem(SettingsPage.Storage,       Icons.Default.Storage,      "Storage"),
         HubItem(SettingsPage.BackupRestore, Icons.Default.CloudUpload,  "Backup and restore"),
         HubItem(SettingsPage.About,         Icons.Default.Info,         "About"),
+        HubItem(
+            page = SettingsPage.Logs,
+            icon = Icons.Default.BugReport,
+            title = "App logs",
+            badge = if (errorCount > 0) "$errorCount error${if (errorCount == 1) "" else "s"}" else null,
+            badgeError = errorCount > 0,
+        ),
     )
 
     LazyColumn(
@@ -1051,10 +1064,11 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit) {
         items(items.size) { i ->
             val item = items[i]
             HubRow(
-                icon    = item.icon,
-                title   = item.title,
-                badge   = item.badge,
-                onClick = { onNavigate(item.page) },
+                icon       = item.icon,
+                title      = item.title,
+                badge      = item.badge,
+                badgeError = item.badgeError,
+                onClick    = { onNavigate(item.page) },
             )
         }
     }
@@ -1065,6 +1079,7 @@ private fun HubRow(
     icon: ImageVector,
     title: String,
     badge: String? = null,
+    badgeError: Boolean = false,
     onClick: () -> Unit,
 ) {
     Row(
@@ -1080,10 +1095,15 @@ private fun HubRow(
             Modifier
                 .size(44.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(HubIconBg),
+                .background(if (badgeError && !badge.isNullOrBlank()) Color(0xFF3D1A1A) else HubIconBg),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = HubIconFg, modifier = Modifier.size(22.dp))
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.error else HubIconFg,
+                modifier = Modifier.size(22.dp),
+            )
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
@@ -1096,7 +1116,7 @@ private fun HubRow(
                 Text(
                     badge,
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.primary,
+                    color = if (badgeError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 )
             }
         }
@@ -1817,6 +1837,176 @@ private fun UiModeDialog(current: String, onPick: (String) -> Unit, onDismiss: (
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//                              App Logs page
+// ══════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun LogsPage(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val entries by AppLogger.entriesFlow.collectAsState()
+    val errorCount by AppLogger.errorCount.collectAsState()
+
+    val errorColor  = MaterialTheme.colorScheme.error
+    val warnColor   = Color(0xFFFFB74D)
+    val infoColor   = MaterialTheme.colorScheme.onSurfaceVariant
+
+    fun levelColor(level: AppLogger.Level) = when (level) {
+        AppLogger.Level.ERROR -> errorColor
+        AppLogger.Level.WARN  -> warnColor
+        AppLogger.Level.INFO  -> infoColor
+    }
+
+    fun levelLabel(level: AppLogger.Level) = when (level) {
+        AppLogger.Level.ERROR -> "E"
+        AppLogger.Level.WARN  -> "W"
+        AppLogger.Level.INFO  -> "I"
+    }
+
+    val sdf = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            if (entries.isNotEmpty()) {
+                TextButton(onClick = {
+                    val text = AppLogger.formatAll()
+                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("StreamCloud logs", text))
+                    android.widget.Toast.makeText(context, "Copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Copy all")
+                }
+                TextButton(
+                    onClick = { AppLogger.clear() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Icon(Icons.Default.DeleteSweep, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Clear")
+                }
+            }
+        }
+
+        Row(
+            Modifier.padding(start = 20.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "App logs",
+                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            if (errorCount > 0) {
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        "$errorCount",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
+        }
+
+        if (entries.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.Check,
+                        null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(48.dp),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "No log entries yet",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        } else {
+            androidx.compose.foundation.lazy.LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                items(entries.size) { i ->
+                    val entry = entries[i]
+                    val lc = levelColor(entry.level)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                when (entry.level) {
+                                    AppLogger.Level.ERROR -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                                    AppLogger.Level.WARN  -> Color(0xFFFFB74D).copy(alpha = 0.08f)
+                                    AppLogger.Level.INFO  -> MaterialTheme.colorScheme.surfaceContainerHigh
+                                }
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text(
+                            levelLabel(entry.level),
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+                            color = lc,
+                            modifier = Modifier.width(14.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    entry.tag,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = lc,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    sdf.format(java.util.Date(entry.timeMs)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                )
+                            }
+                            Text(
+                                entry.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private fun formatBytes(bytes: Long): String = when {
