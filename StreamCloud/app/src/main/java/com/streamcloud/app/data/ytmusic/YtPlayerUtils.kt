@@ -102,6 +102,7 @@ object YtPlayerUtils {
                 "osVersion"         to "14",
                 "androidSdkVersion" to "34",
             ),
+            supportsAuth  = false,
         ),
 
         ClientConfig(
@@ -370,7 +371,6 @@ object YtPlayerUtils {
             val url = buildString {
                 append(rawUrl)
                 append("&cpn=").append(cpn)
-                append("&range=0-").append(contentLength ?: 10_000_000L)
             }
 
             val loudnessDb = root["playerConfig"]
