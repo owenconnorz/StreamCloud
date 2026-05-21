@@ -67,6 +67,9 @@ object SettingsKeys {
 
     // Audio
     val LOUDNESS_NORMALIZATION  = booleanPreferencesKey("loudness_normalization")
+
+    // Spotify Canvas
+    val CANVAS_ENABLED = booleanPreferencesKey("canvas_enabled")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -245,4 +248,9 @@ class SettingsRepository(private val context: Context) {
     val loudnessNormalization: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.LOUDNESS_NORMALIZATION] ?: false }
 
     suspend fun setLoudnessNormalization(b: Boolean) = context.dataStore.edit { it[SettingsKeys.LOUDNESS_NORMALIZATION] = b }
+
+    // Spotify Canvas
+    val canvasEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.CANVAS_ENABLED] ?: false }
+
+    suspend fun setCanvasEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.CANVAS_ENABLED] = b }
 }

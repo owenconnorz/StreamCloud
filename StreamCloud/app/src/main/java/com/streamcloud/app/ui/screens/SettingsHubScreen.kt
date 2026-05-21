@@ -159,6 +159,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var lyricsSource        by remember { mutableStateOf("lrclib") }
     var syncedLyrics        by remember { mutableStateOf(true) }
     var loudnessNorm        by remember { mutableStateOf(false) }
+    var canvasEnabled       by remember { mutableStateOf(false) }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
 
     // ── Dialog visibility flags ────────────────────────────────────────────
@@ -208,6 +209,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         lyricsSource        = sl.settings.lyricsSource.first()
         syncedLyrics        = sl.settings.syncedLyrics.first()
         loudnessNorm        = sl.settings.loudnessNormalization.first()
+        canvasEnabled       = sl.settings.canvasEnabled.first()
         safeSearch          = sl.settings.safeSearch.first()
         explicitContent     = sl.settings.explicitContent.first()
         contentLanguage     = sl.settings.contentLanguage.first()
@@ -415,6 +417,14 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                         title = "New player design",
                         checked = newPlayerDesign,
                         onChange = { newPlayerDesign = it; scope.launch { sl.settings.setNewPlayerDesign(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.PlayCircle, tint = Color(0xFF1ED760),
+                        title = "Spotify Canvas",
+                        subtitle = "Show a short looping video behind the now-playing screen",
+                        checked = canvasEnabled,
+                        onChange = { canvasEnabled = it; scope.launch { sl.settings.setCanvasEnabled(it) } },
                     )
                     SettingDivider()
                     SettingNav(
