@@ -47,6 +47,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaLibraryService() {
@@ -63,6 +67,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
     @Volatile private var ytMusicCookieForStream: String = ""
+    private val nThrottledVideoIds = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
 
 
@@ -94,6 +99,23 @@ class MusicPlaybackService : MediaLibraryService() {
             .apply {
                 playWhenReady = false
             }
+
+        player.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                val is403 = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS &&
+                    generateSequence<Throwable>(error) { it.cause }
+                        .any { "403" in (it.message ?: "") }
+                if (!is403) return
+                val videoId = player.currentMediaItem?.mediaId
+                    ?.substringAfter("v=", "")?.substringBefore("&")?.ifBlank { null } ?: return
+                if (nThrottledVideoIds.add(videoId)) {
+                    StreamUrlCache.remove(videoId)
+                    AppLogger.w(TAG, "403 for $videoId — n-throttled, retrying via NewPipe")
+                    player.prepare()
+                    player.play()
+                }
+            }
+        })
 
         val sessionActivityIntent = PendingIntent.getActivity(
             this, 0,
@@ -224,25 +246,27 @@ class MusicPlaybackService : MediaLibraryService() {
         }
 
 
-        val innertubeResult = runBlocking(Dispatchers.IO) {
-            runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }
+        if (videoId !in nThrottledVideoIds) {
+            val innertubeResult = runBlocking(Dispatchers.IO) {
+                runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }
+            }
+            val info = innertubeResult.getOrNull()
+            if (innertubeResult.isFailure) {
+                AppLogger.w(TAG, "Innertube failed for $videoId", innertubeResult.exceptionOrNull())
+            }
+            if (info != null) {
+                val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
+                StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs)
+                AppLogger.i(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
+                Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} ua=${info.userAgent.take(40)}")
+                return Pair(info.url, info.userAgent)
+            }
+        } else {
+            AppLogger.w(TAG, "Skipping Innertube for n-throttled $videoId — going straight to NewPipe")
         }
-        val info = innertubeResult.getOrNull()
-        if (innertubeResult.isFailure) {
-            AppLogger.w(TAG, "Innertube failed for $videoId", innertubeResult.exceptionOrNull())
-        }
-        if (info != null) {
-            val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
-            StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs)
-            AppLogger.i(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
-            Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} ua=${info.userAgent.take(40)}")
-            return Pair(info.url, info.userAgent)
-        }
-
-
 
         val npUserAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip"
-        AppLogger.w(TAG, "Innertube returned no result for $videoId — falling back to NewPipe")
+        AppLogger.w(TAG, "$videoId — falling back to NewPipe")
         Log.d(TAG, "Innertube failed for $videoId — falling back to NewPipe")
         val npResult = runBlocking(Dispatchers.IO) {
             runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }
