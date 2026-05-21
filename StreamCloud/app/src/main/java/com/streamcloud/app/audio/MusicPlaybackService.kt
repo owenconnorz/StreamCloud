@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Foreground [MediaLibraryService] for music playback and Android Auto / Automotive OS.
@@ -78,6 +80,25 @@ class MusicPlaybackService : MediaLibraryService() {
 
     /** Cached YT Music library — refreshed at startup and on cookie change. */
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
+
+    /**
+     * In-memory stream-URL cache: videoId → (streamUrl, expiryEpochMs).
+     *
+     * YouTube CDN URLs are valid for ~6 hours (expiresInSeconds ≈ 21 600).
+     * Without this cache, ResolvingDataSource calls the resolver lambda on
+     * *every* ExoPlayer data-spec request — content-length probes, seek
+     * range requests, rebuffer fills — meaning a single track playback can
+     * trigger 5–10 Innertube POSTs (300–800 ms each), causing the "stuck at
+     * 0:00 / slow to start" symptom.
+     *
+     * The cache is keyed on videoId so it also survives seek operations and
+     * auto-advance to the same track in a loop.  URLs are evicted automatically
+     * when their CDN expiry approaches (5-minute buffer before the real expiry).
+     *
+     * Thread safety: ConcurrentHashMap — safe for concurrent reads/writes from
+     * ExoPlayer's loader thread and the ioScope coroutines.
+     */
+    private val streamUrlCache = ConcurrentHashMap<String, Pair<String, Long>>()
 
     private val sl by lazy { ServiceLocator.get(applicationContext) }
 
@@ -155,15 +176,19 @@ class MusicPlaybackService : MediaLibraryService() {
 
         return ResolvingDataSource.Factory(chainedCacheFactory) { dataSpec ->
             val cacheKey = dataSpec.key ?: dataSpec.uri.toString()
-            val length = if (dataSpec.length >= 0) dataSpec.length else 1L
+            // Use 1 byte as the probe length when ExoPlayer sends an open-ended
+            // request (length = -1) — enough to determine if any bytes are cached.
+            val probeLen = if (dataSpec.length >= 0) dataSpec.length else 1L
 
-            if (downloadCache.isCached(cacheKey, dataSpec.position, length) ||
-                playerCache.isCached(cacheKey, dataSpec.position, length)
+            // Fast path: bytes already in one of the two caches — no network needed.
+            if (downloadCache.isCached(cacheKey, dataSpec.position, probeLen) ||
+                playerCache.isCached(cacheKey, dataSpec.position, probeLen)
             ) return@Factory dataSpec
 
             val watchUrl = if (cacheKey.startsWith("http")) cacheKey
                            else "https://music.youtube.com/watch?v=$cacheKey"
 
+            // Local file path (legacy OkHttp downloads).
             val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
             val localPath = runBlocking(Dispatchers.IO) { dao.byUrl(watchUrl)?.localPath }
             if (localPath != null && File(localPath).exists()) {
@@ -171,12 +196,63 @@ class MusicPlaybackService : MediaLibraryService() {
             }
 
             val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
-            val streamUrl = runBlocking(Dispatchers.IO) {
-                (if (videoId.isNotBlank()) YtPlayerUtils.resolveAudioStream(videoId) else null)
-                    ?: NewPipeRepository.resolveAudioStream(watchUrl)
-            }
+            val streamUrl = resolveStreamUrl(videoId, watchUrl)
             dataSpec.withUri(streamUrl.toUri())
         }
+    }
+
+    /**
+     * Resolve the playable stream URL for [videoId], with an in-memory expiry
+     * cache so that repeated ExoPlayer data-spec calls for the same track
+     * (seek probes, range requests, rebuffer fills) never incur a second
+     * network round-trip.
+     *
+     * Resolution order (mirrors Metrolist):
+     *  1. [streamUrlCache] hit and URL not yet expired → return immediately
+     *  2. [YtPlayerUtils.resolveAudioFormatInfo] — single Innertube POST,
+     *     typically 300–800 ms; stores URL with CDN expiry - 5 min buffer
+     *  3. [NewPipeRepository.resolveAudioStream] fallback — parses watch page
+     *     HTML (~3–8 s); result cached for 1 hour
+     *
+     * Throws if both resolvers fail so ExoPlayer can surface a proper error
+     * to the UI instead of silently crashing on a null URI.
+     */
+    private fun resolveStreamUrl(videoId: String, watchUrl: String): String {
+        val now = System.currentTimeMillis()
+
+        // 1. Cache hit
+        streamUrlCache[videoId]?.let { (url, expiryMs) ->
+            if (now < expiryMs) {
+                Log.d(TAG, "streamUrlCache hit for $videoId (expires in ${(expiryMs - now) / 1000}s)")
+                return url
+            }
+            Log.d(TAG, "streamUrlCache expired for $videoId — re-resolving")
+        }
+
+        // 2. Innertube path
+        val info = runBlocking(Dispatchers.IO) {
+            if (videoId.isNotBlank()) {
+                runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }.getOrNull()
+            } else null
+        }
+        if (info != null) {
+            // Subtract a 5-minute safety buffer from the CDN URL's declared lifetime.
+            val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
+            streamUrlCache[videoId] = Pair(info.url, expiryMs)
+            Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
+            return info.url
+        }
+
+        // 3. NewPipe fallback (slower — parses watch-page HTML + deobfuscates nsig)
+        Log.d(TAG, "Innertube failed for $videoId — falling back to NewPipe")
+        val npUrl = runBlocking(Dispatchers.IO) {
+            runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+        } ?: error("Both Innertube and NewPipe failed to resolve stream for $videoId")
+
+        // Cache NewPipe URLs for 1 hour (YouTube doesn't tell us their expiry).
+        streamUrlCache[videoId] = Pair(npUrl, now + 3_600_000L)
+        Log.d(TAG, "NewPipe resolved $videoId (cached 1 h)")
+        return npUrl
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
@@ -516,6 +592,7 @@ class MusicPlaybackService : MediaLibraryService() {
     }
 
     companion object {
+        private const val TAG    = "MusicPlaybackService"
         const val ROOT_ID        = "streamcloud_root"
         const val HOME_ID        = "streamcloud_home"
         const val LIBRARY_ID     = "streamcloud_library"
