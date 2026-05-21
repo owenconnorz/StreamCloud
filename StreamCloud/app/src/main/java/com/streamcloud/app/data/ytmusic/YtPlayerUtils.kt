@@ -89,19 +89,19 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 2. ANDROID 19.29.37 — standard YouTube Android client ────────
+        // ── 2. ANDROID 21.03.38 — standard YouTube Android client ────────
         // Plain URLs, no cipher, no bot-detection.
         ClientConfig(
             label         = "ANDROID",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName    = "ANDROID",
             clientId      = "3",
-            clientVersion = "19.29.37",
-            userAgent     = "com.google.android.youtube/19.29.37 (Linux; U; Android 11) gzip",
+            clientVersion = "21.03.38",
+            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
             extraClientFields = mapOf(
                 "osName"            to "Android",
-                "osVersion"         to "11",
-                "androidSdkVersion" to "30",
+                "osVersion"         to "14",
+                "androidSdkVersion" to "34",
             ),
         ),
 
@@ -162,7 +162,7 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 6. IOS 19.29.4 — iPhone client ───────────────────────────────
+        // ── 6. IOS 21.03.1 — iPhone client ───────────────────────────────
         // Resolves plain URLs; YouTube CDN sometimes enforces iOS-specific
         // TLS fingerprint constraints on Android fetches.
         ClientConfig(
@@ -170,61 +170,51 @@ object YtPlayerUtils {
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName    = "IOS",
             clientId      = "5",
-            clientVersion = "19.29.4",
-            userAgent     = "com.google.ios.youtube/19.29.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
+            clientVersion = "21.03.1",
+            userAgent     = "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
             extraClientFields = mapOf(
                 "deviceMake"  to "Apple",
                 "deviceModel" to "iPhone16,2",
                 "osName"      to "iPhone",
-                "osVersion"   to "17.5.1.21F90",
+                "osVersion"   to "18.2.22C152",
             ),
         ),
 
-        // ── 7. IPADOS 19.29.4 — iPad IOS variant ────────────────────────
+        // ── 7. IPADOS 21.03.3 — iPad IOS variant ─────────────────────────
         ClientConfig(
             label         = "IPADOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName    = "IOS",
             clientId      = "5",
-            clientVersion = "19.29.4",
-            userAgent     = "com.google.ios.youtube/19.29.4 (iPad7,6; U; CPU iPadOS 17_5_1 like Mac OS X; en-US)",
+            clientVersion = "21.03.3",
+            userAgent     = "com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)",
             extraClientFields = mapOf(
                 "deviceMake"  to "Apple",
                 "deviceModel" to "iPad7,6",
                 "osName"      to "iPadOS",
-                "osVersion"   to "17.5.1.21F90",
+                "osVersion"   to "17.7.10.21H450",
             ),
         ),
 
-        // ── 8. TVHTML5_SIMPLY_EMBEDDED_PLAYER — age-gate bypass ──────────
-        // PlayStation 4 TV-embedded client (clientId=85).  Metrolist uses this
-        // as its FIRST fallback for age-restricted content.  It does NOT require
-        // a PoToken — the embedUrl in context.thirdParty acts as the proof that
-        // the video is being played inside an embedded iframe, which YouTube
-        // accepts as a substitute for user age verification.
-        // Works for age-gated AND many region-blocked tracks.
+        // ── 8. ANDROID_CREATOR 25.03.101 — YouTube Studio Android client ──
+        // YouTube Creator (Studio) app for Android.  Metrolist includes this
+        // in its fallback chain — it can play content that the regular ANDROID
+        // and ANDROID_MUSIC clients cannot (kids content, certain regional
+        // videos, etc.).  Returns plain URLs without cipher.
         ClientConfig(
-            label             = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            playerUrl         = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName        = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientId          = "85",
-            clientVersion     = "2.0",
-            userAgent         = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
-            embedUrlTemplate  = "https://www.youtube.com/embed/%VIDEO_ID%",
-        ),
-
-        // ── 9. WEB_CREATOR — authenticated age-gate bypass ───────────────
-        // YouTube Studio web client (clientId=62).  Metrolist uses this when
-        // the user IS signed in and the main response is age-restricted.
-        // Only attempted when a YTM cookie is present (requiresAuth=true).
-        ClientConfig(
-            label         = "WEB_CREATOR",
+            label         = "ANDROID_CREATOR",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "WEB_CREATOR",
-            clientId      = "62",
-            clientVersion = "1.20260213.00.00",
-            userAgent     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
-            requiresAuth  = true,
+            clientName    = "ANDROID_CREATOR",
+            clientId      = "14",
+            clientVersion = "25.03.101",
+            userAgent     = "com.google.android.apps.youtube.creator/25.03.101 (Linux; U; Android 15; en_US; Pixel 9 Pro Fold; Build/AP3A.241005.015.A2; Cronet/132.0.6779.0)",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "15",
+                "deviceMake"        to "Google",
+                "deviceModel"       to "Pixel 9 Pro Fold",
+                "androidSdkVersion" to "35",
+            ),
         ),
     )
 
