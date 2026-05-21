@@ -18,10 +18,10 @@ fun parseChallengeData(rawChallengeData: String): String {
         scrambled[0].jsonArray
     }
 
-    val messageId     = challengeData[0].jsonPrimitive.content
-    val interpreterHash = challengeData[3].jsonPrimitive.content
-    val program       = challengeData[4].jsonPrimitive.content
-    val globalName    = challengeData[5].jsonPrimitive.content
+    val messageId               = challengeData[0].jsonPrimitive.content
+    val interpreterHash         = challengeData[3].jsonPrimitive.content
+    val program                 = challengeData[4].jsonPrimitive.content
+    val globalName              = challengeData[5].jsonPrimitive.content
     val clientExperimentsStateBlob = challengeData[7].jsonPrimitive.content
 
     val safeScriptWrapped = challengeData[1]
@@ -29,17 +29,17 @@ fun parseChallengeData(rawChallengeData: String): String {
     val trustedResourceUrlWrapped = challengeData[2]
         .takeIf { it !is JsonNull }?.jsonArray?.find { it.jsonPrimitive.isString }
 
-    return Json.encodeToString<JsonObject>(JsonObject(mapOf(
+    return JsonObject(mapOf(
         "messageId" to JsonPrimitive(messageId),
         "interpreterJavascript" to JsonObject(mapOf(
             "privateDoNotAccessOrElseSafeScriptWrappedValue" to (safeScriptWrapped ?: JsonNull),
             "privateDoNotAccessOrElseTrustedResourceUrlWrappedValue" to (trustedResourceUrlWrapped ?: JsonNull),
         )),
-        "interpreterHash" to JsonPrimitive(interpreterHash),
-        "program"    to JsonPrimitive(program),
-        "globalName" to JsonPrimitive(globalName),
-        "clientExperimentsStateBlob" to JsonPrimitive(clientExperimentsStateBlob),
-    )))
+        "interpreterHash"              to JsonPrimitive(interpreterHash),
+        "program"                      to JsonPrimitive(program),
+        "globalName"                   to JsonPrimitive(globalName),
+        "clientExperimentsStateBlob"   to JsonPrimitive(clientExperimentsStateBlob),
+    )).toString()
 }
 
 fun parseIntegrityTokenData(rawIntegrityTokenData: String): Pair<String, Long> {
