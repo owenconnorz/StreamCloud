@@ -226,7 +226,12 @@ fun NowPlayingShell(
                 )
             )
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
             // ── Top row: chevron-down · "Now Playing" + queue label · placeholder
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 NpIconButton(onClick = onClose, tint = onBg) {
