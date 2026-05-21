@@ -745,11 +745,23 @@ private fun YtArtistTile(a: YtmLibraryArtist, onClick: () -> Unit) {
 @Composable
 private fun YtSongRow(s: YtmSong, onClick: () -> Unit) {
     val context = LocalContext.current
-    // Check the downloaded state of this row's track without blocking the UI
-    // thread — flips the tick on as soon as the file lands on disk.
     var downloaded by remember(s.videoId) {
         mutableStateOf(com.streamcloud.app.data.ytmusic.YtPlayback.isDownloaded(context, s))
     }
+
+    // React to Media3 DownloadManager state changes (mirrors the playlist fix).
+    // Without this, the tick only updates for OkHttp downloads, never for
+    // YtMusicDownloadUtil (Media3) downloads.
+    LaunchedEffect(s.videoId) {
+        val url = com.streamcloud.app.data.ytmusic.YtPlayback.watchUrl(s.videoId)
+        com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads.collect { dlMap ->
+            val state = dlMap[url]?.state
+            downloaded = (state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED)
+                || com.streamcloud.app.data.downloads.MusicDownloader.isDownloaded(context, url)
+        }
+    }
+
+    // Also handle legacy OkHttp (MusicDownloader) progress → completion transitions.
     val downloadProgressMap by com.streamcloud.app.data.downloads.MusicDownloader.progressFlow
         .collectAsState(initial = emptyMap())
     LaunchedEffect(s.videoId, downloadProgressMap) {
