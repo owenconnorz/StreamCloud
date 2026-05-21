@@ -89,10 +89,24 @@ class YtMusicLoginActivity : ComponentActivity() {
                     """
                     (function () {
                       try {
-                        var btn = document.querySelector('button[aria-label][id="avatar-btn"], #avatar-btn button, ytmusic-pivot-bar-renderer ytmusic-pivot-bar-item-renderer[tab-id="FEmusic_account"]');
+                        // Strategy 1 — yt.config_ LOGGED_IN_USER_DATA (most reliable;
+                        // this JS object is always present when signed in and is not
+                        // affected by Polymer/LitElement component render timing).
+                        var cfg = (window.yt && window.yt.config_ && window.yt.config_['LOGGED_IN_USER_DATA']) || null;
+                        if (cfg && cfg['photoUrl']) {
+                          return JSON.stringify({ name: cfg['name'] || '', avatar: cfg['photoUrl'] || '' });
+                        }
+                        // Strategy 2 — ytcfg global (older YouTube Music builds).
+                        var ytcfgData = (window.ytcfg && window.ytcfg.data_ && window.ytcfg.data_['LOGGED_IN_USER_DATA']) || null;
+                        if (ytcfgData && ytcfgData['photoUrl']) {
+                          return JSON.stringify({ name: ytcfgData['name'] || '', avatar: ytcfgData['photoUrl'] || '' });
+                        }
+                        // Strategy 3 — DOM scraping fallback (breaks if YouTube changes
+                        // their Polymer component names, which is why this is last).
+                        var btn = document.querySelector('#avatar-btn, ytmusic-settings-button, [data-testid="account-photo"]');
                         var name = btn ? (btn.getAttribute('aria-label') || '').trim() : '';
-                        var img = document.querySelector('#avatar-btn img, ytmusic-settings-button img, img.ytmusic-settings-button');
-                        var avatar = img ? (img.getAttribute('src') || '').trim() : '';
+                        var img = document.querySelector('#avatar-btn img, ytmusic-settings-button img, yt-img-shadow img, [data-testid="account-photo"] img');
+                        var avatar = img ? (img.getAttribute('src') || img.getAttribute('data-src') || '').trim() : '';
                         return JSON.stringify({ name: name, avatar: avatar });
                       } catch (e) { return JSON.stringify({ name: '', avatar: '' }); }
                     })();
@@ -140,10 +154,12 @@ class YtMusicLoginActivity : ComponentActivity() {
             // user's name. Strip the prefix when present.
             .substringAfterLast('—').trim()
             .ifBlank { nameMatch?.groupValues?.getOrNull(1).orEmpty().trim() }
-        // Bump the avatar to s256 (default is s48 / s64) so the in-app round
-        // button doesn't pixelate on hidpi displays.
+        // Bump the avatar to s256 so the round button looks sharp on hidpi displays.
+        // Strip everything from =s\d+ to end-of-string (the modern googleusercontent.com
+        // format appends extra flags like -c-k-c0x00ffffff-no-rj after the size) and
+        // replace the whole suffix with just =s256 so the URL stays valid.
         val avatar = avatarMatch?.groupValues?.getOrNull(1).orEmpty()
-            .replace(Regex("=s\\d+(-c)?"), "=s256")
+            .replace(Regex("=s\\d+.*$"), "=s256")
         return name to avatar
     }
 }
