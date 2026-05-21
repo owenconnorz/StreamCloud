@@ -52,6 +52,14 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         // them to a SharedPreferences instance scoped to this process.
         com.lagradost.cloudstream3.installPrefs(this)
 
+        // Eagerly initialise the Media3 DownloadManager so its in-memory `downloads`
+        // StateFlow is populated from the SQLite index on every app start — not just
+        // when a new download is enqueued. Without this, tick marks disappear after a
+        // force-close because the lazy singleton is never initialised.
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloadManager(this@StreamCloudApplication)
+        }
+
         // Mirror the persisted YT Music cookie into the NewPipe HTTP shim so authenticated
         // requests Just Work after process restart. The flow keeps the in-memory copy in
         // sync with future logins/logouts.
