@@ -167,6 +167,16 @@ class MusicPlaybackService : MediaLibraryService() {
                 }
             }
         }
+
+        // Keep Innertube hl/gl in sync with the user's content-region settings.
+        // All Innertube callers (YtPlayerUtils, InnerTubeClient, EndlessPlayback, …)
+        // read from these volatile vars — same approach Metrolist uses.
+        ioScope.launch {
+            sl.settings.contentLanguage.collect { YtPlayerUtils.contentLanguage = it }
+        }
+        ioScope.launch {
+            sl.settings.contentCountry.collect { YtPlayerUtils.contentCountry = it }
+        }
     }
 
     // ── Data source factory ───────────────────────────────────────────────

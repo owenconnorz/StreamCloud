@@ -46,7 +46,8 @@ object EndlessPlayback {
                 putJsonObject("client") {
                     put("clientName", "WEB_REMIX")
                     put("clientVersion", "1.20250127.01.00")
-                    put("hl", "en"); put("gl", "US")
+                    put("hl", YtPlayerUtils.contentLanguage)
+                    put("gl", YtPlayerUtils.contentCountry)
                     put("platform", "DESKTOP")
                 }
             }
