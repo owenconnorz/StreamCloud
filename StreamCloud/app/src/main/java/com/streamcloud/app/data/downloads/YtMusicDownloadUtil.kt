@@ -148,9 +148,15 @@ object YtMusicDownloadUtil {
                         // for any typical music track at any quality.
                         val len = info.contentLength ?: 10_000_000L
                         "${info.url}&range=0-$len"
-                    } else null
-                } else null
-            } ?: NewPipeRepository.resolveAudioStream(watchUrl)
+                    } else {
+                        // Innertube failed — fall back to NewPipe (slower but reliable).
+                        // Must stay inside runBlocking because resolveAudioStream is suspend.
+                        NewPipeRepository.resolveAudioStream(watchUrl)
+                    }
+                } else {
+                    NewPipeRepository.resolveAudioStream(watchUrl)
+                }
+            }
 
             // Cache for 3 hours (YouTube CDN URLs typically expire after ~6 h).
             urlCache[cacheKey] = streamUrl to (System.currentTimeMillis() + URL_CACHE_TTL_MS)
