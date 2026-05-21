@@ -114,8 +114,8 @@ object YtMusicPlaylistRepository {
             putJsonObject("client") {
                 put("clientName", "WEB_REMIX")
                 put("clientVersion", CLIENT_VERSION)
-                put("hl", "en")
-                put("gl", "US")
+                put("hl", YtPlayerUtils.contentLanguage)
+                put("gl", YtPlayerUtils.contentCountry)
                 put("platform", "DESKTOP")
             }
             putJsonObject("user") {

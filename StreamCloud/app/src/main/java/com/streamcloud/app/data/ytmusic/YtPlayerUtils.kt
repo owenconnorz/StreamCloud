@@ -203,6 +203,14 @@ object YtPlayerUtils {
     @Volatile var ytMusicCookie: String = ""
 
     /**
+     * Content language (Innertube `hl`) and country/region (`gl`).
+     * Kept in sync by MusicPlaybackService from SettingsRepository so every
+     * Innertube player request honours the user's preference, just like Metrolist.
+     */
+    @Volatile var contentLanguage: String = "en"
+    @Volatile var contentCountry:  String = "US"
+
+    /**
      * Cached `visitorData` string from YouTube's visitor_id endpoint.
      * Sent as `context.client.visitorData` and `X-Goog-Visitor-Id` header.
      * Without this, IOS and ANDROID clients may receive throttled or
@@ -225,8 +233,8 @@ object YtPlayerUtils {
                     putJsonObject("client") {
                         put("clientName", "WEB")
                         put("clientVersion", "2.20240101.00.00")
-                        put("hl", "en")
-                        put("gl", "US")
+                        put("hl", contentLanguage)
+                        put("gl", contentCountry)
                     }
                 }
             }
@@ -409,8 +417,8 @@ object YtPlayerUtils {
                     put("clientName", client.clientName)
                     put("clientVersion", client.clientVersion)
                     put("userAgent", client.userAgent)
-                    put("hl", "en")
-                    put("gl", "US")
+                    put("hl", contentLanguage)
+                    put("gl", contentCountry)
                     // visitorData ties requests to a session, reducing bot-detection
                     // false-positives on IOS and ANDROID clients.
                     if (vd != null) put("visitorData", vd)
