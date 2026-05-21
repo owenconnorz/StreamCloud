@@ -19,88 +19,145 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * Fast audio stream resolver — multi-client Innertube approach.
+ * Audio stream resolver — multi-client Innertube waterfall.
  *
- * YouTube's bot-detection (PoToken) causes many clients to receive either ciphered
- * stream URLs (signatureCipher instead of url) or empty adaptiveFormats.  We try
- * four clients in priority order, stopping at the first that returns a plain,
- * un-ciphered audio stream URL:
+ * Client priority (based on Metrolist's validated order):
  *
- *   1. IOS (client id 5) — historically the most reliable client that bypasses
- *      PoToken requirements and returns pre-signed URLs for all content.
- *   2. TVHTML5_SIMPLY_EMBEDDED_PLAYER (client id 85) — embedded TV player with
- *      thirdParty.embedUrl context; designed for third-party embedding and exempt
- *      from PoToken requirements.
- *   3. ANDROID (client id 3) — reliable for most content, some videos now require
- *      PoToken since mid-2024 which may cause cipher-only responses.
- *   4. ANDROID_MUSIC (client id 21) — YouTube Music specific, best for YTM
- *      metadata (loudnessDb), kept as last-resort Innertube attempt.
+ *   1. ANDROID_VR 1.61.48 — Oculus Quest 3 client, returns plain URLs,
+ *      no PoToken or cipher required.  Most reliable as of 2025.
+ *   2. ANDROID_VR 1.43.32 — Older Oculus VR client, same properties.
+ *   3. IOS 21.03.1        — iPhone client, historically PoToken-exempt,
+ *      pre-signed plain URLs.
+ *   4. IPADOS 21.03.3     — iPad variant of the IOS client.
+ *   5. TV_EMBEDDED        — TVHTML5_SIMPLY_EMBEDDED_PLAYER (id=85),
+ *      bypass for age-restricted content.  embedUrl must be video-specific.
+ *   6. ANDROID 21.03.38   — General fallback.
+ *   7. ANDROID_MUSIC 7.27.52 — YTM-specific, best loudnessDb metadata.
  *
- * If every client returns only cipher formats or no audio, null is returned and
- * MusicPlaybackService falls back to NewPipe.
+ * All clients except TV_EMBEDDED return plain stream URLs without cipher,
+ * so no WebView-based cipher deobfuscation is required.
  */
 object YtPlayerUtils {
 
     private const val TAG = "YtPlayerUtils"
 
-    // ── Innertube client descriptors ─────────────────────────────────────
+    // ── Client descriptors ────────────────────────────────────────────────
 
     private data class ClientConfig(
-        /** Human-readable label for logging / AppLogger. */
         val label: String,
+        /** Innertube player endpoint — use music.youtube.com for ANDROID_MUSIC. */
         val playerUrl: String,
         val clientName: String,
-        /** Numeric string sent in X-YouTube-Client-Name header. */
+        /** Sent in X-YouTube-Client-Name header (numeric string). */
         val clientId: String,
         val clientVersion: String,
         val userAgent: String,
-        /** Additional fields injected into the JSON context.client object. */
+        /** Extra fields merged into context.client JSON object. */
         val extraClientFields: Map<String, Any> = emptyMap(),
         /**
-         * If non-null, a `thirdParty { embedUrl }` object is added to the
-         * Innertube context.  Required for TVHTML5_SIMPLY_EMBEDDED_PLAYER to
-         * correctly bypass PoToken restrictions.
+         * When non-null, context.thirdParty { embedUrl } is added.
+         * Use "%VIDEO_ID%" as placeholder — it is replaced with the actual
+         * video ID at request time.  Required for TVHTML5_SIMPLY_EMBEDDED_PLAYER.
          */
-        val embedUrl: String? = null,
+        val embedUrlTemplate: String? = null,
     )
 
     private val CLIENTS = listOf(
-        // ── 1. IOS — most reliable PoToken bypass, pre-signed URLs ───────────
+
+        // ── 1. ANDROID_VR 1.61.48 — most reliable, plain URLs ────────────
+        ClientConfig(
+            label         = "ANDROID_VR_1_61_48",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_VR",
+            clientId      = "28",
+            clientVersion = "1.61.48",
+            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
+            extraClientFields = mapOf(
+                "osName"           to "Android",
+                "osVersion"        to "12",
+                "deviceMake"       to "Oculus",
+                "deviceModel"      to "Quest 3",
+                "androidSdkVersion" to "32",
+            ),
+        ),
+
+        // ── 2. ANDROID_VR 1.43.32 — second VR client ─────────────────────
+        ClientConfig(
+            label         = "ANDROID_VR_1_43_32",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_VR",
+            clientId      = "28",
+            clientVersion = "1.43.32",
+            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
+            extraClientFields = mapOf(
+                "osName"           to "Android",
+                "osVersion"        to "12",
+                "deviceMake"       to "Oculus",
+                "deviceModel"      to "Quest 3",
+                "androidSdkVersion" to "32",
+            ),
+        ),
+
+        // ── 3. IOS 21.03.1 — pre-signed URLs, PoToken-exempt ─────────────
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName    = "IOS",
             clientId      = "5",
-            clientVersion = "19.45.4",
-            userAgent     = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)",
+            clientVersion = "21.03.1",
+            userAgent     = "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
             extraClientFields = mapOf(
                 "deviceMake"  to "Apple",
                 "deviceModel" to "iPhone16,2",
                 "osName"      to "iPhone",
-                "osVersion"   to "18.1.0.22B83",
+                "osVersion"   to "18.2.22C152",
             ),
         ),
-        // ── 2. TVHTML5_SIMPLY_EMBEDDED_PLAYER — embedded, PoToken-exempt ─────
+
+        // ── 4. IPADOS 21.03.3 — iPad IOS variant ─────────────────────────
         ClientConfig(
-            label         = "TV_EMBEDDED",
+            label         = "IPADOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientId      = "85",
-            clientVersion = "2.0",
-            userAgent     = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/6.0 TV Safari/538.1",
-            embedUrl      = "https://www.youtube.com/",
+            clientName    = "IOS",
+            clientId      = "5",
+            clientVersion = "21.03.3",
+            userAgent     = "com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)",
+            extraClientFields = mapOf(
+                "deviceMake"  to "Apple",
+                "deviceModel" to "iPad7,6",
+                "osName"      to "iPadOS",
+                "osVersion"   to "17.7.10.21H450",
+            ),
         ),
-        // ── 3. ANDROID — good general coverage ───────────────────────────────
+
+        // ── 5. TV_EMBEDDED — age-restriction bypass ───────────────────────
+        // embedUrl must be video-specific: Metrolist uses watch?v=<videoId>
+        ClientConfig(
+            label             = "TV_EMBEDDED",
+            playerUrl         = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName        = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientId          = "85",
+            clientVersion     = "2.0",
+            userAgent         = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+            embedUrlTemplate  = "https://www.youtube.com/watch?v=%VIDEO_ID%",
+        ),
+
+        // ── 6. ANDROID 21.03.38 — general fallback ───────────────────────
         ClientConfig(
             label         = "ANDROID",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName    = "ANDROID",
             clientId      = "3",
-            clientVersion = "19.44.38",
-            userAgent     = "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf("androidSdkVersion" to 30),
+            clientVersion = "21.03.38",
+            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
+            extraClientFields = mapOf(
+                "osName"           to "Android",
+                "osVersion"        to "14",
+                "androidSdkVersion" to "34",
+            ),
         ),
-        // ── 4. ANDROID_MUSIC — YTM-specific metadata fallback ────────────────
+
+        // ── 7. ANDROID_MUSIC 7.27.52 — YTM-specific last resort ──────────
         ClientConfig(
             label         = "ANDROID_MUSIC",
             playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -108,7 +165,11 @@ object YtPlayerUtils {
             clientId      = "21",
             clientVersion = "7.27.52",
             userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf("androidSdkVersion" to 30),
+            extraClientFields = mapOf(
+                "osName"           to "Android",
+                "osVersion"        to "11",
+                "androidSdkVersion" to "30",
+            ),
         ),
     )
 
@@ -152,7 +213,7 @@ object YtPlayerUtils {
                     return@withContext result.info
                 }
                 is ClientResult.CipheredOnly -> {
-                    AppLogger.w(TAG, "[${client.label}] $videoId — all streams ciphered (PoToken required), trying next client")
+                    AppLogger.w(TAG, "[${client.label}] $videoId — all streams ciphered, trying next client")
                     Log.d(TAG, "[${client.label}] $videoId ciphered-only")
                 }
                 is ClientResult.NoStreams -> {
@@ -210,7 +271,6 @@ object YtPlayerUtils {
 
             if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason)
 
-            // Filter to formats that have a plain url (not signatureCipher).
             val plainUrl = audioOnly.filter {
                 it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
             }
@@ -252,6 +312,8 @@ object YtPlayerUtils {
     }
 
     private fun fetchPlayerResponse(client: ClientConfig, videoId: String): JsonObject? {
+        val resolvedEmbedUrl = client.embedUrlTemplate?.replace("%VIDEO_ID%", videoId)
+
         val body = buildJsonObject {
             putJsonObject("context") {
                 putJsonObject("client") {
@@ -269,9 +331,9 @@ object YtPlayerUtils {
                         }
                     }
                 }
-                // TVHTML5_SIMPLY_EMBEDDED_PLAYER requires thirdParty.embedUrl to
-                // signal it's running inside an iframe, which bypasses PoToken.
-                client.embedUrl?.let { embedUrl ->
+                // TVHTML5_SIMPLY_EMBEDDED_PLAYER requires a video-specific thirdParty.embedUrl
+                // to signal it is running inside an embedded iframe — this bypasses PoToken.
+                resolvedEmbedUrl?.let { embedUrl ->
                     putJsonObject("thirdParty") {
                         put("embedUrl", embedUrl)
                     }
