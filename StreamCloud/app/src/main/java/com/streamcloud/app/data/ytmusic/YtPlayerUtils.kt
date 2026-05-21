@@ -23,19 +23,18 @@ import java.util.concurrent.TimeUnit
  *
  * Client priority (tuned for Android HTTP stack compatibility):
  *
- *   1. ANDROID_MUSIC 7.27.52 — YTM-specific, best loudnessDb metadata.
+ *   1. ANDROID_MUSIC 7.27.52   — YTM-specific, best loudnessDb metadata.
  *      Returns plain Android-compatible URLs.  No bot detection.
- *   2. ANDROID 21.03.38   — Standard YouTube Android client.  Plain URLs,
- *      no cipher, no bot detection, works with Android HttpURLConnection.
- *   3. TV_EMBEDDED        — TVHTML5_SIMPLY_EMBEDDED_PLAYER (id=85),
- *      bypass for age-restricted content.  embedUrl must be video-specific.
- *   4. ANDROID_VR 1.61.48 — Oculus Quest 3 client.  Gets bot-detection
- *      "Sign in to confirm…" without X-Goog-Visitor-Id / PoToken.
- *   5. ANDROID_VR 1.43.32 — Older Oculus VR client, same limitation.
- *   6. IOS 21.03.1        — iPhone client.  Resolves plain URLs but
- *      YouTube CDN enforces iOS-specific constraints (TLS fingerprint,
- *      alr=yes handling) that reject Android HttpURLConnection fetches.
- *   7. IPADOS 21.03.3     — iPad IOS variant, same CDN limitation as IOS.
+ *   2. ANDROID 19.29.37        — Standard YouTube Android client.  Plain URLs,
+ *      no cipher, no bot detection.
+ *   3. ANDROID_TESTSUITE 1.9   — YouTube-internal test client (id=30).
+ *      Whitelisted by YouTube: no PoToken required, not subject to bot
+ *      detection quotas.  Primary fallback used by NewPipe Extractor.
+ *   4. ANDROID_VR 1.61.48      — Oculus Quest 3 client.
+ *   5. ANDROID_VR 1.43.32      — Older Oculus VR client.
+ *   6. IOS 19.29.4              — iPhone client.  Resolves plain URLs but
+ *      YouTube CDN enforces iOS-specific constraints.
+ *   7. IPADOS 19.29.4           — iPad IOS variant.
  *
  * All clients return plain stream URLs without cipher when they succeed,
  * so no WebView-based cipher deobfuscation is required.
@@ -84,34 +83,41 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 2. ANDROID 21.03.38 — standard YouTube Android client ────────
-        // Plain URLs, no cipher, no bot-detection.  Compatible with Android
-        // HttpURLConnection / DefaultHttpDataSource.
+        // ── 2. ANDROID 19.29.37 — standard YouTube Android client ────────
+        // Plain URLs, no cipher, no bot-detection.
         ClientConfig(
             label         = "ANDROID",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName    = "ANDROID",
             clientId      = "3",
-            clientVersion = "21.03.38",
-            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
+            clientVersion = "19.29.37",
+            userAgent     = "com.google.android.youtube/19.29.37 (Linux; U; Android 11) gzip",
             extraClientFields = mapOf(
                 "osName"            to "Android",
-                "osVersion"         to "14",
-                "androidSdkVersion" to "34",
+                "osVersion"         to "11",
+                "androidSdkVersion" to "30",
             ),
         ),
 
-        // ── 3. TV_EMBEDDED — age-restriction bypass ───────────────────────
-        // TVHTML5_SIMPLY_EMBEDDED_PLAYER (id=85).
-        // embedUrl must be video-specific: watch?v=<videoId>.
+        // ── 3. ANDROID_TESTSUITE 1.9 — YouTube-whitelisted test client ───
+        // id=30, clientVersion=1.9.  This is YouTube's own internal testing
+        // client.  YouTube explicitly whitelists it: no PoToken required,
+        // no bot-detection quota.  NewPipe Extractor uses this as its
+        // primary client.  TV_EMBEDDED was removed — YouTube now returns
+        // "YouTube is no longer supported in this application or device"
+        // for that client on the vast majority of content.
         ClientConfig(
-            label            = "TV_EMBEDDED",
-            playerUrl        = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName       = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientId         = "85",
-            clientVersion    = "2.0",
-            userAgent        = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
-            embedUrlTemplate = "https://www.youtube.com/watch?v=%VIDEO_ID%",
+            label         = "ANDROID_TESTSUITE",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_TESTSUITE",
+            clientId      = "30",
+            clientVersion = "1.9",
+            userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "11",
+                "androidSdkVersion" to "30",
+            ),
         ),
 
         // ── 4. ANDROID_VR 1.61.48 — Oculus Quest 3 ───────────────────────
@@ -150,38 +156,37 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 6. IOS 21.03.1 — iPhone client ───────────────────────────────
-        // Resolves plain URLs but YouTube CDN enforces iOS-specific
-        // constraints (TLS fingerprint, alr=yes handling) that cause HTTP 403
-        // when bytes are fetched via Android's HttpURLConnection.
+        // ── 6. IOS 19.29.4 — iPhone client ───────────────────────────────
+        // Resolves plain URLs; YouTube CDN sometimes enforces iOS-specific
+        // TLS fingerprint constraints on Android fetches.
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName    = "IOS",
             clientId      = "5",
-            clientVersion = "21.03.1",
-            userAgent     = "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
+            clientVersion = "19.29.4",
+            userAgent     = "com.google.ios.youtube/19.29.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
             extraClientFields = mapOf(
                 "deviceMake"  to "Apple",
                 "deviceModel" to "iPhone16,2",
                 "osName"      to "iPhone",
-                "osVersion"   to "18.2.22C152",
+                "osVersion"   to "17.5.1.21F90",
             ),
         ),
 
-        // ── 7. IPADOS 21.03.3 — iPad IOS variant — same CDN limitation ───
+        // ── 7. IPADOS 19.29.4 — iPad IOS variant ────────────────────────
         ClientConfig(
             label         = "IPADOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName    = "IOS",
             clientId      = "5",
-            clientVersion = "21.03.3",
-            userAgent     = "com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)",
+            clientVersion = "19.29.4",
+            userAgent     = "com.google.ios.youtube/19.29.4 (iPad7,6; U; CPU iPadOS 17_5_1 like Mac OS X; en-US)",
             extraClientFields = mapOf(
                 "deviceMake"  to "Apple",
                 "deviceModel" to "iPad7,6",
                 "osName"      to "iPadOS",
-                "osVersion"   to "17.7.10.21H450",
+                "osVersion"   to "17.5.1.21F90",
             ),
         ),
     )
@@ -475,6 +480,7 @@ object YtPlayerUtils {
 
         return http.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) {
+                AppLogger.w(TAG, "[${client.label}] $videoId — HTTP ${resp.code}")
                 Log.d(TAG, "[${client.label}] HTTP ${resp.code} for $videoId")
                 return null
             }
