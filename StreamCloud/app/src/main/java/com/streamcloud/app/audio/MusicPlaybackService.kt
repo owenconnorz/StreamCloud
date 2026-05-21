@@ -20,6 +20,7 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.streamcloud.app.MainActivity
+import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.downloads.DownloadCaches
 import com.streamcloud.app.data.library.LibraryDb
@@ -214,23 +215,33 @@ class MusicPlaybackService : MediaLibraryService() {
         }
 
         // 2. Innertube path — single POST, 300–800 ms.
-        val info = runBlocking(Dispatchers.IO) {
-            if (videoId.isNotBlank()) {
-                runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }.getOrNull()
-            } else null
+        val innertubeError = runBlocking(Dispatchers.IO) {
+            runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }
+        }
+        val info = innertubeError.getOrNull()
+        if (innertubeError.isFailure) {
+            AppLogger.w(TAG, "Innertube failed for $videoId", innertubeError.exceptionOrNull())
         }
         if (info != null) {
             val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
             StreamUrlCache.put(videoId, info.url, expiryMs)
+            AppLogger.i(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
             Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
             return info.url
         }
 
         // 3. NewPipe fallback (slower — parses watch-page HTML + deobfuscates nsig).
+        AppLogger.w(TAG, "Innertube returned no result for $videoId — falling back to NewPipe")
         Log.d(TAG, "Innertube failed for $videoId — falling back to NewPipe")
-        val npUrl = runBlocking(Dispatchers.IO) {
-            runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
-        } ?: error("Both Innertube and NewPipe failed to resolve stream for $videoId")
+        val npResult = runBlocking(Dispatchers.IO) {
+            runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }
+        }
+        val npUrl = npResult.getOrNull()
+            ?: run {
+                val err = "Both Innertube and NewPipe failed to resolve stream for $videoId"
+                AppLogger.e(TAG, err, npResult.exceptionOrNull())
+                error(err)
+            }
 
         // Cache NewPipe URLs for 1 hour (YouTube doesn't report their expiry).
         StreamUrlCache.put(videoId, npUrl, now + 3_600_000L)

@@ -166,8 +166,11 @@ object YtPlayerUtils {
                 "com.google.android.apps.youtube.music/$CLIENT_VERSION " +
                     "(Linux; U; Android 11) gzip",
             )
+            .header("X-YouTube-Client-Name", "21")
+            .header("X-YouTube-Client-Version", CLIENT_VERSION)
             .header("X-Goog-Api-Format-Version", "1")
             .header("Content-Type", "application/json")
+            .header("Origin", "https://music.youtube.com")
             .build()
 
         return http.newCall(request).execute().use { resp ->

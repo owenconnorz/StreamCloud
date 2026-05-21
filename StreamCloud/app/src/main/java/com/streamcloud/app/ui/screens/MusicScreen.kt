@@ -79,7 +79,9 @@ fun MusicScreen(
             controller.addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    playerError = "Audio playback failed (${error.errorCodeName}): ${error.message}"
+                    val msg = "Audio playback failed (${error.errorCodeName}): ${error.message}"
+                    com.streamcloud.app.data.AppLogger.e("MusicPlayback", msg, error.cause)
+                    playerError = msg
                 }
                 override fun onRepeatModeChanged(repeatMode: Int) { vm.setRepeatMode(repeatMode) }
                 override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
