@@ -116,6 +116,7 @@ object YtPlayerUtils {
                 "osVersion"         to "11",
                 "androidSdkVersion" to "30",
             ),
+            supportsAuth  = false,
         ),
 
         ClientConfig(
@@ -142,6 +143,7 @@ object YtPlayerUtils {
                 "osName"      to "iPhone",
                 "osVersion"   to "18.2.22C152",
             ),
+            supportsAuth  = false,
         ),
 
         ClientConfig(
@@ -157,6 +159,7 @@ object YtPlayerUtils {
                 "osName"      to "iPadOS",
                 "osVersion"   to "17.7.10.21H450",
             ),
+            supportsAuth  = false,
         ),
 
         ClientConfig(
