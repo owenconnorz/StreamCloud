@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -57,6 +58,26 @@ import java.util.concurrent.TimeUnit
 object YtMusicDownloadUtil {
 
     private const val MAX_PARALLEL_DOWNLOADS = 5
+
+    /**
+     * Cache of resolved CDN stream URLs keyed by watch URL, with expiry timestamps.
+     *
+     * WHY THIS EXISTS:
+     * Media3's ResolvingDataSource.open() is called by CacheWriter for **every
+     * cache span boundary** — i.e. every ~2 MB chunk of an uncached download.
+     * A typical 5 MB audio file therefore triggers 2–3 resolver invocations,
+     * each costing 300–800 ms (Innertube fast path) or 3–8 s (NewPipe fallback).
+     * Without this cache a single song download burns 1–24 s in pure URL-resolution
+     * overhead before a single byte of audio lands on disk.
+     *
+     * With the cache the resolver runs exactly once per download session; all
+     * subsequent span opens return the cached CDN URL immediately (< 1 ms).
+     *
+     * TTL is 3 hours — conservative vs. YouTube's ~6-hour stream URL expiry.
+     * Entries are evicted lazily on next miss or on explicit removal.
+     */
+    private val urlCache = ConcurrentHashMap<String, Pair<String, Long>>()
+    private const val URL_CACHE_TTL_MS = 3L * 60 * 60 * 1000 // 3 hours
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -98,11 +119,19 @@ object YtMusicDownloadUtil {
             val watchUrl = dataSpec.uri.toString()
             val cacheKey  = dataSpec.key ?: watchUrl
 
-            // Only skip resolution for FULLY completed downloads.
-            // On partial downloads or retries we always need a fresh stream URL —
-            // YouTube streams expire and the watch-page URL is not a valid audio source.
+            // Already fully downloaded — bytes are in the cache, no HTTP needed.
             if (downloads.value[cacheKey]?.state == Download.STATE_COMPLETED) {
                 return@Factory dataSpec
+            }
+
+            // Return the cached CDN URL if it is still fresh. This is the critical
+            // hot path: CacheWriter calls open() for every ~2 MB span boundary, so
+            // without this cache each span triggers a full Innertube round-trip.
+            urlCache[cacheKey]?.let { (cachedUrl, expiry) ->
+                if (System.currentTimeMillis() < expiry) {
+                    return@Factory dataSpec.withUri(cachedUrl.toUri())
+                }
+                urlCache.remove(cacheKey) // stale — fall through to re-resolve
             }
 
             val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
@@ -110,6 +139,10 @@ object YtMusicDownloadUtil {
                 (if (videoId.isNotBlank()) YtPlayerUtils.resolveAudioStream(videoId) else null)
                     ?: NewPipeRepository.resolveAudioStream(watchUrl)
             }
+
+            // Cache for 3 hours (YouTube CDN URLs typically expire after ~6 h).
+            urlCache[cacheKey] = streamUrl to (System.currentTimeMillis() + URL_CACHE_TTL_MS)
+
             dataSpec.withUri(streamUrl.toUri())
         }
 
@@ -146,6 +179,7 @@ object YtMusicDownloadUtil {
                     downloads.update { map ->
                         map.toMutableMap().apply { remove(download.request.id) }
                     }
+                    urlCache.remove(download.request.id)
                     clearRoomLocalPath(ctx, download.request.id)
                 }
             })
