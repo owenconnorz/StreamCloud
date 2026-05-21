@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1025,7 +1026,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit) {
         val badgeError: Boolean = false,
     )
 
-    val items = listOf(
+    val hubItems = listOf(
         HubItem(SettingsPage.SystemUpdate,  Icons.Default.SystemUpdate, "System update",         updateLabel),
         HubItem(SettingsPage.Appearance,    Icons.Default.Palette,      "Appearance"),
         HubItem(SettingsPage.PlayerAudio,   Icons.Default.PlayArrow,    "Player and audio"),
@@ -1061,14 +1062,13 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit) {
                 modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp),
             )
         }
-        items(items.size) { i ->
-            val item = items[i]
+        items(hubItems) { hubItem ->
             HubRow(
-                icon       = item.icon,
-                title      = item.title,
-                badge      = item.badge,
-                badgeError = item.badgeError,
-                onClick    = { onNavigate(item.page) },
+                icon       = hubItem.icon,
+                title      = hubItem.title,
+                badge      = hubItem.badge,
+                badgeError = hubItem.badgeError,
+                onClick    = { onNavigate(hubItem.page) },
             )
         }
     }
@@ -1953,13 +1953,12 @@ private fun LogsPage(onBack: () -> Unit) {
                 }
             }
         } else {
-            androidx.compose.foundation.lazy.LazyColumn(
+            LazyColumn(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(entries.size) { i ->
-                    val entry = entries[i]
+                items(entries) { entry ->
                     val lc = levelColor(entry.level)
                     Row(
                         Modifier
