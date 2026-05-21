@@ -153,12 +153,14 @@ class MusicPlaybackService : MediaLibraryService() {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .addNetworkInterceptor { chain ->
-                val cookie = ytMusicCookieForStream
                 val host = chain.request().url.host
-                val req = if (cookie.isNotBlank() && !host.endsWith("googlevideo.com"))
-                    chain.request().newBuilder().header("Cookie", cookie).build()
-                else chain.request()
-                chain.proceed(req)
+                val reqBuilder = chain.request().newBuilder()
+                val cookie = ytMusicCookieForStream
+                if (cookie.isNotBlank() && !host.endsWith("googlevideo.com"))
+                    reqBuilder.header("Cookie", cookie)
+                if (host.endsWith("googlevideo.com") && chain.request().header("Range") == null)
+                    reqBuilder.header("Range", "bytes=0-")
+                chain.proceed(reqBuilder.build())
             }
             .build()
 
