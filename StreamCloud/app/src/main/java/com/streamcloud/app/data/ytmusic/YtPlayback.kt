@@ -201,25 +201,32 @@ object YtPlayback {
     /**
      * Queue a full playlist into the player. The [startIndex] song plays
      * immediately, the rest become the upcoming queue.
+     *
+     * Uses [Player.setMediaItems] with an explicit start index so ExoPlayer
+     * receives all items in a **single IPC call** rather than N sequential
+     * `addMediaItem` calls.  For a 380-track playlist this is the difference
+     * between one round-trip and 379 — far faster, and it eliminates the
+     * [MusicController.get] race that caused "song doesn't auto-play".
      */
     suspend fun playPlaylist(context: Context, songs: List<YtmSong>, startIndex: Int = 0) {
         if (songs.isEmpty()) return
         val safeStart = startIndex.coerceIn(0, songs.lastIndex)
-        playSong(context, songs[safeStart], withAutoRadio = false)
-        val queue = buildList {
-            addAll(songs.subList(safeStart + 1, songs.size))
-            addAll(songs.subList(0, safeStart))
+
+        // Build MediaItems on the caller's thread (pure, no I/O)
+        val allItems = songs.map { buildMediaItem(it) }
+
+        // Bump play count for the tapped track; background-upsert the rest
+        upsertTrack(context, songs[safeStart], bumpPlayCount = true)
+        songs.indices.filter { it != safeStart }.forEach { i ->
+            upsertTrack(context, songs[i], bumpPlayCount = false)
         }
-        if (queue.isEmpty()) return
-        withContext(Dispatchers.IO) {
-            queue.forEach { s ->
-                runCatching {
-                    val item = buildMediaItem(s)
-                    withContext(Dispatchers.Main) {
-                        MusicController.get(context.applicationContext).addMediaItem(item)
-                    }
-                }
-            }
+
+        // Single IPC round-trip — ExoPlayer handles the start index
+        withContext(Dispatchers.Main) {
+            val controller = MusicController.get(context.applicationContext)
+            controller.setMediaItems(allItems, safeStart, /* startPositionMs= */ 0L)
+            controller.prepare()
+            controller.play()
         }
     }
 
