@@ -3,15 +3,6 @@ package com.streamcloud.app.data.collections
 import com.streamcloud.app.data.api.TmdbApi
 import com.streamcloud.app.data.api.TmdbMovie
 
-/**
- * Nuvio-style "Home collections" — curated TMDB lists the user can toggle on/off
- * from Settings. Each collection knows how to fetch its own row from the TMDB API.
- *
- * The IDs used here are stable strings that we persist in DataStore.
- *
- * Both a [fetch] (page 1, used for the home rail) and a [fetchPage] (paginated,
- * used by the View All endless-scroll grid) are exposed.
- */
 data class HomeCollection(
     val id: String,
     val title: String,
@@ -20,13 +11,13 @@ data class HomeCollection(
     val defaultEnabled: Boolean,
     val fetchPage: suspend (TmdbApi, key: String, page: Int) -> List<TmdbMovie>,
 ) {
-    /** Convenience for the home rail — equivalent to `fetchPage(api, key, 1)`. */
+
     suspend fun fetch(api: TmdbApi, key: String): List<TmdbMovie> = fetchPage(api, key, 1)
 }
 
 object HomeCollections {
 
-    /** The full registry. Order here is the order rows appear on the home screen. */
+
     val ALL: List<HomeCollection> = listOf(
         HomeCollection(
             id = "trending", title = "Trending This Week",
@@ -52,7 +43,7 @@ object HomeCollections {
             emoji = "", defaultEnabled = true,
         ) { api, key, page -> api.topRated(key, page).results },
 
-        // ── Nuvio's curated company / studio collections ──
+
         HomeCollection(
             id = "marvel", title = "Marvel Cinematic Universe",
             subtitle = "Avengers, X-Men, Spider-Man and more",
@@ -89,7 +80,7 @@ object HomeCollections {
             emoji = "", defaultEnabled = false,
         ) { api, key, page -> api.discover(key, withCompanies = "41077", page = page).results },
 
-        // ── Genre rows ──
+
         HomeCollection(
             id = "action", title = "Action",
             subtitle = "High-octane blockbusters",

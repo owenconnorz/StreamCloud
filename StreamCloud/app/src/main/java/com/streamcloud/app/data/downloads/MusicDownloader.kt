@@ -16,22 +16,6 @@ import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/**
- * Music downloader.
- *
- * Resolves the audio stream via NewPipe, then writes it to
- * `/Android/data/.../files/music/<sanitised>.m4a` and stores the path in Room
- * (`TrackEntity.localPath`) so the song can be replayed without internet.
- *
- * Improvements over the original single-shot version (Metrolist parity):
- *  • **Parallel** — up to 3 downloads run simultaneously via [Semaphore],
- *    matching Metrolist's "Download all" behaviour.
- *  • **System notifications** via [MusicDownloadNotifier] — every in-flight
- *    download posts an ongoing progress entry, and the final "Downloaded"
- *    confirmation auto-dismisses after a few seconds.
- *  • **Per-URL progress flow** still exposed via [progressFlow] for in-app UI
- *    (download ring on the song row).
- */
 object MusicDownloader {
 
     private const val MAX_PARALLEL = 3
@@ -66,20 +50,11 @@ object MusicDownloader {
         return f.exists() && f.length() > 0
     }
 
-    /**
-     * Download the audio stream for [url]. Concurrent calls are throttled to
-     * [MAX_PARALLEL]; tasks beyond the limit suspend until a permit frees up.
-     *
-     * Side-effects:
-     *  - Writes Room `TrackEntity.localPath` on success
-     *  - Posts an ongoing system notification for the duration, replaced with
-     *    a "Downloaded" confirmation when complete
-     *  - Updates the in-app [progressFlow] for the song-row download ring
-     */
+
     suspend fun download(context: Context, url: String, title: String): File =
         withContext(Dispatchers.IO) {
             val outFile = fileFor(context, url)
-            // Already downloaded → fast path: just patch Room and bail out.
+
             if (outFile.exists() && outFile.length() > 0) {
                 LibraryDb.get(context).tracks().setLocalPath(url, outFile.absolutePath)
                 return@withContext outFile
@@ -115,8 +90,8 @@ object MusicDownloader {
                                     if (total > 0) {
                                         val frac = written.toFloat() / total
                                         setProgress(url, frac)
-                                        // Throttle notification updates to ~250ms
-                                        // to avoid binder spam on big files.
+
+
                                         val now = System.currentTimeMillis()
                                         if (now - lastNotifyAt > 250) {
                                             MusicDownloadNotifier.postProgress(

@@ -19,20 +19,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
-/**
- * High-level wrapper for the YouTube Music playlist mutation endpoints that
- * the InnerTube web client uses internally:
- *
- *   - `POST /youtubei/v1/playlist/create`           — create new playlist
- *   - `POST /youtubei/v1/browse/edit_playlist`      — add / remove videos
- *
- * Authenticated calls — the user **must** be signed in (cookie present)
- * for either endpoint to return success. Anonymous calls return 401.
- *
- * Discovered via the same approach as Metrolist / OpenTune: trace the
- * music.youtube.com web app's network panel while creating a playlist
- * → mirror the request body + headers verbatim.
- */
 object YtMusicPlaylistRepository {
 
     private const val TAG = "YtmPlaylistRepo"
@@ -43,11 +29,7 @@ object YtMusicPlaylistRepository {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /**
-     * Add a single videoId to an existing user playlist. The playlist id is
-     * the same one Library tab surfaces (sans `VL` prefix). Returns true on
-     * success — false on auth/network/playlist-not-found errors.
-     */
+
     suspend fun addVideoToPlaylist(
         cookie: String,
         playlistId: String,
@@ -72,11 +54,7 @@ object YtMusicPlaylistRepository {
         ok
     }
 
-    /**
-     * Create a new playlist (PRIVATE by default, mirroring the YT Music web
-     * "+ New playlist" button). Optionally seed it with [seedVideoId].
-     * Returns the new playlist id, or null on failure.
-     */
+
     suspend fun createPlaylist(
         cookie: String,
         title: String,
@@ -93,7 +71,7 @@ object YtMusicPlaylistRepository {
             }
         }
         val resp = postInnerTube(cookie, "playlist/create", body) ?: return@withContext null
-        // YT returns the new id at top-level `playlistId` (string).
+
         val id = (resp["playlistId"] as? JsonPrimitive)?.contentOrNull
         if (id.isNullOrBlank()) {
             Log.w(TAG, "createPlaylist no id in response: ${resp.toString().take(200)}")
@@ -107,7 +85,7 @@ object YtMusicPlaylistRepository {
         PUBLIC("PUBLIC"),
     }
 
-    // ────────────────────────────── plumbing ─────────────────────────────
+
 
     private fun kotlinx.serialization.json.JsonObjectBuilder.putContext() {
         putJsonObject("context") {

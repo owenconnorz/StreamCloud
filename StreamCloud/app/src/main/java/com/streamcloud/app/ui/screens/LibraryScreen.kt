@@ -70,8 +70,8 @@ fun LibraryScreen(
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
     val scope = rememberCoroutineScope()
 
-    // YT Music library — synced lazily the first time the tab is opened while signed in,
-    // and again when the user hits the refresh button.
+
+
     var ytLibrary by remember { mutableStateOf(com.streamcloud.app.data.ytmusic.YtMusicLibrary()) }
     var ytLoading by remember { mutableStateOf(false) }
 
@@ -83,7 +83,7 @@ fun LibraryScreen(
             return@LaunchedEffect
         }
 
-        // Step 1: show cached library immediately — no spinner, no wait
+
         val cached = withContext(Dispatchers.IO) {
             com.streamcloud.app.data.ytmusic.LibraryCache.read(context)
         }
@@ -93,12 +93,12 @@ fun LibraryScreen(
             ytLoading = true
         }
 
-        // Step 2: fetch fresh data in background
+
         val fresh = com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository.sync(ytCookie)
         ytLibrary = fresh
         ytLoading = false
 
-        // Step 3: persist fresh result so next open is instant
+
         if (fresh.failureReason == null) {
             withContext(Dispatchers.IO) {
                 com.streamcloud.app.data.ytmusic.LibraryCache.write(context, fresh)
@@ -155,7 +155,7 @@ fun LibraryScreen(
         }
         Spacer(Modifier.height(12.dp))
 
-        // Top filter chips: Playlists / Songs / Albums / Artists
+
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -170,7 +170,7 @@ fun LibraryScreen(
         }
         Spacer(Modifier.height(16.dp))
 
-        // Secondary chip row — Metrolist parity: sort chip + count label + refresh.
+
         LibrarySubHeader(
             tab = tab,
             localTileCount = 3,
@@ -199,9 +199,9 @@ fun LibraryScreen(
                 items(list, key = { it.url }) { e -> LibTrackRow(e) }
             }
         } else {
-            // Metrolist layout: single 2-column grid that merges the 4 local system
-            // tiles with the user's YouTube Music playlists / albums / artists.
-            // Each tab narrows the grid to the relevant content type.
+
+
+
             Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
@@ -263,7 +263,7 @@ fun LibraryScreen(
                         }
                     }
                     LibTab.Songs -> {
-                        // Songs is a vertical list — use a single spanned column.
+
                         if (ytLibrary.likedSongs.isEmpty() && liked.isEmpty()) {
                             item(span = { GridItemSpan(2) }) {
                                 EmptyStateRow(
@@ -298,7 +298,7 @@ fun LibraryScreen(
                     Icon(Icons.Default.Add, contentDescription = "New playlist")
                 }
             }
-            } // closes Box
+            }
         }
     }
 }
@@ -352,7 +352,7 @@ private fun LibTile(
                     modifier = Modifier.size(72.dp),
                 )
             } else {
-                // 2x2 thumbnail mosaic (Metrolist style)
+
                 Column {
                     Row(Modifier.weight(1f)) {
                         ThumbCell(thumbs.getOrNull(0), Modifier.weight(1f))
@@ -463,8 +463,6 @@ private fun LibTrackRow(entity: TrackEntity) {
     }
 }
 
-// ────────────────── Metrolist-style Library sub-header ──────────────────
-
 @Composable
 private fun LibrarySubHeader(
     tab: LibTab,
@@ -473,7 +471,7 @@ private fun LibrarySubHeader(
     ytLoading: Boolean,
     onRefresh: () -> Unit,
 ) {
-    // Count label matches Metrolist's "N playlists" / "N albums" / "N artists" affix.
+
     val count = when (tab) {
         LibTab.Playlists -> localTileCount + ytLibrary.playlists.size
         LibTab.Albums -> ytLibrary.albums.size
@@ -492,7 +490,7 @@ private fun LibrarySubHeader(
             .padding(horizontal = 20.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Sort chip (static label — Metrolist's is interactive; we ship v1 fixed).
+
         Row(
             Modifier
                 .clip(RoundedCornerShape(50))
@@ -534,13 +532,6 @@ private fun LibrarySubHeader(
     Spacer(Modifier.height(4.dp))
 }
 
-// ────────────────── Metrolist-style 2-col grid tiles ──────────────────
-
-/**
- * Large rounded tile for a local "system" playlist (Liked / Downloaded / Top 50 /
- * Cached). Shows a 2×2 mosaic of track thumbnails when present, otherwise a solid
- * branded square with just the icon — matches Metrolist's playlist-card aesthetic.
- */
 @Composable
 private fun LocalSystemTile(
     title: String,
@@ -560,7 +551,7 @@ private fun LocalSystemTile(
             contentAlignment = Alignment.Center,
         ) {
             if (topThumbs.size >= 4) {
-                // 2×2 mosaic — Metrolist's signature look.
+
                 Column(Modifier.fillMaxSize()) {
                     Row(Modifier.weight(1f)) {
                         MosaicCell(topThumbs[0], Modifier.weight(1f).fillMaxHeight())
@@ -749,9 +740,9 @@ private fun YtSongRow(s: YtmSong, onClick: () -> Unit) {
         mutableStateOf(com.streamcloud.app.data.ytmusic.YtPlayback.isDownloaded(context, s))
     }
 
-    // React to Media3 DownloadManager state changes (mirrors the playlist fix).
-    // Without this, the tick only updates for OkHttp downloads, never for
-    // YtMusicDownloadUtil (Media3) downloads.
+
+
+
     LaunchedEffect(s.videoId) {
         val url = com.streamcloud.app.data.ytmusic.YtPlayback.watchUrl(s.videoId)
         com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads.collect { dlMap ->
@@ -761,7 +752,7 @@ private fun YtSongRow(s: YtmSong, onClick: () -> Unit) {
         }
     }
 
-    // Also handle legacy OkHttp (MusicDownloader) progress → completion transitions.
+
     val downloadProgressMap by com.streamcloud.app.data.downloads.MusicDownloader.progressFlow
         .collectAsState(initial = emptyMap())
     LaunchedEffect(s.videoId, downloadProgressMap) {
@@ -840,9 +831,6 @@ private fun EmptyStateRow(message: String, notSignedIn: Boolean) {
         )
     }
 }
-
-
-// ─────────────────────── YouTube Music sync widgets ───────────────────────
 
 @Composable
 private fun YtMusicSyncHeader(
@@ -1009,7 +997,7 @@ private fun YtSongsSection(
         color = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
     )
-    // Show a preview — first 5 songs — with a "View all" affordance at the bottom.
+
     Column {
         songs.take(5).forEach { s ->
             Row(
@@ -1047,7 +1035,7 @@ private fun YtSongsSection(
         }
         if (songs.size > 5) {
             TextButton(
-                onClick = { /* TODO: open dedicated liked songs screen */ },
+                onClick = {  },
                 modifier = Modifier.padding(horizontal = 12.dp),
             ) {
                 Text("View all ${songs.size} liked songs")
@@ -1056,11 +1044,6 @@ private fun YtSongsSection(
     }
 }
 
-
-/**
- * Big "Create playlist" tile — Metrolist parity. Lives at the start of the
- * Playlists grid so it's always one tap away.
- */
 @Composable
 private fun CreatePlaylistTile(onClick: () -> Unit) {
     Column(

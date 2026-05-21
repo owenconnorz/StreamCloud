@@ -66,20 +66,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Nuvio-style native media player.
- *
- * Behaviour:
- *  - Edge-to-edge black canvas, no system bars
- *  - Tap once: toggles overlay (auto-hides after 3s of inactivity)
- *  - Double-tap left half: rewind 10s | double-tap right half: forward 10s
- *  - Top bar: back button + title
- *  - Bottom bar: progress slider + current/total time
- *  - Center: large play/pause button
- *
- * Supports HLS (.m3u8), DASH (.mpd), progressive (MP4/MKV/WEBM) and `magnet:`/`.torrent`
- * (proxied through TorrServer Go binary via [com.streamcloud.app.torrent.TorrentService]).
- */
 @OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @SuppressLint("UnsafeOptInUsageError")
 @Composable
@@ -88,37 +74,32 @@ fun NativePlayerScreen(
     title: String,
     headers: Map<String, String> = emptyMap(),
     onBack: () -> Unit,
-    /** Subtitle line under the title (e.g. "Torrentio · 1080p"). */
+
     subtitle: String? = null,
-    /** Optional: full stream catalog. When non-empty, the player shows a "Sources" pill
-     *  that opens a switcher sheet so the user can change source mid-playback. */
+
     sources: List<PlayerSource> = emptyList(),
-    /** Currently selected source id — drives the "selected" highlight in the sheet. */
+
     selectedSourceId: String? = null,
-    /** Called with a different source id when the user picks a new stream. The host
-     *  is expected to swap [streamUrl]/[subtitle] and re-enter the composition. */
+
     onSwitchSource: ((PlayerSource) -> Unit)? = null,
-    /** When non-null, the player saves resume-playback state every ~10s and on dispose,
-     *  feeding the "Continue Watching" row on the home screen. */
+
     progressKey: WatchProgressKey? = null,
-    /** Optional poster/backdrop URL forwarded to the Cast receiver for its Now Playing card. */
+
     artworkUrl: String? = null,
-    /** When non-null, the refresh icon in the streams sheet is enabled and calls this. */
+
     onRefresh: (() -> Unit)? = null,
-    /** True while a background Nuvio scan is running — shows a spinner in the Sources sheet. */
+
     nuvioScanning: Boolean = false,
-    /** Bump this value to force the player to restart even when [streamUrl] hasn't
-     *  changed.  Needed when the user taps the stream that is already loaded — the
-     *  URL equality check in LaunchedEffect would otherwise swallow the tap. */
+
     restartKey: Any? = null,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // --- Stream resolution -----------------------------------------------------------------------
-    // Torrents are handled by TorrentService (TorrServer Go binary) which starts a local
-    // HTTP server and streams piece-by-piece to ExoPlayer.  All other URLs resolve directly.
+
+
+
     var resolvedUrl by remember { mutableStateOf<String?>(null) }
     var resolveError by remember { mutableStateOf<String?>(null) }
     val torrentService = remember { TorrentService(context.applicationContext) }
@@ -153,13 +134,13 @@ fun NativePlayerScreen(
         }
     }
 
-    // --- ExoPlayer ------------------------------------------------------------------------------
+
     val player = remember { mutableStateOf<ExoPlayer?>(null) }
 
-    // --- Google Cast bridge ---------------------------------------------------------------------
-    // When a Cast session is live, the resolved URL gets pushed to the
-    // receiver. Local-proxy URLs (localhost / 127.0.0.1 from the torrent
-    // server) are skipped automatically inside the controller.
+
+
+
+
     com.streamcloud.app.cast.rememberCastController(
         streamUrl = resolvedUrl.orEmpty(),
         title = title,
@@ -172,19 +153,19 @@ fun NativePlayerScreen(
             !u.endsWith(".m4v") && !u.endsWith(".mov") &&
             !u.contains(".m3u8") && !u.contains(".mpd") &&
             !u.startsWith("magnet:") &&
-            // Common embed URL hints — Eporner, vidsrc, etc.
+
             (u.contains("/embed") || u.contains("/iframe") || u.contains("/video/") ||
              u.endsWith(".html") || u.endsWith("/"))
     }
 
     LaunchedEffect(resolvedUrl, needsWebView, restartKey) {
-        // Always tear down any previously-built ExoPlayer before resolving a new
-        // URL — otherwise switching sources / closing+reopening the player leaks
-        // an orphan that keeps playing in the background until the app dies.
+
+
+
         player.value?.release()
         player.value = null
         if (needsWebView) {
-            // Don't build ExoPlayer for HTML embed pages — WebView handles them.
+
             return@LaunchedEffect
         }
         val url = resolvedUrl ?: return@LaunchedEffect
@@ -206,10 +187,10 @@ fun NativePlayerScreen(
             .build()
         val ex = ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dsFactory))
-            // Request audio focus so that phone calls and other media (YouTube, Spotify, etc.)
-            // automatically pause this player and resume it when they finish.
-            .setAudioAttributes(videoAudioAttrs, /* handleAudioFocus= */ true)
-            // Pause when headphones are unplugged mid-stream.
+
+
+            .setAudioAttributes(videoAudioAttrs,  true)
+
             .setHandleAudioBecomingNoisy(true)
             .build()
             .apply {
@@ -217,7 +198,7 @@ fun NativePlayerScreen(
                 prepare()
                 playWhenReady = true
             }
-        // Resume from the last known position for this title, if any.
+
         val savedPosition = progressKey?.let { pk ->
             runCatching {
                 com.streamcloud.app.data.library.LibraryDb.get(context.applicationContext)
@@ -231,12 +212,12 @@ fun NativePlayerScreen(
         player.value = ex
     }
 
-    // --- Window flags + cleanup ----------------------------------------------------------------
+
     val activity = context as? Activity
     val window = activity?.window
     DisposableEffect(Unit) {
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        // Force landscape while the player is on screen — restore on dispose.
+
         val previousOrientation = activity?.requestedOrientation
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         onDispose {
@@ -252,16 +233,16 @@ fun NativePlayerScreen(
             torrentService.shutdown()
         }
     }
-    // Foreground service — prevents Android from killing the process while streaming.
-    // VideoPlaybackService shows a persistent silent notification that promotes this
-    // process to "foreground" priority (same level as a phone call or navigation app).
+
+
+
     DisposableEffect(Unit) {
         VideoPlaybackService.start(context.applicationContext, title)
         onDispose { VideoPlaybackService.stop(context.applicationContext) }
     }
-    // Auto-pause when the app is backgrounded (Home / recent apps) — ExoPlayer
-    // doesn't observe activity lifecycle on its own, so without this it keeps
-    // streaming audio with the screen off.
+
+
+
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -274,7 +255,7 @@ fun NativePlayerScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // --- Player state for the overlay ----------------------------------------------------------
+
     val ex = player.value
     var isPlaying by remember { mutableStateOf(true) }
     var positionMs by remember { mutableStateOf(0L) }
@@ -301,7 +282,7 @@ fun NativePlayerScreen(
         }
     }
 
-    // Auto-hide controls after 3s.
+
     LaunchedEffect(controlsVisible, lastInteractionTs) {
         if (controlsVisible) {
             delay(3000)
@@ -309,7 +290,7 @@ fun NativePlayerScreen(
         }
     }
 
-    // ── Continue-watching: save resume position every 10s + on dispose ────────────
+
     if (progressKey != null) {
         val appContext = context.applicationContext
         LaunchedEffect(ex, progressKey.tmdbId) {
@@ -344,7 +325,7 @@ fun NativePlayerScreen(
                     val pos = cur.currentPosition.coerceAtLeast(0L)
                     val dur = cur.duration.coerceAtLeast(0L)
                     if (dur > 0L && pos > 0L) {
-                        // Fire-and-forget on a background thread; the player is being torn down.
+
                         Thread {
                             runCatching {
                                 com.streamcloud.app.data.library.LibraryDb.get(appContext)
@@ -382,7 +363,7 @@ fun NativePlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // --- Video surface ---------------------------------------------------------------------
+
         if (needsWebView && resolvedUrl != null) {
             EmbedWebView(resolvedUrl!!)
         } else if (ex != null) {
@@ -400,7 +381,7 @@ fun NativePlayerScreen(
             )
         }
 
-        // --- Gesture layer ---------------------------------------------------------------------
+
         val density = LocalDensity.current
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val widthPx = with(density) { maxWidth.toPx() }
@@ -421,7 +402,7 @@ fun NativePlayerScreen(
             )
         }
 
-        // --- Overlay (top bar + center play + bottom bar) — only for ExoPlayer mode ----------
+
         var locked by remember { mutableStateOf(false) }
         var showSourcesSheet by remember { mutableStateOf(false) }
 
@@ -432,7 +413,7 @@ fun NativePlayerScreen(
         ) {
             Box(Modifier.fillMaxSize()) {
                 if (!locked) {
-                    // ── Top-LEFT: title + subtitle ─────────────────────────────────
+
                     Column(
                         Modifier
                             .align(Alignment.TopStart)
@@ -454,7 +435,7 @@ fun NativePlayerScreen(
                         }
                     }
                 }
-                // ── Top-RIGHT: cast + lock + back as dark capsule pills ───
+
                 Row(
                     Modifier
                         .align(Alignment.TopEnd)
@@ -463,8 +444,8 @@ fun NativePlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (!locked) {
-                        // Compose-native Cast button — see [CastButton] for why
-                        // we don't use androidx.mediarouter's MediaRouteButton.
+
+
                         com.streamcloud.app.cast.CastButton(modifier = Modifier)
                     }
                     PlayerCapsuleIcon(
@@ -483,7 +464,7 @@ fun NativePlayerScreen(
                 }
 
                 if (!locked) {
-                    // ── Center: ⏮10 / ▶ / ⏭10 — outlined white, no scrim ─────────
+
                     Row(
                         Modifier.align(Alignment.Center),
                         verticalAlignment = Alignment.CenterVertically,
@@ -508,7 +489,7 @@ fun NativePlayerScreen(
                         }
                     }
 
-                    // ── Bottom: chip-pill timestamps + slider + toolbar pill ──────
+
                     Column(
                         Modifier
                             .align(Alignment.BottomCenter)
@@ -568,7 +549,7 @@ fun NativePlayerScreen(
             )
         }
 
-        // --- Top bar for WebView mode (just back button + title) -----------------------------
+
         if (needsWebView) {
             Row(
                 Modifier
@@ -592,7 +573,7 @@ fun NativePlayerScreen(
             }
         }
 
-        // --- Loading / error states ------------------------------------------------------------
+
         if (ex == null && !needsWebView) {
             Column(
                 Modifier.fillMaxSize(),
@@ -717,10 +698,10 @@ private fun PlayerToolbarPill(onSourcesClick: (() -> Unit)?) {
         horizontalArrangement = Arrangement.spacedBy(0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ToolbarItem(Icons.Default.AspectRatio, "Fit") { /* TODO: cycle resize mode */ }
-        ToolbarItem(Icons.Default.Speed, "1x") { /* TODO: speed picker */ }
-        ToolbarItem(Icons.Default.ClosedCaption, "Subs") { /* TODO: subtitle picker */ }
-        ToolbarItem(Icons.Default.VolumeUp, "Audio") { /* TODO: audio track picker */ }
+        ToolbarItem(Icons.Default.AspectRatio, "Fit") {  }
+        ToolbarItem(Icons.Default.Speed, "1x") {  }
+        ToolbarItem(Icons.Default.ClosedCaption, "Subs") {  }
+        ToolbarItem(Icons.Default.VolumeUp, "Audio") {  }
         ToolbarItem(
             Icons.AutoMirrored.Filled.CompareArrows,
             "Sources",
@@ -775,7 +756,7 @@ private fun SourcesPickerSheet(
         scrimColor = Color.Black.copy(alpha = 0.7f),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            // Header: Reload (left) — title (center) — Close (right)
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                     onClick = { onRefresh?.invoke() },
@@ -805,7 +786,7 @@ private fun SourcesPickerSheet(
                     )
                 }
             }
-            // Scanning banner — visible while Nuvio providers are running
+
             androidx.compose.animation.AnimatedVisibility(visible = nuvioScanning) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -830,7 +811,7 @@ private fun SourcesPickerSheet(
                 }
             }
             Spacer(Modifier.height(4.dp))
-            // Addon filter chip row
+
             androidx.compose.foundation.lazy.LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
@@ -927,7 +908,6 @@ private fun StreamPickerRow(src: PlayerSource, selected: Boolean, onClick: () ->
     }
 }
 
-
 private fun formatTime(ms: Long): String {
     if (ms <= 0) return "0:00"
     val totalSec = ms / 1000
@@ -938,10 +918,6 @@ private fun formatTime(ms: Long): String {
     else String.format("%d:%02d", m, s)
 }
 
-/**
- * Renders an HTML embed page in a fullscreen WebView. Used when the resolved URL
- * isn't a direct media stream (e.g., Eporner embed pages, plugin iframe sources).
- */
 @Composable
 private fun EmbedWebView(url: String) {
     AndroidView(
@@ -949,9 +925,9 @@ private fun EmbedWebView(url: String) {
         factory = { ctx ->
             android.webkit.WebView(ctx).apply {
                 setBackgroundColor(android.graphics.Color.BLACK)
-                // Explicit hardware acceleration is required for <video> elements
-                // rendered via SurfaceView inside the WebView — without it the
-                // video frame is composited in software and shows as black.
+
+
+
                 setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
@@ -960,29 +936,29 @@ private fun EmbedWebView(url: String) {
                 settings.allowContentAccess = false
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
-                // Allow mixed HTTP/HTTPS content — many embed CDNs serve assets
-                // over plain HTTP even when the page itself is HTTPS.
+
+
                 @Suppress("DEPRECATION")
                 settings.mixedContentMode =
                     android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                // Spoof a real Chrome UA — the default Android WebView UA is
-                // fingerprinted and blocked by Cloudflare and most embed hosts.
+
+
                 settings.userAgentString =
                     "Mozilla/5.0 (Linux; Android 14; Pixel 8) " +
                     "AppleWebKit/537.36 (KHTML, like Gecko) " +
                     "Chrome/124.0.0.0 Mobile Safari/537.36"
-                // Allow cookies so the Cloudflare clearance cookie (cf_clearance)
-                // and any session tokens survive across navigations inside the embed.
+
+
                 android.webkit.CookieManager.getInstance().let { cm ->
                     cm.setAcceptCookie(true)
                     cm.setAcceptThirdPartyCookies(this, true)
                 }
-                // A bare WebChromeClient() drops onShowCustomView on the floor —
-                // HTML5 video players (including Eporner's embed) call that API to
-                // present their fullscreen video frame. Without a real handler the
-                // frame is never added to the window, producing an all-black screen.
-                // We attach the custom view directly to the Activity's decor view
-                // so it covers the whole display, then tear it down on hide.
+
+
+
+
+
+
                 val activity = ctx as? android.app.Activity
                 var customVideoView: android.view.View? = null
                 var customViewCallback:
@@ -1022,8 +998,8 @@ private fun EmbedWebView(url: String) {
                 loadUrl(url)
             }
         },
-        // Reload when the user switches to a different embed source.
-        // Without this, AndroidView keeps the old WebView and the new URL is ignored.
+
+
         update = { webView ->
             val current = webView.originalUrl ?: webView.url
             if (current != url) webView.loadUrl(url)
@@ -1031,19 +1007,12 @@ private fun EmbedWebView(url: String) {
     )
 }
 
-/**
- * Extracts a playable URL from a user-pasted string. Accepts:
- *  - A bare URL  → returned as-is
- *  - A magnet:   → returned as-is
- *  - An HTML `<iframe ... src="...">` snippet → returns the `src` attribute
- *  - A `<video src="...">` snippet → returns the `src` attribute
- */
 fun extractEmbedUrl(input: String): String {
     val s = input.trim()
     if (s.isEmpty()) return s
     if (s.startsWith("magnet:", true)) return s
     if (s.startsWith("http://", true) || s.startsWith("https://", true)) return s
-    // Pull `src="..."` from any iframe / video / source tag.
+
     val srcRegex = Regex("""src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     return srcRegex.find(s)?.groupValues?.get(1)?.takeIf { it.isNotBlank() } ?: s
 }

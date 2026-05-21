@@ -51,16 +51,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Rich, app-wide mini-player that matches the in-Music-tab MiniPlayer 1:1
- * (album art + title + artist • album • year + Like ❤ + Download ⬇ + ⏮ ⏯ ⏭).
- *
- * Renders at the bottom of every tab whenever a track is loaded into the
- * foreground [MusicPlaybackService]. Reads playback state purely from the
- * global [MusicController] / [PlaybackBus] / Room — no ViewModel.
- *
- * Swipe-up or tap routes to [GlobalNowPlayingSheet] via [PlayerExpandBus].
- */
 @OptIn(UnstableApi::class)
 @Composable
 fun GlobalMiniPlayer(
@@ -84,7 +74,7 @@ fun GlobalMiniPlayer(
 
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
 
-    // Bind to the shared controller once; failure to bind simply hides the bar.
+
     LaunchedEffect(Unit) {
         runCatching { MusicController.get(context.applicationContext) }
             .onSuccess { c ->
@@ -103,7 +93,7 @@ fun GlobalMiniPlayer(
                 })
             }
     }
-    // Poll position so the thin progress bar advances.
+
     LaunchedEffect(controller, isPlaying) {
         while (controller != null) {
             positionMs = controller!!.currentPosition
@@ -111,7 +101,7 @@ fun GlobalMiniPlayer(
             delay(500)
         }
     }
-    // Refresh liked state whenever the playing track changes.
+
     LaunchedEffect(nowMediaId) {
         val mediaId = nowMediaId ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
@@ -120,7 +110,7 @@ fun GlobalMiniPlayer(
         }
     }
 
-    // Tracks the horizontal slide offset while the user drags the mini player.
+
     val swipeOffsetX = remember { Animatable(0f) }
     var liveDragX by remember { mutableStateOf(0f) }
 
@@ -138,8 +128,8 @@ fun GlobalMiniPlayer(
                 .clip(RoundedCornerShape(16.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .clickable(onClick = onExpand)
-                // Unified gesture handler: horizontal swipe skips tracks,
-                // vertical swipe-up expands to full now-playing sheet.
+
+
                 .pointerInput(controller) {
                     while (true) {
                         var totalX = 0f
@@ -165,7 +155,7 @@ fun GlobalMiniPlayer(
                                 }
                             }
                         }
-                        // Back in unrestricted PointerInputScope — suspend calls are allowed here
+
                         swipeOffsetX.snapTo(liveDragX)
                         liveDragX = 0f
                         when {
@@ -267,7 +257,7 @@ fun GlobalMiniPlayer(
                     )
                 }
             }
-            // Thin progress under the row.
+
             val progress = if (durationMs > 0) positionMs.toFloat() / durationMs.toFloat() else 0f
             LinearProgressIndicator(
                 progress = { progress.coerceIn(0f, 1f) },

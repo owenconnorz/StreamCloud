@@ -30,7 +30,7 @@ data class AiState(
     val generatedImageBase64: String? = null,
     val nsfwMode: Boolean = false,
 
-    // Image editing (image-to-image)
+
     val sourceImageBase64: String? = null,
     val editPrompt: String = "",
     val editLoading: Boolean = false,
@@ -114,7 +114,7 @@ class AiViewModel(private val sl: ServiceLocator) : ViewModel() {
         }
     }
 
-    // ---- Image-to-image editing ----------------------------------------------------------------
+
 
     fun setSourceImage(base64: String?) {
         _state.update { it.copy(sourceImageBase64 = base64, editError = null, editedImageBase64 = null) }

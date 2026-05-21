@@ -37,20 +37,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Endless-scroll View All page used by the "View all →" links on the Movies
- * tab. Handles two source types via [source]:
- *
- *  - `tmdb:<collectionId>` — paginates a curated TMDB collection (Trending,
- *    Marvel, Pixar, …) by hitting [HomeCollection.fetchPage].
- *  - `stremio:<addonId>:<type>:<catalogId>` — paginates a Stremio addon
- *    catalog using its `skip=` query parameter.
- *
- * Posters click through to either the existing TMDB MovieDetail (for TMDB
- * collections) OR resolve via IMDB→TMDB and then route to MovieDetail (for
- * Stremio metas). Stremio resolve failures surface as a small inline banner
- * so the user knows why a tap didn't navigate.
- */
 @Composable
 fun CatalogPageScreen(
     source: String,
@@ -99,7 +85,7 @@ fun CatalogPageScreen(
                 val addons = sl.stremio.addons.first()
                 val addon = addons.firstOrNull { it.id == addonId }
                 if (addon == null) { endReached = true; return }
-                // Stremio paginates by `skip`; pull pages of 50 by default.
+
                 val skip = stremioItems.size
                 val items = sl.stremio.fetchCatalog(addon, type, catalogId, skip = skip)
                 if (items.isEmpty()) endReached = true
@@ -112,7 +98,7 @@ fun CatalogPageScreen(
         }
     }
 
-    // Initial load + endless scroll trigger.
+
     LaunchedEffect(source) { loadNext() }
     LaunchedEffect(gridState) {
         snapshotFlow {
@@ -123,7 +109,7 @@ fun CatalogPageScreen(
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // ── Header (back + title + subtitle), Nuvio-style ──────────────
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -185,9 +171,9 @@ fun CatalogPageScreen(
                                     if (t != null) {
                                         withContext(Dispatchers.Main) { onMovieClick(t) }
                                     } else if (addonId.isNotBlank() && type.isNotBlank()) {
-                                        // Couldn't match TMDB but we still have
-                                        // a Stremio source — fall through to
-                                        // the addon-native detail screen.
+
+
+
                                         withContext(Dispatchers.Main) {
                                             onOpenStremio(addonId, type, id, meta.name, meta.poster)
                                         }
@@ -197,8 +183,8 @@ fun CatalogPageScreen(
                                 }.onFailure { e -> notice = "Resolve failed: ${e.message}" }
                             }
                         } else if (addonId.isNotBlank() && type.isNotBlank()) {
-                            // Non-IMDB id (NSFW addons, custom addons) — go
-                            // straight to the addon-native detail screen.
+
+
                             onOpenStremio(addonId, type, id, meta.name, meta.poster)
                         } else {
                             notice = "Cannot open this item — no source addon."

@@ -4,12 +4,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
-/**
- * Stremio addon protocol — minimal subset needed to render catalogs,
- * meta details, and stream lists in StreamCloud.
- *
- * Spec: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/protocol.md
- */
 @Serializable
 data class StremioManifest(
     val id: String,
@@ -18,7 +12,7 @@ data class StremioManifest(
     val description: String? = null,
     val logo: String? = null,
     val icon: String? = null,
-    val resources: List<JsonElement> = emptyList(),       // can be ["catalog","stream"] OR rich objects
+    val resources: List<JsonElement> = emptyList(),
     val types: List<String> = emptyList(),
     val catalogs: List<StremioCatalogDef> = emptyList(),
     val idPrefixes: List<String>? = null,
@@ -120,23 +114,18 @@ data class InstalledStremioAddon(
     val id: String,
     val name: String,
     val manifestUrl: String,
-    val baseUrl: String,             // manifestUrl with /manifest.json stripped
+    val baseUrl: String,
     val logo: String? = null,
     val installedAt: Long,
 )
 
-/**
- * One horizontal row on the Movies home page sourced from a Stremio addon
- * catalog. Mirrors NuvioMobile's `HomeCatalogSection` minus the disk-cache
- * machinery — we re-fetch on every `loadDiscover()` for now.
- */
 @Serializable
 data class StremioHomeRow(
     val addonId: String,
     val addonName: String,
     val catalogId: String,
     val catalogName: String,
-    val type: String,                // "movie" | "series" | "channel" | …
+    val type: String,
     val items: List<StremioMetaPreview>,
 ) {
     val rowKey: String get() = "$addonId:$type:$catalogId"

@@ -45,19 +45,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * YouTube Music playlist detail — Metrolist parity.
- *
- * Layout:
- *   1. Hero header with large cover art (derived from the first track's artwork
- *      if the playlist doesn't have its own) + title + track count + Play /
- *      Shuffle / MoreVert buttons.
- *   2. Track list where each row exposes a 3-dot menu with Play, Play next,
- *      Add to queue, Download / Remove download, Share.
- *
- * Tapping the MoreVert (⋮) button next to Shuffle opens [PlaylistActionsSheet]
- * with: Edit, Sync, Add to queue, Download all, Share, Delete.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YtPlaylistScreen(
@@ -76,17 +63,17 @@ fun YtPlaylistScreen(
     var showPlaylistMenu by remember { mutableStateOf(false) }
     var syncTrigger by remember { mutableStateOf(0) }
 
-    // OkHttp (MusicDownloader) progress — covers legacy direct-download path.
+
     val okhttpProgress by com.streamcloud.app.data.downloads.MusicDownloader.progressFlow
         .collectAsState(initial = emptyMap())
 
-    // Media3 DownloadManager progress — covers "Download all" (YtMusicDownloadUtil).
-    // Without this, downloadFraction is always null for Media3 downloads so the
-    // spinner never appears and the icon never updates mid-download.
+
+
+
     val exoDownloads by com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads
         .collectAsState()
 
-    // Merge both sources into a single url→fraction map.
+
     val downloadProgress = remember(okhttpProgress, exoDownloads) {
         val merged = okhttpProgress.toMutableMap()
         exoDownloads.forEach { (url, dl) ->
@@ -143,15 +130,15 @@ fun YtPlaylistScreen(
             tracks = fresh
             if (fresh.isNotEmpty()) {
                 com.streamcloud.app.data.ytmusic.PlaylistCache.write(context, playlistId, fresh)
-                // Persist the real track count so the library card shows the correct
-                // number next time — YouTube's subtitle text is often stale/wrong.
+
+
                 com.streamcloud.app.data.ytmusic.LibraryCache.updatePlaylistCount(
                     context, playlistId, fresh.size,
                 )
-                // Pre-warm the stream URL cache for every track in the playlist.
-                // Runs fire-and-forget in the background: 3 concurrent Innertube
-                // POSTs at a time so the user gets instant playback on any track
-                // they tap without waiting for on-demand URL resolution.
+
+
+
+
                 scope.launch {
                     com.streamcloud.app.data.ytmusic.StreamUrlCache.warmup(
                         fresh.map { it.videoId },
@@ -240,7 +227,7 @@ fun YtPlaylistScreen(
                 }
                 item { Spacer(Modifier.height(80.dp)) }
             }
-            }  // closes list != null branch
+            }
 
         }
 
@@ -297,7 +284,6 @@ fun YtPlaylistScreen(
         }
     }
 }
-
 
 @Composable
 private fun PlaylistHero(
@@ -414,7 +400,6 @@ private fun PlaylistHero(
     }
 }
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlaylistActionsSheet(
@@ -498,7 +483,6 @@ private fun PlaylistActionsSheet(
     }
 }
 
-
 @Composable
 private fun PlaylistActionRow(
     icon: ImageVector,
@@ -536,7 +520,6 @@ private fun PlaylistActionRow(
     }
 }
 
-
 @Composable
 private fun PlaylistTrackRow(
     song: YtmSong,
@@ -549,12 +532,12 @@ private fun PlaylistTrackRow(
         mutableStateOf(YtPlayback.isDownloaded(context, song))
     }
 
-    // Reactively track Media3 DownloadManager state (mirrors Metrolist's
-    // downloadUtil.downloads.collect { ... } pattern). Without this collector
-    // the icon never updates after a Media3 download completes because
-    // downloadFraction (sourced from MusicDownloader.progressFlow) stays null
-    // throughout a YtMusicDownloadUtil download and the LaunchedEffect below
-    // never re-fires.
+
+
+
+
+
+
     LaunchedEffect(song.videoId) {
         val url = YtPlayback.watchUrl(song.videoId)
         com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads.collect { dlMap ->
@@ -564,7 +547,7 @@ private fun PlaylistTrackRow(
         }
     }
 
-    // Also handle legacy MusicDownloader (OkHttp) progress → completion transitions.
+
     LaunchedEffect(song.videoId, downloadFraction) {
         if (downloadFraction == null) downloaded = YtPlayback.isDownloaded(context, song)
     }

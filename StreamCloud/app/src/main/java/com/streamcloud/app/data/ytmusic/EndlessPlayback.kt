@@ -13,24 +13,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
-/**
- * Fetches "Up next" / radio-style related songs for a YT Music video id. This
- * is what powers Metrolist-style **endless playback** — tap any song and a
- * 20-track auto-radio is queued behind it so skip / previous always have
- * somewhere to go (and the system notification's skip controls light up).
- *
- * Uses the public InnerTube `next` endpoint, same one music.youtube.com itself
- * calls when you click a track on the home page. No auth required, but if a
- * cookie is present we forward it so personalised mixes show up.
- */
 object EndlessPlayback {
     private const val TAG = "EndlessPlayback"
 
-    /**
-     * Returns up to [limit] related songs (excluding [videoId] itself). On any
-     * failure (network, parse, no cookie) returns an empty list — caller
-     * should treat that as "no auto-radio available" and continue silently.
-     */
+
     suspend fun relatedSongs(
         context: Context,
         videoId: String,
@@ -53,8 +39,8 @@ object EndlessPlayback {
             }
             put("videoId", videoId)
             put("isAudioOnly", true)
-            // `RDAMVM<id>` = "Radio based on this song" — the same mix the
-            // YT Music web UI builds when you Right-click → Start radio.
+
+
             put("playlistId", "RDAMVM$videoId")
         }
 
@@ -63,14 +49,7 @@ object EndlessPlayback {
         return parseWatchNext(response, excludeVideoId = videoId).take(limit)
     }
 
-    /**
-     * The `next` response wraps the queue in
-     * `contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer
-     *   .watchNextTabbedResultsRenderer.tabs[0].tabRenderer.content
-     *   .musicQueueRenderer.content.playlistPanelRenderer.contents[]`.
-     *
-     * Each entry is a `playlistPanelVideoRenderer` we can map to [YtmSong].
-     */
+
     private fun parseWatchNext(root: JsonObject, excludeVideoId: String): List<YtmSong> {
         val nodes = root.findAll("playlistPanelVideoRenderer")
             .mapNotNull { it as? JsonObject }
@@ -86,7 +65,7 @@ object EndlessPlayback {
             val title = node["title"].runsText()?.takeIf { it.isNotBlank() }
                 ?: return@mapNotNull null
 
-            // longBylineText / shortBylineText holds "Artist · Album · Year" runs.
+
             val byline = node["longBylineText"].runsText()
                 ?: node["shortBylineText"].runsText().orEmpty()
             val (artist, album) = splitArtistAlbum(byline)
@@ -105,7 +84,7 @@ object EndlessPlayback {
         }
     }
 
-    /** Split a YT byline like "Artist · Album · 2024" into (artist, album?). */
+
     private fun splitArtistAlbum(byline: String): Pair<String, String?> {
         val parts = byline.split("·").map { it.trim() }.filter { it.isNotEmpty() }
         return when (parts.size) {
@@ -115,7 +94,7 @@ object EndlessPlayback {
         }
     }
 
-    /** "3:45" → 225L. Returns null if the string isn't a numeric duration. */
+
     private fun String.parseDurationSec(): Long? {
         val parts = split(":").mapNotNull { it.toIntOrNull() }
         if (parts.isEmpty()) return null

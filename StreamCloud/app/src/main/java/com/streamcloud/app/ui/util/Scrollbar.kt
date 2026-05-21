@@ -14,22 +14,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/**
- * Draws a Metrolist-style thin scrollbar on the right edge of a [LazyColumn].
- *
- * The thumb auto-fades in when the list is scrolling and fades out after
- * [fadeOutDelayMs] milliseconds of no movement — identical to the behaviour
- * seen in Metrolist playlists.
- *
- * Usage:
- * ```
- * val state = rememberLazyListState()
- * LazyColumn(
- *     state = state,
- *     modifier = Modifier.verticalScrollbar(state),
- * ) { ... }
- * ```
- */
 fun Modifier.verticalScrollbar(
     state: LazyListState,
     width: Dp = 3.dp,
@@ -61,16 +45,16 @@ fun Modifier.verticalScrollbar(
         val firstItem = visibleItems.first()
         val lastItem = visibleItems.last()
 
-        // Estimate the average item height from visible items.
+
         val avgItemHeight = visibleItems.sumOf { it.size } / visibleItems.size.toFloat()
         val estimatedTotalHeight = (avgItemHeight * totalItems)
             .coerceAtLeast(viewportHeight.toFloat())
 
-        // Thumb height is proportional to the fraction of content visible.
+
         val thumbHeightPx = ((viewportHeight / estimatedTotalHeight) * viewportHeight)
             .coerceAtLeast(minThumbHeight.toPx())
 
-        // Scroll fraction: 0 = top, 1 = bottom.
+
         val scrolledPast = (firstItem.index * avgItemHeight) - firstItem.offset
         val maxScroll = estimatedTotalHeight - viewportHeight
         val scrollFraction = if (maxScroll > 0) (scrolledPast / maxScroll).coerceIn(0f, 1f) else 0f

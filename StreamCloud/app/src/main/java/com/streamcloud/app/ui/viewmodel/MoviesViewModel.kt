@@ -28,10 +28,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/**
- * Compatibility token still referenced by the player's source-picker code.
- * The Movies tab itself no longer renders a "Built-in" chip.
- */
 const val SOURCE_BUILTIN = "builtin"
 
 data class CollectionRow(

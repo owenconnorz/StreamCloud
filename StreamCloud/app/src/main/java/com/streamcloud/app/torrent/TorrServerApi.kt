@@ -29,10 +29,6 @@ data class TorrServerStats(
     val files: List<TorrServerFile>,
 )
 
-/**
- * HTTP client for the local TorrServer REST API.
- * Adapted from NuvioTV (https://github.com/NuvioMedia/NuvioTV).
- */
 class TorrServerApi(private val binary: TorrServerBinary) {
 
     companion object {
@@ -122,11 +118,7 @@ class TorrServerApi(private val binary: TorrServerBinary) {
         }
     }
 
-    /**
-     * Returns the TorrServer streaming URL for [magnetLink] and [fileIdx].
-     * TorrServer's `/stream` endpoint accepts the magnet, resolves metadata
-     * internally, pre-buffers the head/moov, and serves HTTP Range.
-     */
+
     fun getStreamUrl(magnetLink: String, fileIdx: Int): String {
         val encoded = URLEncoder.encode(magnetLink, "UTF-8")
         return "$base/stream?link=$encoded&index=$fileIdx&play"

@@ -30,12 +30,6 @@ import com.streamcloud.app.data.newpipe.YtTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * Metrolist-style artist page — large banner, avatar, subscriber count, About card,
- * Subscribe / Radio / Shuffle action row, then horizontal "Top tracks" + "Albums" rails.
- *
- * The track tap-through hands off to [onPlay] which the host wires into MusicPlaybackService.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MusicArtistScreen(
@@ -102,7 +96,7 @@ private fun ArtistContent(
 ) {
     LazyColumn(modifier.fillMaxSize()) {
         item {
-            // Banner + avatar overlay
+
             Box(Modifier.fillMaxWidth().height(220.dp)) {
                 AsyncImage(
                     model = page.banner ?: page.avatar,
@@ -146,7 +140,7 @@ private fun ArtistContent(
                 }
             }
         }
-        // Action row
+
         item {
             Row(
                 Modifier.fillMaxWidth().padding(20.dp),
@@ -172,7 +166,7 @@ private fun ArtistContent(
                 }
             }
         }
-        // About card
+
         if (page.description.isNotBlank()) {
             item {
                 Text(
@@ -193,7 +187,7 @@ private fun ArtistContent(
                 )
             }
         }
-        // Top tracks
+
         if (page.topTracks.isNotEmpty()) {
             item {
                 Text(
@@ -236,7 +230,7 @@ private fun ArtistContent(
                 }
             }
         }
-        // Albums
+
         if (page.albums.isNotEmpty()) {
             item {
                 Text(

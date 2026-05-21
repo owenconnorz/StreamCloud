@@ -39,13 +39,6 @@ private data class PluginPageState(
     val pluginName: String = "",
 )
 
-/**
- * Dedicated home page for one CloudStream `.cs3` plugin.
- *
- * The Movies tab itself only serves TMDB + Stremio addon catalogs (NuvioMobile
- * parity). CloudStream plugins each get their own page so their home + search
- * surfaces don't clutter the unified home feed.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CloudStreamPluginScreen(

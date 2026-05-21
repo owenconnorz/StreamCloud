@@ -9,20 +9,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
-/**
- * Sends UPnP AV Transport SOAP commands to a Sonos zone player.
- *
- * Every public function is a suspend fun that executes on [Dispatchers.IO]
- * and returns true on HTTP 200, false on any error. Callers should not
- * retry — Sonos typically responds within 200 ms on a healthy LAN.
- *
- * Supported actions (all on urn:schemas-upnp-org:service:AVTransport:1):
- *  - [setUri]   SetAVTransportURI — load a stream URL
- *  - [play]     Play              — start / resume playback
- *  - [pause]    Pause             — pause playback
- *  - [stop]     Stop              — stop and unload
- *  - [getState] GetTransportInfo  — returns "PLAYING", "PAUSED_PLAYBACK", "STOPPED", etc.
- */
 object SonosController {
 
     private const val TAG = "SonosController"
@@ -88,9 +74,9 @@ object SonosController {
         }
     }
 
-    // ── RenderingControl (volume) ──────────────────────────────────────────
 
-    /** Returns the Sonos zone player's Master volume (0–100), or null on error. */
+
+
     suspend fun getVolume(device: SonosDevice): Int? = withContext(Dispatchers.IO) {
         try {
             val envelope = renderingEnvelope(
@@ -112,7 +98,7 @@ object SonosController {
         }
     }
 
-    /** Sets the Sonos zone player's Master volume to [volume] (0–100). */
+
     suspend fun setVolume(device: SonosDevice, volume: Int): Boolean {
         val clamped = volume.coerceIn(0, 100)
         return renderingSoap(
@@ -155,7 +141,7 @@ object SonosController {
         </s:Envelope>
     """.trimIndent()
 
-    // ──────────────────────────────────────────────────────────────────────
+
 
     private suspend fun soap(device: SonosDevice, action: String, body: String): Boolean =
         withContext(Dispatchers.IO) {
@@ -194,17 +180,7 @@ object SonosController {
         </s:Envelope>
     """.trimIndent()
 
-    /**
-     * Minimal DIDL-Lite metadata so Sonos shows the track title on its display.
-     *
-     * Notes:
-     *  - parentID must be "-1" (UPnP root), NOT "0" — strict Sonos firmwares
-     *    return a SOAP fault for parentID="0" on external streams.
-     *  - restricted="true" is the correct boolean string per UPnP spec.
-     *  - protocolInfo uses audio/mp4 matching the AAC-LC stream YouTube serves
-     *    via the ANDROID_MUSIC Innertube client.
-     *  - Namespaces are declared on the root element in the order Sonos expects.
-     */
+
     private fun buildDIDL(title: String, uri: String): String {
         val safeTitle = title.xmlEscape()
         val safeUri = uri.xmlEscape()

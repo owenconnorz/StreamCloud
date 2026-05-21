@@ -20,19 +20,6 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.zip.ZipFile
 
-/**
- * Runtime for executing CloudStream `.cs3` plugins.
- *
- * Pipeline:
- *   1. The `.cs3` file is a renamed JAR/DEX (zip with classes.dex inside)
- *   2. Use [DexClassLoader] with our app's classloader as parent so plugin classes
- *      can resolve `com.lagradost.cloudstream3.MainAPI` etc. (we ship those stubs)
- *   3. Find the class annotated with `@CloudstreamPlugin` via the manifest entry
- *      `Plugin-Class` in `META-INF/MANIFEST.MF` (newer plugins) OR by scanning
- *      classes for a `Plugin` subclass (legacy)
- *   4. Instantiate it, call `load(context)` so the plugin registers its [MainAPI]
- *   5. Cache the loaded [MainAPI]s so future calls are instant
- */
 object PluginRuntime {
 
     private data class LoadedPlugin(val plugin: Plugin, val apis: List<MainAPI>)
@@ -43,13 +30,13 @@ object PluginRuntime {
 
     suspend fun load(context: Context, filePath: String): List<MainAPI> = withContext(Dispatchers.IO) {
         cache[filePath]?.let { return@withContext it.apis }
-        // Initialise SharedPreferences so plugin setKey/getKey calls work.
+
         installPrefs(context)
         try {
             val src = File(filePath)
             if (!src.exists()) error("Plugin file missing: $filePath")
-            // Android 14+ refuses to load DEX from a writable file. Copy it into a
-            // private read-only location and chmod it.
+
+
             val readOnlyDir = File(context.codeCacheDir, "plugins-ro").apply { mkdirs() }
             val readOnlyFile = File(readOnlyDir, src.name)
             if (!readOnlyFile.exists() ||
@@ -58,8 +45,8 @@ object PluginRuntime {
             ) {
                 src.copyTo(readOnlyFile, overwrite = true)
             }
-            // setReadOnly() flips the user-write bit. Required for `DexClassLoader` on
-            // API 34+ — otherwise we get `SecurityException: Writable dex file ... is not allowed`.
+
+
             @Suppress("ResultOfMethodCallIgnored")
             readOnlyFile.setReadOnly()
 
@@ -100,14 +87,9 @@ object PluginRuntime {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /**
-     * CloudStream plugins ship one of two metadata files:
-     *   1. `manifest.json` at the .cs3 root with `pluginClassName` (modern recloudstream)
-     *   2. `META-INF/MANIFEST.MF` with `Plugin-Class:` (legacy / Java JAR convention)
-     * We try both before falling back to dex scanning.
-     */
+
     private fun readPluginClassName(file: File): String? {
-        // 1. CloudStream's actual format: `manifest.json` at the JAR root.
+
         try {
             ZipFile(file).use { zf ->
                 val entry = zf.getEntry("manifest.json")
@@ -118,9 +100,9 @@ object PluginRuntime {
                     if (name != null) return name
                 }
             }
-        } catch (_: Exception) { /* fall through */ }
+        } catch (_: Exception) {  }
 
-        // 2. JAR convention: `META-INF/MANIFEST.MF` with `Plugin-Class:` attribute.
+
         return try {
             ZipFile(file).use { zf ->
                 val entry = zf.getEntry("META-INF/MANIFEST.MF") ?: return null
@@ -133,14 +115,7 @@ object PluginRuntime {
         } catch (_: Exception) { null }
     }
 
-    /**
-     * Last-resort fallback: enumerate every class in the dex and pick the one that
-     * extends our [Plugin] base. Only used for legacy `.cs3` files that ship neither
-     * `manifest.json` nor `MANIFEST.MF` (rare but happens with old recloudstream forks).
-     *
-     * `DexFile` is technically deprecated since Android 8 but still functional and
-     * remains the only public API for this purpose without pulling in `dexlib2`.
-     */
+
     @Suppress("DEPRECATION")
     private fun scanDexForPluginClass(
         readOnlyFile: File,
@@ -161,7 +136,7 @@ object PluginRuntime {
             )
             val pluginBase = Plugin::class.java
             dexFile.entries().toList().firstOrNull { className ->
-                // Skip cloudstream3 stubs we ship in the host app.
+
                 if (className.startsWith("com.lagradost.cloudstream3.") &&
                     !className.contains("plugin", ignoreCase = true)) return@firstOrNull false
                 runCatching {
@@ -182,8 +157,8 @@ object PluginRuntime {
     suspend fun home(context: Context, filePath: String): List<Pair<String, List<SearchResponse>>> {
         val apis = load(context, filePath)
         if (apis.isEmpty()) {
-            // Either load() failed (lastErrors already populated) OR the plugin
-            // didn't register any MainAPI. Surface a useful message either way.
+
+
             if (lastErrors[filePath] == null) {
                 lastErrors[filePath] = "Plugin loaded but registered 0 MainAPIs."
             }
@@ -192,10 +167,10 @@ object PluginRuntime {
         val out = mutableListOf<Pair<String, List<SearchResponse>>>()
         val perApiErrors = mutableListOf<String>()
         apis.forEach { api ->
-            // CloudStream plugins normally declare `override val mainPage = mainPageOf(...)`.
-            // Some legacy/third-party providers leave it empty but still implement
-            // `getMainPage(page, request)` — synthesise a single default request so
-            // those still surface their home feed instead of looking "broken".
+
+
+
+
             val requests = if (api.mainPage.isNotEmpty()) api.mainPage
             else listOf(MainPageRequest(name = api.name, data = "", horizontalImages = false))
             var apiSectionsAdded = 0
@@ -233,19 +208,7 @@ object PluginRuntime {
         }
     }
 
-    /**
-     * Replica of the official CloudStream pipeline:
-     *   `api.loadLinks(data, isCasting=false, subtitleCallback, callback)`
-     *
-     * Every registered MainAPI in the plugin is given a chance to resolve the
-     * link. Some plugins ship multiple providers and only one may know the
-     * `data` shape — we silently swallow per-API failures and accumulate
-     * everything that succeeds across them.
-     *
-     * Returns the collected [ExtractorLink]s and [SubtitleFile]s. The [data]
-     * string is whatever the plugin put inside `LoadResponse.dataUrl` (movie)
-     * or `Episode.data` (series), and is opaque to the host.
-     */
+
     suspend fun loadLinks(
         context: Context,
         filePath: String,
@@ -264,13 +227,13 @@ object PluginRuntime {
                     callback = { link -> links.add(link) },
                 )
             } catch (_: Throwable) {
-                // Per-API failure — keep going, other APIs may still resolve.
+
             }
         }
         links.toList() to subs.toList()
     }
 
-    /** First MainAPI that loaded successfully from the given plugin file (used for `apiName`). */
+
     suspend fun firstApi(context: Context, filePath: String): MainAPI? = load(context, filePath).firstOrNull()
 
     fun clear(filePath: String) {

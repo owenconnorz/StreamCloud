@@ -67,8 +67,8 @@ fun MusicScreen(
     var showHistory by remember { mutableStateOf(false) }
     val dlScope = rememberCoroutineScope()
 
-    // The Player is now a MediaController bound to our foreground MusicPlaybackService.
-    // This makes audio survive navigation AND auto-publishes the system notification.
+
+
     var player by remember { mutableStateOf<androidx.media3.common.Player?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var playerError by remember { mutableStateOf<String?>(null) }
@@ -88,7 +88,7 @@ fun MusicScreen(
                     vm.setShuffle(shuffleModeEnabled)
                 }
             })
-            // Mirror initial state.
+
             vm.setRepeatMode(controller.repeatMode)
             vm.setShuffle(controller.shuffleModeEnabled)
             player = controller
@@ -97,8 +97,8 @@ fun MusicScreen(
             playerError = "Couldn't connect to media service: ${e.message}"
         }
     }
-    // NOTE: do NOT release the controller in onDispose — that would kill background playback.
-    // The service holds the player; the controller is just a thin client.
+
+
 
     val nowPlaying = state.nowPlayingTrack
         ?: state.tracks.firstOrNull { it.url == state.nowPlayingUrl }
@@ -128,9 +128,9 @@ fun MusicScreen(
                     }
                 }
             }
-            // Surface BOTH the ViewModel's error (e.g. NewPipe extraction failed) and the
-            // ExoPlayer's playback error in a prominent banner — this is critical for
-            // debugging "music won't play" without the user having to scroll.
+
+
+
             val combinedError = state.error ?: playerError
             if (combinedError != null) {
                 item {
@@ -162,11 +162,11 @@ fun MusicScreen(
                 }
             }
 
-            // Discovery chips when no query
+
             if (query.isBlank() && state.tracks.isEmpty()) {
                 item { SuggestionsRow(onPick = { query = it; vm.search(it) }) }
 
-                // ── Library shortcuts ───────────────────────────────────────────
+
                 if (state.liked.isNotEmpty()) {
                     item { SectionTitle("Liked songs") }
                     items(state.liked.take(5), key = { "lib_liked_${it.url}" }) { entity ->
@@ -183,10 +183,10 @@ fun MusicScreen(
                     }
                 }
 
-                // ── Metrolist-style YouTube Music home feed ───────────────────
-                // This replaces the single "Trending today" rail with the full
-                // personalised set of shelves (Quick picks, Keep listening, Your daily
-                // discover, From the community, New releases, mood chips, etc.).
+
+
+
+
                 state.ytHome.sections.forEachIndexed { idx, section ->
                     when (section) {
                         is com.streamcloud.app.data.ytmusic.HomeSection.MoodChips -> {
@@ -200,9 +200,9 @@ fun MusicScreen(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
                                     items(section.items, key = { "${it.id}_$idx" }) { pl ->
-                                        // Route home-feed playlist taps to the
-                                        // dedicated playlist screen — same as
-                                        // the Library tab behaviour.
+
+
+
                                         YtHomePlaylistCard(pl) {
                                             onOpenPlaylist(pl.id, pl.title)
                                         }
@@ -226,8 +226,8 @@ fun MusicScreen(
                     }
                 }
 
-                // Legacy fallback: NewPipe "Trending" feed — only shown when the YT
-                // home feed didn't surface anything (not signed in / fetch failed).
+
+
                 if (state.ytHome.sections.isEmpty() && state.homeFeed.isNotEmpty()) {
                     item { SectionTitle("Trending today") }
                     item {
@@ -290,7 +290,7 @@ fun MusicScreen(
                 }
             }
 
-            // Metrolist-style filter chips — only when the user is actively searching.
+
             if (query.isNotBlank()) {
                 item {
                     SearchModeChips(
@@ -300,10 +300,10 @@ fun MusicScreen(
                 }
             }
 
-            // ─────────── Sectioned search results (Metrolist parity) ───────────
+
             if (query.isNotBlank()) {
                 val sections = state.sections
-                // Top result card (only in "All" mode and when we have one).
+
                 sections.topResult?.takeIf { state.searchMode == SearchMode.All }?.let { top ->
                     item { SectionTitle("Top result") }
                     item {
@@ -318,7 +318,7 @@ fun MusicScreen(
                         )
                     }
                 }
-                // Songs section
+
                 if (sections.songs.isNotEmpty() && (state.searchMode == SearchMode.All || state.searchMode == SearchMode.Songs)) {
                     item { SectionTitle(if (state.searchMode == SearchMode.All) "Songs" else "All songs") }
                     items(sections.songs, key = { "song_${it.url}" }) { track ->
@@ -335,7 +335,7 @@ fun MusicScreen(
                         )
                     }
                 }
-                // Videos section
+
                 if (sections.videos.isNotEmpty() && (state.searchMode == SearchMode.All || state.searchMode == SearchMode.Videos)) {
                     item { SectionTitle("Videos") }
                     items(sections.videos, key = { "vid_${it.url}" }) { track ->
@@ -352,7 +352,7 @@ fun MusicScreen(
                         )
                     }
                 }
-                // Albums section
+
                 if (sections.albums.isNotEmpty() && (state.searchMode == SearchMode.All || state.searchMode == SearchMode.Albums)) {
                     item { SectionTitle("Albums") }
                     item {
@@ -366,7 +366,7 @@ fun MusicScreen(
                         }
                     }
                 }
-                // Artists section
+
                 if (sections.artists.isNotEmpty() && (state.searchMode == SearchMode.All || state.searchMode == SearchMode.Artists)) {
                     item { SectionTitle("Artists") }
                     item {
@@ -392,11 +392,11 @@ fun MusicScreen(
             }
         }
 
-        // Reuse the SAME global mini-player on the Music tab so any track that
-        // started on a different tab (Library playlist, AI generated, etc.)
-        // also reflects here. This eliminates the dual-state desync where the
-        // Music tab's `MusicViewModel` showed a different track than the
-        // foreground service was actually playing.
+
+
+
+
+
         com.streamcloud.app.ui.player.GlobalMiniPlayer(
             modifier = Modifier.align(Alignment.BottomCenter),
         )
@@ -422,12 +422,6 @@ fun MusicScreen(
     }
 }
 
-/**
- * Build an ExoPlayer with a Chrome-like User-Agent and Range-request support.
- * NOTE: this is no longer used directly by the UI — the foreground service owns
- * the player now — but we keep the helper around for any future direct-playback
- * use case (preview, peek, etc.).
- */
 @OptIn(androidx.media3.common.util.UnstableApi::class)
 private fun buildMusicExoPlayer(context: android.content.Context): ExoPlayer {
     val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
@@ -620,8 +614,6 @@ private fun SectionTitle(text: String) {
     )
 }
 
-// ─────────────────────── Metrolist-style search chips ───────────────────────
-
 @Composable
 private fun SearchModeChips(
     active: com.streamcloud.app.ui.viewmodel.SearchMode,
@@ -780,7 +772,7 @@ private fun HeroCard(track: YtTrack, isPlaying: Boolean, onClick: () -> Unit) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            // Play overlay
+
             Box(
                 Modifier
                     .padding(8.dp)
@@ -932,8 +924,6 @@ private fun LibraryRow(
     }
 }
 
-// ───────────── Metrolist-style YouTube Music home sections ─────────────
-
 @Composable
 private fun YtMoodChipRow(chips: List<com.streamcloud.app.data.ytmusic.MoodChip>) {
     LazyRow(
@@ -942,7 +932,7 @@ private fun YtMoodChipRow(chips: List<com.streamcloud.app.data.ytmusic.MoodChip>
     ) {
         items(chips, key = { "chip_${it.label}" }) { chip ->
             AssistChip(
-                onClick = { /* TODO: apply mood filter via YtMusicHomeRepository */ },
+                onClick = {  },
                 label = { Text(chip.label) },
             )
         }
@@ -976,9 +966,9 @@ private fun YtHomePlaylistCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        // Prefer the real paginated count over YouTube's stale subtitle count.
-        // cachedTrackCount is null until the playlist has been opened at least
-        // once — at that point it holds the actual track count from full pagination.
+
+
+
         val displaySubtitle = if (pl.cachedTrackCount != null) {
             pl.subtitle
                 ?.replace(Regex("\\d+\\s+songs?", RegexOption.IGNORE_CASE), "${pl.cachedTrackCount} songs")

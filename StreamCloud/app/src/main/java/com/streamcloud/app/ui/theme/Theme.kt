@@ -67,7 +67,6 @@ private val AioLightColors = lightColorScheme(
     onError = Color.White,
 )
 
-// ── Preset palette accent-color definitions ─────────────────────────────────
 internal data class PaletteAccents(
     val primary: Color,
     val primaryContainer: Color,
@@ -143,28 +142,28 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
 
     val supportsDynamic = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-    // ── Base color scheme ────────────────────────────────────────────────────
-    // Priority (Metrolist parity):
-    //  1. Monet / Android 12+ dynamic wallpaper colors   (dynamicEnabled + S+)
-    //  2. Music-driven Metrolist-style full tonal scheme  (track playing with artwork)
-    //  3. User-selected preset palette                    (static)
+
+
+
+
+
     val colors = when {
-        // 1. Monet — let Android handle everything; don't layer album art on top
+
         dynamicEnabled && supportsDynamic -> {
             if (useDark) dynamicDarkColorScheme(context)
             else         dynamicLightColorScheme(context)
         }
 
-        // 2. Album-art driven scheme (dark mode only, matching Metrolist behaviour)
+
         useDark && hasArtwork -> {
-            // Metrolist seeds the full dark scheme from the palette swatches:
-            //  • primary / tertiary        → vibrant swatch (the "pop" color)
-            //  • secondary / container     → muted swatch (softer complement)
-            //  • surface / background      → very dark tint toward the accent
+
+
+
+
             val accent   = albumArtAccent
             val muted    = albumArtSecond
 
-            // Subtle background tint: blend 6 % of the accent into the base dark bg
+
             val tintedBg      = lerp(Bg,          accent, 0.06f)
             val tintedSurface = lerp(BgElevated,  accent, 0.08f)
             val tintedVariant = lerp(BgSurface,   accent, 0.10f)
@@ -189,7 +188,7 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
             )
         }
 
-        // 3. Static preset palette (or light mode)
+
         !useDark -> AioLightColors
         else -> {
             val p = palettes[colorPaletteId] ?: palettes["default"]!!

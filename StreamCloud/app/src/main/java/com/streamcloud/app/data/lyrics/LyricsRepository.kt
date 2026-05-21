@@ -9,11 +9,6 @@ import okhttp3.Request
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-/**
- * LRClib (https://lrclib.net) free, no-auth lyrics service.
- * Returns synced (LRC) when available, falls back to plain.
- */
-
 @Serializable
 data class LrcEntry(
     val id: Long = 0,
@@ -34,15 +29,13 @@ object LyricsRepository {
         .build()
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /**
-     * @return null if no lyrics found.
-     */
+
     suspend fun fetch(track: String, artist: String, durationSec: Long): LrcEntry? =
         withContext(Dispatchers.IO) {
-            // 1. Exact match endpoint — fastest
+
             val exact = runCatching { fetchExact(track, artist, durationSec) }.getOrNull()
             if (exact != null) return@withContext exact
-            // 2. Search endpoint as fallback (artist may not perfectly match)
+
             runCatching { fetchSearch(track, artist) }.getOrNull()
         }
 
@@ -77,9 +70,7 @@ object LyricsRepository {
         }
     }
 
-    /**
-     * Parses an LRC-format string into a list of [(timeMs, line)] pairs sorted by timestamp.
-     */
+
     fun parseLrc(lrc: String): List<Pair<Long, String>> {
         val out = mutableListOf<Pair<Long, String>>()
         val re = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]""")

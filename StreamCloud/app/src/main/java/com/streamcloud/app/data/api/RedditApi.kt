@@ -7,10 +7,6 @@ import retrofit2.http.Header
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-/**
- * Public Reddit `.json` endpoint — no OAuth required for public (and NSFW) subreddits.
- * The only hard requirement is a non-default User-Agent; without it Reddit replies 429.
- */
 interface RedditApi {
     @GET("r/{sub}/{sort}/.json")
     suspend fun listing(
@@ -24,7 +20,7 @@ interface RedditApi {
     ): RedditListing
 
     companion object {
-        // Match the StreamCloud web client's UA — Reddit logs and rate-limits per UA.
+
         const val USER_AGENT = "android:com.streamcloud.app:v1.0.0 (by /u/streamcloud_app)"
     }
 }
@@ -48,11 +44,6 @@ data class RedditChild(
     val data: RedditPost? = null,
 )
 
-/**
- * Reddit post — only fields needed for the adult grid + media resolution.
- * `JsonObject` is used for nested polymorphic blobs so we can dig in lazily
- * without exhaustively modelling Reddit's huge schema.
- */
 @Serializable
 data class RedditPost(
     val id: String = "",

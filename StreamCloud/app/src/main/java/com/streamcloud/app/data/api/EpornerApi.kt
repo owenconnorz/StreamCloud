@@ -8,10 +8,6 @@ import retrofit2.http.Query
 @Serializable
 data class EpornerThumb(val src: String? = null, val size: String? = null)
 
-/**
- * `all_qualities` is documented but some endpoints return a `sources` array.
- * We accept both via [EpornerSource] list and a flat map.
- */
 @Serializable
 data class EpornerSource(
     val src: String? = null,
@@ -27,16 +23,16 @@ data class EpornerVideo(
     val keywords: String? = null,
     val views: Long = 0,
     val rate: String? = null,
-    val url: String,                 // page URL
-    val embed: String,               // embed URL — used for in-app WebView fallback only
+    val url: String,
+    val embed: String,
     @SerialName("default_thumb") val defaultThumb: EpornerThumb? = null,
     @SerialName("length_sec") val lengthSec: Long = 0,
     @SerialName("length_min") val lengthMin: String? = null,
-    // Optional: present on detail responses only.
+
     @SerialName("all_qualities") val allQualities: Map<String, String>? = null,
     val sources: List<EpornerSource>? = null,
 ) {
-    /** Best direct MP4 URL across all known fields, preferring 1080p > 720p > 480p > others. */
+
     fun bestMp4(): String? {
         val ranking = listOf("1080p", "720p", "480p", "360p", "240p")
         val fromMap = allQualities?.let { qm ->
@@ -70,7 +66,7 @@ interface EpornerApi {
         @Query("format") format: String = "json",
     ): EpornerSearchResponse
 
-    /** Fetch a single video by id — response includes `all_qualities` MP4 URLs. */
+
     @GET("api/v2/video/search/")
     suspend fun details(
         @Query("id") id: String,

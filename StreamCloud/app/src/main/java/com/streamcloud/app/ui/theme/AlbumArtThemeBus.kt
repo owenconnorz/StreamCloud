@@ -20,22 +20,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Publishes dynamic accent colors derived from the currently-playing track's album art.
- * Mirrors Metrolist's palette extraction approach:
- *
- *  [accent]          — vibrant / light-vibrant / dominant swatch (primary color)
- *  [accentSecondary] — muted / dark-muted swatch (secondary / container color)
- *  [hasArtwork]      — true while a track with artwork is playing; lets Theme.kt
- *                      decide whether to apply the music-derived scheme at all
- *
- * Both flows stay at their DEFAULT values when no track is playing so the rest of the
- * app doesn't lurch when paused.
- */
 @UnstableApi
 object AlbumArtThemeBus {
 
-    /** Fallback accent when no artwork is available — Material violet, Metrolist-style. */
+
     val DEFAULT           = Color(0xFF7C5CFF)
     val DEFAULT_SECONDARY = Color(0xFF4A3A99)
 
@@ -88,7 +76,7 @@ object AlbumArtThemeBus {
         }
     }
 
-    /** Returns (vibrant, muted) pair or null on failure. */
+
     private suspend fun computePalette(context: Context, url: String): Pair<Color, Color>? =
         withContext(Dispatchers.IO) {
             runCatching {
@@ -102,17 +90,17 @@ object AlbumArtThemeBus {
 
                 val palette = Palette.from(bitmap).generate()
 
-                // Primary: vibrant → lightVibrant → dominant
+
                 val vibrant = palette.vibrantSwatch
                     ?: palette.lightVibrantSwatch
                     ?: palette.dominantSwatch
                     ?: return@runCatching null
 
-                // Secondary: muted → darkMuted → darkVibrant (complementary, lower saturation)
+
                 val muted = palette.mutedSwatch
                     ?: palette.darkMutedSwatch
                     ?: palette.darkVibrantSwatch
-                    ?: vibrant  // fallback to vibrant if nothing else
+                    ?: vibrant
 
                 Pair(Color(vibrant.rgb), Color(muted.rgb))
             }.getOrNull()

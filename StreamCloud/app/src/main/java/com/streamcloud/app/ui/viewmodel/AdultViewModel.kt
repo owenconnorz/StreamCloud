@@ -23,9 +23,9 @@ data class AdultState(
     val error: String? = null,
     val resolvingId: String? = null,
     val source: AdultSource = AdultSource.Eporner,
-    /** Reddit-only: the subreddit currently being browsed. */
+
     val subreddit: String = "nsfw",
-    /** Reddit pagination cursor. */
+
     val nextAfter: String? = null,
     val loadingMore: Boolean = false,
 )
@@ -41,7 +41,7 @@ class AdultViewModel : ViewModel() {
 
     init { search("popular") }
 
-    /** Switch between Eporner and Reddit. Resets the grid + reloads with sane defaults. */
+
     fun setSource(source: AdultSource) {
         if (_state.value.source == source) return
         _state.update { it.copy(source = source, items = emptyList(), error = null, nextAfter = null) }
@@ -51,7 +51,7 @@ class AdultViewModel : ViewModel() {
         }
     }
 
-    /** Drives the search bar across both sources. */
+
     fun search(query: String) {
         when (_state.value.source) {
             AdultSource.Eporner -> searchEporner(query)
@@ -63,14 +63,14 @@ class AdultViewModel : ViewModel() {
         }
     }
 
-    /** Pick a preset / custom subreddit chip. */
+
     fun setSubreddit(sub: String) {
         val clean = sub.removePrefix("r/").trim().ifBlank { "nsfw" }
         _state.update { it.copy(subreddit = clean) }
         loadReddit(clean)
     }
 
-    /** Endless scroll for Reddit (Eporner search is single-shot for now). */
+
     fun loadMore() {
         val s = _state.value
         if (s.source != AdultSource.Reddit || s.loadingMore || s.nextAfter == null) return
@@ -132,16 +132,10 @@ class AdultViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Resolves a direct MP4 URL for an Eporner video. Returns the embed URL if no
-     * direct MP4 is exposed — the player falls back to WebView for embed pages.
-     *
-     * Reddit short-circuit: ids prefixed with `direct://` already carry the
-     * resolved stream URL inline (set by [AdultScreen.routeId]).
-     */
+
     suspend fun resolveStreamUrl(videoId: String, fallbackEmbed: String): String {
-        // Normalize protocol-relative (//host/…) or path-relative (/path) embed URLs
-        // returned by the Eporner API so the WebView fallback can actually load them.
+
+
         val normalizedEmbed = when {
             fallbackEmbed.startsWith("//") -> "https:$fallbackEmbed"
             fallbackEmbed.startsWith("/")  -> "https://www.eporner.com$fallbackEmbed"

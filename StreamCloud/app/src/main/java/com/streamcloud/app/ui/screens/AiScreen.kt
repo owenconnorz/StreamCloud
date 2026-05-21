@@ -147,7 +147,7 @@ fun AiScreen() {
                             unfocusedContainerColor = MaterialTheme.colorScheme.surface,
                         )
                     )
-                    // NSFW (uncensored) toggle — proxies to fal.ai using the user's key.
+
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -363,7 +363,6 @@ private fun ChatInput(value: String, onValueChange: (String) -> Unit, onSend: ()
         }
     }
 }
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

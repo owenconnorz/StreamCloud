@@ -16,10 +16,6 @@ import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/**
- * GitHub release shape — we only need a few fields. The CI workflow tags releases
- * `build-<run_number>` and uploads `*.apk` files as assets.
- */
 @Serializable
 private data class GhAsset(
     val name: String,
@@ -56,7 +52,7 @@ class UpdateChecker(private val context: Context) {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    /** Returns the latest release if newer than the running build, or any release if [includeOlder]. */
+
     suspend fun fetchLatest(includeOlder: Boolean = false): UpdateInfo? = withContext(Dispatchers.IO) {
         val owner = BuildConfig.GITHUB_OWNER
         val repo = BuildConfig.GITHUB_REPO
@@ -103,7 +99,7 @@ class UpdateChecker(private val context: Context) {
         )
     }
 
-    /** Prefer signed release > unsigned release > debug, matching our CI output names. */
+
     private fun pickBestApk(assets: List<GhAsset>): GhAsset? {
         val apks = assets.filter { it.name.endsWith(".apk", ignoreCase = true) }
         return apks.firstOrNull { it.name.contains("release-signed", true) }
@@ -112,10 +108,7 @@ class UpdateChecker(private val context: Context) {
             ?: apks.firstOrNull()
     }
 
-    /**
-     * Downloads [info.apkUrl] to app cache and returns the local file.
-     * [onProgress] reports 0..1 inclusive.
-     */
+
     suspend fun downloadApk(info: UpdateInfo, onProgress: (Float) -> Unit): File =
         withContext(Dispatchers.IO) {
             val target = File(context.cacheDir, "update-${info.tagName}.apk").also {
@@ -143,10 +136,7 @@ class UpdateChecker(private val context: Context) {
             target
         }
 
-    /**
-     * Prompts the user to install the APK using Android's built-in installer.
-     * Caller must hold the `REQUEST_INSTALL_PACKAGES` permission (declared in manifest).
-     */
+
     fun launchInstaller(apkFile: File) {
         val authority = "${context.packageName}.fileprovider"
         val uri: Uri = FileProvider.getUriForFile(context, authority, apkFile)

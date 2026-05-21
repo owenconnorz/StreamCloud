@@ -24,32 +24,10 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
 
-/**
- * Executes Nuvio JavaScript providers — feature-parity with [NuvioMobile]'s
- * `PluginRuntime.kt` (composeApp/.../plugins/PluginRuntime.kt). Every provider
- * from https://github.com/NuvioMedia/NuvioMobile plugin repos should run here
- * unchanged.
- *
- * Surface exposed to provider scripts:
- *   • `fetch(url, opts)` + Response wrapper with `.ok/.status/.headers.get()/.text()/.json()`
- *   • `URL` + `URLSearchParams`
- *   • `AbortController` / `AbortSignal`
- *   • `atob` / `btoa`
- *   • `cheerio` (`load(html)` → jQuery-like `$` selector backed by Jsoup)
- *   • `CryptoJS` (MD5, SHA1, SHA256, SHA512, HMAC variants, Hex/Utf8/Base64 enc)
- *   • Array.flat / flatMap, Object.entries / fromEntries, String.replaceAll polyfills
- *   • `require('cheerio'|'crypto-js')`
- *   • `console.{log,info,warn,error,debug}`
- *
- * Contract:
- *   Provider exports a `getStreams(tmdbId, mediaType, season, episode)` function
- *   (either via `module.exports.getStreams = ...` or as a top-level declaration).
- *   It must return a `Promise<Array<{url, name?, title?, quality?, headers?}>>`.
- */
 object NuvioRuntime {
     private const val TAG = "NuvioRuntime"
-    // Official NuvioMobile caps axios at 5 MB; match that so large HTML
-    // pages (4khdhub etc.) are not silently truncated mid-content.
+
+
     private const val MAX_FETCH_BODY_CHARS = 5 * 1024 * 1024
     private val lastErrorByScript = java.util.concurrent.ConcurrentHashMap<String, String>()
 
@@ -59,7 +37,7 @@ object NuvioRuntime {
         .followRedirects(true)
         .build()
 
-    /** Last error message we captured during a [runProvider] call, for surfacing in UI. */
+
     fun lastError(scriptKey: String): String? = lastErrorByScript[scriptKey]
 
     suspend fun runProvider(
@@ -73,8 +51,8 @@ object NuvioRuntime {
         val documentCache = mutableMapOf<String, Document>()
         val elementCache = mutableMapOf<String, Element>()
         val idCounter = AtomicInteger()
-        // Belt-and-suspenders: populated via __capture_result side-effect AND via
-        // the direct return value of evaluate<Any?> (whichever arrives first wins).
+
+
         var capturedJson = "[]"
         return try {
             withTimeoutOrNull(60_000L) {
@@ -85,32 +63,32 @@ object NuvioRuntime {
                 installUrlBinding()
                 installCheerioBindings(documentCache, elementCache, idCounter)
 
-                // Side-effect capture — called from inside the async IIFE.
+
                 function("__capture_result") { args ->
                     capturedJson = args.firstOrNull()?.toString() ?: "[]"
                     null
                 }
 
-                // Build the user-facing JS polyfill (URL, URLSearchParams,
-                // AbortController, atob/btoa, cheerio, CryptoJS, Array/Object
-                // polyfills, `require()`).
+
+
+
                 evaluate<Any?>(buildPolyfillCode(scriptKey))
 
                 val seasonArg = season?.toString() ?: "undefined"
                 val episodeArg = episode?.toString() ?: "undefined"
 
-                // Single combined async IIFE — matches the official NuvioMobile
-                // `new Function(…, code + getStreams call)` pattern exactly:
-                //   • Provider code runs DIRECTLY in this function's scope (no
-                //     inner IIFE wrapper), so `function getStreams() {}` declarations
-                //     are hoisted and visible to the lookup below.
-                //   • params / PRIMARY_KEY / TMDB_API_KEY / SCRAPER_SETTINGS are set
-                //     on globalThis before the code runs (backward compat globals).
-                //   • getStreams is located via the same 3-way lookup the official app
-                //     uses: local var → module.exports → globalThis.
-                //   • evaluate<Any?> awaits the returned Promise; __capture_result
-                //     provides a fallback in case the library returns the Promise
-                //     object instead of its settled value.
+
+
+
+
+
+
+
+
+
+
+
+
                 val directResult = evaluate<Any?>(buildString {
                     appendLine("(async function() {")
                     appendLine("  var module = { exports: {} };")
@@ -157,9 +135,9 @@ object NuvioRuntime {
                     appendLine("})()")
                 })
 
-                // Prefer the direct return value (string from resolved Promise);
-                // fall back to the side-effect capture if evaluate returned the
-                // Promise object itself rather than its resolved value.
+
+
+
                 val finalJson = (directResult as? String)
                     ?.takeIf { it.isNotBlank() && it != "null" }
                     ?: capturedJson
@@ -191,7 +169,7 @@ object NuvioRuntime {
         }
     }
 
-    // ────────────────────────────── Console ──────────────────────────────
+
 
     private fun com.dokar.quickjs.QuickJs.installConsole(scriptKey: String) {
         define("console") {
@@ -213,13 +191,13 @@ object NuvioRuntime {
         }
     }
 
-    // ─────────────────────────────── Fetch ───────────────────────────────
+
 
     private fun com.dokar.quickjs.QuickJs.installFetchBridge() {
-        // asyncFunction — each HTTP call runs as a Kotlin coroutine and resolves
-        // through QuickJS's native Promise mechanism (the library's awaitAsyncJobs
-        // loop).  This is the correct integration model; the synchronous function()
-        // approach blocked executePendingJob which is not what the library expects.
+
+
+
+
         asyncFunction("__native_fetch") { args ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
@@ -244,8 +222,8 @@ object NuvioRuntime {
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
             }
             val client = if (followRedirects) http else http.newBuilder().followRedirects(false).build()
-            // GET/HEAD must have null body; POST/PUT/PATCH need a non-null RequestBody
-            // (OkHttp throws IllegalArgumentException otherwise).
+
+
             val requestBody = when {
                 method == "GET" || method == "HEAD" -> null
                 body.isEmpty() -> ByteArray(0).toRequestBody()
@@ -282,7 +260,7 @@ object NuvioRuntime {
         }
     }
 
-    // ────────────────────────────── Crypto ───────────────────────────────
+
 
     private fun com.dokar.quickjs.QuickJs.installCryptoBindings() {
         function("__crypto_digest_hex") { args ->
@@ -317,7 +295,7 @@ object NuvioRuntime {
             val data = args.getOrNull(0)?.toString() ?: ""
             data.toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) }
         }
-        // base64-encoded string → hex (preserves binary fidelity for token/key processing)
+
         function("__crypto_base64_to_hex") { args ->
             val data = args.getOrNull(0)?.toString() ?: ""
             runCatching {
@@ -346,7 +324,7 @@ object NuvioRuntime {
         }
     }
 
-    // ─────────────────────────────── URL ─────────────────────────────────
+
 
     private fun com.dokar.quickjs.QuickJs.installUrlBinding() {
         function("__parse_url") { args ->
@@ -380,7 +358,7 @@ object NuvioRuntime {
         }
     }
 
-    // ───────────────────────────── Cheerio ───────────────────────────────
+
 
     private fun com.dokar.quickjs.QuickJs.installCheerioBindings(
         documentCache: MutableMap<String, Document>,
@@ -513,7 +491,7 @@ object NuvioRuntime {
         }
     }
 
-    // ─────────────────────────── Polyfill JS ─────────────────────────────
+
 
     private fun buildPolyfillCode(scriptKey: String): String = """
         globalThis.SCRAPER_ID = ${jsString(scriptKey)};
@@ -1396,7 +1374,7 @@ object NuvioRuntime {
         }
     """.trimIndent()
 
-    // ─────────────────────────── helpers ─────────────────────────────────
+
 
     private fun jsString(s: String): String =
         "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -1412,7 +1390,7 @@ object NuvioRuntime {
     private fun List<String>.toJsonStringArray(): String =
         "[" + joinToString(",") { "\"" + it.replace("\"", "\\\"") + "\"" } + "]"
 
-    /** Tiny in-Kotlin JSON builder so we don't pull a serializer for every fetch. */
+
     private class JsonBuilder {
         private val sb = StringBuilder("{")
         private var first = true
@@ -1430,27 +1408,16 @@ object NuvioRuntime {
     }
     private fun buildJson(block: JsonBuilder.() -> Unit): String = JsonBuilder().also(block).build()
 
-    /**
-     * Parse the JSON array returned by a provider's `getStreams()` into a list of
-     * [NuvioStream] objects.  Different Nuvio repo forks use slightly different
-     * field names and structures, so we try a range of alternatives:
-     *
-     *  • `url` / `stream_url` / `streamUrl` / `link` / `href`
-     *  • `name` / `label` / `description`  (display label)
-     *  • `quality` / `resolution` / `res` / `qualityTag` / `quality_tag`
-     *  • `headers` as a flat `{key:value}` object OR as an array of
-     *    `[{name:"Referer",value:"https://…"},…]` entries
-     *  • Bare string items in the array are treated as plain URLs
-     */
+
     private fun String.looksLikeUrl(): Boolean {
         if (isBlank()) return false
         val lower = trimStart()
-        // Accept http(s)://, magnet:, blob:, data: URIs.  Reject JS sentinels.
+
         if (!lower.startsWith("http", ignoreCase = true) &&
             !lower.startsWith("magnet:", ignoreCase = true) &&
             !lower.startsWith("blob:", ignoreCase = true) &&
             !lower.startsWith("data:", ignoreCase = true)) return false
-        // Reject the literal strings JavaScript produces for missing values.
+
         val sentinel = lower.lowercase()
         return sentinel != "undefined" && sentinel != "null" && sentinel != "none"
     }
@@ -1466,7 +1433,7 @@ object NuvioRuntime {
         val arr = element as? kotlinx.serialization.json.JsonArray ?: return emptyList()
         return arr.mapNotNull { item ->
             when (item) {
-                // Bare string — treat as URL directly.
+
                 is kotlinx.serialization.json.JsonPrimitive -> {
                     val u = item.content.takeIf { it.looksLikeUrl() } ?: return@mapNotNull null
                     NuvioStream(url = u)
@@ -1483,7 +1450,7 @@ object NuvioRuntime {
                             h.mapValues { (_, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() }
                                 .filterKeys { it.isNotBlank() }
                         is kotlinx.serialization.json.JsonArray ->
-                            // [{name:"Referer", value:"https://…"}, …] format
+
                             h.filterIsInstance<kotlinx.serialization.json.JsonObject>()
                                 .mapNotNull { entry ->
                                     val k = (entry["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() } ?: return@mapNotNull null

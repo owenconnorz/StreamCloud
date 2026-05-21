@@ -50,20 +50,6 @@ import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.RedditAdultSubs
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 
-/**
- * TikTok / Reddit-app style vertical swipe-up feed for the Adult > Reddit
- * source. Each post fills the screen — videos auto-play (with sibling DASH
- * audio when available), GIFs animate via Coil, images render full-bleed.
- * Right-side action column mirrors the StreamCloud web app: bookmark, share,
- * download.
- *
- * The chip strip at the top stays from the existing AdultScreen (subreddit
- * presets + a `+` button to add custom subs that persist in DataStore).
- *
- * NOTE: Reddit's `*.json` endpoint is fully public for NSFW subreddits. No
- * API key / OAuth required — only a custom User-Agent (already wired in
- * `RedditApi.kt`).
- */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RedditFeedView(
@@ -78,7 +64,7 @@ fun RedditFeedView(
     val pagerState = rememberPagerState(pageCount = { state.items.size })
     var showAdd by remember { mutableStateOf(false) }
 
-    // Endless scroll — pull next page once we're 3 posts from the end.
+
     LaunchedEffect(pagerState, state.subreddit) {
         snapshotFlow { pagerState.currentPage }.collect { idx ->
             if (state.items.isNotEmpty() && idx >= state.items.size - 3) vm.loadMore()
@@ -115,7 +101,7 @@ fun RedditFeedView(
             }
         }
 
-        // ── Top: subreddit chip strip + add button + close ────────────
+
         Column(
             Modifier
                 .align(Alignment.TopStart)
@@ -162,7 +148,7 @@ fun RedditFeedView(
             }
         }
 
-        // ── Bottom-right: source switcher pill (Reddit ↔ Eporner) ─────
+
         Surface(
             color = Color.Black.copy(alpha = 0.7f),
             shape = RoundedCornerShape(50),
@@ -205,11 +191,11 @@ private fun FeedCard(
     var saved by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
-        // ── Media (priority order: video → animated/static image) ────
+
         val streamUrl = item.streamUrl
         if (item.isVideo && !streamUrl.isNullOrBlank()) {
-            // ExoPlayer — lifecycle-tied to `isActive` so only the visible
-            // page consumes bandwidth + CPU.
+
+
             val player = remember(streamUrl) {
                 ExoPlayer.Builder(context).build().apply {
                     setMediaItem(MediaItem.fromUri(streamUrl))
@@ -234,8 +220,8 @@ private fun FeedCard(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            // Coil handles GIF / WEBP / JPEG / PNG. The default ImageLoader in
-            // the app already includes GifDecoder.
+
+
             AsyncImage(
                 model = item.thumbnail,
                 contentDescription = item.title,
@@ -244,7 +230,7 @@ private fun FeedCard(
             )
         }
 
-        // ── Right-side actions column ─────────────────────────────────
+
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -272,7 +258,7 @@ private fun FeedCard(
             )
         }
 
-        // ── Bottom title overlay ──────────────────────────────────────
+
         Box(
             Modifier
                 .align(Alignment.BottomStart)
@@ -383,11 +369,9 @@ private fun AddSubredditDialog(
     )
 }
 
-// ----- helpers --------------------------------------------------------------
-
 private fun AdultItem.permalinkOrUrl(): String {
-    // For Reddit items the streamUrl was resolved from the post; the post id
-    // is stable enough for share intents. Falls back to the post id only.
+
+
     return "/comments/$id/"
 }
 
@@ -402,11 +386,6 @@ private fun shareUrl(context: android.content.Context, url: String, title: Strin
     }
 }
 
-/**
- * Hand the URL off to the system DownloadManager via a VIEW intent. Most users
- * have a media app (Samsung Browser, Chrome, etc.) that will save it. A native
- * DownloadManager integration is on the backlog.
- */
 private fun downloadUrl(context: android.content.Context, url: String) {
     if (url.isBlank()) return
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))

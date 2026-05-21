@@ -14,20 +14,6 @@ import java.net.InetAddress
 import java.net.MulticastSocket
 import java.util.concurrent.TimeUnit
 
-/**
- * Discovers Sonos zone players on the local LAN via UPnP SSDP.
- *
- * Sends an M-SEARCH multicast to 239.255.255.250:1900 targeting the Sonos
- * ZonePlayer device type. Each responding device sends its description URL;
- * we fetch that XML to extract the friendly room name and UDN (device UUID).
- *
- * Requires:
- *  - android.permission.CHANGE_WIFI_MULTICAST_STATE   (for MulticastSocket)
- *  - android.permission.ACCESS_WIFI_STATE             (for WifiManager lock)
- *  - android.permission.INTERNET
- *
- * Returns a deduplicated list of [SonosDevice] found within [timeoutMs].
- */
 object SonosDiscovery {
 
     private const val TAG = "SonosDiscovery"
@@ -46,8 +32,8 @@ object SonosDiscovery {
         MAN: "ssdp:discover"
         MX: 3
         ST: $SEARCH_TARGET
-        
-        
+
+
     """.trimIndent().replace("\n", "\r\n").encodeToByteArray()
 
     suspend fun discover(context: Context, timeoutMs: Long = 4_000): List<SonosDevice> =
@@ -63,11 +49,11 @@ object SonosDiscovery {
                 socket.timeToLive = 4
                 socket.joinGroup(group)
 
-                // Send M-SEARCH
+
                 socket.send(DatagramPacket(M_SEARCH, M_SEARCH.size, group, SSDP_PORT))
                 Log.d(TAG, "M-SEARCH sent")
 
-                // Collect responses until timeout
+
                 withTimeoutOrNull(timeoutMs) {
                     val buf = ByteArray(4096)
                     while (true) {
@@ -116,10 +102,7 @@ object SonosDiscovery {
         }
     }
 
-    /**
-     * Returns the phone's current WiFi IPv4 address (e.g. "192.168.1.5"),
-     * used to build the proxy URL that Sonos will stream from.
-     */
+
     fun localIp(context: Context): String? {
         return try {
             val wm = context.applicationContext

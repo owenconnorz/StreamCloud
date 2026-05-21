@@ -24,17 +24,6 @@ import androidx.compose.ui.unit.dp
 import com.streamcloud.app.data.sonos.SonosDevice
 import com.streamcloud.app.data.sonos.SonosRepository
 
-/**
- * Bottom sheet that lets the user discover Sonos devices and cast the
- * currently playing track to one of them.
- *
- * States rendered:
- *  - Discovering  → spinner + "Scanning for Sonos devices…"
- *  - DevicesFound → scrollable list of zone players; tap to connect
- *  - Connecting   → spinner + "Connecting to [name]…"
- *  - Casting      → "Now casting to [name]" + Disconnect button
- *  - Error        → red error message + Retry button
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SonosDevicePickerSheet(
@@ -152,7 +141,7 @@ fun SonosDevicePickerSheet(
                         )
                         Spacer(Modifier.height(20.dp))
 
-                        // ── Volume slider ─────────────────────────────────
+
                         Text(
                             "Volume",
                             color = Color.White.copy(alpha = 0.55f),

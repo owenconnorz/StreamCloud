@@ -1,21 +1,6 @@
 @file:Suppress("unused", "UNUSED_PARAMETER", "MemberVisibilityCanBePrivate")
 package com.lagradost.cloudstream3
 
-/**
- * Minimal cloudstream3 API stubs needed for `.cs3` plugins to load and execute.
- *
- * This is NOT the full cloudstream3 surface — only the parts that simple plugins
- * (movies/series scrapers) reference. Plugins that depend on advanced features
- * (extractors registry, sflix-style m3u8 schedulers, account sync, etc.) will
- * still throw `NoSuchMethodError` at runtime, and that is expected for now.
- *
- * Source of truth for shapes: github.com/recloudstream/cloudstream
- *  - app/src/main/java/com/lagradost/cloudstream3/MainAPI.kt
- *  - app/src/main/java/com/lagradost/cloudstream3/MvvmExtensions.kt
- */
-
-// ────────────────────────── enums + dataclasses ──────────────────────────
-
 enum class TvType {
     Movie, AnimeMovie, TvSeries, Anime, OVA, Cartoon, Documentary, AsianDrama,
     Live, Torrent, NSFW, Music, AudioBook, JAV, Hentai, CartoonHentai,
@@ -26,13 +11,9 @@ enum class DubStatus { Subbed, Dubbed, None }
 enum class ShowStatus { Completed, Ongoing, OnHiatus, Cancelled }
 enum class SearchQuality { HD, FHD, BluRay, UHD, FourK, SD, CamRip, Cam, HDR, DVD, WebRip, HDCam }
 
-/** Plugin VPN requirement — many Cloudstream plugins reference this enum. */
 enum class VPNStatus { None, MightBeNeeded, Torrent }
 
-/** Plugin general status — referenced by some recloudstream plugins. */
 enum class ProviderType { MetaProvider, DirectProvider }
-
-// ────────────────────────── search responses ──────────────────────────
 
 open class SearchResponse(
     open var name: String = "",
@@ -110,8 +91,6 @@ open class TorrentSearchResponse(
     override var posterHeaders: Map<String, String>? = null,
     override var quality: SearchQuality? = null,
 ) : SearchResponse(name, url, apiName, type, posterUrl, posterHeaders, id, quality)
-
-// ────────────────────────── load responses ──────────────────────────
 
 open class LoadResponse(
     open var name: String,
@@ -204,8 +183,6 @@ class TvSeriesLoadResponse(
 ) : LoadResponse(name, url, apiName, type, posterUrl, year, plot, rating, tags, duration,
     trailers, recommendations, actors, comingSoon, posterHeaders, backgroundPosterUrl, contentRating)
 
-// ────────────────────────── home page ──────────────────────────
-
 class HomePageList(
     val name: String,
     val list: List<SearchResponse>,
@@ -237,8 +214,6 @@ fun newHomePageResponse(items: List<HomePageList>): HomePageResponse = HomePageR
 fun newHomePageResponse(request: MainPageRequest, list: List<SearchResponse>) =
     HomePageResponse(listOf(HomePageList(request.name, list, request.horizontalImages)))
 
-// ────────────────────────── extractor links ──────────────────────────
-
 enum class Qualities(val value: Int) {
     Unknown(0), P144(144), P240(240), P360(360), P480(480),
     P720(720), P1080(1080), P1440(1440), P2160(2160);
@@ -257,8 +232,6 @@ open class ExtractorLink(
 )
 
 class SubtitleFile(val lang: String, val url: String)
-
-// ────────────────────────── MainAPI base class ──────────────────────────
 
 abstract class MainAPI {
     open var name: String = "Unnamed Provider"
@@ -292,8 +265,6 @@ abstract class MainAPI {
     ): Boolean = false
 }
 
-// ────────────────────────── result helpers used everywhere ──────────────────────────
-
 fun fixUrl(url: String, mainUrl: String): String = when {
     url.isBlank() -> ""
     url.startsWith("http") -> url
@@ -303,10 +274,8 @@ fun fixUrl(url: String, mainUrl: String): String = when {
 }
 fun fixUrlNull(url: String?, mainUrl: String): String? = url?.let { fixUrl(it, mainUrl) }
 
-// `safeApiCall { ... }` wrapper — common in plugins.
 suspend fun <T> safeApiCall(apiCall: suspend () -> T): T? = try { apiCall() } catch (_: Exception) { null }
 
-// Quality builders.
 fun getQualityFromName(name: String?): Int = when (name?.lowercase()) {
     null -> 0
     "144p" -> 144; "240p" -> 240; "360p" -> 360; "480p" -> 480
@@ -315,11 +284,6 @@ fun getQualityFromName(name: String?): Int = when (name?.lowercase()) {
     "hd" -> 720; "fhd" -> 1080; "uhd" -> 2160; "sd" -> 480
     else -> name.filter(Char::isDigit).toIntOrNull() ?: 0
 }
-
-// ────────────────────────── plugin DSL builders (Cloudstream parity) ──────────────────────────
-// These are the `newXxxResponse { ... }` factory functions every recloudstream plugin uses.
-// Plugins compiled against the upstream cloudstream3 stubs reference them as
-// `MainAPIKt.newMovieSearchResponse(...)` etc.
 
 inline fun MainAPI.newMovieSearchResponse(
     name: String,
@@ -418,9 +382,9 @@ inline fun MainAPI.newAnimeLoadResponse(
 inline fun newEpisode(
     data: String,
     initializer: Episode.() -> Unit = {},
-): Episode = Episode(data = data).also { /* Episode is a data class — not mutable; */ }
-    .let { e -> e.copy().also { /* no-op for compatibility */ } }
-    .let { Episode(data = data) }   // we keep it minimal — initializer is allowed for source compat
+): Episode = Episode(data = data).also {  }
+    .let { e -> e.copy().also {  } }
+    .let { Episode(data = data) }
 
 inline fun newExtractorLink(
     source: String,
@@ -435,7 +399,6 @@ inline fun newExtractorLink(
 
 enum class ExtractorLinkType { VIDEO, M3U8, DASH, MAGNET, TORRENT }
 
-// SearchResponse setter helpers — DSL sugar plugins use inside `apply { ... }` blocks.
 fun SearchResponse.addPoster(url: String?, headers: Map<String, String>? = null) {
     this.posterUrl = url
     if (headers != null) this.posterHeaders = headers
@@ -468,13 +431,11 @@ fun LoadResponse.addTrailer(extractorUrl: String?, referer: String? = null) {
     if (extractorUrl != null) this.trailers.add(TrailerData(extractorUrl, referer))
 }
 
-// ────────────────────────── plugins commonly call these too ──────────────────────────
 fun base64Decode(s: String): String = String(android.util.Base64.decode(s, android.util.Base64.DEFAULT))
 fun base64Encode(s: String): String =
     android.util.Base64.encodeToString(s.toByteArray(), android.util.Base64.NO_WRAP)
 fun base64DecodeArray(s: String): ByteArray = android.util.Base64.decode(s, android.util.Base64.DEFAULT)
 
-/** Cloudstream's "is video file extension" helper. */
 fun String.isVideoFile(): Boolean = lowercase().substringAfterLast('.') in setOf(
     "mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "m3u8", "ts", "mpd", "3gp",
 )
