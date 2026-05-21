@@ -202,6 +202,59 @@ object YtPlayerUtils {
      */
     @Volatile var ytMusicCookie: String = ""
 
+    /**
+     * Cached `visitorData` string from YouTube's visitor_id endpoint.
+     * Sent as `context.client.visitorData` and `X-Goog-Visitor-Id` header.
+     * Without this, IOS and ANDROID clients may receive throttled or
+     * incomplete stream data on certain videos.
+     */
+    @Volatile private var cachedVisitorData: String? = null
+    @Volatile private var visitorDataFetchedAt: Long = 0L
+
+    /**
+     * Fetch and cache a fresh `visitorData` from YouTube's lightweight
+     * Innertube visitor_id endpoint.  Cached for 6 hours; no-op on failure.
+     * Must be called from an IO thread.
+     */
+    private fun ensureVisitorData() {
+        val now = System.currentTimeMillis()
+        if (cachedVisitorData != null && now - visitorDataFetchedAt < 6 * 3_600_000L) return
+        try {
+            val body = buildJsonObject {
+                putJsonObject("context") {
+                    putJsonObject("client") {
+                        put("clientName", "WEB")
+                        put("clientVersion", "2.20240101.00.00")
+                        put("hl", "en")
+                        put("gl", "US")
+                    }
+                }
+            }
+            val req = Request.Builder()
+                .url("https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false&alt=json")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                )
+                .header("Content-Type", "application/json")
+                .header("Origin", "https://www.youtube.com")
+                .build()
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return
+                val text = resp.body?.string() ?: return
+                val vd = json.parseToJsonElement(text).jsonObject["visitorData"]
+                    ?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: return
+                cachedVisitorData = vd
+                visitorDataFetchedAt = now
+                Log.d(TAG, "visitorData refreshed: ${vd.take(24)}…")
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "visitorData fetch failed: ${e.message}")
+        }
+    }
+
     // ── Public data classes ───────────────────────────────────────────────
 
     data class AudioFormatInfo(
@@ -231,6 +284,7 @@ object YtPlayerUtils {
         preferItag: Int? = null,
         preferHighQuality: Boolean = true,
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
+        ensureVisitorData()
         for (client in CLIENTS) {
             val result = tryClient(client, videoId, preferItag, preferHighQuality)
             when (result) {
@@ -341,6 +395,14 @@ object YtPlayerUtils {
     private fun fetchPlayerResponse(client: ClientConfig, videoId: String): JsonObject? {
         val resolvedEmbedUrl = client.embedUrlTemplate?.replace("%VIDEO_ID%", videoId)
 
+        // Each Innertube endpoint lives on a specific host; SAPISIDHASH is
+        // validated against the Origin that was used when signing in.  Sending
+        // the wrong origin causes YouTube to reject the auth with HTTP 403.
+        val requestOrigin = if (client.playerUrl.contains("music.youtube.com"))
+            "https://music.youtube.com" else "https://www.youtube.com"
+
+        val vd = cachedVisitorData
+
         val body = buildJsonObject {
             putJsonObject("context") {
                 putJsonObject("client") {
@@ -349,6 +411,9 @@ object YtPlayerUtils {
                     put("userAgent", client.userAgent)
                     put("hl", "en")
                     put("gl", "US")
+                    // visitorData ties requests to a session, reducing bot-detection
+                    // false-positives on IOS and ANDROID clients.
+                    if (vd != null) put("visitorData", vd)
                     client.extraClientFields.forEach { (k, v) ->
                         when (v) {
                             is Int     -> put(k, v)
@@ -381,15 +446,20 @@ object YtPlayerUtils {
             .header("Content-Type", "application/json")
             .header("Accept-Language", "en-US,en;q=0.9")
 
+        // Forward visitorData as a request header too — some CDN edge nodes
+        // read it from the header rather than the body.
+        if (vd != null) reqBuilder.header("X-Goog-Visitor-Id", vd)
+
         // When the user is signed in, attach their session cookie and the
-        // SAPISIDHASH Authorization header.  This is required for ANDROID_MUSIC
-        // and ANDROID clients to bypass YouTube's bot-detection for anonymous
-        // requests; signed-in requests are trusted and return plain stream URLs.
+        // SAPISIDHASH Authorization header.  The hash must be computed with
+        // the SAME origin as the endpoint being called (music.youtube.com vs
+        // www.youtube.com) — a mismatch causes YouTube to return HTTP 403.
+        // TV_EMBEDDED is a browser-embedded client; user cookies don't apply.
         val cookie = ytMusicCookie
-        if (cookie.isNotBlank()) {
+        if (cookie.isNotBlank() && client.label != "TV_EMBEDDED") {
             reqBuilder.header("Cookie", cookie)
-            reqBuilder.header("Origin", YtMusicAuth.ORIGIN)
-            val auth = YtMusicAuth.sapisidHashHeader(cookie)
+            reqBuilder.header("Origin", requestOrigin)
+            val auth = YtMusicAuth.sapisidHashHeader(cookie, requestOrigin)
             if (auth != null) reqBuilder.header("Authorization", auth)
         }
 
