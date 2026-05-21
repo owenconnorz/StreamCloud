@@ -26,17 +26,18 @@ import java.util.concurrent.TimeUnit
  * YouTube to return pre-deciphered stream URLs in a plain JSON response, so the
  * whole operation is a single round-trip — typically 300–800 ms.
  *
- * [resolveAudioStreamInfo] returns the URL **and** the declared `contentLength` from
- * the player response.  The download path appends `&range=0-{contentLength}` to the
- * CDN URL — the same trick InnerTune uses — which instructs YouTube's CDN to deliver
- * the entire audio file in one response instead of using its default internal chunking
- * with bandwidth throttling.  Without this parameter downloads are throttled to a
- * fraction of available bandwidth; with it they run at full line speed.
+ * [resolveAudioFormatInfo] is the primary entry point — it returns full format
+ * metadata (url, itag, mimeType, bitrate, sampleRate, contentLength, loudnessDb,
+ * expiresInSeconds), matching exactly what InnerTune stores in its FormatEntity.
  *
- * [resolveAudioStream] is kept for backward-compat callers that only need the URL
- * (e.g. the playback resolver in MusicPlaybackService).
+ * The download resolver appends `&range=0-{contentLength}` to the CDN URL —
+ * the same trick InnerTune/Metrolist uses — which instructs YouTube's CDN to
+ * deliver the entire file in one response at full network speed instead of using
+ * its default bandwidth-throttled chunked delivery.
  *
- * Returns **null** on any error; callers should fall back to NewPipe in that case.
+ * Backward-compat wrappers:
+ *  - [resolveAudioStreamInfo]  → (url, contentLength) pair used by older call sites
+ *  - [resolveAudioStream]      → url-only string used by MusicPlaybackService
  */
 object YtPlayerUtils {
 
@@ -53,122 +54,202 @@ object YtPlayerUtils {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /** Full result of stream resolution — URL and the CDN-declared byte count. */
+    // ── Public data classes ───────────────────────────────────────────────
+
+    /**
+     * Full format metadata returned by the Innertube player endpoint.
+     *
+     * Mirrors InnerTune's [com.zionhuang.music.db.entities.FormatEntity] so that
+     * our download resolver can store exactly the same fields in Room.
+     */
+    data class AudioFormatInfo(
+        val url: String,
+        /** YouTube adaptive format itag (e.g. 140 = m4a 128 kbps, 251 = opus 160 kbps). */
+        val itag: Int,
+        /** Full MIME type string, e.g. `audio/mp4; codecs="mp4a.40.2"`. */
+        val mimeType: String,
+        val bitrate: Long,
+        val sampleRate: Int?,
+        /** Declared content length in bytes — used to append `&range=0-N`. */
+        val contentLength: Long?,
+        /** Loudness normalisation offset in dB from playerConfig.audioConfig. */
+        val loudnessDb: Double?,
+        /**
+         * Seconds until the CDN URL expires (typically 21600 = 6 h).
+         * Used as the URL-cache TTL so we re-resolve only when the URL is
+         * actually stale rather than on a fixed 3-hour schedule.
+         */
+        val expiresInSeconds: Long,
+    )
+
+    /** Lightweight wrapper for callers that only need url + contentLength. */
     data class AudioStreamInfo(
         val url: String,
-        /** Declared content length in bytes, or null if not present in the response. */
         val contentLength: Long?,
     )
 
+    // ── Public API ────────────────────────────────────────────────────────
+
     /**
-     * Resolve the best audio-only stream URL **and** its content length for [videoId]
-     * via a single Innertube POST.
+     * Resolve the best audio-only stream for [videoId] via a single Innertube
+     * POST, respecting the caller's quality preference and any previously stored
+     * [preferItag].
      *
-     * The content length is used by the download resolver to append `&range=0-N` to
-     * the CDN URL, forcing full-speed delivery instead of YouTube's throttled chunked
-     * streaming.  See [resolveAudioStream] for the URL-only convenience wrapper.
+     * Quality selection (mirrors InnerTune):
+     *  - If [preferItag] is non-null, YouTube is asked for that exact format
+     *    first (so users always get the codec they've heard before). Falls back
+     *    to quality-based selection if the itag is no longer available.
+     *  - [preferHighQuality] = true  → highest bitrate, opus preferred (+10 kbps bonus)
+     *  - [preferHighQuality] = false → lowest bitrate (metered / "Low" setting)
      *
-     * Returns null if the request fails or no audio stream is found.
+     * Returns null on any error; callers must fall back to NewPipe.
+     */
+    suspend fun resolveAudioFormatInfo(
+        videoId: String,
+        preferItag: Int? = null,
+        preferHighQuality: Boolean = true,
+    ): AudioFormatInfo? = withContext(Dispatchers.IO) {
+        try {
+            val root = fetchPlayerResponse(videoId) ?: return@withContext null
+            pickBestAudioInfo(root, preferItag, preferHighQuality).also { info ->
+                if (info == null) Log.d(TAG, "no audio stream found for $videoId")
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Innertube player failed for $videoId: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Backward-compat wrapper — returns (url, contentLength) for callers that
+     * don't need the full format metadata.
      */
     suspend fun resolveAudioStreamInfo(videoId: String): AudioStreamInfo? =
-        withContext(Dispatchers.IO) {
-            try {
-                val body = buildJsonObject {
-                    putJsonObject("context") {
-                        putJsonObject("client") {
-                            put("clientName", "ANDROID_MUSIC")
-                            put("clientVersion", CLIENT_VERSION)
-                            put("androidSdkVersion", ANDROID_SDK_VERSION)
-                            put(
-                                "userAgent",
-                                "com.google.android.apps.youtube.music/$CLIENT_VERSION " +
-                                    "(Linux; U; Android 11) gzip",
-                            )
-                            put("hl", "en")
-                            put("gl", "US")
-                        }
-                    }
-                    put("videoId", videoId)
-                    put("contentCheckOk", true)
-                    put("racyCheckOk", true)
-                }
+        resolveAudioFormatInfo(videoId)?.let { AudioStreamInfo(it.url, it.contentLength) }
 
-                val request = Request.Builder()
-                    .url(PLAYER_URL)
-                    .post(body.toString().toRequestBody("application/json".toMediaType()))
-                    .header(
-                        "User-Agent",
+    /**
+     * URL-only backward-compat wrapper used by [com.streamcloud.app.audio.MusicPlaybackService].
+     * Playback doesn't use the `&range=` trick (ExoPlayer issues its own ranged
+     * requests during seeking), so only the URL is needed there.
+     */
+    suspend fun resolveAudioStream(videoId: String): String? =
+        resolveAudioFormatInfo(videoId)?.url
+
+    // ── Internal helpers ──────────────────────────────────────────────────
+
+    private fun fetchPlayerResponse(videoId: String): JsonObject? {
+        val body = buildJsonObject {
+            putJsonObject("context") {
+                putJsonObject("client") {
+                    put("clientName", "ANDROID_MUSIC")
+                    put("clientVersion", CLIENT_VERSION)
+                    put("androidSdkVersion", ANDROID_SDK_VERSION)
+                    put(
+                        "userAgent",
                         "com.google.android.apps.youtube.music/$CLIENT_VERSION " +
                             "(Linux; U; Android 11) gzip",
                     )
-                    .header("X-Goog-Api-Format-Version", "1")
-                    .header("Content-Type", "application/json")
-                    .build()
-
-                val root = http.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        Log.d(TAG, "player HTTP ${resp.code} for $videoId")
-                        return@withContext null
-                    }
-                    val text = resp.body?.string() ?: return@withContext null
-                    json.parseToJsonElement(text).jsonObject
+                    put("hl", "en")
+                    put("gl", "US")
                 }
-
-                pickBestAudioInfo(root).also { info ->
-                    if (info == null) Log.d(TAG, "no audio stream found for $videoId")
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Innertube player failed for $videoId: ${e.message}")
-                null
             }
+            put("videoId", videoId)
+            put("contentCheckOk", true)
+            put("racyCheckOk", true)
         }
 
-    /**
-     * URL-only convenience wrapper around [resolveAudioStreamInfo].
-     * Used by [com.streamcloud.app.audio.MusicPlaybackService] which does not need
-     * the content length (playback streams don't use the `&range=` trick).
-     */
-    suspend fun resolveAudioStream(videoId: String): String? =
-        resolveAudioStreamInfo(videoId)?.url
+        val request = Request.Builder()
+            .url(PLAYER_URL)
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .header(
+                "User-Agent",
+                "com.google.android.apps.youtube.music/$CLIENT_VERSION " +
+                    "(Linux; U; Android 11) gzip",
+            )
+            .header("X-Goog-Api-Format-Version", "1")
+            .header("Content-Type", "application/json")
+            .build()
+
+        return http.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                Log.d(TAG, "player HTTP ${resp.code} for $videoId")
+                return null
+            }
+            val text = resp.body?.string() ?: return null
+            json.parseToJsonElement(text).jsonObject
+        }
+    }
 
     /**
-     * Pick the highest-bitrate audio-only format from [root] and return both its URL
-     * and its declared `contentLength`.
+     * Pick the best audio-only adaptive format from the player response.
      *
-     * Preference order:
-     *  1. M4A (itag 140 / 141) — widest hardware decoder support on Android
-     *  2. Any other audio-only format at the highest available bitrate
-     *
-     * The ANDROID_MUSIC client returns plain `url` fields (no signatureCipher),
-     * so no deobfuscation step is needed.
+     * Preference order (mirrors InnerTune/Metrolist exactly):
+     *  1. If [preferItag] is given and still available, use that format.
+     *  2. Otherwise rank by:
+     *       score = bitrate × quality_sign + (10240 if opus/webm else 0)
+     *     where quality_sign = +1 (high quality) or −1 (low/data-saving).
+     *     The 10 240 bonus gives opus streams a ~80 kbps advantage over m4a at
+     *     the same bitrate, matching InnerTune's codec preference.
      */
-    private fun pickBestAudioInfo(root: JsonObject): AudioStreamInfo? {
-        val adaptiveFormats = root["streamingData"]
-            ?.jsonObject?.get("adaptiveFormats")
-            ?.jsonArray ?: return null
+    private fun pickBestAudioInfo(
+        root: JsonObject,
+        preferItag: Int?,
+        preferHighQuality: Boolean,
+    ): AudioFormatInfo? {
+        val streamingData = root["streamingData"]?.jsonObject ?: return null
+        val adaptiveFormats = streamingData["adaptiveFormats"]?.jsonArray ?: return null
+        val expiresInSeconds =
+            streamingData["expiresInSeconds"]?.jsonPrimitive?.content?.toLongOrNull() ?: 21_600L
 
         val audioOnly = adaptiveFormats
             .mapNotNull { it as? JsonObject }
-            .filter { fmt ->
-                fmt["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/")
-            }
+            .filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/") }
 
         if (audioOnly.isEmpty()) return null
 
-        val m4a = audioOnly.filter { fmt ->
-            val mime = fmt["mimeType"]?.jsonPrimitive?.content.orEmpty()
-            mime.contains("mp4") || mime.contains("m4a")
+        val best = if (preferItag != null) {
+            audioOnly.find {
+                it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == preferItag
+            } ?: selectByQuality(audioOnly, preferHighQuality)
+        } else {
+            selectByQuality(audioOnly, preferHighQuality)
         }
-        val pool = if (m4a.isNotEmpty()) m4a else audioOnly
-
-        val best = pool.maxByOrNull { fmt ->
-            fmt["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
-        } ?: return null
 
         val url = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
             ?: return null
-        val contentLength = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull()
 
-        return AudioStreamInfo(url = url, contentLength = contentLength)
+        val loudnessDb = root["playerConfig"]
+            ?.jsonObject?.get("audioConfig")
+            ?.jsonObject?.get("loudnessDb")
+            ?.jsonPrimitive?.content?.toDoubleOrNull()
+
+        return AudioFormatInfo(
+            url = url,
+            itag = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+            mimeType = best["mimeType"]?.jsonPrimitive?.content.orEmpty(),
+            bitrate = best["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+            sampleRate = best["audioSampleRate"]?.jsonPrimitive?.content?.toIntOrNull(),
+            contentLength = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull(),
+            loudnessDb = loudnessDb,
+            expiresInSeconds = expiresInSeconds,
+        )
+    }
+
+    /**
+     * Rank audio formats by quality score — identical to InnerTune's comparator.
+     *
+     * HIGH: max score  → highest bitrate, opus preferred
+     * LOW:  min score  → lowest bitrate (data saving)
+     */
+    private fun selectByQuality(
+        audioFormats: List<JsonObject>,
+        preferHighQuality: Boolean,
+    ): JsonObject {
+        return audioFormats.maxByOrNull { fmt ->
+            val bitrate = fmt["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
+            val isOpus = fmt["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
+            val sign = if (preferHighQuality) 1L else -1L
+            bitrate * sign + (if (isOpus) 10_240L else 0L)
+        } ?: audioFormats.first()
     }
 }

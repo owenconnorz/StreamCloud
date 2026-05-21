@@ -178,6 +178,35 @@ interface LocalPlaylistDao {
     fun trackCount(playlistId: Long): Flow<Int>
 }
 
+// ── Audio format cache (Metrolist parity) ─────────────────────────────────
+//
+// Stores the resolved YouTube adaptive-format metadata for each downloaded/
+// played track. On the next download or playback resolution the stored itag
+// is preferred so the user always gets the same codec/quality they heard last,
+// regardless of which adaptive formats YouTube returns in a fresh player call.
+// Mirrors InnerTune/Metrolist's FormatEntity.
+
+@Entity(tableName = "audio_formats")
+data class FormatEntity(
+    @PrimaryKey @ColumnInfo(name = "video_id") val videoId: String,
+    val itag: Int,
+    @ColumnInfo(name = "mime_type") val mimeType: String,
+    val codecs: String,
+    val bitrate: Long,
+    @ColumnInfo(name = "sample_rate") val sampleRate: Int?,
+    @ColumnInfo(name = "content_length") val contentLength: Long,
+    @ColumnInfo(name = "loudness_db") val loudnessDb: Double?,
+)
+
+@Dao
+interface FormatDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(format: FormatEntity)
+
+    @Query("SELECT * FROM audio_formats WHERE video_id = :videoId LIMIT 1")
+    suspend fun byVideoId(videoId: String): FormatEntity?
+}
+
 // ── Database ──────────────────────────────────────────────────────────────
 
 @Database(
@@ -187,8 +216,9 @@ interface LocalPlaylistDao {
         WatchlistEntity::class,
         LocalPlaylistEntity::class,
         PlaylistTrackEntity::class,
+        FormatEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -196,6 +226,7 @@ abstract class LibraryDb : RoomDatabase() {
     abstract fun watchProgress(): WatchProgressDao
     abstract fun watchlist(): WatchlistDao
     abstract fun localPlaylists(): LocalPlaylistDao
+    abstract fun formats(): FormatDao
 
     companion object {
         @Volatile private var INSTANCE: LibraryDb? = null
