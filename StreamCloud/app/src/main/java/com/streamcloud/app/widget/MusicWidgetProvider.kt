@@ -11,16 +11,6 @@ import android.widget.RemoteViews
 import com.streamcloud.app.MainActivity
 import com.streamcloud.app.R
 
-/**
- * StreamCloud home-screen music widget.
- *
- * Shows the currently playing track title + artist and provides
- * Prev / Play-Pause / Next buttons that fire standard media key events,
- * which Media3 (MusicPlaybackService) handles automatically.
- *
- * Track info is written to SharedPreferences by [updateNowPlaying] — call
- * this from MusicPlaybackService whenever the track or playback state changes.
- */
 class MusicWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(

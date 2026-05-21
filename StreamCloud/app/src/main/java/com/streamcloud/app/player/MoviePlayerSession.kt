@@ -4,37 +4,26 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * Hand-off between MovieDetailScreen and the player route.
- *
- * Sources are now a [StateFlow] so the player composable observes live updates.
- * When the user taps the refresh button, the player re-runs Nuvio resolution and
- * calls [mergeSources] — the sheet updates instantly without leaving the player.
- *
- * Also stores the TMDB metadata (id, poster, media type) so the player can
- * save resume-position to the "Continue Watching" row without bloating the
- * navigation deeplink, and so the refresh path knows which movie to query.
- */
 object MoviePlayerSession {
 
     private val _sources = MutableStateFlow<List<PlayerSource>>(emptyList())
     val sourcesFlow: StateFlow<List<PlayerSource>> = _sources.asStateFlow()
 
-    /** Non-reactive read for callers that just need the current snapshot. */
+
     val sources: List<PlayerSource> get() = _sources.value
 
-    /** True while a background Nuvio provider scan is in progress. */
+
     private val _nuvioScanning = MutableStateFlow(false)
     val nuvioScanningFlow: StateFlow<Boolean> = _nuvioScanning.asStateFlow()
 
     var progressKey: WatchProgressKey? = null
         private set
 
-    /** TMDB numeric id — used by the refresh path to re-query Nuvio providers. */
+
     var tmdbId: Long = 0L
         private set
 
-    /** Media type — "movie" or "tv". */
+
     var mediaType: String = "movie"
         private set
 
@@ -53,10 +42,7 @@ object MoviePlayerSession {
 
     fun setNuvioScanning(scanning: Boolean) { _nuvioScanning.value = scanning }
 
-    /**
-     * Merges [additionalSources] into the current list, deduplicating by id.
-     * Combined list is re-sorted so the best source stays at the top.
-     */
+
     fun mergeSources(additionalSources: List<PlayerSource>) {
         if (additionalSources.isEmpty()) return
         val existing = _sources.value
@@ -81,13 +67,9 @@ object MoviePlayerSession {
     }
 }
 
-/**
- * Identifies a movie/episode for the resume-playback row. Carried alongside
- * the [PlayerSource] list when launching the player.
- */
 data class WatchProgressKey(
     val tmdbId: Long,
     val title: String,
     val posterUrl: String?,
-    val mediaType: String, // "movie" or "tv"
+    val mediaType: String,
 )

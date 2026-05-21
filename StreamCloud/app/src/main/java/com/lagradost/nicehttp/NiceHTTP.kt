@@ -9,17 +9,6 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.util.concurrent.TimeUnit
 
-/**
- * Drop-in replica of cloudstream3's `com.lagradost.nicehttp.Requests`.
- *
- * IMPORTANT: plugins are compiled against the REAL cloudstream3 JAR where
- * `MainActivityKt.getApp()` has JVM descriptor:
- *
- *     getApp()Lcom/lagradost/nicehttp/Requests;
- *
- * The return type MUST be exactly `com.lagradost.nicehttp.Requests` — any
- * other package causes `NoSuchMethodError` at plugin load time.
- */
 object Requests {
 
     private val client: OkHttpClient by lazy {
@@ -36,7 +25,7 @@ object Requests {
         "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
-    // ── Core request methods ────────────────────────────────────────────
+
 
     suspend fun get(
         url: String,
@@ -108,7 +97,7 @@ object Requests {
         timeout: Long = 30,
     ): NiceResponse = executeBlocking("HEAD", url, headers, referer, params, cookies, body = null)
 
-    // ── Internal execution ──────────────────────────────────────────────
+
 
     private fun executeBlocking(
         method: String,
@@ -173,8 +162,6 @@ object Requests {
         java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 }
 
-// ── Response wrapper ────────────────────────────────────────────────────────
-
 class NiceResponse(
     val code: Int,
     val text: String,
@@ -185,7 +172,7 @@ class NiceResponse(
     val ok: Boolean get() = code in 200..299
     val isSuccessful: Boolean get() = ok
 
-    /** Raw body string — same as [text]. */
+
     val body: String get() = text
 
     val cookies: Map<String, String> by lazy {

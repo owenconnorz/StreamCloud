@@ -20,18 +20,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-/**
- * Thin InnerTube client — the private API `music.youtube.com` uses to fetch its own
- * webapp data. We send the same `client: WEB_REMIX` context Metrolist uses so YT Music
- * returns the sections it would render in a desktop browser.
- *
- * Only the subset we need (`/browse`, `/next`, `/search`) is exposed — the rest of
- * InnerTube is left on the table.
- *
- * **Auth:** every request attaches the captured `Cookie` header plus a freshly-minted
- * `SAPISIDHASH` (see [YtMusicAuth]). Anonymous calls still work — they just return
- * public pages (trending, etc.) instead of personalised data.
- */
 internal class InnerTubeClient(private val cookie: String) {
 
     private val http = OkHttpClient.Builder()
@@ -41,7 +29,7 @@ internal class InnerTubeClient(private val cookie: String) {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /** `POST /youtubei/v1/browse` — used for library, playlist pages, artist pages, etc. */
+
     suspend fun browse(browseId: String, params: String? = null): JsonObject? =
         postInnerTube("browse", buildJsonObject {
             putContext()
@@ -49,47 +37,33 @@ internal class InnerTubeClient(private val cookie: String) {
             if (params != null) put("params", params)
         })
 
-    /** `POST /youtubei/v1/next` — used to follow playlist pagination cursors. */
+
     suspend fun next(body: JsonObject): JsonObject? = postInnerTube("next", body)
 
-    /**
-     * `POST /youtubei/v1/like/like` — thumbs-up a video on the signed-in account.
-     * Mirrors what the YTM web app sends when the user clicks the heart.
-     * Returns true on HTTP 2xx, false otherwise (network error, not signed in, etc.).
-     */
+
     suspend fun likeSong(videoId: String): Boolean =
         postInnerTube("like/like", buildJsonObject {
             putContext()
             putJsonObject("target") { put("videoId", videoId) }
         }) != null
 
-    /**
-     * `POST /youtubei/v1/like/removelike` — remove a like from the signed-in account.
-     */
+
     suspend fun unlikeSong(videoId: String): Boolean =
         postInnerTube("like/removelike", buildJsonObject {
             putContext()
             putJsonObject("target") { put("videoId", videoId) }
         }) != null
 
-    /**
-     * `POST /youtubei/v1/browse` — page through a playlist or list shelf. The
-     * token comes from `nextContinuationData.continuation` (legacy) or
-     * `continuationCommand.token` (current) on the previous page.
-     *
-     * We send the token BOTH in query params (legacy spec) AND the request body
-     * (current spec) — InnerTube tolerates the redundancy and ignoring
-     * either-shape is what made paging silently truncate at ~100 entries.
-     */
+
     suspend fun browseContinuation(token: String): JsonObject? {
-        // URL-encode the token for the query-string — base64 tokens contain '=' and
-        // sometimes '+' / '/' which corrupt the URL if appended raw.
+
+
         val enc = URLEncoder.encode(token, "UTF-8")
         return postInnerTube(
             endpoint = "browse",
             body = buildJsonObject {
                 putContext()
-                put("continuation", token)   // body JSON needs the raw (unencoded) token
+                put("continuation", token)
             },
             extraQuery = "&ctoken=$enc&continuation=$enc&type=next",
         )
@@ -153,15 +127,12 @@ internal class InnerTubeClient(private val cookie: String) {
 
     companion object {
         private const val TAG = "InnerTube"
-        // Version harvested from music.youtube.com — update periodically by inspecting
-        // the `INNERTUBE_CONTEXT_CLIENT_VERSION` variable in the YTM web app source.
+
+
         private const val CLIENT_VERSION = "1.20260501.01.00"
     }
 }
 
-// ───────────────────────── JSON walking helpers ─────────────────────────
-
-/** Deep-search the element tree for the first object that contains [key]. */
 internal fun JsonElement.findFirst(key: String): JsonElement? {
     when (this) {
         is JsonObject -> {
@@ -180,7 +151,6 @@ internal fun JsonElement.findFirst(key: String): JsonElement? {
     return null
 }
 
-/** Collect every object that contains [key], anywhere in the tree. */
 internal fun JsonElement.findAll(key: String): List<JsonElement> {
     val out = mutableListOf<JsonElement>()
     walk { el ->
@@ -198,40 +168,16 @@ internal fun JsonElement.walk(visit: (JsonElement) -> Unit) {
     }
 }
 
-/** Collects every object that contains a `musicResponsiveListItemRenderer` key.
- *  That renderer is what YT Music uses for songs in lists (liked / playlist pages). */
 internal fun JsonElement.collectResponsiveListItems(): List<JsonObject> =
     findAll("musicResponsiveListItemRenderer")
         .mapNotNull { it as? JsonObject }
 
-/** Collects every `musicTwoRowItemRenderer` — the tile used for playlists / albums. */
 internal fun JsonElement.collectTwoRowItems(): List<JsonObject> =
     findAll("musicTwoRowItemRenderer")
         .mapNotNull { it as? JsonObject }
 
-/**
- * Extract the next-page token from anywhere YouTube Music might put it.
- *
- * YouTube has used several shapes over the years — all are tried in order:
- *
- * 1. `continuations[].{nextContinuationData|nextRadioContinuationData|
- *     timedContinuationData|reloadContinuationData}.continuation`
- *    — classic "shelf with continuations array" shape used in browse and
- *      continuation responses alike.
- *
- * 2. `continuationItemRenderer.continuationEndpoint.continuationCommand.token`
- *    — newer "appendContinuationItemsAction" shape where the load-more button
- *      is injected as the LAST item inside the items list rather than as a
- *      separate `continuations` key.  Started appearing in 2025 playlist
- *      responses and is what causes pagination to stop silently at ~100 songs
- *      when not handled.
- *
- * 3. `continuationCommand.token` anywhere — catch-all fallback.
- *
- * Returns null when the page is the last one (no token present).
- */
 internal fun JsonElement.findContinuationToken(): String? {
-    // ── Shape 1: continuations[] array with typed wrapper objects ──────────
+
     val CONTINUATION_WRAPPER_KEYS = listOf(
         "nextContinuationData",
         "nextRadioContinuationData",
@@ -251,10 +197,10 @@ internal fun JsonElement.findContinuationToken(): String? {
         }
     }
 
-    // ── Shape 2: continuationItemRenderer (2025+ appendContinuationItemsAction) ──
-    // The token is embedded as the last item in the content list rather than in a
-    // separate `continuations` key.  Walk every continuationItemRenderer and pick
-    // the first one that carries a continuationCommand.token.
+
+
+
+
     for (item in findAll("continuationItemRenderer")) {
         val token = (item as? JsonObject)
             ?.let { it["continuationEndpoint"] as? JsonObject }
@@ -264,13 +210,12 @@ internal fun JsonElement.findContinuationToken(): String? {
         if (token != null) return token
     }
 
-    // ── Shape 3: bare continuationCommand.token anywhere ───────────────────
+
     return findAll("continuationCommand")
         .mapNotNull { (it as? JsonObject)?.get("token")?.jsonPrimitive?.contentOrNull }
         .firstOrNull { it.isNotBlank() }
 }
 
-/** Extract a runs-style title — YT wraps text as `{ runs: [{ text: "..." }, ...] }`. */
 internal fun JsonElement?.runsText(): String? {
     if (this !is JsonObject) return null
     val runs = this["runs"] as? JsonArray ?: return (this["simpleText"] as? JsonPrimitive)?.contentOrNull
@@ -279,16 +224,9 @@ internal fun JsonElement?.runsText(): String? {
         .takeIf { it.isNotBlank() }
 }
 
-/** Pick the largest thumbnail URL out of a `{ thumbnails: [...] }` object.
- *  Handles every layer YouTube nests it at:
- *   • `thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails[]`
- *   • `musicThumbnailRenderer.thumbnail.thumbnails[]`
- *   • plain `{ thumbnails: [...] }`
- *  After picking the URL we also upgrade the size suffix (`=w60-h60-...`) to a
- *  544×544 variant so grid tiles and track rows don't render as 60px blobs. */
 internal fun JsonElement?.bestThumbnail(): String? {
     if (this !is JsonObject) return null
-    // Drill down through whichever wrapper layer YouTube used.
+
     fun thumbs(o: JsonObject): JsonArray? {
         (o["thumbnails"] as? JsonArray)?.let { return it }
         val thumbObj = o["thumbnail"] as? JsonObject
@@ -306,8 +244,6 @@ internal fun JsonElement?.bestThumbnail(): String? {
     return raw.upgradeToHqSize()
 }
 
-/** YouTube image URLs end with `=w60-h60-l90-rj` or `=s60-c`. Replace the size
- *  (whichever is first) with `w544-h544-l90-rj` to get a crisp 544px artwork. */
 private fun String.upgradeToHqSize(): String {
     val cut = indexOf('=')
     if (cut < 0) return this

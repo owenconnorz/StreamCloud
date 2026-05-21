@@ -95,7 +95,7 @@ interface TmdbApi {
         @Query("api_key") apiKey: String,
     ): TmdbExternalIds
 
-    /** Generic discover endpoint — used by Nuvio-style collections (Marvel, DC, etc.). */
+
     @GET("3/discover/movie")
     suspend fun discover(
         @Query("api_key") apiKey: String,
@@ -106,11 +106,7 @@ interface TmdbApi {
         @Query("page") page: Int = 1,
     ): TmdbListResponse
 
-    /**
-     * IMDB → TMDB resolver. Stremio addons identify items by IMDB id
-     * (e.g. `tt12345`), but our MovieDetail screen is keyed on the TMDB id.
-     * `/find` lets us look them up without a paid Bridge API.
-     */
+
     @GET("3/find/{externalId}")
     suspend fun find(
         @retrofit2.http.Path("externalId") externalId: String,

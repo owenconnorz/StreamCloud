@@ -35,34 +35,14 @@ import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.delay
 
-/**
- * Material-styled Cast button — fully Compose-native. We deliberately avoid
- * androidx.mediarouter's [androidx.mediarouter.app.MediaRouteButton] because:
- *
- *   1. Its click handler creates an AppCompat-only DialogFragment that
- *      silently NO-OPS when the host activity isn't an AppCompatActivity.
- *      MainActivity is a ComponentActivity (Compose-only), so the route
- *      chooser never appeared — which exactly matched the user report:
- *      "Cast button isn't showing and nothing happens when clicking on it".
- *
- *   2. The Android View has no Compose-friendly sizing — even when given a
- *      [Modifier.size], its internal Drawable measurement clipped the icon.
- *
- * This implementation talks straight to [MediaRouter] / [CastContext] and
- * pops a Compose-native [AlertDialog] listing the discovered routes.
- *
- * Tap → dialog opens → tap a route → `MediaRouter.selectRoute()` triggers
- * [rememberCastController] (set up earlier in the composition) to push
- * `streamUrl` to the receiver. Tap again while connected → disconnect.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
     val context = LocalContext.current
 
-    // `CastContext.getSharedInstance` is the lazy-init entry-point for the
-    // Cast SDK. If Google Play Services is missing or out of date it returns
-    // null — gracefully hide the button in that case.
+
+
+
     val castContext = remember(context) {
         runCatching { CastContext.getSharedInstance(context.applicationContext) }
             .getOrNull()
@@ -71,14 +51,14 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
     val mediaRouter = remember(context) { MediaRouter.getInstance(context.applicationContext) }
     val selector = remember(castContext) { castContext.mergedSelector ?: MediaRouteSelector.EMPTY }
 
-    // Live list of selectable routes (excludes the default "Phone" route).
+
     val routes = remember { mutableStateListOf<MediaRouter.RouteInfo>() }
     var selectedRouteId by remember { mutableStateOf<String?>(null) }
     var showDialog by remember { mutableStateOf(false) }
 
-    // Active scan while button is composed — we use callback flags = NONE
-    // when no dialog is open so battery isn't drained, ACTIVE_SCAN while the
-    // dialog is visible to surface routes quicker (matches Google's design).
+
+
+
     DisposableEffect(selector, showDialog) {
         val callback = object : MediaRouter.Callback() {
             override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) {
@@ -109,7 +89,7 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
         onDispose { mediaRouter.removeCallback(callback) }
     }
 
-    // Periodic refresh while dialog is open so newly-discovered routes show up.
+
     LaunchedEffect(showDialog) {
         while (showDialog) {
             delay(1500)
@@ -253,10 +233,6 @@ private fun RouteRow(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// rememberCastController + remote-load helpers (unchanged from previous impl)
-// ──────────────────────────────────────────────────────────────────────────
-
 @Composable
 fun rememberCastController(
     streamUrl: String,
@@ -322,10 +298,10 @@ private fun loadRemoteMedia(
     artworkUrl: String?,
     contentType: String?,
 ) {
-    // Guard: never send a blank or localhost URL to the receiver.
-    // A blank URL occurs when the player first renders before resolvedUrl is set —
-    // sending it causes the Cast receiver to enter an error state that silently
-    // swallows the correct URL that arrives moments later.
+
+
+
+
     if (streamUrl.isBlank()) return
     val client = session.remoteMediaClient ?: return
     if (streamUrl.startsWith("http://127.0.0.1") || streamUrl.startsWith("http://localhost")) {

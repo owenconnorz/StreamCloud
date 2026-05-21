@@ -9,14 +9,6 @@ import org.schabi.newpipe.extractor.downloader.Request as NPRequest
 import org.schabi.newpipe.extractor.downloader.Response
 import java.util.concurrent.TimeUnit
 
-/**
- * NewPipe HTTP shim with optional **YouTube Music cookie injection** — Metrolist parity.
- *
- * When the user is signed in, [ytMusicCookie] is set to the raw `Cookie:` header captured
- * from a music.youtube.com WebView session. We forward it on every request to
- * `*.youtube.com` so personalised endpoints (Home, Listen Again, library) return real
- * data instead of anonymous defaults.
- */
 class NewPipeDownloader private constructor() : Downloader() {
 
     private val client = OkHttpClient.Builder()
@@ -24,18 +16,18 @@ class NewPipeDownloader private constructor() : Downloader() {
         .connectTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /** Mutated from [com.streamcloud.app.StreamCloudApplication] when the user logs in/out. */
+
     @Volatile var ytMusicCookie: String = ""
 
     override fun execute(request: NPRequest): Response {
         val builder = Request.Builder().url(request.url())
         request.headers().forEach { (name, values) ->
-            // Avoid double-setting Cookie if NewPipe already sent one (it never does, but be safe).
+
             if (!name.equals("Cookie", ignoreCase = true)) {
                 values.forEach { v -> builder.addHeader(name, v) }
             }
         }
-        // Inject the captured YT Music cookie for any youtube.com host.
+
         val cookie = ytMusicCookie
         val targetHost = request.url().toHttpUrlOrNull()?.host.orEmpty()
         if (cookie.isNotBlank() && targetHost.endsWith("youtube.com")) {

@@ -60,18 +60,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/**
- * Modal bottom-sheet menu opened by the 3-dot button in [NowPlayingShell].
- *
- * Matches the user's reference screenshot 2 design exactly:
- *  - Drag handle
- *  - Live volume slider (AudioManager STREAM_MUSIC)
- *  - Three pill chips: Radio · Add · Share
- *  - Long-form action rows: View artist, Add to library, Download,
- *    Listen Together, Details, Equalizer, Advanced (tempo & pitch)
- *
- * Every action is wired to a working implementation — no placeholder rows.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MusicActionsSheet(
@@ -93,11 +81,11 @@ fun MusicActionsSheet(
     var showAdvanced by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember { mutableStateOf(false) }
 
-    // Extract videoId from the controller — works for any MediaItem whose
-    // mediaMetadata.extras carries a `videoId` (the producer-side path we
-    // own — see YtPlayback.resolvePlayable), OR whose mediaId / request
-    // metadata uri carries a `v=` param. On MediaController over IPC the
-    // `localConfiguration` is stripped, so extras is the reliable channel.
+
+
+
+
+
     val mm = controller.mediaMetadata
     var videoId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(currentMediaId, mm) {
@@ -105,7 +93,7 @@ fun MusicActionsSheet(
             ?: extractYouTubeVideoId(mm.extras?.getString("watchUrl"))
             ?: extractYouTubeVideoId(currentMediaId)
             ?: extractYouTubeVideoId(controller.currentMediaItem?.requestMetadata?.mediaUri?.toString())
-            // Room fallback: most recently played track is the one we're on.
+
             ?: runCatching {
                 val recent = com.streamcloud.app.data.library.LibraryDb
                     .get(context.applicationContext).tracks().recent().first().firstOrNull()
@@ -126,12 +114,12 @@ fun MusicActionsSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
         ) {
-            // ── Volume slider ────────────────────────────────────────────
+
             VolumeRow(context)
 
             Divider(Modifier.padding(vertical = 12.dp))
 
-            // ── Chip row: Radio · Add · Share ─────────────────────────────
+
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -158,9 +146,9 @@ fun MusicActionsSheet(
                     icon = Icons.Default.PlaylistAdd, label = "Add",
                     modifier = Modifier.weight(1f),
                 ) {
-                    // Open the YouTube-Music-synced "Add to playlist" sheet
-                    // showing the user's playlists, with a "Create playlist"
-                    // hero tile and a sort chip — see [AddToPlaylistSheet].
+
+
+
                     if (videoId.isNullOrBlank()) {
                         toast(context, "No song playing — start a track first")
                     } else {
@@ -189,7 +177,7 @@ fun MusicActionsSheet(
 
             Spacer(Modifier.height(12.dp))
 
-            // ── Long-form action rows ─────────────────────────────────────
+
             ActionRow(
                 icon = Icons.Default.Person,
                 title = "View artist",
@@ -313,16 +301,12 @@ fun MusicActionsSheet(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Volume row — driven by AudioManager STREAM_MUSIC
-// ──────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun VolumeRow(context: Context) {
     val am = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVol = remember { am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
     var current by remember { mutableStateOf(am.getStreamVolume(AudioManager.STREAM_MUSIC)) }
-    // Poll once a second so external volume key changes reflect in the UI.
+
     LaunchedEffect(Unit) {
         while (true) {
             delay(750)
@@ -364,10 +348,6 @@ private fun VolumeRow(context: Context) {
         )
     }
 }
-
-// ──────────────────────────────────────────────────────────────────────────
-// Reusable rows
-// ──────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ChipPill(
@@ -447,10 +427,6 @@ private fun Divider(modifier: Modifier = Modifier) {
     )
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Details + Advanced dialogs
-// ──────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun DetailsDialog(
     title: String,
@@ -521,29 +497,20 @@ private fun AdvancedDialog(
     )
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────────────────────────────
-
 private fun toast(context: Context, msg: String) {
     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 }
 
-/**
- * Extract an 11-char YouTube videoId from any string the controller might
- * expose — a `watch?v=ABC` URL, a `music.youtube.com/watch?v=ABC&pp=...`,
- * a `youtu.be/ABC` short link, or the bare 11-char id.
- */
 private fun extractYouTubeVideoId(raw: String?): String? {
     val s = raw?.trim().orEmpty()
     if (s.isEmpty()) return null
-    // Bare 11-char id?
+
     val bareIdRegex = Regex("^[A-Za-z0-9_-]{11}$")
     if (bareIdRegex.matches(s)) return s
-    // ?v=… or &v=…
+
     val vParam = Regex("[?&]v=([A-Za-z0-9_-]{11})").find(s)
     if (vParam != null) return vParam.groupValues[1]
-    // youtu.be/<id>
+
     val shortLink = Regex("youtu\\.be/([A-Za-z0-9_-]{11})").find(s)
     if (shortLink != null) return shortLink.groupValues[1]
     return null
@@ -555,14 +522,9 @@ private fun formatDur(ms: Long): String {
     return "%d:%02d".format(s / 60, s % 60)
 }
 
-/**
- * Open the system Equalizer activity for the current audio session if the
- * device exposes one (most do). Returns false when no handler is installed —
- * caller falls back to the in-app Audio FX settings page.
- */
 private fun openSystemEqualizer(context: Context, controller: Player): Boolean {
-    // Try to derive an audio session id. Media3 doesn't expose it on the
-    // common `Player` interface but ExoPlayer subclass does.
+
+
     val sessionId: Int? = runCatching {
         val ex = controller as? androidx.media3.exoplayer.ExoPlayer
         ex?.audioSessionId?.takeIf { it != 0 }

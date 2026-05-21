@@ -77,21 +77,6 @@ import com.streamcloud.app.ui.player.SonosDevicePickerSheet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/**
- * Rich Metrolist / OpenTune-style "Now Playing" UI driven entirely by a
- * Media3 [Player] reference. No ViewModel — so the same UI works from any
- * tab (Music, Library, Movies, Settings) via the GlobalNowPlayingSheet.
- *
- * Layout matches the user's reference screenshot 1:1:
- *  - "Now Playing" / "<queue title>" header
- *  - 16:9 wide artwork with rounded corners + soft shadow
- *  - Title + artist (left) · Download + Like pills (right)
- *  - Slider + 0:01 / 3:46 timestamps
- *  - Big white "Play" pill flanked by dark prev/next capsules
- *  - 7-chip bottom toolbar: Queue · Sleep · Lyrics · Comments · Shuffle · Repeat · More (3-dot)
- *  - The 3-dot opens [MusicActionsSheet] (Radio · Add · Share · View artist · Add to library
- *    · Download · Listen Together · Details · Equalizer · Advanced)
- */
 @OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
 fun NowPlayingShell(
@@ -105,7 +90,7 @@ fun NowPlayingShell(
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
 
-    // ── Track + transport state, driven from Player ──────────────────────────
+
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var title by remember { mutableStateOf(controller.mediaMetadata.title?.toString().orEmpty()) }
@@ -139,7 +124,7 @@ fun NowPlayingShell(
         }
     }
 
-    // ── Live like / download status from Room ────────────────────────────────
+
     var isLiked by remember(mediaId) { mutableStateOf(false) }
     var isDownloaded by remember(mediaId) { mutableStateOf(false) }
     val downloadMap by MusicDownloader.progressFlow.collectAsState(initial = emptyMap())
@@ -155,7 +140,7 @@ fun NowPlayingShell(
         isDownloaded = MusicDownloader.isDownloaded(context, mid)
     }
 
-    // ── Palette-driven dynamic background ────────────────────────────────────
+
     val dominant by rememberDominant(artwork)
     val animDominant by animateColorAsState(
         targetValue = dominant,
@@ -164,11 +149,11 @@ fun NowPlayingShell(
     )
     val onBg = if (animDominant.luminance() > 0.5f) Color(0xFF111111) else Color.White
 
-    // ── Artwork swipe (Metrolist) — horizontal drag skips tracks ─────────────
+
     val artworkSwipeX = remember { Animatable(0f) }
     var artworkDragX by remember { mutableStateOf(0f) }
 
-    // ── Lyrics fetch (Metrolist) ─────────────────────────────────────────────
+
     var showLyrics by remember { mutableStateOf(false) }
     var lyrics by remember(mediaId) { mutableStateOf<com.streamcloud.app.data.lyrics.LrcEntry?>(null) }
     var lyricsLoading by remember(mediaId) { mutableStateOf(false) }
@@ -179,7 +164,7 @@ fun NowPlayingShell(
         lyricsLoading = false
     }
 
-    // ── Sleep timer (Player.stop after N minutes) ────────────────────────────
+
     var sleepEndTs by remember { mutableStateOf<Long?>(null) }
     var showSleepDialog by remember { mutableStateOf(false) }
     var showQueueSheet by remember { mutableStateOf(false) }
@@ -190,20 +175,20 @@ fun NowPlayingShell(
         sleepEndTs = null
     }
 
-    // ── Sonos cast sheet visibility + current video id ───────────────────────
+
     var showSonos by remember { mutableStateOf(false) }
     val castState by SonosRepository.castState.collectAsState()
     val isCasting = castState is SonosRepository.CastState.Casting
-    // mediaId is either a full YouTube URL ("https://music.youtube.com/watch?v=ID")
-    // or a bare video ID ("ID"). Handle both so the Sonos resolver always gets a
-    // valid videoId and a valid watch URL.
+
+
+
     val videoId = remember(mediaId) {
         val mid = mediaId ?: return@remember ""
         if (mid.startsWith("http")) {
-            // Full URL — extract the v= query param.
+
             mid.substringAfter("v=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: ""
         } else {
-            // Bare video ID — use it directly.
+
             mid
         }
     }
@@ -215,10 +200,10 @@ fun NowPlayingShell(
         }
     }
 
-    // ── 3-dot actions sheet visibility ───────────────────────────────────────
+
     var showActions by remember { mutableStateOf(false) }
 
-    // ── Spotify Canvas ────────────────────────────────────────────────────────
+
     val canvasEnabled by sl.settings.canvasEnabled.collectAsState(initial = false)
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
     LaunchedEffect(mediaId, title, artist, canvasEnabled) {
@@ -246,10 +231,10 @@ fun NowPlayingShell(
                 ) else Modifier
             )
     ) {
-        // Canvas video plays behind all controls when Spotify Canvas is available
+
         if (activeCanvas != null) {
             CanvasVideoLayer(url = activeCanvas, modifier = Modifier.fillMaxSize())
-            // Gradient scrim so title, slider and buttons remain readable
+
             Box(
                 Modifier
                     .fillMaxSize()
@@ -269,7 +254,7 @@ fun NowPlayingShell(
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            // ── Top row: chevron-down · "Now Playing" + queue label · placeholder
+
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 NpIconButton(onClick = onClose, tint = onBg) {
                     Icon(Icons.Default.KeyboardArrowDown, "Minimize")
@@ -289,12 +274,12 @@ fun NowPlayingShell(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                Spacer(Modifier.size(40.dp)) // balance the chevron
+                Spacer(Modifier.size(40.dp))
             }
 
             Spacer(Modifier.height(12.dp))
 
-            // ── 1:1 high-res artwork — swipe left = next, right = previous
+
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -313,7 +298,7 @@ fun NowPlayingShell(
                                     change.consume()
                                 }
                             }
-                            // Back in unrestricted PointerInputScope — suspend calls are allowed here
+
                             artworkSwipeX.snapTo(artworkDragX)
                             artworkDragX = 0f
                             val threshold = widthPx * 0.28f
@@ -356,7 +341,7 @@ fun NowPlayingShell(
 
             Spacer(Modifier.height(20.dp))
 
-            // ── Title + artist + (download / like pills)
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -432,7 +417,7 @@ fun NowPlayingShell(
 
             Spacer(Modifier.height(16.dp))
 
-            // ── Slider + timestamps
+
             Slider(
                 value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
                 onValueChange = { v ->
@@ -458,7 +443,7 @@ fun NowPlayingShell(
 
             Spacer(Modifier.height(16.dp))
 
-            // ── Big play pill flanked by dark prev/next capsules
+
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -481,7 +466,7 @@ fun NowPlayingShell(
 
             Spacer(Modifier.height(16.dp))
 
-            // ── 7-chip bottom toolbar
+
             BottomToolbar(
                 shuffleOn = shuffleOn,
                 repeatMode = repeatMode,
@@ -556,10 +541,6 @@ fun NowPlayingShell(
         )
     }
 }
-
-// ──────────────────────────────────────────────────────────────────────────
-// Components
-// ──────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun PillButton(
@@ -809,11 +790,6 @@ private fun formatTime(ms: Long): String {
     return "%d:%02d".format(m, s)
 }
 
-/**
- * Full-bleed looping silent video layer — used for Spotify Canvas.
- * A separate ExoPlayer instance is used so the canvas video is independent
- * of the main music playback session.  Volume is set to 0 (muted).
- */
 @OptIn(UnstableApi::class)
 @Composable
 private fun CanvasVideoLayer(url: String, modifier: Modifier = Modifier) {

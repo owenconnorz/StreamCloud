@@ -50,25 +50,10 @@ import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/**
- * Bottom-sheet that mirrors the user's reference screenshot 1:1 when the
- * user is signed in to YouTube Music:
- *  - "+ Create playlist" tile (creates a new YT Music playlist + adds the
- *    current song to it in one round-trip).
- *  - Sort chip ("Name ▾" / "Date" / "Songs").
- *  - List of the user's YT Music playlists with thumbnails + song counts.
- *
- * Tap a row → `YtMusicPlaylistRepository.addVideoToPlaylist()` which hits
- * the same `browse/edit_playlist` endpoint music.youtube.com uses, so the
- * track shows up in the user's library across **every** device immediately.
- *
- * If the user isn't signed in: render a friendly empty state pointing them
- * to Settings → Sign in to YouTube Music.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddToPlaylistSheet(
-    /** Track to add. Extract videoId from MediaItem.mediaId or metadata extras. */
+
     videoId: String?,
     songTitle: String,
     onDismiss: () -> Unit,
@@ -112,7 +97,7 @@ fun AddToPlaylistSheet(
         when (sort) {
             Sort.Name -> playlists.sortedBy { it.title.lowercase() }
             Sort.Songs -> playlists.sortedByDescending { it.songCount() }
-            Sort.Recent -> playlists // (we don't track per-playlist updatedAt yet)
+            Sort.Recent -> playlists
         }
     }
 
@@ -150,17 +135,17 @@ fun AddToPlaylistSheet(
                 .heightIn(min = 380.dp, max = 640.dp)
                 .padding(horizontal = 16.dp),
         ) {
-            // ── Create-playlist hero tile ──────────────────────────────
+
             CreatePlaylistTile(onClick = { showCreate = true })
 
             Spacer(Modifier.height(14.dp))
 
-            // ── Sort chip ──────────────────────────────────────────────
+
             SortChip(sort = sort, onChange = { sort = it })
 
             Spacer(Modifier.height(12.dp))
 
-            // ── Playlist list ──────────────────────────────────────────
+
             when {
                 loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -196,10 +181,6 @@ fun AddToPlaylistSheet(
         )
     }
 }
-
-// ──────────────────────────────────────────────────────────────────────────
-// Components
-// ──────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun CreatePlaylistTile(onClick: () -> Unit) {
@@ -390,10 +371,6 @@ private fun CreatePlaylistDialog(
     )
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// helpers
-// ──────────────────────────────────────────────────────────────────────────
-
 private enum class Sort(val label: String) { Name("Name"), Songs("Songs"), Recent("Recent") }
 
 private fun YtmPlaylist.songCountLabel(): String {
@@ -401,10 +378,6 @@ private fun YtmPlaylist.songCountLabel(): String {
     return if (n > 0) "$n songs" else (subtitle ?: "")
 }
 
-/**
- * Best-effort song-count parser — YT Music puts the count inside the subtitle
- * string (e.g. "Playlist · 74 songs", "312 songs · Updated today").
- */
 private fun YtmPlaylist.songCount(): Int {
     val sub = subtitle ?: return 0
     val m = Regex("(\\d+)\\s*songs?", RegexOption.IGNORE_CASE).find(sub)

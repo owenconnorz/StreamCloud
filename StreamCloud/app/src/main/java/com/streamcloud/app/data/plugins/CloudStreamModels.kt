@@ -3,17 +3,11 @@ package com.streamcloud.app.data.plugins
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/**
- * CloudStream extension/plugin manifest. Most repos use the recloudstream `plugins.json` shape:
- *   https://raw.githubusercontent.com/recloudstream/extensions/builds/plugins.json
- *
- * Field names vary slightly (older repos used `url`, newer use `jarUrl`); we accept both.
- */
 @Serializable
 data class CloudStreamPlugin(
     val name: String = "",
     @SerialName("jarUrl") val jarUrl: String? = null,
-    val url: String? = null,                   // legacy field
+    val url: String? = null,
     val version: Int = 1,
     val apiVersion: Int = 1,
     val description: String? = null,
@@ -28,7 +22,7 @@ data class CloudStreamPlugin(
     val jarFileSize: Long? = null,
     val fileHash: String? = null,
 ) {
-    /** Resolved download URL, preferring the modern `jarUrl`. */
+
     val downloadUrl: String get() = jarUrl ?: url ?: ""
 }
 

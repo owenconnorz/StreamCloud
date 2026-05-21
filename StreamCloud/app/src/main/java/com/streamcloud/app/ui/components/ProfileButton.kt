@@ -24,18 +24,6 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
 
-/**
- * Round profile button that shows the signed-in YouTube Music user's avatar
- * (the same image Google shows in the music.youtube.com top bar). Falls back
- * to a generic person icon when the user is signed out.
- *
- * Used as the top-right entry point on Music / Movies / Library / Discover
- * tabs in place of a Settings cog — same pattern as Spotify / YouTube Music.
- *
- * Tap behaviour is controlled by the host: pass [onClick] to navigate to the
- * Settings hub (which is where the user can sign in / sign out / pick which
- * Settings screen they want).
- */
 @Composable
 fun ProfileButton(
     modifier: Modifier = Modifier,

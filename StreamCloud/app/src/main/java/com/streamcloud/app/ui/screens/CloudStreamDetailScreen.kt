@@ -42,16 +42,6 @@ private sealed class CsDetailState {
     data class Ready(val response: LoadResponse) : CsDetailState()
 }
 
-/**
- * Detail page for one item picked from a CloudStream plugin's home / search feed.
- *
- * Mirrors upstream `recloudstream/cloudstream` flow exactly:
- *   1. `api.load(url)` → [LoadResponse] (Movie or TvSeries)
- *   2. Movie: tap "Play" → `api.loadLinks(dataUrl, false, subCb, linkCb)`
- *      TvSeries: tap an Episode → `api.loadLinks(episode.data, ...)`
- *   3. Convert [ExtractorLink] list → [PlayerSource] list
- *   4. Hand off to the existing native player + source picker
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CloudStreamDetailScreen(
@@ -60,7 +50,7 @@ fun CloudStreamDetailScreen(
     initialTitle: String,
     initialPoster: String?,
     onBack: () -> Unit,
-    /** Same shape as [MovieDetailScreen.onPlay] — host wires it through to the player. */
+
     onPlay: (initialUrl: String, title: String, sources: List<PlayerSource>, progressKey: WatchProgressKey) -> Unit,
 ) {
     val context = LocalContext.current
@@ -109,8 +99,8 @@ fun CloudStreamDetailScreen(
                 val sources = links.toPlayerSources(pluginDisplayName ?: pluginInternalName)
                 val sorted = sources.sortedByDescending { it.qualityScoreCs() }
                 val displayTitle = listOfNotNull(initialTitle, episodeTitle).joinToString(" · ")
-                // Use a deterministic-ish negative id so it doesn't collide with TMDB ids in the
-                // resume table (TMDB ids are positive).
+
+
                 val progressKey = WatchProgressKey(
                     tmdbId = -((pluginInternalName + "|" + url + "|" + (episodeTitle ?: "")).hashCode().toLong()),
                     title = displayTitle,
@@ -381,8 +371,6 @@ private fun Episode.displayLabel(): String {
     if (parts.isEmpty()) parts += "Episode"
     return parts.joinToString(" · ")
 }
-
-// ────────────────── ExtractorLink → PlayerSource ──────────────────
 
 private fun List<ExtractorLink>.toPlayerSources(pluginDisplayName: String): List<PlayerSource> =
     this.mapIndexedNotNull { idx, link ->

@@ -8,13 +8,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * App-wide in-memory error/event log.
- *
- * Any component can call [e]/[w]/[i] from any thread. Entries are kept in a
- * circular buffer capped at [MAX_ENTRIES]. A [StateFlow] of the current count
- * drives the badge on the Settings → Logs hub entry.
- */
 object AppLogger {
 
     private const val MAX_ENTRIES = 500
@@ -35,10 +28,10 @@ object AppLogger {
     val errorCount: StateFlow<Int> = _errorCount.asStateFlow()
 
     private val _entries = MutableStateFlow<List<Entry>>(emptyList())
-    /** Live snapshot of all log entries, newest first. Collect this in Compose to react to new logs. */
+
     val entriesFlow: StateFlow<List<Entry>> = _entries.asStateFlow()
 
-    // ── Public write API ────────────────────────────────────────────────────
+
 
     fun e(tag: String, message: String, throwable: Throwable? = null) {
         val full = if (throwable != null) "$message — ${throwable.javaClass.simpleName}: ${throwable.message}" else message
@@ -57,9 +50,9 @@ object AppLogger {
         add(Entry(System.currentTimeMillis(), Level.INFO, tag, message))
     }
 
-    // ── Public read API ─────────────────────────────────────────────────────
 
-    /** Returns a snapshot, newest-first. */
+
+
     fun entries(): List<Entry> = synchronized(lock) { buffer.toList().reversed() }
 
     fun clear() {
@@ -70,10 +63,7 @@ object AppLogger {
         }
     }
 
-    /**
-     * Format all entries as a plain-text block suitable for copy/paste or bug reports.
-     * Format: [HH:mm:ss.SSS] E/TAG: message
-     */
+
     fun formatAll(): String {
         val sdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
         return entries().joinToString("\n") { e ->
@@ -86,7 +76,7 @@ object AppLogger {
         }
     }
 
-    // ── Internal ────────────────────────────────────────────────────────────
+
 
     private fun add(entry: Entry) {
         synchronized(lock) {

@@ -8,19 +8,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 
-/**
- * Persistent on-disk cache for the YT Music library screen (playlists + albums list).
- *
- * Stored in [Context.filesDir] so it survives "Clear Cache". Only cleared on
- * "Clear Storage / Data". This lets the Library tab render instantly on open
- * (stale-while-revalidate) even with no network connection.
- *
- * Track-count accuracy:
- * YouTube's library-browse API returns a stale count in the subtitle text
- * ("Playlist · 31 songs") that often disagrees with the real paginated count.
- * [updatePlaylistCount] is called by [YtPlaylistScreen] after a full load
- * so the cached entry always shows the correct number next time the card renders.
- */
 object LibraryCache {
 
     private const val TAG = "LibraryCache"
@@ -35,7 +22,7 @@ object LibraryCache {
         val thumbnail: String? = null,
         val subtitle: String? = null,
         val isAlbum: Boolean = false,
-        /** Real track count from the last full pagination — overrides the stale subtitle count. */
+
         val cachedTrackCount: Int? = null,
     )
 
@@ -107,16 +94,7 @@ object LibraryCache {
         Unit
     }
 
-    /**
-     * Update the stored track count for a single playlist after a full load.
-     *
-     * Called by [YtPlaylistScreen] once [YtMusicLibraryRepository.playlistTracks]
-     * finishes paging through all continuations.  The real count replaces whatever
-     * stale number YouTube returned in the library-browse subtitle text.
-     *
-     * ID matching strips the "VL" prefix both ways so `PLxxx` matches `VLPLxxx`
-     * and vice versa — YouTube uses both forms in different API paths.
-     */
+
     suspend fun updatePlaylistCount(
         context: Context,
         playlistId: String,

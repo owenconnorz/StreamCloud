@@ -6,25 +6,20 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 
-/**
- * Source-agnostic adult item used by the UI grid. Mirrors what
- * `EpornerVideo` exposes but adds optional fields needed for Reddit
- * (audio track URL, gallery flag, source label).
- */
 data class AdultItem(
     val id: String,
     val title: String,
     val thumbnail: String?,
     val previewImage: String?,
     val durationLabel: String?,
-    /** Direct streamable URL when known. For Eporner this is empty until resolution. */
+
     val streamUrl: String?,
-    /** Reddit dashes audio separately at DASH_AUDIO_*.mp4. Null for non-Reddit / no audio. */
+
     val audioUrl: String? = null,
     val isVideo: Boolean = true,
     val isGallery: Boolean = false,
     val source: AdultSource,
-    /** Eporner page id — needed to resolve direct MP4 lazily. Null for Reddit. */
+
     val epornerId: String? = null,
     val embedUrl: String? = null,
 )
@@ -39,10 +34,7 @@ object RedditAdultRepository {
         Net.retrofit("https://www.reddit.com/").create(RedditApi::class.java)
     }
 
-    /**
-     * Fetch one page of media-only posts from the given subreddit.
-     * Returns the items + the next-page `after` cursor for endless scroll.
-     */
+
     suspend fun fetch(
         subreddit: String,
         sort: String = "hot",
@@ -56,7 +48,7 @@ object RedditAdultRepository {
     }
 
     private fun RedditPost.toAdultItem(): AdultItem? {
-        // ----- video URL resolution (Reddit-hosted, redgifs, direct .mp4/.webm) -----
+
         val redditVideo = media?.dashVideo() ?: secure_media?.dashVideo()
         val previewVideo = (preview?.get("reddit_video_preview") as? JsonObject)?.fallbackUrl()
 
@@ -66,7 +58,7 @@ object RedditAdultRepository {
 
         if (redditVideo != null) {
             streamUrl = redditVideo.fallbackUrl?.removeSuffix("?source=fallback")
-            // DASH audio sibling — usually at DASH_AUDIO_128.mp4 alongside the video.
+
             val base = streamUrl
                 ?.replace(Regex("DASH_\\d+\\.mp4.*$"), "")
                 ?.replace(Regex("DASH_[^/]+\\.mp4.*$"), "")
@@ -78,8 +70,8 @@ object RedditAdultRepository {
             streamUrl = previewVideo.removeSuffix("?source=fallback")
             isVideo = true
         } else if (url.contains("redgifs.com", ignoreCase = true)) {
-            // Reddit doesn't always inline redgifs media — fall back to the watch page
-            // URL; the player can hand off to a WebView for those edge cases.
+
+
             val match = Regex("redgifs\\.com/(?:watch/)?([\\w-]+)", RegexOption.IGNORE_CASE).find(url)
             streamUrl = if (match != null) "https://www.redgifs.com/ifr/${match.groupValues[1]}" else url
             isVideo = true
@@ -91,7 +83,7 @@ object RedditAdultRepository {
             isVideo = true
         }
 
-        // ----- thumbnail / preview image -----
+
         val thumb = listOfNotNull(
             preview?.previewImageSource(),
             thumbnail?.takeIf { it != "self" && it != "default" && it != "nsfw" && it.startsWith("http") },
@@ -99,7 +91,7 @@ object RedditAdultRepository {
         ).firstOrNull()
 
         val isGallery = is_gallery
-        // Drop posts we can't actually render at all (text posts, deleted, external links, etc).
+
         if (!isVideo && thumb == null && !isGallery) return null
 
         return AdultItem(
@@ -116,7 +108,7 @@ object RedditAdultRepository {
         )
     }
 
-    // ---------------------- JSON-walker helpers ---------------------------------
+
     private data class DashVideo(val fallbackUrl: String?, val hlsUrl: String?, val hasAudio: Boolean?)
 
     private fun JsonObject.dashVideo(): DashVideo? {
@@ -131,7 +123,7 @@ object RedditAdultRepository {
     private fun JsonObject.fallbackUrl(): String? =
         (this["fallback_url"] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
 
-    /** Pulls the largest preview image url out of `preview.images[0].source.url`. */
+
     private fun JsonObject.previewImageSource(): String? = runCatching {
         val images = (this["images"] as? kotlinx.serialization.json.JsonArray) ?: return@runCatching null
         val first = images.firstOrNull()?.jsonObject ?: return@runCatching null
@@ -140,7 +132,6 @@ object RedditAdultRepository {
     }.getOrNull()
 }
 
-/** Cosmetic preset chips — same labels the StreamCloud web app shipped with. */
 object RedditAdultSubs {
     val PRESETS: List<Pair<String, String>> = listOf(
         "r/nsfw" to "nsfw",

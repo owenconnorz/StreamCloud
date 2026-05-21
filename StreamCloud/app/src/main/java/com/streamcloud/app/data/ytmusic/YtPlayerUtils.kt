@@ -19,62 +19,34 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
-/**
- * Audio stream resolver — multi-client Innertube waterfall.
- *
- * Client priority (tuned for Android HTTP stack compatibility):
- *
- *   1. ANDROID_MUSIC 7.27.52   — YTM-specific, best loudnessDb metadata.
- *      Returns plain Android-compatible URLs.  No bot detection.
- *   2. ANDROID 19.29.37        — Standard YouTube Android client.  Plain URLs,
- *      no cipher, no bot detection.
- *   3. ANDROID_TESTSUITE 1.9   — YouTube-internal test client (id=30).
- *      Whitelisted by YouTube: no PoToken required, not subject to bot
- *      detection quotas.  Primary fallback used by NewPipe Extractor.
- *   4. ANDROID_VR 1.61.48      — Oculus Quest 3 client.
- *   5. ANDROID_VR 1.43.32      — Older Oculus VR client.
- *   6. IOS 19.29.4              — iPhone client.  Resolves plain URLs but
- *      YouTube CDN enforces iOS-specific constraints.
- *   7. IPADOS 19.29.4           — iPad IOS variant.
- *
- * All clients return plain stream URLs without cipher when they succeed,
- * so no WebView-based cipher deobfuscation is required.
- */
 object YtPlayerUtils {
 
     private const val TAG = "YtPlayerUtils"
 
-    // ── Client descriptors ────────────────────────────────────────────────
+
 
     private data class ClientConfig(
         val label: String,
-        /** Innertube player endpoint — use music.youtube.com for ANDROID_MUSIC. */
+
         val playerUrl: String,
         val clientName: String,
-        /** Sent in X-YouTube-Client-Name header (numeric string). */
+
         val clientId: String,
         val clientVersion: String,
         val userAgent: String,
-        /** Extra fields merged into context.client JSON object. */
+
         val extraClientFields: Map<String, Any> = emptyMap(),
-        /**
-         * When non-null, context.thirdParty { embedUrl } is added.
-         * Use "%VIDEO_ID%" as placeholder — it is replaced with the actual
-         * video ID at request time.  Required for TVHTML5_SIMPLY_EMBEDDED_PLAYER.
-         */
+
         val embedUrlTemplate: String? = null,
-        /**
-         * When true this client is skipped entirely if the user is not signed in.
-         * WEB_CREATOR for example will return LOGIN_REQUIRED when no cookie is set.
-         */
+
         val requiresAuth: Boolean = false,
     )
 
     private val CLIENTS = listOf(
 
-        // ── 1. ANDROID_MUSIC 7.27.52 — best for YT Music, plain Android URLs
-        // Returns plain stream URLs designed for Android HTTP stack.
-        // No bot-detection issues.  Best loudnessDb metadata for music.
+
+
+
         ClientConfig(
             label         = "ANDROID_MUSIC",
             playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -89,8 +61,8 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 2. ANDROID 21.03.38 — standard YouTube Android client ────────
-        // Plain URLs, no cipher, no bot-detection.
+
+
         ClientConfig(
             label         = "ANDROID",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -105,13 +77,13 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 3. ANDROID_TESTSUITE 1.9 — YouTube-whitelisted test client ───
-        // id=30, clientVersion=1.9.  This is YouTube's own internal testing
-        // client.  YouTube explicitly whitelists it: no PoToken required,
-        // no bot-detection quota.  NewPipe Extractor uses this as its
-        // primary client.  TV_EMBEDDED was removed — YouTube now returns
-        // "YouTube is no longer supported in this application or device"
-        // for that client on the vast majority of content.
+
+
+
+
+
+
+
         ClientConfig(
             label         = "ANDROID_TESTSUITE",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -126,9 +98,9 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 4. ANDROID_VR 1.61.48 — Oculus Quest 3 ───────────────────────
-        // Gets "Sign in to confirm you're not a bot" without PoToken /
-        // X-Goog-Visitor-Id.  Kept as fallback in case bot-detection eases.
+
+
+
         ClientConfig(
             label         = "ANDROID_VR_1_61_48",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -145,7 +117,7 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 5. ANDROID_VR 1.43.32 — older Oculus VR client ──────────────
+
         ClientConfig(
             label         = "ANDROID_VR_1_43_32",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -162,9 +134,9 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 6. IOS 21.03.1 — iPhone client ───────────────────────────────
-        // Resolves plain URLs; YouTube CDN sometimes enforces iOS-specific
-        // TLS fingerprint constraints on Android fetches.
+
+
+
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -180,7 +152,7 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 7. IPADOS 21.03.3 — iPad IOS variant ─────────────────────────
+
         ClientConfig(
             label         = "IPADOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -196,11 +168,11 @@ object YtPlayerUtils {
             ),
         ),
 
-        // ── 8. ANDROID_CREATOR 25.03.101 — YouTube Studio Android client ──
-        // YouTube Creator (Studio) app for Android.  Metrolist includes this
-        // in its fallback chain — it can play content that the regular ANDROID
-        // and ANDROID_MUSIC clients cannot (kids content, certain regional
-        // videos, etc.).  Returns plain URLs without cipher.
+
+
+
+
+
         ClientConfig(
             label         = "ANDROID_CREATOR",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -225,37 +197,18 @@ object YtPlayerUtils {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /**
-     * Raw `Cookie:` header from music.youtube.com — set by [MusicPlaybackService]
-     * when the user is signed in.  When present, it is sent with every Innertube
-     * player request so that ANDROID_MUSIC / ANDROID clients resolve URLs as an
-     * authenticated user, bypassing YouTube's bot-detection quota that blocks
-     * anonymous requests from those clients.
-     */
+
     @Volatile var ytMusicCookie: String = ""
 
-    /**
-     * Content language (Innertube `hl`) and country/region (`gl`).
-     * Kept in sync by MusicPlaybackService from SettingsRepository so every
-     * Innertube player request honours the user's preference, just like Metrolist.
-     */
+
     @Volatile var contentLanguage: String = "en"
     @Volatile var contentCountry:  String = "US"
 
-    /**
-     * Cached `visitorData` string from YouTube's visitor_id endpoint.
-     * Sent as `context.client.visitorData` and `X-Goog-Visitor-Id` header.
-     * Without this, IOS and ANDROID clients may receive throttled or
-     * incomplete stream data on certain videos.
-     */
+
     @Volatile private var cachedVisitorData: String? = null
     @Volatile private var visitorDataFetchedAt: Long = 0L
 
-    /**
-     * Fetch and cache a fresh `visitorData` from YouTube's lightweight
-     * Innertube visitor_id endpoint.  Cached for 6 hours; no-op on failure.
-     * Must be called from an IO thread.
-     */
+
     private fun ensureVisitorData() {
         val now = System.currentTimeMillis()
         if (cachedVisitorData != null && now - visitorDataFetchedAt < 6 * 3_600_000L) return
@@ -295,13 +248,11 @@ object YtPlayerUtils {
         }
     }
 
-    // ── Public data classes ───────────────────────────────────────────────
+
 
     data class AudioFormatInfo(
         val url: String,
-        /** User-Agent of the client that produced this URL.
-         *  The stream request MUST use this exact UA — YouTube CDN binds
-         *  stream URLs to the client that requested them. */
+
         val userAgent: String,
         val itag: Int,
         val mimeType: String,
@@ -317,13 +268,9 @@ object YtPlayerUtils {
         val contentLength: Long?,
     )
 
-    // ── Public API ────────────────────────────────────────────────────────
 
-    /**
-     * Pre-warm the Innertube visitorData in the background.
-     * Call once at service startup so the first track resolve doesn't pay
-     * the extra ~500 ms cold-start penalty of fetching visitorData.
-     */
+
+
     suspend fun warmUp() = withContext(Dispatchers.IO) { ensureVisitorData() }
 
     suspend fun resolveAudioFormatInfo(
@@ -336,8 +283,8 @@ object YtPlayerUtils {
         var ageGateDetected = false
 
         for (client in CLIENTS) {
-            // Skip auth-required clients (e.g. WEB_CREATOR) when the user is not signed in —
-            // YouTube returns LOGIN_REQUIRED for them and the request is wasted.
+
+
             if (client.requiresAuth && !isLoggedIn) {
                 Log.d(TAG, "[${client.label}] skipped — requires login (not signed in)")
                 continue
@@ -355,7 +302,7 @@ object YtPlayerUtils {
                 }
                 is ClientResult.NoStreams -> {
                     val why = result.reason?.let { " (reason: $it)" } ?: ""
-                    // Detect age-gate / region-block via the machine-readable status code
+
                     val isAgeGate = result.status != null && result.status in AGE_GATE_STATUSES
                     if (isAgeGate && !ageGateDetected) {
                         ageGateDetected = true
@@ -382,10 +329,10 @@ object YtPlayerUtils {
     suspend fun resolveAudioStream(videoId: String): String? =
         resolveAudioFormatInfo(videoId)?.url
 
-    // ── Internal ──────────────────────────────────────────────────────────
 
-    // YouTube playabilityStatus.status codes that signal age-gate or login required.
-    // TVHTML5_SIMPLY_EMBEDDED_PLAYER and WEB_CREATOR are the bypass clients for these.
+
+
+
     private val AGE_GATE_STATUSES = setOf(
         "AGE_CHECK_REQUIRED",
         "AGE_VERIFICATION_REQUIRED",
@@ -396,7 +343,7 @@ object YtPlayerUtils {
     private sealed interface ClientResult {
         data class Success(val info: AudioFormatInfo) : ClientResult
         data object CipheredOnly : ClientResult
-        /** [status] is the machine-readable playabilityStatus.status (e.g. "AGE_CHECK_REQUIRED"). */
+
         data class NoStreams(val reason: String? = null, val status: String? = null) : ClientResult
         data class Error(val cause: Throwable?) : ClientResult
     }
@@ -480,9 +427,9 @@ object YtPlayerUtils {
     private fun fetchPlayerResponse(client: ClientConfig, videoId: String): JsonObject? {
         val resolvedEmbedUrl = client.embedUrlTemplate?.replace("%VIDEO_ID%", videoId)
 
-        // Each Innertube endpoint lives on a specific host; SAPISIDHASH is
-        // validated against the Origin that was used when signing in.  Sending
-        // the wrong origin causes YouTube to reject the auth with HTTP 403.
+
+
+
         val requestOrigin = if (client.playerUrl.contains("music.youtube.com"))
             "https://music.youtube.com" else "https://www.youtube.com"
 
@@ -496,8 +443,8 @@ object YtPlayerUtils {
                     put("userAgent", client.userAgent)
                     put("hl", contentLanguage)
                     put("gl", contentCountry)
-                    // visitorData ties requests to a session, reducing bot-detection
-                    // false-positives on IOS and ANDROID clients.
+
+
                     if (vd != null) put("visitorData", vd)
                     client.extraClientFields.forEach { (k, v) ->
                         when (v) {
@@ -508,8 +455,8 @@ object YtPlayerUtils {
                         }
                     }
                 }
-                // TVHTML5_SIMPLY_EMBEDDED_PLAYER requires a video-specific thirdParty.embedUrl
-                // to signal it is running inside an embedded iframe — this bypasses PoToken.
+
+
                 resolvedEmbedUrl?.let { embedUrl ->
                     putJsonObject("thirdParty") {
                         put("embedUrl", embedUrl)
@@ -531,15 +478,15 @@ object YtPlayerUtils {
             .header("Content-Type", "application/json")
             .header("Accept-Language", "en-US,en;q=0.9")
 
-        // Forward visitorData as a request header too — some CDN edge nodes
-        // read it from the header rather than the body.
+
+
         if (vd != null) reqBuilder.header("X-Goog-Visitor-Id", vd)
 
-        // When the user is signed in, attach their session cookie and the
-        // SAPISIDHASH Authorization header.  The hash must be computed with
-        // the SAME origin as the endpoint being called (music.youtube.com vs
-        // www.youtube.com) — a mismatch causes YouTube to return HTTP 403.
-        // TV_EMBEDDED is a browser-embedded client; user cookies don't apply.
+
+
+
+
+
         val cookie = ytMusicCookie
         if (cookie.isNotBlank() && client.label != "TV_EMBEDDED") {
             reqBuilder.header("Cookie", cookie)
@@ -571,11 +518,7 @@ object YtPlayerUtils {
         bitrate * sign + (if (isOpus) 10_240L else 0L)
     } ?: audioFormats.first()
 
-    /**
-     * Mirrors SimpMusic's superFormat selection: prefer AUDIO_QUALITY_HIGH formats, with
-     * itag 774 (WebM Opus 256 kbps, YT Premium) first, then itag 141 (AAC 256 kbps).
-     * Returns null if no HIGH-quality format is available, allowing fallback to selectByQuality.
-     */
+
     private fun selectHighQuality(audioFormats: List<JsonObject>): JsonObject? {
         val high = audioFormats.filter {
             it["audioQuality"]?.jsonPrimitive?.content == "AUDIO_QUALITY_HIGH"
@@ -587,10 +530,7 @@ object YtPlayerUtils {
             ?: high.first()
     }
 
-    /**
-     * Generates a 16-character Client Playback Nonce (cpn) using YouTube's base64url alphabet.
-     * The CPN is required by YouTube for playback tracking; omitting it can cause rate-limiting.
-     */
+
     private fun generateCpn(): String {
         val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         return (1..16).map { alphabet[Random.nextInt(alphabet.length)] }.joinToString("")

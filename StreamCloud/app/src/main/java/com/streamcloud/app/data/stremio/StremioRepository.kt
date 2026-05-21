@@ -21,13 +21,6 @@ import java.util.concurrent.TimeUnit
 private val Context.stremioStore by preferencesDataStore("streamcloud_stremio")
 private val KEY_ADDONS = stringPreferencesKey("addons_json")
 
-/**
- * Stremio addon repository. Pure HTTP — no plugin loader required.
- *
- *  • Add by manifest URL (or any URL pointing at `/manifest.json`)
- *  • Fetches catalog at `/catalog/{type}/{id}.json`
- *  • Resolves streams at `/stream/{type}/{id}.json` (id is typically an IMDB tt-id)
- */
 class StremioRepository(private val context: Context) {
 
     private val http = OkHttpClient.Builder()
@@ -49,7 +42,7 @@ class StremioRepository(private val context: Context) {
         context.stremioStore.edit { it[KEY_ADDONS] = text }
     }
 
-    /** Add a Stremio addon by its manifest URL (or base URL — we'll append /manifest.json). */
+
     suspend fun addAddon(manifestUrlOrBase: String): InstalledStremioAddon = withContext(Dispatchers.IO) {
         val url = normalize(manifestUrlOrBase)
         val baseUrl = url.removeSuffix("/manifest.json").trimEnd('/')
@@ -72,7 +65,7 @@ class StremioRepository(private val context: Context) {
         Net.json.decodeFromString(StremioManifest.serializer(), body)
     }
 
-    /** Fetches the first browse catalog declared by the addon (movie or series). */
+
     suspend fun fetchHomeCatalog(addon: InstalledStremioAddon): List<StremioMetaPreview> =
         withContext(Dispatchers.IO) {
             val mf = fetchManifest(addon.manifestUrl)
@@ -82,11 +75,7 @@ class StremioRepository(private val context: Context) {
             fetchCatalog(addon, first.type, first.id)
         }
 
-    /**
-     * Fetch every non-search catalog declared by [addon] in parallel. Returns
-     * the raw rows so the caller can title them (NuvioMobile-style:
-     * `<addonName> · <catalogName>`).
-     */
+
     suspend fun fetchAllHomeCatalogs(addon: InstalledStremioAddon): List<StremioHomeRow> =
         withContext(Dispatchers.IO) {
             val mf = runCatching { fetchManifest(addon.manifestUrl) }.getOrNull()
@@ -94,7 +83,7 @@ class StremioRepository(private val context: Context) {
             val nonSearch = mf.catalogs.filter { c ->
                 c.extra?.none { it.isRequired } ?: true
             }
-            // Fan-out parallel + small cap so a misbehaving addon can't stall the home.
+
             coroutineScope {
                 nonSearch.take(8).map { c ->
                     async {
@@ -168,7 +157,7 @@ class StremioRepository(private val context: Context) {
 
     private fun normalize(input: String): String {
         val s = input.trim().trimEnd('/')
-        // Stremio addons sometimes ship with a stremio:// scheme. Convert.
+
         val withScheme = when {
             s.startsWith("stremio://") -> "https://" + s.removePrefix("stremio://")
             s.startsWith("http") -> s

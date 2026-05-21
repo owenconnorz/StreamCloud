@@ -21,7 +21,7 @@ data class YtTrack(
     val durationSec: Long,
     val url: String,
     val thumbnail: String?,
-    /** True when this is a music video (YT Music separates "songs" vs "videos"). */
+
     val isVideo: Boolean = false,
 )
 
@@ -40,7 +40,6 @@ data class YtArtist(
     val subscriberLabel: String? = null,
 )
 
-/** Result of a "search all" query — each section may be empty. */
 data class MusicSearchSections(
     val topResult: YtTrack? = null,
     val songs: List<YtTrack> = emptyList(),
@@ -51,10 +50,7 @@ data class MusicSearchSections(
 
 object NewPipeRepository {
 
-    /**
-     * Fetch autocomplete suggestions from YouTube for the given partial query.
-     * Falls back to an empty list on any error so callers never crash.
-     */
+
     suspend fun searchSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         try {
@@ -64,10 +60,7 @@ object NewPipeRepository {
         }
     }
 
-    /**
-     * Search YouTube Music and return tracks. Uses the "music_songs" content filter so
-     * results are MV-stripped songs (matches Metrolist's home/search behaviour).
-     */
+
     suspend fun searchMusic(query: String): List<YtTrack> = searchSongs(query)
 
     suspend fun searchSongs(query: String): List<YtTrack> = searchTracks(query, "music_songs", isVideo = false)
@@ -118,7 +111,7 @@ object NewPipeRepository {
         }
     }
 
-    /** Channel/artist detail page — top tracks, albums and the artist banner. */
+
     data class ArtistPage(
         val name: String,
         val avatar: String?,
@@ -135,9 +128,9 @@ object NewPipeRepository {
             org.schabi.newpipe.extractor.channel.ChannelInfo.getInfo(service, channelUrl)
         }.getOrNull() ?: return@withContext null
 
-        // NewPipe v0.26 split channel content into tabs (Videos / Playlists / etc.).
-        // We grab the first available tab which is usually "Videos" — that's what
-        // Metrolist surfaces as "Top tracks" on the artist page.
+
+
+
         val tracks: List<YtTrack> = runCatching {
             val tab = info.tabs.firstOrNull() ?: return@runCatching emptyList<YtTrack>()
             val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, tab)
@@ -146,7 +139,7 @@ object NewPipeRepository {
                 .take(20)
         }.getOrDefault(emptyList())
 
-        // Albums tab is rarely surfaced via NewPipe; fall back to empty list.
+
         val albums: List<YtAlbum> = emptyList()
 
         ArtistPage(
@@ -161,10 +154,7 @@ object NewPipeRepository {
         )
     }
 
-    /**
-     * Metrolist-style "All" tab: parallel fetches of every filter, with the very first
-     * result of the unfiltered search elevated into [MusicSearchSections.topResult].
-     */
+
     suspend fun searchAll(query: String): MusicSearchSections = coroutineScope {
         val songsJob = async { runCatching { searchSongs(query) }.getOrDefault(emptyList()) }
         val videosJob = async { runCatching { searchVideos(query) }.getOrDefault(emptyList()) }
@@ -176,8 +166,8 @@ object NewPipeRepository {
         val albums = albumsJob.await()
         val artists = artistsJob.await()
 
-        // Pick a "top result": prefer the first artist if the query is short and
-        // matches an artist's name closely, otherwise the most-popular song.
+
+
         val topArtist = artists.firstOrNull { it.name.equals(query, ignoreCase = true) }
         val top = if (topArtist != null) null else songs.firstOrNull()
 
@@ -190,10 +180,7 @@ object NewPipeRepository {
         )
     }
 
-    /**
-     * Pulls YouTube Music's "Trending" home feed. This is what Metrolist's home tab shows
-     * before the user searches anything. NewPipe exposes it through the Trending kiosk.
-     */
+
     suspend fun homeFeed(): List<YtTrack> = withContext(Dispatchers.IO) {
         val service = ServiceList.YouTube
         val kiosks = service.kioskList
@@ -204,14 +191,7 @@ object NewPipeRepository {
         items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toTrack(isVideo = true) }
     }
 
-    /**
-     * Resolves a playable audio stream URL for the given YouTube video page URL.
-     * (Metrolist parity — prefers M4A audio-only at the highest bitrate.)
-     *
-     * **Auto-recovery**: NewPipe occasionally throws `ContentNotAvailableException`
-     * with messages like *"the page needs to be reloaded"* when YouTube rotates its
-     * nsig algorithm. We catch that, force a NewPipe reset, and retry once.
-     */
+
     suspend fun resolveAudioStream(url: String): String = withContext(Dispatchers.IO) {
         try {
             extractAudioOnce(url)

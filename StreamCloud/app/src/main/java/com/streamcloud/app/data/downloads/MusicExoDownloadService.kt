@@ -13,16 +13,6 @@ import androidx.media3.exoplayer.offline.DownloadService
 import androidx.media3.exoplayer.scheduler.PlatformScheduler
 import androidx.media3.exoplayer.scheduler.Scheduler
 
-/**
- * Foreground service that drives all music downloads via Media3's [DownloadManager].
- *
- * Mirrors Metrolist's ExoDownloadService. Key behaviours:
- *  - Downloads continue even when the app is in the background or the process is killed,
- *    because [DownloadManager] persists its queue to a SQLite database.
- *  - Up to 3 parallel downloads (configured in [YtMusicDownloadUtil]).
- *  - Shows an ongoing notification with per-download progress, a content intent that
- *    opens the app, and a "Cancel all" action button to clear stuck downloads.
- */
 @OptIn(UnstableApi::class)
 class MusicExoDownloadService : DownloadService(
     NOTIFICATION_ID,
@@ -50,7 +40,7 @@ class MusicExoDownloadService : DownloadService(
         downloads: MutableList<Download>,
         notMetRequirements: Int,
     ): Notification {
-        // Tapping the notification body opens the app.
+
         val contentIntent = PendingIntent.getActivity(
             this,
             0,
@@ -59,9 +49,9 @@ class MusicExoDownloadService : DownloadService(
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-        // "Cancel all" action button — sends ACTION_CANCEL_ALL to this service,
-        // which calls removeDownload() on every queued/downloading item and lets
-        // the DownloadManager stop the foreground service cleanly.
+
+
+
         val cancelIntent = PendingIntent.getService(
             this,
             1,
@@ -76,7 +66,7 @@ class MusicExoDownloadService : DownloadService(
             else -> "${downloads.size} songs downloading"
         }
 
-        // Compute average progress across all active downloads.
+
         val avgPct = if (downloads.isEmpty()) 0
             else (downloads.sumOf { it.percentDownloaded.toDouble() } / downloads.size).toInt()
             .coerceIn(0, 100)

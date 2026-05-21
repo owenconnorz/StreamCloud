@@ -69,43 +69,15 @@ import com.streamcloud.app.ui.player.AddToPlaylistSheet
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/**
- * Metrolist-style song context bottom sheet.
- *
- * Replaces the old DropdownMenu with a full-height sheet that matches the
- * Metrolist / VIVI design:
- *
- *  ┌──────────────────────────────────┐
- *  │  [art]  Title           [♥]      │
- *  │         Artist • 3:44            │
- *  ├──────────────────────────────────│
- *  │  ✏ Edit   ➕ Add   ↗ Share       │
- *  ├──────────────────────────────────│
- *  │  Start radio                     │
- *  │  Play next                       │
- *  │  Add to queue                    │
- *  │  Pin to Speed dial               │
- *  │  Add to library                  │
- *  │  Remove from playlist  (opt)     │
- *  │  Remove download       (opt)     │
- *  │  View artist  · ArtistName       │
- *  │  View album   · AlbumName        │
- *  │  Refetch                         │
- *  │  Details                         │
- *  └──────────────────────────────────┘
- *
- * Backward-compatible: existing callers only need `song` + `onPlay`.
- * Extra params are optional and safe to ignore.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SongRowMenu(
     song: YtmSong,
     onPlay: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Shown if non-null — e.g. for tracks inside a user playlist. */
+
     onRemoveFromPlaylist: (() -> Unit)? = null,
-    /** Navigate to artist search/browse screen. */
+
     onViewArtist: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -151,7 +123,7 @@ fun SongRowMenu(
                     .padding(bottom = 32.dp),
             ) {
 
-                // ── Header ────────────────────────────────────────────────
+
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -211,7 +183,7 @@ fun SongRowMenu(
                     }
                 }
 
-                // ── Divider ────────────────────────────────────────────────
+
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -220,7 +192,7 @@ fun SongRowMenu(
                         .background(Color.White.copy(alpha = 0.08f)),
                 )
 
-                // ── Pill row: Edit · Add · Share ──────────────────────────
+
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -259,7 +231,7 @@ fun SongRowMenu(
 
                 Spacer(Modifier.height(10.dp))
 
-                // ── Action rows ───────────────────────────────────────────
+
                 MenuActionRow(
                     icon = Icons.Default.Podcasts,
                     title = "Start radio",
@@ -432,8 +404,6 @@ fun SongRowMenu(
         )
     }
 }
-
-// ── Sub-composables ────────────────────────────────────────────────────────
 
 @Composable
 private fun PillChip(

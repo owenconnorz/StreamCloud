@@ -25,7 +25,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Active search mode — drives the chip row in MusicScreen. */
 enum class SearchMode { All, Songs, Videos, Albums, Artists }
 
 data class MusicState(
@@ -38,25 +37,25 @@ data class MusicState(
     val nowPlayingTrack: YtTrack? = null,
     val resolvingUrl: String? = null,
 
-    // Lyrics
+
     val lyrics: LrcEntry? = null,
     val lyricsLoading: Boolean = false,
 
-    // Sleep timer
+
     val sleepTimerEndTs: Long? = null,
     val sleepTimerRemainingMs: Long = 0,
 
-    // Repeat / Shuffle (mirrored from MediaController)
+
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val shuffleEnabled: Boolean = false,
 
-    // Library
+
     val recent: List<TrackEntity> = emptyList(),
     val liked: List<TrackEntity> = emptyList(),
     val mostPlayed: List<TrackEntity> = emptyList(),
     val isCurrentLiked: Boolean = false,
 
-    // ── Metrolist-style sectioned search ─────────────────────────────────────
+
     val searchQuery: String = "",
     val searchMode: SearchMode = SearchMode.All,
     val sections: MusicSearchSections = MusicSearchSections(),
@@ -65,7 +64,7 @@ data class MusicState(
     val suggestions: List<String> = emptyList(),
     val suggestionsLoading: Boolean = false,
 
-    // ── Metrolist-style home feed (YouTube Music personalised sections) ──────
+
     val ytHome: YtMusicHomeFeed = YtMusicHomeFeed(),
     val ytHomeLoading: Boolean = false,
 )
@@ -91,7 +90,7 @@ class MusicViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             dao.mostPlayed().collect { list -> _state.update { it.copy(mostPlayed = list) } }
         }
-        // Reload the YT Music home feed whenever the login cookie changes (sign in / out).
+
         viewModelScope.launch {
             com.streamcloud.app.data.ServiceLocator.get(appContext).settings.ytMusicCookie
                 .collect { _ -> loadYtHome() }
@@ -218,7 +217,7 @@ class MusicViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             _state.update { it.copy(resolvingUrl = track.url, error = null) }
             try {
-                // Prefer offline copy when available (Metrolist parity).
+
                 val cached = dao.byUrl(track.url)?.localPath?.takeIf {
                     java.io.File(it).exists()
                 }
@@ -231,7 +230,7 @@ class MusicViewModel(context: Context) : ViewModel() {
                     )
                 }
                 onResolved(audio)
-                // Library: persist + bump play count
+
                 val ts = System.currentTimeMillis()
                 dao.upsert(
                     TrackEntity(
@@ -264,7 +263,7 @@ class MusicViewModel(context: Context) : ViewModel() {
         }
     }
 
-    // ---- Like / Unlike --------------------------------------------------------------------
+
     fun toggleLikeCurrent() {
         val url = _state.value.nowPlayingUrl ?: return
         val currentlyLiked = _state.value.isCurrentLiked
@@ -287,7 +286,7 @@ class MusicViewModel(context: Context) : ViewModel() {
         }
     }
 
-    // ---- Sleep timer ---------------------------------------------------------------------
+
     fun startSleepTimer(minutes: Int, onElapsed: () -> Unit) {
         sleepJob?.cancel()
         if (minutes <= 0) {
@@ -315,7 +314,7 @@ class MusicViewModel(context: Context) : ViewModel() {
         _state.update { it.copy(sleepTimerEndTs = null, sleepTimerRemainingMs = 0) }
     }
 
-    // ---- Repeat / Shuffle mirroring (called by Composable when controller events fire) ---
+
     fun setRepeatMode(mode: Int) { _state.update { it.copy(repeatMode = mode) } }
     fun setShuffle(enabled: Boolean) { _state.update { it.copy(shuffleEnabled = enabled) } }
 

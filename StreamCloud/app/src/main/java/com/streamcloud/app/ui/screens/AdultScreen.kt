@@ -44,8 +44,8 @@ fun AdultScreen(onPlay: (videoId: String, fallbackEmbed: String, title: String) 
     val state by vm.state.collectAsState()
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
 
-    // Reddit takes over the whole screen with a TikTok-style vertical pager —
-    // chip strip + feed + source switcher pill all rendered by RedditFeedView.
+
+
     if (state.source == AdultSource.Reddit) {
         val customCsv by sl.settings.adultRedditSubsCsv.collectAsState(initial = "")
         val customSubs = remember(customCsv) {
@@ -78,7 +78,7 @@ fun AdultScreen(onPlay: (videoId: String, fallbackEmbed: String, title: String) 
     var query by remember { mutableStateOf("") }
     val gridState = rememberLazyGridState()
 
-    // Endless scroll on the Eporner grid (Reddit pager has its own).
+
     LaunchedEffect(gridState, state.source) {
         snapshotFlow {
             val total = gridState.layoutInfo.totalItemsCount
@@ -104,7 +104,7 @@ fun AdultScreen(onPlay: (videoId: String, fallbackEmbed: String, title: String) 
         )
         Spacer(Modifier.height(12.dp))
 
-        // ---- Source switcher chips ----------------------------------------
+
         Row(
             Modifier
                 .fillMaxWidth()
@@ -154,7 +154,7 @@ fun AdultScreen(onPlay: (videoId: String, fallbackEmbed: String, title: String) 
             )
         )
 
-        // ---- Subreddit preset chips (Reddit only) -------------------------
+
         if (state.source == AdultSource.Reddit) {
             Spacer(Modifier.height(10.dp))
             Row(
@@ -199,12 +199,6 @@ fun AdultScreen(onPlay: (videoId: String, fallbackEmbed: String, title: String) 
     }
 }
 
-/**
- * The navigation hop expects `(videoId, fallbackEmbed, title)` — for Eporner those
- * map to the page id + embed URL, for Reddit we shove the direct stream URL into
- * `videoId` (already URL-encoded by the host) and prefix with `direct://` so the
- * resolver knows to skip the Eporner detail call.
- */
 private fun AdultItem.routeId(): String = when (source) {
     AdultSource.Eporner -> epornerId ?: id
     AdultSource.Reddit -> "direct://${streamUrl ?: ""}"

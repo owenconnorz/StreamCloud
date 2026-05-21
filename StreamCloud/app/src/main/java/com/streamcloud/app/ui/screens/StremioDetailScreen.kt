@@ -27,19 +27,6 @@ import com.streamcloud.app.data.stremio.StremioStream
 import kotlinx.coroutines.flow.first
 import java.net.URLEncoder
 
-/**
- * Stremio-native detail screen for items that don't have an IMDB id (e.g. NSFW
- * addons like PornTube, SexLikeReal — the meta `id` is the addon's own internal
- * id, so the TMDB `/find` resolver returns nothing).
- *
- * This screen sidesteps TMDB entirely:
- *  1. Fetches `/meta/{type}/{id}.json` from the source addon for poster / title
- *     / description.
- *  2. Fetches `/stream/{type}/{id}.json` for the playable URLs.
- *  3. Lists the streams; tap → hands the URL to the existing [NativePlayerScreen]
- *     via a `direct://` route the player already understands (same trick the
- *     Adult Reddit feed uses).
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StremioDetailScreen(
@@ -69,9 +56,9 @@ fun StremioDetailScreen(
                 loadingStreams = false
                 return@runCatching
             }
-            // Meta is cosmetic — failures are non-fatal.
+
             meta = runCatching { sl.stremio.fetchMeta(addon, type, metaId) }.getOrNull()
-            // Streams are the whole reason we're on this screen.
+
             streams = runCatching { sl.stremio.fetchStreams(addon, type, metaId) }
                 .getOrDefault(emptyList())
             if (streams.isEmpty()) {
@@ -169,25 +156,14 @@ fun StremioDetailScreen(
     }
 }
 
-/**
- * Builds the best playable URL for a [StremioStream].
- *
- * Priority:
- *   1. `s.url` — direct HTTP/HTTPS stream or bare magnet link from the addon.
- *   2. `s.infoHash` — build a magnet, enriched with:
- *       • tracker URLs from `s.sources` (items prefixed with "tracker:")
- *       • `_sc_fidx` hint so [com.streamcloud.app.torrent.TorrentService] picks the right file
- *
- * Returns `null` if neither field is populated (stream has no usable URL).
- */
 private fun buildStreamUrl(s: StremioStream): String? {
-    // Prefer an explicit URL from the addon.
+
     s.url?.takeIf { it.isNotBlank() }?.let { return it }
 
     val hash = s.infoHash?.takeIf { it.isNotBlank() } ?: return null
 
-    // Collect tracker URLs from the `sources` list.
-    // The Stremio protocol uses "tracker:<url>" entries here.
+
+
     val trackerParams = s.sources.orEmpty()
         .filter { it.startsWith("tracker:", ignoreCase = true) }
         .mapNotNull { it.substringAfter("tracker:", "").substringAfter("TRACKER:", "").takeIf { url -> url.isNotBlank() } }
@@ -195,7 +171,7 @@ private fun buildStreamUrl(s: StremioStream): String? {
 
     val magnet = "magnet:?xt=urn:btih:$hash$trackerParams"
 
-    // Append the file index so TorrentService picks the exact file.
+
     return if (s.fileIdx != null) "$magnet&_sc_fidx=${s.fileIdx}" else magnet
 }
 

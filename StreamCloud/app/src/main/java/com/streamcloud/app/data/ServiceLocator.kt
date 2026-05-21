@@ -10,9 +10,6 @@ import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.stremio.StremioRepository
 import kotlinx.coroutines.flow.first
 
-/**
- * Single application-wide service locator (no DI framework to keep build simple).
- */
 class ServiceLocator(context: Context) {
     val settings = SettingsRepository(context.applicationContext)
     val plugins = PluginRepository(context.applicationContext)

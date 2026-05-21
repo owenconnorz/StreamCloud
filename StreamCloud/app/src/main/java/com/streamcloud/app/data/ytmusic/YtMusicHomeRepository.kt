@@ -12,21 +12,13 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * YouTube Music **home feed** sections — the personalised rails Metrolist shows on its
- * main tab (Quick picks / Keep listening / Your daily discover / From the community /
- * mood-genre chips / Your YouTube playlists / New releases / Charts / ...).
- *
- * Every section is returned in the order YT Music emitted it, typed by what kind of
- * card it contains so the UI can pick the right horizontal-rail renderer.
- */
 sealed interface HomeSection {
     val title: String
-    /** Carousel row of playlists / albums. */
+
     data class PlaylistRail(override val title: String, val items: List<YtmPlaylist>) : HomeSection
-    /** Carousel row of songs (responsive list tiles — title + artist + thumb). */
+
     data class SongRail(override val title: String, val items: List<YtmSong>) : HomeSection
-    /** Horizontal scroll of genre/mood chip buttons. */
+
     data class MoodChips(override val title: String, val chips: List<MoodChip>) : HomeSection
 }
 
@@ -37,14 +29,6 @@ data class YtMusicHomeFeed(
     val failureReason: String? = null,
 )
 
-/**
- * Fetches the signed-in YouTube Music home page via InnerTube and flattens it into a
- * [YtMusicHomeFeed] of strongly-typed sections.
- *
- * This is the Metrolist home tab's data source — every carousel you see there comes
- * from `FEmusic_home`. Anonymous calls return a generic fallback; signed-in callers
- * get personalised rails.
- */
 object YtMusicHomeRepository {
 
     private const val TAG = "YtMusicHome"
@@ -55,16 +39,16 @@ object YtMusicHomeRepository {
             val resp = client.browse("FEmusic_home")
                 ?: return@withContext YtMusicHomeFeed(failureReason = "Home feed failed to load.")
 
-            // Top-level path: contents → singleColumnBrowseResultsRenderer → tabs[0] →
-            // tabRenderer → content → sectionListRenderer → contents[]. But we find the
-            // sectionList anywhere it sits — YT changes nesting without warning.
+
+
+
             val sectionList = resp.findFirst("sectionListRenderer") as? JsonObject
                 ?: return@withContext YtMusicHomeFeed(failureReason = "No sections in response.")
 
-            // Top chip bar (mood/genre filters) — optional.
+
             val chips = parseChips(sectionList)
 
-            // Each entry in contents[] is one shelf/carousel.
+
             val contents = sectionList["contents"] as? JsonArray ?: JsonArray(emptyList())
             val sections = buildList<HomeSection> {
                 if (chips.isNotEmpty()) add(HomeSection.MoodChips("", chips))
@@ -75,9 +59,9 @@ object YtMusicHomeRepository {
                     parseCarousel(shelf)?.let { add(it) }
                 }
 
-                // Drain continuation pages for endless scroll. Each page returns
-                // another batch of carousel shelves which we merge in. Capped at
-                // 12 pages to keep memory + network sane on long sessions.
+
+
+
                 var token = resp.findContinuationToken()
                 var safety = 12
                 while (!token.isNullOrBlank() && safety-- > 0) {
@@ -98,8 +82,8 @@ object YtMusicHomeRepository {
     }
 
     private fun parseChips(sectionList: JsonObject): List<MoodChip> {
-        // Chips live under `header.chipCloudRenderer.chips[]` of the sectionList's parent,
-        // but walking the response tree for the first chipCloudRenderer is simpler.
+
+
         val cloud = sectionList.findFirst("chipCloudRenderer") as? JsonObject ?: return emptyList()
         val chips = (cloud["chips"] as? JsonArray) ?: return emptyList()
         return chips.mapNotNull {
@@ -118,7 +102,7 @@ object YtMusicHomeRepository {
             ?: return null
         val contents = shelf["contents"] as? JsonArray ?: return null
 
-        // Each carousel mixes one of two item types; sniff the first one.
+
         val first = contents.firstOrNull() as? JsonObject ?: return null
         return when {
             first.containsKey("musicTwoRowItemRenderer") -> {

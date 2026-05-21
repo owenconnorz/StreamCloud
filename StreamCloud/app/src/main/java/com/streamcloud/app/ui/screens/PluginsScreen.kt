@@ -101,7 +101,7 @@ fun PluginsScreen(onBack: () -> Unit) {
                 item { Spacer(Modifier.height(8.dp)) }
             }
 
-            // ── Stremio addons ────────────────────────────
+
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SectionLabel("Stremio addons (${state.stremioAddons.size})")
@@ -145,7 +145,7 @@ fun PluginsScreen(onBack: () -> Unit) {
             }
             item { Spacer(Modifier.height(8.dp)) }
 
-            // ── Nuvio JS providers ────────────────────────────
+
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SectionLabel("Nuvio providers (${state.nuvioProviders.size})")
@@ -578,7 +578,6 @@ private fun StremioAddonRow(
         }
     }
 }
-
 
 @Composable
 private fun RepoCard(

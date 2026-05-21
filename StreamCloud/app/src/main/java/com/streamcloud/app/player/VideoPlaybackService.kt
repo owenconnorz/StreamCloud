@@ -12,19 +12,6 @@ import androidx.core.app.NotificationCompat
 import com.streamcloud.app.MainActivity
 import com.streamcloud.app.R
 
-/**
- * Minimal foreground [Service] that keeps the video-player process alive while a
- * movie or episode is streaming.
- *
- * Android's process killer targets background processes with no foreground
- * component first.  By running this service while ExoPlayer is active, the app
- * is promoted to "foreground process" priority and survives memory pressure,
- * battery-optimisation kills, and SIGKILL from the system.
- *
- * Lifecycle:
- *  - [start] is called when [NativePlayerScreen] enters the composition.
- *  - [stop]  is called in the DisposableEffect cleanup (back-press / nav-pop).
- */
 class VideoPlaybackService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -51,14 +38,14 @@ class VideoPlaybackService : Service() {
         private const val NOTIF_ID    = 2001
         private const val EXTRA_TITLE = "title"
 
-        /** Call from [NativePlayerScreen] when playback begins. */
+
         fun start(context: Context, title: String) {
             val intent = Intent(context, VideoPlaybackService::class.java)
                 .putExtra(EXTRA_TITLE, title)
             context.startForegroundService(intent)
         }
 
-        /** Call on dispose / back-press to release the foreground lock. */
+
         fun stop(context: Context) {
             context.stopService(Intent(context, VideoPlaybackService::class.java))
         }

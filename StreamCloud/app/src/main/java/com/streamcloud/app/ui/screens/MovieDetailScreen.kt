@@ -44,20 +44,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 
-/**
- * Detail page for a TMDB movie.
- *
- * **Single "Play Movie" button** — fans out to every installed Stremio addon in
- * parallel, takes the best-ranked stream as the initial source, and hands the
- * **full sorted list** to the NativePlayer so the user can swap source mid-
- * playback via the in-player "Sources" button.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MovieDetailScreen(
     movieId: Long,
     onBack: () -> Unit,
-    /** Fired with (initial url, title, full source list, progressKey) when streams resolve. */
+
     onPlay: (initialUrl: String, title: String, sources: List<PlayerSource>, progressKey: WatchProgressKey) -> Unit,
 ) {
     val context = LocalContext.current
@@ -99,10 +91,10 @@ fun MovieDetailScreen(
             resolving = true
             resolverMessage = null
             try {
-                // Fan out to Stremio + CloudStream first (fast path).
-                // Nuvio JS providers run separately in the background so they
-                // don't block the player from opening — they stream into the
-                // Sources sheet via MoviePlayerSession.mergeSources().
+
+
+
+
                 val stremioJob = async {
                     installedAddons.map { addon ->
                         async {
@@ -132,19 +124,19 @@ fun MovieDetailScreen(
                 )
 
                 if (fastSources.isNotEmpty()) {
-                    // Launch the player immediately with Stremio/CS streams.
-                    // Nuvio providers will scan in the background and merge.
+
+
                     val sorted = fastSources.sortedByDescending { it.qualityScore() }
 
-                    // Flag scanning BEFORE navigating so the Sources sheet shows
-                    // the indicator from the moment it first opens.
+
+
                     if (installedNuvio.isNotEmpty()) {
                         com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
                     }
-                    // onPlay calls MoviePlayerSession.set() then navigates.
+
                     onPlay(sorted.first().url, displayTitle, sorted, progressKey)
 
-                    // Background Nuvio scan — results merge into the Sources sheet live.
+
                     if (installedNuvio.isNotEmpty()) {
                         scope.launch {
                             try {
@@ -161,7 +153,7 @@ fun MovieDetailScreen(
                         }
                     }
                 } else {
-                    // No fast sources — wait for Nuvio as the only hope.
+
                     val nuvioSources = runCatching {
                         sl.nuvio.resolveAll(movieId.toString(), "movie")
                             .map { (provider, stream) -> stream.toPlayerSource(provider) }
@@ -230,7 +222,7 @@ fun MovieDetailScreen(
                 }
                 Spacer(Modifier.height(20.dp))
 
-                // ── ONE button + watchlist icon. ──
+
                 val moviesVm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
                 val watchlistIds = moviesVm.state.collectAsState().value.watchlist.map { it.tmdbId }.toSet()
                 val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
@@ -356,8 +348,6 @@ private fun PlayMovieCta(
     }
 }
 
-// ──────────────────────────── stream → PlayerSource conversion ────────────────────────────
-
 private fun StremioStream.toPlayerSource(addon: InstalledStremioAddon): PlayerSource? {
     val playable = toPlayableUrl() ?: return null
     val isMagnet = playable.startsWith("magnet:")
@@ -416,7 +406,6 @@ private fun PlayerSource.qualityScore(): Int {
     return q * 10 + if (!isMagnet) 1 else 0
 }
 
-// ─────────────────────── Nuvio JS provider → PlayerSource ───────────────────────
 private fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): PlayerSource {
     val label = title?.takeIf { it.isNotBlank() }
         ?: name?.takeIf { it.isNotBlank() }
@@ -432,11 +421,6 @@ private fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): Player
     )
 }
 
-/**
- * Nuvio providers return free-form quality strings ("FHD", "4k", "HD", "720", …).
- * Normalise them to the same canonical tags used by the Stremio / CloudStream paths
- * so [qualityScore] sorts them correctly alongside other sources.
- */
 private fun normaliseNuvioQuality(q: String?): String? {
     if (q.isNullOrBlank()) return null
     val s = q.trim()
@@ -459,15 +443,6 @@ private fun normaliseNuvioQuality(q: String?): String? {
     }
 }
 
-// ─────────────────────── CloudStream `.cs3` plugin → PlayerSource ───────────────────────
-//
-// Same pipeline as the dedicated CloudStream detail screen:
-//   1. plugin.search(title) → best year-matched SearchResponse
-//   2. plugin.load(searchResult.url) → LoadResponse (must be MovieLoadResponse here)
-//   3. plugin.loadLinks(dataUrl, false, subCb, linkCb) → ExtractorLink list
-//   4. Map ExtractorLink → PlayerSource so it shows up in the unified player picker
-//
-// We constrain to MovieLoadResponse — TvSeries flows go through CloudStreamDetailScreen.
 private suspend fun resolveCsPluginForMovie(
     context: android.content.Context,
     plugin: InstalledPlugin,

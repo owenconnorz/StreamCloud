@@ -22,12 +22,6 @@ import java.util.concurrent.TimeUnit
 private val Context.nuvioStore by preferencesDataStore("streamcloud_nuvio")
 private val KEY_INSTALLED = stringPreferencesKey("installed_json")
 
-/**
- * Repository for Nuvio JS providers. Two-step install flow:
- *   1. User pastes a manifest URL → we fetch + parse the repo's `manifest.json`.
- *   2. User picks providers from the list → each .js file is downloaded once and
- *      cached at /files/nuvio/<id>.js. The runtime just reads the cached file.
- */
 class NuvioRepository(private val context: Context) {
 
     private val http = OkHttpClient.Builder()
@@ -80,15 +74,7 @@ class NuvioRepository(private val context: Context) {
         save(list.filterNot { it.id == id })
     }
 
-    /** Run every installed provider in parallel against [tmdbId] and aggregate streams.
-     *
-     *  Matches the NuvioMobile contract (`composeApp/.../streams/StreamsRepository.kt`):
-     *   • `tmdbId` may be prefixed (`tmdb:603`, `tmdb/603`, `imdb:tt0133093`, …) — we
-     *     strip the prefix and resolve IMDB → TMDB via the public `/find` endpoint
-     *     when needed (otherwise the JS providers receive a non-numeric id and bail).
-     *   • Episode-suffixes (`603:1:1`) are stripped since [season]/[episode] are passed
-     *     as separate args to `getStreams`.
-     */
+
     suspend fun resolveAll(
         tmdbId: String,
         mediaType: String = "movie",
@@ -114,15 +100,7 @@ class NuvioRepository(private val context: Context) {
         }.awaitAll().flatten()
     }
 
-    /**
-     * Reverse of NuvioMobile's `TmdbService.ensureTmdbId`. Accepts:
-     *   • Raw numeric TMDB ids ("603")
-     *   • Prefixed ("tmdb:603", "tmdb/603")
-     *   • IMDB ids ("tt0133093") → resolved via `/find/{imdb_id}?external_source=imdb_id`
-     *   • Episode-suffixed ("603:1:5") → strip episode portion
-     *
-     * Cached in memory so repeated tmdb→imdb hops on the same screen are free.
-     */
+
     private val tmdbIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private suspend fun resolveTmdbId(raw: String, mediaType: String): String? {
         val trimmed = raw.trim()
@@ -181,11 +159,11 @@ class NuvioRepository(private val context: Context) {
         }
     }
 
-    /** Resolve the .js downloadUrl relative to the manifest URL when needed. */
+
     private fun resolveDownloadUrl(manifestUrl: String, e: NuvioProviderEntry): String? {
         val raw = e.downloadUrl ?: e.downloadUrlSnake ?: e.url ?: e.filename ?: return null
         if (raw.startsWith("http")) return raw
-        // Relative — resolve against manifest's base.
+
         val base = manifestUrl.substringBeforeLast('/')
         return "$base/${raw.trimStart('/')}"
     }

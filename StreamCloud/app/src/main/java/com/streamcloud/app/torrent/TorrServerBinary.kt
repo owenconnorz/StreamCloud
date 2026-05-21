@@ -11,28 +11,6 @@ import java.io.File
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 
-/**
- * Manages the TorrServer binary lifecycle.
- *
- * The binary is bundled as `jniLibs/<abi>/libtorrserver.so` and extracted by the
- * package manager to `nativeLibraryDir` at install time.
- *
- * OEM SECURITY BYPASS:
- * On some OEM Android devices (Huawei/EMUI, HONOR) a proprietary linker hook
- * validates "version", "oid", and "size" fields on every execve() target.
- * Binaries that lack these OEM-specific ELF notes fail with:
- *   [1]: version: inaccessible or not found
- *   [2]: oid: inaccessible or not found
- *   [3]: size: inaccessible or not found
- *
- * Fix: invoke the Android dynamic linker (/system/bin/linker64 or linker)
- * DIRECTLY as the execve() target, with our binary as its first argument.
- * The kernel sees a trusted system binary in execve(), so the OEM hook passes.
- * linker64 then loads our ELF internally (identical to PT_INTERP invocation)
- * and jumps to main(), passing all subsequent args through.
- *
- * Adapted from NuvioTV (https://github.com/NuvioMedia/NuvioTV).
- */
 class TorrServerBinary(private val context: Context) {
 
     companion object {
@@ -41,11 +19,7 @@ class TorrServerBinary(private val context: Context) {
         private const val STARTUP_TIMEOUT_MS = 25_000L
         private const val HEALTH_CHECK_INTERVAL_MS = 300L
 
-        /**
-         * Path to the Android dynamic linker for this device's primary ABI.
-         * arm64-v8a / x86_64 → linker64
-         * armeabi-v7a / x86  → linker
-         */
+
         private val LINKER_PATH: String get() {
             val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "armeabi-v7a"
             return if (abi.contains("64")) "/system/bin/linker64"
@@ -94,9 +68,9 @@ class TorrServerBinary(private val context: Context) {
         val linker = LINKER_PATH
         Log.d(TAG, "Starting TorrServer via $linker port=$PORT binary=${binaryFile.absolutePath}")
 
-        // Run: /system/bin/linker64 <binary> --port <N> --path <dir>
-        // The OEM security hook sees linker64 (a trusted system binary) in execve(),
-        // not our binary — bypassing the version/oid/size ELF-note check.
+
+
+
         val pb = ProcessBuilder(
             linker,
             binaryFile.absolutePath,

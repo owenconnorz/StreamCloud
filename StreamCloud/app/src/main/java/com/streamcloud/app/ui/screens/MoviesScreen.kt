@@ -66,7 +66,7 @@ fun MoviesScreen(
                     onQueryChange = { query = it; vm.search(it) },
                 )
             }
-            // CloudStream plugins — separate page each. Stremio addons feed inline rows.
+
             if (state.installedPlugins.isNotEmpty()) {
                 item {
                     CloudStreamChipsRow(
@@ -153,10 +153,10 @@ fun MoviesScreen(
                         )
                     }
                     item(key = "col_${row.id}") {
-                        // Single-line horizontal scroll for every TMDB row,
-                        // matching Nuvio's design. Trending / Popular used to
-                        // render as a 3-col grid which broke visual rhythm
-                        // against the addon rows below.
+
+
+
+
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -167,7 +167,7 @@ fun MoviesScreen(
                         }
                     }
                 }
-                // ── Stremio addon catalogs — NuvioMobile parity ─────────
+
                 state.stremioRows.forEach { row ->
                     item(key = "stremio_t_${row.rowKey}") {
                         AddonSectionTitleWithViewAll(
@@ -190,16 +190,16 @@ fun MoviesScreen(
                             items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
                                 StremioPoster(meta = meta) {
                                     if (meta.id.startsWith("tt", ignoreCase = true)) {
-                                        // IMDB-keyed addon (Cinemeta etc) →
-                                        // resolve to TMDB and use the existing
-                                        // MovieDetail screen.
+
+
+
                                         vm.openStremioMeta(meta) { tmdbId, _ ->
                                             if (tmdbId != null) onMovieClick(tmdbId)
                                         }
                                     } else {
-                                        // Non-IMDB addon (PornTube, SexLikeReal,
-                                        // custom addons) → bypass TMDB and open
-                                        // the Stremio-native detail screen.
+
+
+
                                         onOpenStremio(
                                             row.addonId, row.type, meta.id,
                                             meta.name, meta.poster,
@@ -402,11 +402,6 @@ private fun MoviesSearchField(query: String, loading: Boolean, onQueryChange: (S
     )
 }
 
-/**
- * Horizontal chip strip listing every installed CloudStream `.cs3` plugin.
- * Tap a chip → host navigates to a dedicated page that renders the plugin's
- * own home sections (separate from the unified Stremio + TMDB feed).
- */
 @Composable
 private fun CloudStreamChipsRow(
     plugins: List<InstalledPlugin>,
@@ -502,7 +497,6 @@ private fun SectionTitle(text: String) {
     )
 }
 
-/** Section header with a trailing tappable "View all →" affordance. */
 @Composable
 private fun SectionTitleWithViewAll(title: String, onViewAll: () -> Unit) {
     Row(
@@ -530,10 +524,6 @@ private fun SectionTitleWithViewAll(title: String, onViewAll: () -> Unit) {
     }
 }
 
-/**
- * NuvioMobile-style row title — primary catalog name + a tinted "from <addon>"
- * subtitle so the user always knows which addon contributed the row.
- */
 @Composable
 private fun AddonSectionTitle(addon: String, catalog: String) {
     Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
@@ -551,7 +541,6 @@ private fun AddonSectionTitle(addon: String, catalog: String) {
     }
 }
 
-/** Stremio addon row header with a trailing "View all →" link. */
 @Composable
 private fun AddonSectionTitleWithViewAll(
     addon: String,

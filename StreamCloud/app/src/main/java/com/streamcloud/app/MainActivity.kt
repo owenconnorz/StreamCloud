@@ -17,13 +17,9 @@ import com.streamcloud.app.ui.theme.StreamCloudTheme
 class MainActivity : ComponentActivity() {
 
     private val requestNotificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {  }
 
-    /**
-     * Intercept hardware volume keys while casting to Sonos.
-     * When the cast state is [SonosRepository.CastState.Casting] the keys
-     * adjust the Sonos speaker volume by ±5% instead of the phone's media volume.
-     */
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN &&
             SonosRepository.castState.value is SonosRepository.CastState.Casting
@@ -37,15 +33,15 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Restore non-splash theme before super
+
         setTheme(R.style.Theme_StreamCloud)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // Lazy-init the Google Cast SDK now so the cast notification surfaces
-        // promptly when a route is selected from any screen.
+
+
         com.streamcloud.app.cast.initCast(applicationContext)
-        // Android 13+ requires explicit POST_NOTIFICATIONS permission to surface the
-        // media-session notification when music is playing.
+
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PermissionChecker.PERMISSION_GRANTED

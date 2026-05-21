@@ -94,19 +94,19 @@ fun StreamCloudApp() {
     val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
 
-    // Bind the global "now playing" bus once — every track change in the
-    // foreground media service propagates to PlaybackBus.nowPlayingMediaId.
+
+
     LaunchedEffect(Unit) {
         runCatching { com.streamcloud.app.audio.PlaybackBus.ensureAttached(context) }
-        // Hook the album-art-driven accent color so the theme follows the
-        // currently playing track's artwork (Metrolist / SimpMusic parity).
+
+
         runCatching { com.streamcloud.app.ui.theme.AlbumArtThemeBus.attach(context) }
     }
 
     val tabs = remember(nsfwEnabled, navOrderCsv) {
-        // Build the pool of tabs available given the NSFW toggle. Library is
-        // ALWAYS present; Adult is additive (only appears when the NSFW toggle
-        // is on). The bottom nav is horizontally scrollable so all tabs fit.
+
+
+
         val pool: Map<String, Tab> = buildMap {
             put(Tab.Movies.route, Tab.Movies)
             put(Tab.Music.route, Tab.Music)
@@ -114,9 +114,9 @@ fun StreamCloudApp() {
             put(Tab.Library.route, Tab.Library)
             if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
         }
-        // Apply user-defined ordering, skipping unknown/dropped ids. Anything
-        // not listed in the CSV is appended in its natural order so new tabs
-        // remain reachable even if the user has never reordered.
+
+
+
         val requestedOrder = navOrderCsv
             ?.takeIf { it.isNotBlank() }
             ?.split(",")
@@ -125,8 +125,8 @@ fun StreamCloudApp() {
             .orEmpty()
         val seen = requestedOrder.map { it.route }.toSet()
         val middle = requestedOrder + pool.values.filter { it.route !in seen }
-        // Settings is always pinned at the end so the user can never lose
-        // access to this screen via a misconfigured nav order.
+
+
         middle + Tab.Settings
     }
 
@@ -136,30 +136,30 @@ fun StreamCloudApp() {
             .background(MaterialTheme.colorScheme.background),
         bottomBar = {
             val showBar = currentRoute == null || tabs.any { it.route == currentRoute }
-            // Only show the bottom bar on Mobile. Tablet/TV use a NavigationRail
-            // rendered alongside the content (see Row wrapper below).
+
+
             val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
             if (showBar && !useRail) {
                 Column {
-                    // Global mini-player — appears above the nav bar on every tab
-                    // (Music, Library, Movies, AI, Settings) whenever audio is queued
-                    // into the MusicPlaybackService. Hidden otherwise via AnimatedVisibility.
-                    // Hidden on the Music tab to avoid duplication with its rich mini-player.
+
+
+
+
                     if (currentRoute != Tab.Music.route) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             onExpand = {
-                                // No tab navigation needed — the global
-                                // NowPlayingSheet renders on top of whatever
-                                // tab is active. Just emit the expand event.
+
+
+
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                             },
                         )
                     }
-                    // Custom horizontally-scrollable nav bar — Material 3's
-                    // NavigationBar forces equal weight distribution which gets
-                    // cramped at 5+ tabs. This bar styles items the same way
-                    // (pill indicator, label, icon) but lets the user swipe
-                    // sideways when more tabs are enabled (e.g. Adult).
+
+
+
+
+
                     androidx.compose.material3.Surface(
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
@@ -364,17 +364,17 @@ fun StreamCloudApp() {
                         initialPoster = pp.takeIf { it.isNotBlank() },
                         onBack = { nav.popBackStack() },
                         onPlay = { url, title ->
-                            // Reuse the existing eporner-style direct route — the
-                            // resolver short-circuits anything starting with
-                            // `direct://` straight to playback. The `embed`
-                            // arg is unused for direct streams.
+
+
+
+
                             val u = URLEncoder.encode("direct://$url", "UTF-8")
                             val tArg = URLEncoder.encode(title, "UTF-8")
-                            // The eporner route requires a non-empty `embed`
-                            // arg as a path placeholder. AdultViewModel
-                            // short-circuits anything prefixed with `direct://`
-                            // so the embed value is ignored — we just need the
-                            // path to match.
+
+
+
+
+
                             nav.navigate("player/eporner/$u/x/$tArg")
                         },
                     )
@@ -390,10 +390,10 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("yt-playlist/$i/$t")
                         },
-                        // Top-right profile button → Settings hub. Same pattern
-                        // is used on Movies / Library so the YT-Music profile
-                        // pic doubles as the entry point to Settings (Spotify
-                        // / YouTube Music style).
+
+
+
+
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
                 }
@@ -405,7 +405,7 @@ fun StreamCloudApp() {
                     com.streamcloud.app.ui.screens.MusicArtistScreen(
                         channelUrl = url,
                         onBack = { nav.popBackStack() },
-                        onPlay = { /* TODO: wire to MusicPlaybackService via session */ },
+                        onPlay = {  },
                     )
                 }
                 composable(Tab.Ai.route)       { AiScreen() }
@@ -436,7 +436,7 @@ fun StreamCloudApp() {
                         playlistId = id,
                         title = title,
                         onBack = { nav.popBackStack() },
-                        onPlay = { /* TODO: wire to MusicPlaybackService */ },
+                        onPlay = {  },
                     )
                 }
                 composable(Tab.Adult.route) {
@@ -447,9 +447,9 @@ fun StreamCloudApp() {
                         nav.navigate("player/eporner/$v/$e/$t")
                     })
                 }
-                // Eporner-specific player: resolves direct MP4 by video id (with embed fallback),
-                // then plays natively. If the resolved URL is HTML (embed page), the unified
-                // player falls back to WebView automatically.
+
+
+
                 composable(
                     "player/eporner/{id}/{embed}/{title}",
                     arguments = listOf(
@@ -479,7 +479,7 @@ fun StreamCloudApp() {
                         ) { androidx.compose.material3.CircularProgressIndicator() }
                     }
                 }
-                // Generic player route used by Movies (CloudStream/torrent/HTTP) and any other source.
+
                 composable(
                     "player/url/{url}/{title}",
                     arguments = listOf(
@@ -495,8 +495,8 @@ fun StreamCloudApp() {
                         onBack = { nav.popBackStack() },
                     )
                 }
-                // Stremio-resolved movie player — pulls the full source list from MoviePlayerSession
-                // so the in-player "Sources" button can swap streams without leaving the player.
+
+
                 composable(
                     "player/movie/{url}/{title}",
                     arguments = listOf(
@@ -506,8 +506,8 @@ fun StreamCloudApp() {
                 ) { entry ->
                     val initial = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    // Observe the reactive sources list so newly-resolved streams appear
-                    // in the picker without restarting the player.
+
+
                     val sources by com.streamcloud.app.player.MoviePlayerSession.sourcesFlow.collectAsState()
                     val nuvioScanning by com.streamcloud.app.player.MoviePlayerSession.nuvioScanningFlow.collectAsState()
                     var currentUrl by remember(initial) { mutableStateOf(initial) }
@@ -517,8 +517,8 @@ fun StreamCloudApp() {
                     val active = sources.firstOrNull { it.id == currentId }
                     val subtitle = active?.let { "${it.addonName}${it.qualityTag?.let { q -> " · $q" } ?: ""}" }
                     val refreshScope = rememberCoroutineScope()
-                    // Bumped on every source tap so the player always restarts,
-                    // even when the user picks the URL that's already loaded.
+
+
                     var switchKey by remember(initial) { mutableStateOf(0) }
                     NativePlayerScreen(
                         streamUrl = currentUrl,
@@ -574,9 +574,9 @@ fun StreamCloudApp() {
                 }
             }
                     }
-                    // On Tablet/TV the bottom-bar branch is suppressed, so the
-                    // global mini-player renders here above the content's bottom
-                    // edge instead. On Mobile this branch is skipped.
+
+
+
                     if (showRail && currentRoute != Tab.Music.route) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             onExpand = {
@@ -587,14 +587,14 @@ fun StreamCloudApp() {
                 }
             }
         }
-        // App-wide NowPlayingSheet — renders on TOP of whatever tab is active
-        // so swipe-up on the GlobalMiniPlayer works from any screen.
+
+
         com.streamcloud.app.ui.player.GlobalNowPlayingSheet(
             onOpenSettings = { navigateToTab(nav, Tab.Settings.route) },
             onOpenArtistSearch = { artistName ->
-                // No channel URL on MediaItem metadata — use NewPipe's search
-                // URL convention (`/results?search_query=...`) so the existing
-                // MusicArtistScreen can scrape the artist page.
+
+
+
                 val q = java.net.URLEncoder.encode(artistName, "UTF-8")
                 val searchUrl = "https://www.youtube.com/results?search_query=$q"
                 val encoded = URLEncoder.encode(searchUrl, "UTF-8")
@@ -612,13 +612,6 @@ private fun navigateToTab(nav: NavHostController, route: String) {
     }
 }
 
-
-/**
- * One item in the horizontally scrollable bottom nav. Mimics the look of a
- * Material 3 [androidx.compose.material3.NavigationBarItem] (pill indicator
- * behind the icon when selected, accent label below) but is a bare `Column`
- * so it's safe to drop inside a horizontally-scrollable Row.
- */
 @Composable
 private fun ScrollableNavBarItem(
     icon: ImageVector,
@@ -660,12 +653,6 @@ private fun ScrollableNavBarItem(
     }
 }
 
-/**
- * Normalises free-form Nuvio quality strings to the canonical tags used by the
- * quality sorter ("4K", "1080p", "720p", etc.).  Mirrors the private copy in
- * MovieDetailScreen — kept here so the player's refresh path doesn't need to
- * reach into that screen's private scope.
- */
 private fun nuvioQualityTag(q: String?): String? {
     if (q.isNullOrBlank()) return null
     val s = q.trim()

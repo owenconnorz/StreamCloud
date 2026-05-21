@@ -15,20 +15,6 @@ import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-/**
- * Fetches Spotify Canvas video URLs for a track — a short looping video
- * (typically 3–8 s) displayed as a full-bleed animated background on the
- * Now Playing screen.
- *
- * No Spotify login required.  Uses the anonymous web-player token endpoint
- * to authenticate, then searches Spotify for the track and calls the
- * protobuf Canvas API.
- *
- *  1. GET open.spotify.com/get_access_token  → anonymous Bearer token
- *  2. GET api.spotify.com/v1/search           → Spotify track URI
- *  3. POST spclient.wg.spotify.com/canvaz-cache/v0/canvases (protobuf)
- *                                             → canvas video URL
- */
 object SpotifyCanvasRepository {
 
     private const val TAG = "SpotifyCanvas"
@@ -40,23 +26,19 @@ object SpotifyCanvasRepository {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /** Stable anonymous session tracking cookie — any UUID works. */
+
     private val spT: String = UUID.randomUUID().toString().replace("-", "")
 
     @Volatile private var cachedToken: String? = null
     @Volatile private var tokenExpiryMs: Long = 0L
 
-    /** videoId → canvas URL (null = checked, no canvas available). */
+
     private val cache = LinkedHashMap<String, String?>(64, 0.75f, true)
     private val cacheLock = Any()
 
-    // ── Public API ────────────────────────────────────────────────────────────
 
-    /**
-     * Returns the Spotify Canvas video URL for the given track, or null when
-     * no canvas is available.  Results are cached so subsequent calls for the
-     * same track are instant.
-     */
+
+
     suspend fun getCanvasUrl(videoId: String, title: String, artist: String): String? =
         withContext(Dispatchers.IO) {
             synchronized(cacheLock) {
@@ -79,7 +61,7 @@ object SpotifyCanvasRepository {
             url
         }
 
-    // ── Token ─────────────────────────────────────────────────────────────────
+
 
     private fun ensureToken(): String? {
         val now = System.currentTimeMillis()
@@ -96,8 +78,8 @@ object SpotifyCanvasRepository {
                 .header("Cookie", "sp_t=$spT; sp_new=1")
                 .header("Referer", "https://open.spotify.com/")
                 .get().build()
-            // Execute outside the runCatching lambda so non-successful responses can
-            // exit via return@runCatching (labeled return) rather than non-local return.
+
+
             val body = http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) { Log.d(TAG, "Token HTTP ${resp.code}"); null }
                 else resp.body?.string()
@@ -112,7 +94,7 @@ object SpotifyCanvasRepository {
         }.getOrElse { Log.d(TAG, "Token error: ${it.message}"); null }
     }
 
-    // ── Spotify search ────────────────────────────────────────────────────────
+
 
     private fun searchTrack(token: String, title: String, artist: String): String? {
         val q   = URLEncoder.encode("${title.take(50)} ${artist.take(30)}", "UTF-8")
@@ -136,7 +118,7 @@ object SpotifyCanvasRepository {
         }.getOrNull()
     }
 
-    // ── Canvas protobuf API ───────────────────────────────────────────────────
+
 
     private fun fetchCanvas(token: String, spotifyUri: String): String? {
         val req = Request.Builder()
@@ -155,39 +137,23 @@ object SpotifyCanvasRepository {
         }.getOrNull()
     }
 
-    // ── Hand-rolled minimal protobuf ──────────────────────────────────────────
 
-    /**
-     * Encode:
-     *   EntityCanvazRequest {
-     *     entities (field 1) {
-     *       entity_uri (field 1) = spotifyUri
-     *     }
-     *   }
-     */
+
+
     private fun buildCanvasRequest(spotifyUri: String): ByteArray {
         val uriBytes = spotifyUri.toByteArray(Charsets.UTF_8)
         val inner    = byteArrayOf(0x0A) + varint(uriBytes.size) + uriBytes
         return          byteArrayOf(0x0A) + varint(inner.size)    + inner
     }
 
-    /**
-     * Decode:
-     *   EntityCanvaz {
-     *     canvases (field 1) {
-     *       entity_uri (field 1)   — ignored
-     *       url        (field 2)   — this is what we want
-     *       ...
-     *     }
-     *   }
-     */
+
     private fun parseCanvasResponse(bytes: ByteArray): String? {
         var i = 0
         while (i < bytes.size) {
             val (tag, t1) = readVarint(bytes, i); i += t1
             val field = (tag ushr 3).toInt()
             val wire  = (tag and 7L).toInt()
-            if (wire == 2 && field == 1) {          // canvases sub-message
+            if (wire == 2 && field == 1) {
                 val (len, t2) = readVarint(bytes, i); i += t2
                 val inner = bytes.sliceArray(i until (i + len.toInt())); i += len.toInt()
                 val url = parseCanvasEntry(inner)
@@ -209,7 +175,7 @@ object SpotifyCanvasRepository {
                 wire == 2 -> {
                     val (len, t2) = readVarint(bytes, i); i += t2
                     val data = bytes.sliceArray(i until (i + len.toInt())); i += len.toInt()
-                    if (field == 2) {                // url
+                    if (field == 2) {
                         val url = String(data, Charsets.UTF_8)
                         if (url.startsWith("https://")) return url
                     }
@@ -221,7 +187,7 @@ object SpotifyCanvasRepository {
         return null
     }
 
-    // ── Protobuf wire helpers ─────────────────────────────────────────────────
+
 
     private fun varint(value: Int): ByteArray {
         val out = mutableListOf<Byte>()

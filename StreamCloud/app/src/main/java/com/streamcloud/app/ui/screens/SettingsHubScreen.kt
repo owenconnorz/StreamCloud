@@ -88,11 +88,9 @@ import com.streamcloud.app.data.updater.UpdateInfo
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-// ── Hub icon colours ────────────────────────────────────────────────────────
 private val HubIconBg  = Color(0xFF1B2D52)
 private val HubIconFg  = Color(0xFF5B8DEF)
 
-// ── Section accent colours ──────────────────────────────────────────────────
 private val ColourAppearance = Color(0xFF5B8DEF)
 private val ColourAccount    = Color(0xFF4CAF88)
 private val ColourPlayer     = Color(0xFFB49BFF)
@@ -103,16 +101,11 @@ private val ColourStorage    = Color(0xFFA9C96C)
 private val ColourSystem     = Color(0xFF8E9CBE)
 private val ColourSonos      = Color(0xFF56C8D8)
 
-// ── Page enum ───────────────────────────────────────────────────────────────
 private enum class SettingsPage {
     SystemUpdate, Appearance, PlayerAudio, Account,
     ListenTogether, Content, AiLyrics, Privacy,
     Storage, BackupRestore, About, Logs
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//                          Main entry composable
-// ══════════════════════════════════════════════════════════════════════════════
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,7 +115,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
     val scope   = rememberCoroutineScope()
 
-    // ── All settings state ─────────────────────────────────────────────────
+
     var backendUrl          by remember { mutableStateOf("") }
     var provider            by remember { mutableStateOf("") }
     var model               by remember { mutableStateOf("") }
@@ -162,7 +155,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var canvasEnabled       by remember { mutableStateOf(false) }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
 
-    // ── Dialog visibility flags ────────────────────────────────────────────
+
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
     var showQualityAudioDialog  by remember { mutableStateOf(false) }
     var showEqDialog            by remember { mutableStateOf(false) }
@@ -220,12 +213,12 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         pluginsCacheBytes   = pluginRepo.pluginsCacheSize()
     }
 
-    // ── Page navigation state ──────────────────────────────────────────────
+
     var currentPage by remember { mutableStateOf<SettingsPage?>(null) }
 
     BackHandler(enabled = currentPage != null) { currentPage = null }
 
-    // ── Animated page transitions ──────────────────────────────────────────
+
     AnimatedContent(
         targetState = currentPage,
         transitionSpec = {
@@ -239,10 +232,10 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     ) { page ->
         when (page) {
 
-            // ── Hub ──────────────────────────────────────────────────────
+
             null -> SettingsHubList(onNavigate = { currentPage = it })
 
-            // ── System update ────────────────────────────────────────────
+
             SettingsPage.SystemUpdate -> SubPageScaffold(
                 title = "System update",
                 onBack = { currentPage = null },
@@ -278,7 +271,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── Appearance ───────────────────────────────────────────────
+
             SettingsPage.Appearance -> SubPageScaffold(
                 title = "Appearance",
                 onBack = { currentPage = null },
@@ -436,7 +429,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── Player & audio ───────────────────────────────────────────
+
             SettingsPage.PlayerAudio -> SubPageScaffold(
                 title = "Player and audio",
                 onBack = { currentPage = null },
@@ -564,7 +557,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── Account ──────────────────────────────────────────────────
+
             SettingsPage.Account -> SubPageScaffold(
                 title = "Account",
                 onBack = { currentPage = null },
@@ -574,7 +567,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── Listen Together (Sonos) ───────────────────────────────────
+
             SettingsPage.ListenTogether -> SubPageScaffold(
                 title = "Listen Together",
                 onBack = { currentPage = null },
@@ -609,7 +602,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── Content ──────────────────────────────────────────────────
+
             SettingsPage.Content -> SubPageScaffold(
                 title = "Content",
                 onBack = { currentPage = null },
@@ -661,7 +654,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── AI Lyrics Translation ─────────────────────────────────────
+
             SettingsPage.AiLyrics -> SubPageScaffold(
                 title = "AI Lyrics Translation",
                 onBack = { currentPage = null },
@@ -681,7 +674,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── Privacy ───────────────────────────────────────────────────
+
             SettingsPage.Privacy -> SubPageScaffold(
                 title = "Privacy",
                 onBack = { currentPage = null },
@@ -735,7 +728,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── Storage ───────────────────────────────────────────────────
+
             SettingsPage.Storage -> SubPageScaffold(
                 title = "Storage",
                 onBack = { currentPage = null },
@@ -770,7 +763,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── Backup and restore ────────────────────────────────────────
+
             SettingsPage.BackupRestore -> SubPageScaffold(
                 title = "Backup and restore",
                 onBack = { currentPage = null },
@@ -796,7 +789,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── About ─────────────────────────────────────────────────────
+
             SettingsPage.About -> SubPageScaffold(
                 title = "About",
                 onBack = { currentPage = null },
@@ -860,12 +853,12 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                 }
             }
 
-            // ── App logs ──────────────────────────────────────────────────
+
             SettingsPage.Logs -> LogsPage(onBack = { currentPage = null })
         }
     }
 
-    // ── Dialogs (rendered above all pages) ────────────────────────────────
+
     if (showQualityVideoDialog) {
         QualityDialog(
             title = "Default video quality",
@@ -1010,10 +1003,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//                         Hub list (landing page)
-// ══════════════════════════════════════════════════════════════════════════════
-
 @Composable
 private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit) {
     val context = LocalContext.current
@@ -1139,10 +1128,6 @@ private fun HubRow(
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//                         Sub-page scaffold
-// ══════════════════════════════════════════════════════════════════════════════
-
 @Composable
 private fun SubPageScaffold(
     title: String,
@@ -1185,10 +1170,6 @@ private fun SubPageScaffold(
         }
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//                   Layout pickers (Theme Mode & Color Palette)
-// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun ThemeModeItem(
@@ -1318,10 +1299,6 @@ private fun PaletteDynamicItem(
         }
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//                        Metrolist-style atoms
-// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun SubSectionLabel(title: String) {
@@ -1455,10 +1432,6 @@ private fun SettingToggle(
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//                         Composite rows
-// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun YtMusicAccountRow() {
@@ -1594,10 +1567,6 @@ private fun UpdaterRow() {
         }
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//                               Dialogs
-// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun QualityDialog(
@@ -1848,10 +1817,6 @@ private fun UiModeDialog(current: String, onPick: (String) -> Unit, onDismiss: (
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//                              App Logs page
-// ══════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun LogsPage(onBack: () -> Unit) {

@@ -18,21 +18,6 @@ import java.net.Socket
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
-/**
- * Minimal HTTP proxy server that streams YouTube audio to Sonos.
- *
- * Why a proxy?
- *  - YouTube stream URLs are IP-keyed. Sonos (different IP) can't use the URL
- *    the phone resolved. The proxy keeps a single consistent IP on the CDN side.
- *  - YouTube CDN requires a matching User-Agent; the proxy injects it.
- *
- * Key behaviours:
- *  - Handles both HEAD (Sonos stream probe) and GET (actual playback).
- *  - The resolved stream URL is pre-cached by [SonosRepository.connect] so the
- *    first Sonos probe gets an immediate response (no 300-800 ms Innertube RTT
- *    on the critical path that would trigger Sonos's probe timeout).
- *  - A fresh URL is re-resolved on every new GET connection so expiry is moot.
- */
 object SonosProxyServer {
 
     private const val TAG = "SonosProxy"
@@ -41,7 +26,7 @@ object SonosProxyServer {
         val videoId: String,
         val title: String,
         val watchUrl: String,
-        /** Pre-resolved audio stream URL (set before starting, refreshed per GET). */
+
         val resolvedUrl: String? = null,
     )
 
@@ -90,7 +75,7 @@ object SonosProxyServer {
     }
 
     private fun resolveStreamUrl(track: TrackInfo): String? {
-        // Use the pre-resolved URL if available (avoids Sonos probe timeout).
+
         track.resolvedUrl?.let { return it }
         return runBlocking {
             (if (track.videoId.isNotBlank()) YtPlayerUtils.resolveAudioStream(track.videoId) else null)
@@ -104,7 +89,7 @@ object SonosProxyServer {
             val requestLine = reader.readLine() ?: return
             val method = requestLine.split(" ").firstOrNull() ?: "GET"
 
-            // Accept HEAD (Sonos probe) and GET (actual streaming); reject the rest.
+
             if (method != "GET" && method != "HEAD") {
                 client.getOutputStream().write("HTTP/1.0 405 Method Not Allowed\r\n\r\n".toByteArray())
                 client.close()
@@ -117,11 +102,11 @@ object SonosProxyServer {
                 return
             }
 
-            // HEAD = Sonos stream-capability probe.
-            // YouTube CDN frequently returns 403 or 405 to HEAD requests, so we
-            // must NOT forward the probe upstream — that would make Sonos reject
-            // the stream before playback even starts. Instead, reply immediately
-            // with synthetic headers: Sonos only needs Content-Type + 200 OK.
+
+
+
+
+
             if (method == "HEAD") {
                 client.getOutputStream().write(
                     "HTTP/1.0 200 OK\r\nContent-Type: audio/mp4\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
@@ -130,7 +115,7 @@ object SonosProxyServer {
                 return
             }
 
-            // GET — resolve the stream URL and pipe the audio bytes through.
+
             val streamUrl = resolveStreamUrl(track)
             if (streamUrl == null) {
                 Log.w(TAG, "Could not resolve stream for ${track.videoId}")
@@ -139,7 +124,7 @@ object SonosProxyServer {
                 return
             }
 
-            // Cache the freshly resolved URL so the next GET reuses it.
+
             currentTrack.set(track.copy(resolvedUrl = streamUrl))
 
             val req = Request.Builder()

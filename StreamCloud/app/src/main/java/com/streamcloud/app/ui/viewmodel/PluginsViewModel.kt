@@ -125,7 +125,7 @@ class PluginsViewModel(
         repo.uninstallPlugin(p.internalName, p.sourceRepoId)
     }
 
-    /** Add a Stremio addon by manifest URL (or any URL — we'll auto-append /manifest.json). */
+
     fun addStremioAddon(url: String) = viewModelScope.launch {
         if (url.isBlank()) {
             _state.update { it.copy(error = "Manifest URL is required") }
@@ -144,7 +144,7 @@ class PluginsViewModel(
         stremio.removeAddon(manifestUrl)
     }
 
-    /** Pull a Nuvio provider repo `manifest.json` and surface the listing. */
+
     fun loadNuvioRepo(url: String) = viewModelScope.launch {
         if (url.isBlank()) {
             _state.update { it.copy(error = "Nuvio repo URL is required") }

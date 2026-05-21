@@ -11,12 +11,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-/**
- * Holds an Equalizer + BassBoost effect bound to the service's ExoPlayer audio session.
- *
- * Presets (Metrolist parity): flat / pop / rock / jazz / bass / vocal.
- * Reactively listens to settings and re-applies on each change.
- */
 class AudioFx(
     private val context: Context,
     private val audioSessionId: Int,
@@ -56,7 +50,7 @@ class AudioFx(
             val bands = e.numberOfBands.toInt()
             val (minLevel, maxLevel) = e.bandLevelRange.let { it[0].toInt() to it[1].toInt() }
             for (i in 0 until bands) {
-                // Map preset's 5-band gains (in mB) to the device's actual band count.
+
                 val frac = if (bands <= 1) 0f else i.toFloat() / (bands - 1)
                 val srcIdx = (frac * (gains.size - 1)).toInt().coerceIn(0, gains.size - 1)
                 val target = gains[srcIdx].coerceIn(minLevel, maxLevel)
@@ -69,7 +63,7 @@ class AudioFx(
         val b = bass ?: return
         runCatching {
             b.enabled = boost
-            if (boost) b.setStrength(800)  // 0..1000 — moderate punch
+            if (boost) b.setStrength(800)
         }
     }
 
@@ -80,7 +74,7 @@ class AudioFx(
     }
 
     companion object {
-        // 5-band gains in mB (millibel). Roughly: 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz.
+
         private val PRESETS: Map<String, IntArray> = mapOf(
             "flat"  to intArrayOf(   0,    0,    0,    0,    0),
             "pop"   to intArrayOf(-100,  200,  400,  100, -100),

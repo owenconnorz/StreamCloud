@@ -48,29 +48,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
 
-/**
- * Foreground [MediaLibraryService] for music playback and Android Auto / Automotive OS.
- *
- * ── Android Auto browse tree (mirrors Metrolist) ───────────────────────────
- *
- *   ROOT
- *   ├─ Home
- *   │   ├─ Recently played   (last 50 tracks from Room)
- *   │   └─ On repeat         (top 50 most-played from Room)
- *   └─ Library
- *       ├─ Liked Music        (YT Music liked songs — synced from YTM)
- *       ├─ Downloads          (offline tracks from Room)
- *       └─ <each YTM playlist> (fetched on demand via playlistTracks)
- *
- * Playlist IDs that start with [YT_PLAYLIST_PREFIX] are handled by fetching
- * their tracks live from [YtMusicLibraryRepository.playlistTracks].
- *
- * Search is supported via [LibraryCallback.onSearch]; results come from
- * [NewPipeRepository.searchSongs].
- *
- * ── Two-cache playback pipeline ──────────────────────────────────────────
- * downloadCache (permanent) → playerCache (LRU 256 MB) → HTTP (NewPipe resolved)
- */
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaLibraryService() {
 
@@ -81,19 +58,15 @@ class MusicPlaybackService : MediaLibraryService() {
     private lateinit var playerCache: SimpleCache
     private lateinit var downloadCache: SimpleCache
 
-    /** Cached YT Music library — refreshed at startup and on cookie change. */
+
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
 
-    /**
-     * Kept in sync with the DataStore cookie so the OkHttp stream interceptor
-     * can read it without blocking.  Also forwarded to [YtPlayerUtils] so that
-     * Innertube player requests are sent as a signed-in user.
-     */
+
     @Volatile private var ytMusicCookieForStream: String = ""
 
-    // Stream URL resolution is delegated to the app-wide [StreamUrlCache] singleton.
-    // That object is also populated by [YtPlaylistScreen] when a playlist opens so
-    // that every track's URL is pre-resolved before the user taps play.
+
+
+
 
     private val sl by lazy { ServiceLocator.get(applicationContext) }
 
@@ -112,10 +85,10 @@ class MusicPlaybackService : MediaLibraryService() {
             .build()
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
-            // Pause automatically on incoming calls and when another app (YouTube,
-            // podcasts, etc.) requests audio focus, then resume when they release it.
-            .setAudioAttributes(musicAudioAttrs, /* handleAudioFocus= */ true)
-            // Pause when headphones are unplugged.
+
+
+            .setAudioAttributes(musicAudioAttrs,  true)
+
             .setHandleAudioBecomingNoisy(true)
             .build()
             .apply {
@@ -135,13 +108,13 @@ class MusicPlaybackService : MediaLibraryService() {
 
         audioFx = AudioFx(applicationContext, player.audioSessionId).also { it.start() }
 
-        // Pre-warm the Innertube visitorData so the first track resolves instantly.
-        // Without this the first resolve pays an extra ~500 ms cold-start penalty.
+
+
         ioScope.launch { YtPlayerUtils.warmUp() }
 
-        // Sync YTM library at startup + re-sync whenever the signed-in cookie changes.
-        // Also forward the cookie to YtPlayerUtils (Innertube player requests) and
-        // keep ytMusicCookieForStream up-to-date for the OkHttp stream interceptor.
+
+
+
         ioScope.launch {
             sl.settings.ytMusicCookie.collect { cookie ->
                 ytMusicCookieForStream = cookie
@@ -152,9 +125,9 @@ class MusicPlaybackService : MediaLibraryService() {
             }
         }
 
-        // Keep Innertube hl/gl in sync with the user's content-region settings.
-        // All Innertube callers (YtPlayerUtils, InnerTubeClient, EndlessPlayback, …)
-        // read from these volatile vars — same approach Metrolist uses.
+
+
+
         ioScope.launch {
             sl.settings.contentLanguage.collect { YtPlayerUtils.contentLanguage = it }
         }
@@ -163,26 +136,26 @@ class MusicPlaybackService : MediaLibraryService() {
         }
     }
 
-    // ── Data source factory ───────────────────────────────────────────────
+
 
     private fun buildDataSourceFactory(): ResolvingDataSource.Factory {
-        // OkHttpDataSource is used instead of DefaultHttpDataSource because
-        // YouTube CDN URLs produced by the IOS/IPADOS Innertube clients require
-        // OkHttp's HTTP/2 stack and redirect-handling — Android's HttpURLConnection
-        // returns HTTP 403 on the same URLs.  This matches Metrolist's approach.
-        //
-        // The User-Agent is NOT set here; it is applied per-DataSpec in the
-        // ResolvingDataSource lambda below so it always matches the client that
-        // produced the stream URL (IOS UA for IOS URLs, ANDROID_MUSIC UA for
-        // ANDROID_MUSIC URLs, etc.).
+
+
+
+
+
+
+
+
+
         val streamOkHttp = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .addNetworkInterceptor { chain ->
-                // Attach the session cookie if the user is signed in.
-                // YouTube CDN doesn't strictly require the cookie, but having it
-                // in the request makes the CDN treat the client as authenticated,
-                // which avoids throttling on certain IPs and regions.
+
+
+
+
                 val cookie = ytMusicCookieForStream
                 val req = if (cookie.isNotBlank())
                     chain.request().newBuilder().header("Cookie", cookie).build()
@@ -205,11 +178,11 @@ class MusicPlaybackService : MediaLibraryService() {
 
         return ResolvingDataSource.Factory(chainedCacheFactory) { dataSpec ->
             val cacheKey = dataSpec.key ?: dataSpec.uri.toString()
-            // Use 1 byte as the probe length when ExoPlayer sends an open-ended
-            // request (length = -1) — enough to determine if any bytes are cached.
+
+
             val probeLen = if (dataSpec.length >= 0) dataSpec.length else 1L
 
-            // Fast path: bytes already in one of the two caches — no network needed.
+
             if (downloadCache.isCached(cacheKey, dataSpec.position, probeLen) ||
                 playerCache.isCached(cacheKey, dataSpec.position, probeLen)
             ) return@Factory dataSpec
@@ -217,7 +190,7 @@ class MusicPlaybackService : MediaLibraryService() {
             val watchUrl = if (cacheKey.startsWith("http")) cacheKey
                            else "https://music.youtube.com/watch?v=$cacheKey"
 
-            // Local file path (legacy OkHttp downloads).
+
             val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
             val localPath = runBlocking(Dispatchers.IO) { dao.byUrl(watchUrl)?.localPath }
             if (localPath != null && File(localPath).exists()) {
@@ -227,9 +200,9 @@ class MusicPlaybackService : MediaLibraryService() {
             val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
             val (streamUrl, userAgent) = resolveStreamUrl(videoId, watchUrl)
 
-            // Apply the UA that matches the Innertube client that produced this URL.
-            // YouTube CDN binds stream URLs to the requesting client — a different
-            // UA returns HTTP 403.
+
+
+
             dataSpec.buildUpon()
                 .setUri(streamUrl.toUri())
                 .setHttpRequestHeaders(
@@ -239,37 +212,18 @@ class MusicPlaybackService : MediaLibraryService() {
         }
     }
 
-    /**
-     * Resolve the playable stream URL for [videoId], with an in-memory expiry
-     * cache so that repeated ExoPlayer data-spec calls for the same track
-     * (seek probes, range requests, rebuffer fills) never incur a second
-     * network round-trip.
-     *
-     * Resolution order (mirrors Metrolist):
-     *  1. [StreamUrlCache] hit and URL not yet expired → return immediately
-     *     (also populated by [YtPlaylistScreen] warmup before the user taps play)
-     *  2. [YtPlayerUtils.resolveAudioFormatInfo] — single Innertube POST,
-     *     typically 300–800 ms; stores URL with CDN expiry - 5 min buffer
-     *  3. [NewPipeRepository.resolveAudioStream] fallback — parses watch page
-     *     HTML (~3–8 s); result cached for 1 hour
-     *
-     * Throws if both resolvers fail so ExoPlayer can surface a proper error
-     * to the UI instead of silently crashing on a null URI.
-     *
-     * Returns `Pair(streamUrl, userAgent)` — the UA must be passed to ExoPlayer
-     * because YouTube CDN binds stream URLs to the requesting client.
-     */
+
     private fun resolveStreamUrl(videoId: String, watchUrl: String): Pair<String, String> {
         val now = System.currentTimeMillis()
 
-        // 1. Shared cache hit (may have been pre-warmed by playlist open).
+
         StreamUrlCache.getEntry(videoId)?.let { entry ->
             val ttl = StreamUrlCache.ttlSeconds(videoId) ?: 0
             Log.d(TAG, "StreamUrlCache hit for $videoId (ttl=${ttl}s)")
             return Pair(entry.url, entry.userAgent)
         }
 
-        // 2. Innertube path — single POST, 300–800 ms.
+
         val innertubeResult = runBlocking(Dispatchers.IO) {
             runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }
         }
@@ -285,8 +239,8 @@ class MusicPlaybackService : MediaLibraryService() {
             return Pair(info.url, info.userAgent)
         }
 
-        // 3. NewPipe fallback (slower — parses watch-page HTML + deobfuscates nsig).
-        // NewPipe returns plain stream URLs; use a neutral YouTube UA for the request.
+
+
         val npUserAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip"
         AppLogger.w(TAG, "Innertube returned no result for $videoId — falling back to NewPipe")
         Log.d(TAG, "Innertube failed for $videoId — falling back to NewPipe")
@@ -300,7 +254,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 error(err)
             }
 
-        // Cache NewPipe URLs for 1 hour (YouTube doesn't report their expiry).
+
         StreamUrlCache.put(videoId, npUrl, npUserAgent, now + 3_600_000L)
         Log.d(TAG, "NewPipe resolved $videoId (cached 1 h)")
         return Pair(npUrl, npUserAgent)
@@ -320,7 +274,7 @@ class MusicPlaybackService : MediaLibraryService() {
         super.onDestroy()
     }
 
-    // ── MediaLibrarySession callback ──────────────────────────────────────
+
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
 
@@ -371,11 +325,7 @@ class MusicPlaybackService : MediaLibraryService() {
             return fut
         }
 
-        /**
-         * Called by Auto when the user taps a playable item.
-         * With [ResolvingDataSource], stream resolution is deferred to the data layer;
-         * we just need a stable URI and cache key on the item.
-         */
+
         override fun onAddMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -383,10 +333,7 @@ class MusicPlaybackService : MediaLibraryService() {
         ): ListenableFuture<MutableList<MediaItem>> =
             Futures.immediateFuture(mediaItems.map(::attachUri).toMutableList())
 
-        /**
-         * Android Auto search bar — delegates to [NewPipeRepository.searchSongs].
-         * Results are returned as playable [MediaItem]s (no grouping needed for Auto).
-         */
+
         override fun onSearch(
             session: MediaLibrarySession,
             browser: MediaSession.ControllerInfo,
@@ -439,10 +386,7 @@ class MusicPlaybackService : MediaLibraryService() {
             return fut
         }
 
-        /**
-         * Playback resumption — Auto shows a "Resume" card when the app is idle.
-         * We return the most recently played track from Room.
-         */
+
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -458,7 +402,7 @@ class MusicPlaybackService : MediaLibraryService() {
         }
     }
 
-    // ── Browse tree builders ──────────────────────────────────────────────
+
 
     private fun buildRoot(): MediaItem = folder(ROOT_ID, "StreamCloud")
 
@@ -472,12 +416,7 @@ class MusicPlaybackService : MediaLibraryService() {
         playlist(ON_REPEAT_ID, "On repeat"),
     )
 
-    /**
-     * Library section:
-     *  - Liked Music  (YTM liked songs — live from YtMusicLibrary cache)
-     *  - Downloads    (Room offline tracks)
-     *  - All YTM user playlists (each browsable, tracks fetched on demand)
-     */
+
     private fun libraryChildren(): List<MediaItem> {
         val fixed = listOf(
             playlist(LIKED_ID, "Liked Music"),
@@ -503,7 +442,7 @@ class MusicPlaybackService : MediaLibraryService() {
         return fixed + ytPlaylists
     }
 
-    /** Returns liked songs: YTM liked songs if available, Room local likes as fallback. */
+
     private suspend fun likedChildren(): List<MediaItem> {
         val ytmLiked = ytLibrary.likedSongs
         if (ytmLiked.isNotEmpty()) return ytmLiked.map(::ytmSongItem)
@@ -513,7 +452,7 @@ class MusicPlaybackService : MediaLibraryService() {
         return local.map(::trackEntityItem)
     }
 
-    /** Fetch tracks for a YT Music playlist identified by [playlistId]. */
+
     private suspend fun ytPlaylistTracks(playlistId: String): List<MediaItem> {
         return try {
             val cookie = sl.settings.ytMusicCookie.first()
@@ -530,7 +469,7 @@ class MusicPlaybackService : MediaLibraryService() {
             query(dao).map(::trackEntityItem)
         }.getOrElse { emptyList() }
 
-    // ── MediaItem factory helpers ─────────────────────────────────────────
+
 
     private fun trackEntityItem(t: TrackEntity): MediaItem = MediaItem.Builder()
         .setMediaId(t.url)
@@ -652,7 +591,7 @@ class MusicPlaybackService : MediaLibraryService() {
         const val LIKED_ID       = "streamcloud_liked"
         const val DOWNLOADED_ID  = "streamcloud_downloaded"
 
-        /** Prefix for browse IDs that represent YT Music user playlists. */
+
         const val YT_PLAYLIST_PREFIX = "ytpl_"
     }
 }

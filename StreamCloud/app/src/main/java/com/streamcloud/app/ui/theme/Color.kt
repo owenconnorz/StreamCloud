@@ -2,7 +2,6 @@ package com.streamcloud.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Metrolist-inspired warm dark palette
 val Bg          = Color(0xFF1A1210)
 val BgElevated  = Color(0xFF231917)
 val BgSurface   = Color(0xFF2E2117)

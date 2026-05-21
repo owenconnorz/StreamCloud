@@ -62,17 +62,12 @@ interface TrackDao {
     suspend fun clearRecent()
 }
 
-/**
- * Resume-playback state for a movie/episode. Keyed by the TMDB id we use
- * everywhere else (Movies tab, MovieDetailScreen). Updated periodically by
- * the player and read by the "Continue Watching" row on the home screen.
- */
 @Entity(tableName = "watch_progress")
 data class WatchProgressEntity(
     @PrimaryKey @ColumnInfo(name = "tmdb_id") val tmdbId: Long,
     val title: String,
     @ColumnInfo(name = "poster_url") val posterUrl: String?,
-    @ColumnInfo(name = "media_type") val mediaType: String, // "movie" or "tv"
+    @ColumnInfo(name = "media_type") val mediaType: String,
     @ColumnInfo(name = "position_ms") val positionMs: Long,
     @ColumnInfo(name = "duration_ms") val durationMs: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
@@ -83,11 +78,7 @@ interface WatchProgressDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: WatchProgressEntity)
 
-    /**
-     * Anything between 1% and 95% watched is "in progress". Below 1% means the
-     * user barely opened it, above 95% means they finished it — both should
-     * fall out of the Continue Watching row.
-     */
+
     @Query(
         "SELECT * FROM watch_progress " +
             "WHERE duration_ms > 0 " +
@@ -102,8 +93,6 @@ interface WatchProgressDao {
     @Query("SELECT * FROM watch_progress WHERE tmdb_id = :tmdbId LIMIT 1")
     suspend fun byId(tmdbId: Long): WatchProgressEntity?
 }
-
-// ── Watchlist ─────────────────────────────────────────────────────────────
 
 @Entity(tableName = "watchlist")
 data class WatchlistEntity(
@@ -128,8 +117,6 @@ interface WatchlistDao {
     @Query("SELECT COUNT(*) > 0 FROM watchlist WHERE tmdb_id = :tmdbId")
     fun isWatchlisted(tmdbId: Long): Flow<Boolean>
 }
-
-// ── Local playlists ───────────────────────────────────────────────────────
 
 @Entity(tableName = "local_playlists")
 data class LocalPlaylistEntity(
@@ -178,14 +165,6 @@ interface LocalPlaylistDao {
     fun trackCount(playlistId: Long): Flow<Int>
 }
 
-// ── Audio format cache (Metrolist parity) ─────────────────────────────────
-//
-// Stores the resolved YouTube adaptive-format metadata for each downloaded/
-// played track. On the next download or playback resolution the stored itag
-// is preferred so the user always gets the same codec/quality they heard last,
-// regardless of which adaptive formats YouTube returns in a fresh player call.
-// Mirrors InnerTune/Metrolist's FormatEntity.
-
 @Entity(tableName = "audio_formats")
 data class FormatEntity(
     @PrimaryKey @ColumnInfo(name = "video_id") val videoId: String,
@@ -206,8 +185,6 @@ interface FormatDao {
     @Query("SELECT * FROM audio_formats WHERE video_id = :videoId LIMIT 1")
     suspend fun byVideoId(videoId: String): FormatEntity?
 }
-
-// ── Database ──────────────────────────────────────────────────────────────
 
 @Database(
     entities = [

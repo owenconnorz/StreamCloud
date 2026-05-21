@@ -8,18 +8,6 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
 
-/**
- * Persistent on-disk cache for YT Music playlist track lists.
- *
- * Stored in [android.content.Context.filesDir] (not cacheDir) so the data
- * survives "Clear Cache" and is only removed on "Clear Storage / Data".
- * This matches Metrolist's approach — playlist caches are treated as user
- * data, not throwaway HTTP caches.
- *
- * Stale-while-revalidate: the UI renders cached data immediately while a
- * fresh fetch happens in the background. The cache is replaced once the
- * network result lands.
- */
 object PlaylistCache {
     private const val TAG = "PlaylistCache"
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }

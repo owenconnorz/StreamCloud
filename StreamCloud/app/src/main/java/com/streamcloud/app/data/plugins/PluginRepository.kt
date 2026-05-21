@@ -72,12 +72,7 @@ class PluginRepository(private val context: Context) {
         context.pluginStore.edit { it[KEY_INSTALLED] = text }
     }
 
-    /**
-     * Fetch the plugin list. Tries multiple URL forms because CloudStream forks vary:
-     *   1. The given URL as-is
-     *   2. URL + /plugins.json (most common)
-     *   3. URL + /repo.json (older form)
-     */
+
     suspend fun fetchPluginList(repoUrl: String): List<CloudStreamPlugin> = withContext(Dispatchers.IO) {
         val candidates = buildList {
             val base = repoUrl.trim().trimEnd('/')
@@ -97,7 +92,7 @@ class PluginRepository(private val context: Context) {
                 errors += "$url → ${e.message ?: e::class.simpleName}"
             }
         }
-        // Surface every URL we tried so users can spot typos / wrong branches fast.
+
         error("No plugins found. Tried:\n" + errors.joinToString("\n"))
     }
 
@@ -116,15 +111,7 @@ class PluginRepository(private val context: Context) {
         }
     }
 
-    /**
-     * Walks any JSON shape and pulls out objects that look like CloudStream plugins.
-     * Real-world repo shapes seen in the wild:
-     *   • Top-level array of plugin objects (recloudstream)
-     *   • Object with `pluginLists` key (older recloudstream)
-     *   • Object with `plugins` key (some forks)
-     *   • Object with `extensions` key (a few forks)
-     *   • Object whose values are themselves plugin arrays per category
-     */
+
     private fun parsePluginsFromAny(element: kotlinx.serialization.json.JsonElement): List<CloudStreamPlugin> {
         val out = mutableListOf<CloudStreamPlugin>()
         fun looksLikePlugin(o: JsonObject): Boolean {
@@ -146,16 +133,16 @@ class PluginRepository(private val context: Context) {
                     }
                 }
                 is JsonObject -> {
-                    // A few repos put the array under a known key — check first.
+
                     listOf("pluginLists", "plugins", "extensions").forEach { k ->
                         (el[k] as? JsonArray)?.let { visit(it) }
                     }
                     if (out.isEmpty()) {
-                        // Fallback: walk every value.
+
                         el.values.forEach { visit(it) }
                     }
                 }
-                else -> { /* primitive */ }
+                else -> {  }
             }
         }
         visit(element)
@@ -188,9 +175,9 @@ class PluginRepository(private val context: Context) {
                 authors = plugin.authors,
                 language = plugin.language,
             )
-            // Replace any prior install of the SAME plugin from the SAME repo only.
-            // (Plugins from different repos can legitimately share `internalName` —
-            // e.g., two forks of the same scraper — and must coexist.)
+
+
+
             val list = this@PluginRepository.installed.first()
                 .filterNot { it.sourceRepoId == repo.id && it.internalName == installed.internalName } + installed
             saveInstalled(list)
@@ -207,12 +194,12 @@ class PluginRepository(private val context: Context) {
         saveInstalled(keep)
     }
 
-    /** Total bytes used by installed plugin files. */
+
     suspend fun pluginsCacheSize(): Long = withContext(Dispatchers.IO) {
         pluginsDir.listFiles()?.sumOf { it.length() } ?: 0L
     }
 
-    /** Internal cache + plugin files. */
+
     suspend fun clearAppCache(): Long = withContext(Dispatchers.IO) {
         val before = (context.cacheDir.walkBottomUp().sumOf { it.length() })
         context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }

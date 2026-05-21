@@ -7,14 +7,6 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
-/**
- * Single notification channel for music download progress. Each in-flight
- * download owns a stable [Int] id (derived from URL hash) so the same row
- * updates as the download progresses, then auto-dismisses on completion.
- *
- * Required for Metrolist parity: the user expects to see download progress in
- * the system shade and a final "X downloaded" confirmation.
- */
 internal object MusicDownloadNotifier {
     private const val CHANNEL_ID = "music_downloads"
     private const val CHANNEL_NAME = "Music downloads"
@@ -36,14 +28,10 @@ internal object MusicDownloadNotifier {
         }
     }
 
-    /** Stable per-URL id so the OS replaces the same notification slot. */
+
     fun idFor(url: String): Int = (url.hashCode() and 0x7fffffff)
 
-    /**
-     * Post or update an "ongoing" progress notification. [fraction] in 0..1, or
-     * null for indeterminate (during stream resolution before the byte stream
-     * starts).
-     */
+
     fun postProgress(
         context: Context,
         url: String,
@@ -74,7 +62,7 @@ internal object MusicDownloadNotifier {
         }
     }
 
-    /** Post a brief completion notification. Auto-dismisses after a few seconds. */
+
     fun postComplete(context: Context, url: String, title: String) {
         runCatching {
             ensureChannel(context)

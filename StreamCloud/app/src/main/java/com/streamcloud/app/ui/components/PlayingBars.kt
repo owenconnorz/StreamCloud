@@ -23,15 +23,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
 
-/**
- * Three white vertical bars that loop independently — Metrolist's signature
- * "now playing" indicator that overlays the album thumbnail of the currently
- * active track.
- *
- * When [paused] is true the bars freeze at their last computed position so the
- * indicator remains visible but stops moving (matches Metrolist's exact
- * behaviour during pause).
- */
 @Composable
 fun PlayingBars(
     modifier: Modifier = Modifier,
@@ -40,8 +31,8 @@ fun PlayingBars(
     backgroundTint: Color = Color.Black.copy(alpha = 0.45f),
 ) {
     val transition = rememberInfiniteTransition(label = "playing-bars")
-    // Each bar uses a different animation period so they don't sync up — the
-    // visual rhythm feels organic rather than mechanical.
+
+
     val bar1 by transition.animateBar(periodMs = 600, paused = paused, label = "b1")
     val bar2 by transition.animateBar(periodMs = 800, paused = paused, label = "b2")
     val bar3 by transition.animateBar(periodMs = 700, paused = paused, label = "b3")
@@ -82,7 +73,7 @@ private fun androidx.compose.animation.core.InfiniteTransition.animateBar(
     targetValue = 1f,
     animationSpec = infiniteRepeatable(
         animation = tween(
-            // Setting durationMillis = Int.MAX when paused freezes the value.
+
             durationMillis = if (paused) 100_000 else periodMs,
             easing = LinearEasing,
         ),
