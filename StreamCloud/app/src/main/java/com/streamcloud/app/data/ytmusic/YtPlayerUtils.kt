@@ -190,67 +190,65 @@ object YtPlayerUtils {
         videoId: String,
         preferItag: Int?,
         preferHighQuality: Boolean,
-    ): ClientResult = try {
-        val root = fetchPlayerResponse(client, videoId)
-            ?: return ClientResult.Error(null)
+    ): ClientResult {
+        return try {
+            val root = fetchPlayerResponse(client, videoId)
+                ?: return ClientResult.Error(null)
 
-        val playabilityStatus = root["playabilityStatus"]?.jsonObject
-        val playabilityReason = playabilityStatus?.get("reason")?.jsonPrimitive?.content
+            val playabilityStatus = root["playabilityStatus"]?.jsonObject
+            val playabilityReason = playabilityStatus?.get("reason")?.jsonPrimitive?.content
 
-        val streamingData = root["streamingData"]?.jsonObject
-        if (streamingData == null) {
-            return ClientResult.NoStreams(playabilityReason)
-        }
+            val streamingData = root["streamingData"]?.jsonObject
+                ?: return ClientResult.NoStreams(playabilityReason)
 
-        val adaptiveFormats = streamingData["adaptiveFormats"]?.jsonArray
-        if (adaptiveFormats == null) {
-            return ClientResult.NoStreams(playabilityReason)
-        }
+            val adaptiveFormats = streamingData["adaptiveFormats"]?.jsonArray
+                ?: return ClientResult.NoStreams(playabilityReason)
 
-        val audioOnly = adaptiveFormats
-            .mapNotNull { it as? JsonObject }
-            .filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/") }
+            val audioOnly = adaptiveFormats
+                .mapNotNull { it as? JsonObject }
+                .filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/") }
 
-        if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason)
+            if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason)
 
-        // Filter to formats that have a plain url (not signatureCipher).
-        val plainUrl = audioOnly.filter {
-            it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
-        }
-        if (plainUrl.isEmpty()) return ClientResult.CipheredOnly
+            // Filter to formats that have a plain url (not signatureCipher).
+            val plainUrl = audioOnly.filter {
+                it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
+            }
+            if (plainUrl.isEmpty()) return ClientResult.CipheredOnly
 
-        val expiresInSeconds =
-            streamingData["expiresInSeconds"]?.jsonPrimitive?.content?.toLongOrNull() ?: 21_600L
+            val expiresInSeconds =
+                streamingData["expiresInSeconds"]?.jsonPrimitive?.content?.toLongOrNull() ?: 21_600L
 
-        val best = if (preferItag != null) {
-            plainUrl.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == preferItag }
-                ?: selectByQuality(plainUrl, preferHighQuality)
-        } else {
-            selectByQuality(plainUrl, preferHighQuality)
-        }
+            val best = if (preferItag != null) {
+                plainUrl.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == preferItag }
+                    ?: selectByQuality(plainUrl, preferHighQuality)
+            } else {
+                selectByQuality(plainUrl, preferHighQuality)
+            }
 
-        val url = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-            ?: return ClientResult.CipheredOnly
+            val url = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                ?: return ClientResult.CipheredOnly
 
-        val loudnessDb = root["playerConfig"]
-            ?.jsonObject?.get("audioConfig")
-            ?.jsonObject?.get("loudnessDb")
-            ?.jsonPrimitive?.content?.toDoubleOrNull()
+            val loudnessDb = root["playerConfig"]
+                ?.jsonObject?.get("audioConfig")
+                ?.jsonObject?.get("loudnessDb")
+                ?.jsonPrimitive?.content?.toDoubleOrNull()
 
-        ClientResult.Success(
-            AudioFormatInfo(
-                url              = url,
-                itag             = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
-                mimeType         = best["mimeType"]?.jsonPrimitive?.content.orEmpty(),
-                bitrate          = best["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
-                sampleRate       = best["audioSampleRate"]?.jsonPrimitive?.content?.toIntOrNull(),
-                contentLength    = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull(),
-                loudnessDb       = loudnessDb,
-                expiresInSeconds = expiresInSeconds,
+            ClientResult.Success(
+                AudioFormatInfo(
+                    url              = url,
+                    itag             = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                    mimeType         = best["mimeType"]?.jsonPrimitive?.content.orEmpty(),
+                    bitrate          = best["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                    sampleRate       = best["audioSampleRate"]?.jsonPrimitive?.content?.toIntOrNull(),
+                    contentLength    = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull(),
+                    loudnessDb       = loudnessDb,
+                    expiresInSeconds = expiresInSeconds,
+                )
             )
-        )
-    } catch (e: Exception) {
-        ClientResult.Error(e)
+        } catch (e: Exception) {
+            ClientResult.Error(e)
+        }
     }
 
     private fun fetchPlayerResponse(client: ClientConfig, videoId: String): JsonObject? {
