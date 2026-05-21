@@ -10,6 +10,8 @@ import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -118,7 +120,27 @@ class MusicPlaybackService : MediaLibraryService() {
             // Pause when headphones are unplugged.
             .setHandleAudioBecomingNoisy(true)
             .build()
-            .apply { playWhenReady = false }
+            .apply {
+                playWhenReady = false
+                // Auto-skip unresolvable tracks (PoToken-blocked, region-restricted,
+                // age-gated) so the rest of the playlist keeps playing.
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        val isIoError = error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND
+                        if (isIoError && hasNextMediaItem()) {
+                            AppLogger.w(
+                                "MusicPlaybackService",
+                                "Skipping unresolvable track — ${error.message?.take(80)}",
+                            )
+                            seekToNextMediaItem()
+                            play()
+                        }
+                    }
+                })
+            }
 
         val sessionActivityIntent = PendingIntent.getActivity(
             this, 0,
