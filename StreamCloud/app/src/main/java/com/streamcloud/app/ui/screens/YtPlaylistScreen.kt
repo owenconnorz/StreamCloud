@@ -148,6 +148,15 @@ fun YtPlaylistScreen(
                 com.streamcloud.app.data.ytmusic.LibraryCache.updatePlaylistCount(
                     context, playlistId, fresh.size,
                 )
+                // Pre-warm the stream URL cache for every track in the playlist.
+                // Runs fire-and-forget in the background: 3 concurrent Innertube
+                // POSTs at a time so the user gets instant playback on any track
+                // they tap without waiting for on-demand URL resolution.
+                scope.launch {
+                    com.streamcloud.app.data.ytmusic.StreamUrlCache.warmup(
+                        fresh.map { it.videoId },
+                    )
+                }
             }
         } else if (cached == null) {
             tracks = emptyList()
