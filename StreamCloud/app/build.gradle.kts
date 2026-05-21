@@ -158,6 +158,10 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("androidx.media3:media3-session:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
+    // OkHttp-backed data source for Media3 — replaces DefaultHttpDataSource in the
+    // download pipeline so downloads get HTTP/2, connection pooling, and socket-level
+    // buffer tuning instead of bare HttpURLConnection.
+    implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
 
     // Torrent / P2P streaming via TorrServer (Go binary in jniLibs/).
     // TorrServer exposes a local HTTP server with Range support that ExoPlayer
