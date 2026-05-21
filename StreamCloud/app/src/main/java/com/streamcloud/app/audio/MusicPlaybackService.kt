@@ -27,6 +27,7 @@ import com.streamcloud.app.data.library.TrackDao
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
+import com.streamcloud.app.data.ytmusic.StreamUrlCache
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
@@ -43,7 +44,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Foreground [MediaLibraryService] for music playback and Android Auto / Automotive OS.
@@ -81,24 +81,9 @@ class MusicPlaybackService : MediaLibraryService() {
     /** Cached YT Music library — refreshed at startup and on cookie change. */
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
 
-    /**
-     * In-memory stream-URL cache: videoId → (streamUrl, expiryEpochMs).
-     *
-     * YouTube CDN URLs are valid for ~6 hours (expiresInSeconds ≈ 21 600).
-     * Without this cache, ResolvingDataSource calls the resolver lambda on
-     * *every* ExoPlayer data-spec request — content-length probes, seek
-     * range requests, rebuffer fills — meaning a single track playback can
-     * trigger 5–10 Innertube POSTs (300–800 ms each), causing the "stuck at
-     * 0:00 / slow to start" symptom.
-     *
-     * The cache is keyed on videoId so it also survives seek operations and
-     * auto-advance to the same track in a loop.  URLs are evicted automatically
-     * when their CDN expiry approaches (5-minute buffer before the real expiry).
-     *
-     * Thread safety: ConcurrentHashMap — safe for concurrent reads/writes from
-     * ExoPlayer's loader thread and the ioScope coroutines.
-     */
-    private val streamUrlCache = ConcurrentHashMap<String, Pair<String, Long>>()
+    // Stream URL resolution is delegated to the app-wide [StreamUrlCache] singleton.
+    // That object is also populated by [YtPlaylistScreen] when a playlist opens so
+    // that every track's URL is pre-resolved before the user taps play.
 
     private val sl by lazy { ServiceLocator.get(applicationContext) }
 
@@ -208,7 +193,8 @@ class MusicPlaybackService : MediaLibraryService() {
      * network round-trip.
      *
      * Resolution order (mirrors Metrolist):
-     *  1. [streamUrlCache] hit and URL not yet expired → return immediately
+     *  1. [StreamUrlCache] hit and URL not yet expired → return immediately
+     *     (also populated by [YtPlaylistScreen] warmup before the user taps play)
      *  2. [YtPlayerUtils.resolveAudioFormatInfo] — single Innertube POST,
      *     typically 300–800 ms; stores URL with CDN expiry - 5 min buffer
      *  3. [NewPipeRepository.resolveAudioStream] fallback — parses watch page
@@ -220,37 +206,34 @@ class MusicPlaybackService : MediaLibraryService() {
     private fun resolveStreamUrl(videoId: String, watchUrl: String): String {
         val now = System.currentTimeMillis()
 
-        // 1. Cache hit
-        streamUrlCache[videoId]?.let { (url, expiryMs) ->
-            if (now < expiryMs) {
-                Log.d(TAG, "streamUrlCache hit for $videoId (expires in ${(expiryMs - now) / 1000}s)")
-                return url
-            }
-            Log.d(TAG, "streamUrlCache expired for $videoId — re-resolving")
+        // 1. Shared cache hit (may have been pre-warmed by playlist open).
+        StreamUrlCache.get(videoId)?.let { url ->
+            val ttl = StreamUrlCache.ttlSeconds(videoId) ?: 0
+            Log.d(TAG, "StreamUrlCache hit for $videoId (ttl=${ttl}s)")
+            return url
         }
 
-        // 2. Innertube path
+        // 2. Innertube path — single POST, 300–800 ms.
         val info = runBlocking(Dispatchers.IO) {
             if (videoId.isNotBlank()) {
                 runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }.getOrNull()
             } else null
         }
         if (info != null) {
-            // Subtract a 5-minute safety buffer from the CDN URL's declared lifetime.
             val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
-            streamUrlCache[videoId] = Pair(info.url, expiryMs)
+            StreamUrlCache.put(videoId, info.url, expiryMs)
             Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
             return info.url
         }
 
-        // 3. NewPipe fallback (slower — parses watch-page HTML + deobfuscates nsig)
+        // 3. NewPipe fallback (slower — parses watch-page HTML + deobfuscates nsig).
         Log.d(TAG, "Innertube failed for $videoId — falling back to NewPipe")
         val npUrl = runBlocking(Dispatchers.IO) {
             runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
         } ?: error("Both Innertube and NewPipe failed to resolve stream for $videoId")
 
-        // Cache NewPipe URLs for 1 hour (YouTube doesn't tell us their expiry).
-        streamUrlCache[videoId] = Pair(npUrl, now + 3_600_000L)
+        // Cache NewPipe URLs for 1 hour (YouTube doesn't report their expiry).
+        StreamUrlCache.put(videoId, npUrl, now + 3_600_000L)
         Log.d(TAG, "NewPipe resolved $videoId (cached 1 h)")
         return npUrl
     }
