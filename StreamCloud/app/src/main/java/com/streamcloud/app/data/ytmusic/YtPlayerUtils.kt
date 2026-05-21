@@ -63,6 +63,11 @@ object YtPlayerUtils {
          * video ID at request time.  Required for TVHTML5_SIMPLY_EMBEDDED_PLAYER.
          */
         val embedUrlTemplate: String? = null,
+        /**
+         * When true this client is skipped entirely if the user is not signed in.
+         * WEB_CREATOR for example will return LOGIN_REQUIRED when no cookie is set.
+         */
+        val requiresAuth: Boolean = false,
     )
 
     private val CLIENTS = listOf(
@@ -190,6 +195,37 @@ object YtPlayerUtils {
                 "osVersion"   to "17.5.1.21F90",
             ),
         ),
+
+        // ── 8. TVHTML5_SIMPLY_EMBEDDED_PLAYER — age-gate bypass ──────────
+        // PlayStation 4 TV-embedded client (clientId=85).  Metrolist uses this
+        // as its FIRST fallback for age-restricted content.  It does NOT require
+        // a PoToken — the embedUrl in context.thirdParty acts as the proof that
+        // the video is being played inside an embedded iframe, which YouTube
+        // accepts as a substitute for user age verification.
+        // Works for age-gated AND many region-blocked tracks.
+        ClientConfig(
+            label             = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            playerUrl         = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName        = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientId          = "85",
+            clientVersion     = "2.0",
+            userAgent         = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+            embedUrlTemplate  = "https://www.youtube.com/embed/%VIDEO_ID%",
+        ),
+
+        // ── 9. WEB_CREATOR — authenticated age-gate bypass ───────────────
+        // YouTube Studio web client (clientId=62).  Metrolist uses this when
+        // the user IS signed in and the main response is age-restricted.
+        // Only attempted when a YTM cookie is present (requiresAuth=true).
+        ClientConfig(
+            label         = "WEB_CREATOR",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "WEB_CREATOR",
+            clientId      = "62",
+            clientVersion = "1.20260213.00.00",
+            userAgent     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+            requiresAuth  = true,
+        ),
     )
 
     private val http = OkHttpClient.Builder()
@@ -299,7 +335,17 @@ object YtPlayerUtils {
         preferHighQuality: Boolean = true,
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
         ensureVisitorData()
+        val isLoggedIn = ytMusicCookie.isNotBlank()
+        var ageGateDetected = false
+
         for (client in CLIENTS) {
+            // Skip auth-required clients (e.g. WEB_CREATOR) when the user is not signed in —
+            // YouTube returns LOGIN_REQUIRED for them and the request is wasted.
+            if (client.requiresAuth && !isLoggedIn) {
+                Log.d(TAG, "[${client.label}] skipped — requires login (not signed in)")
+                continue
+            }
+
             val result = tryClient(client, videoId, preferItag, preferHighQuality)
             when (result) {
                 is ClientResult.Success -> {
@@ -312,8 +358,15 @@ object YtPlayerUtils {
                 }
                 is ClientResult.NoStreams -> {
                     val why = result.reason?.let { " (reason: $it)" } ?: ""
-                    AppLogger.w(TAG, "[${client.label}] $videoId — no audio streams$why, trying next client")
-                    Log.d(TAG, "[${client.label}] $videoId no streams$why")
+                    // Detect age-gate / region-block via the machine-readable status code
+                    val isAgeGate = result.status != null && result.status in AGE_GATE_STATUSES
+                    if (isAgeGate && !ageGateDetected) {
+                        ageGateDetected = true
+                        AppLogger.w(TAG, "[${client.label}] $videoId — age-gate/region-block detected (status=${result.status}); continuing to TVHTML5_SIMPLY_EMBEDDED_PLAYER + WEB_CREATOR")
+                    } else {
+                        AppLogger.w(TAG, "[${client.label}] $videoId — no audio streams$why, trying next client")
+                    }
+                    Log.d(TAG, "[${client.label}] $videoId no streams status=${result.status}$why")
                 }
                 is ClientResult.Error -> {
                     AppLogger.w(TAG, "[${client.label}] $videoId — request failed: ${result.cause?.message}")
@@ -321,8 +374,9 @@ object YtPlayerUtils {
                 }
             }
         }
-        AppLogger.e(TAG, "All Innertube clients failed for $videoId — NewPipe fallback will be used")
-        null
+        val suffix = if (ageGateDetected) " (PoToken/age-gate or region block)" else ""
+        AppLogger.e(TAG, "Both Innertube and NewPipe failed to resolve stream for $videoId$suffix")
+        throw IllegalStateException("YouTube returned no audio streams for this track.$suffix")
     }
 
     suspend fun resolveAudioStreamInfo(videoId: String): AudioStreamInfo? =
@@ -333,10 +387,20 @@ object YtPlayerUtils {
 
     // ── Internal ──────────────────────────────────────────────────────────
 
+    // YouTube playabilityStatus.status codes that signal age-gate or login required.
+    // TVHTML5_SIMPLY_EMBEDDED_PLAYER and WEB_CREATOR are the bypass clients for these.
+    private val AGE_GATE_STATUSES = setOf(
+        "AGE_CHECK_REQUIRED",
+        "AGE_VERIFICATION_REQUIRED",
+        "LOGIN_REQUIRED",
+        "CONTENT_CHECK_REQUIRED",
+    )
+
     private sealed interface ClientResult {
         data class Success(val info: AudioFormatInfo) : ClientResult
         data object CipheredOnly : ClientResult
-        data class NoStreams(val reason: String? = null) : ClientResult
+        /** [status] is the machine-readable playabilityStatus.status (e.g. "AGE_CHECK_REQUIRED"). */
+        data class NoStreams(val reason: String? = null, val status: String? = null) : ClientResult
         data class Error(val cause: Throwable?) : ClientResult
     }
 
@@ -350,20 +414,21 @@ object YtPlayerUtils {
             val root = fetchPlayerResponse(client, videoId)
                 ?: return ClientResult.Error(null)
 
-            val playabilityStatus = root["playabilityStatus"]?.jsonObject
-            val playabilityReason = playabilityStatus?.get("reason")?.jsonPrimitive?.content
+            val playabilityStatusObj = root["playabilityStatus"]?.jsonObject
+            val playabilityReason = playabilityStatusObj?.get("reason")?.jsonPrimitive?.content
+            val playabilityStatus = playabilityStatusObj?.get("status")?.jsonPrimitive?.content
 
             val streamingData = root["streamingData"]?.jsonObject
-                ?: return ClientResult.NoStreams(playabilityReason)
+                ?: return ClientResult.NoStreams(playabilityReason, playabilityStatus)
 
             val adaptiveFormats = streamingData["adaptiveFormats"]?.jsonArray
-                ?: return ClientResult.NoStreams(playabilityReason)
+                ?: return ClientResult.NoStreams(playabilityReason, playabilityStatus)
 
             val audioOnly = adaptiveFormats
                 .mapNotNull { it as? JsonObject }
                 .filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/") }
 
-            if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason)
+            if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason, playabilityStatus)
 
             val plainUrl = audioOnly.filter {
                 it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
