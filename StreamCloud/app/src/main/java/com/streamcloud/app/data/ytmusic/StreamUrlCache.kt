@@ -53,6 +53,8 @@ object StreamUrlCache {
         return if (remaining > 0) remaining else null
     }
 
+    fun remove(videoId: String) { cache.remove(videoId) }
+
 
 
 
