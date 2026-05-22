@@ -1,6 +1,10 @@
 @file:Suppress("unused", "UNUSED_PARAMETER", "MemberVisibilityCanBePrivate")
 package com.lagradost.cloudstream3
 
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.Qualities
+
 enum class TvType {
     Movie, AnimeMovie, TvSeries, Anime, OVA, Cartoon, Documentary, AsianDrama,
     Live, Torrent, NSFW, Music, AudioBook, JAV, Hentai, CartoonHentai,
@@ -10,9 +14,7 @@ enum class TvType {
 enum class DubStatus { Subbed, Dubbed, None }
 enum class ShowStatus { Completed, Ongoing, OnHiatus, Cancelled }
 enum class SearchQuality { HD, FHD, BluRay, UHD, FourK, SD, CamRip, Cam, HDR, DVD, WebRip, HDCam }
-
 enum class VPNStatus { None, MightBeNeeded, Torrent }
-
 enum class ProviderType { MetaProvider, DirectProvider }
 
 open class SearchResponse(
@@ -24,6 +26,7 @@ open class SearchResponse(
     open var posterHeaders: Map<String, String>? = null,
     open var id: Int? = null,
     open var quality: SearchQuality? = null,
+    open var score: Score? = null,
 )
 
 open class MovieSearchResponse(
@@ -36,6 +39,7 @@ open class MovieSearchResponse(
     override var id: Int? = null,
     override var posterHeaders: Map<String, String>? = null,
     override var quality: SearchQuality? = null,
+    override var score: Score? = null,
 ) : SearchResponse(name, url, apiName, type, posterUrl, posterHeaders, id, quality)
 
 open class TvSeriesSearchResponse(
@@ -49,6 +53,7 @@ open class TvSeriesSearchResponse(
     override var id: Int? = null,
     override var posterHeaders: Map<String, String>? = null,
     override var quality: SearchQuality? = null,
+    override var score: Score? = null,
 ) : SearchResponse(name, url, apiName, type, posterUrl, posterHeaders, id, quality)
 
 open class AnimeSearchResponse(
@@ -65,6 +70,7 @@ open class AnimeSearchResponse(
     override var id: Int? = null,
     override var posterHeaders: Map<String, String>? = null,
     override var quality: SearchQuality? = null,
+    override var score: Score? = null,
 ) : SearchResponse(name, url, apiName, type, posterUrl, posterHeaders, id, quality)
 
 class EnumSet : HashSet<DubStatus>()
@@ -79,6 +85,7 @@ open class LiveSearchResponse(
     override var id: Int? = null,
     override var posterHeaders: Map<String, String>? = null,
     override var quality: SearchQuality? = null,
+    override var score: Score? = null,
 ) : SearchResponse(name, url, apiName, type, posterUrl, posterHeaders, id, quality)
 
 open class TorrentSearchResponse(
@@ -90,6 +97,7 @@ open class TorrentSearchResponse(
     override var id: Int? = null,
     override var posterHeaders: Map<String, String>? = null,
     override var quality: SearchQuality? = null,
+    override var score: Score? = null,
 ) : SearchResponse(name, url, apiName, type, posterUrl, posterHeaders, id, quality)
 
 open class LoadResponse(
@@ -101,6 +109,7 @@ open class LoadResponse(
     open var year: Int? = null,
     open var plot: String? = null,
     open var rating: Int? = null,
+    open var score: Score? = null,
     open var tags: List<String>? = null,
     open var duration: Int? = null,
     open var trailers: MutableList<TrailerData> = mutableListOf(),
@@ -137,6 +146,7 @@ class MovieLoadResponse(
     override var year: Int? = null,
     override var plot: String? = null,
     override var rating: Int? = null,
+    override var score: Score? = null,
     override var tags: List<String>? = null,
     override var duration: Int? = null,
     override var trailers: MutableList<TrailerData> = mutableListOf(),
@@ -146,7 +156,7 @@ class MovieLoadResponse(
     override var posterHeaders: Map<String, String>? = null,
     override var backgroundPosterUrl: String? = null,
     override var contentRating: String? = null,
-) : LoadResponse(name, url, apiName, type, posterUrl, year, plot, rating, tags, duration,
+) : LoadResponse(name, url, apiName, type, posterUrl, year, plot, rating, score, tags, duration,
     trailers, recommendations, actors, comingSoon, posterHeaders, backgroundPosterUrl, contentRating)
 
 data class Episode(
@@ -171,6 +181,7 @@ class TvSeriesLoadResponse(
     override var plot: String? = null,
     var showStatus: ShowStatus? = null,
     override var rating: Int? = null,
+    override var score: Score? = null,
     override var tags: List<String>? = null,
     override var duration: Int? = null,
     override var trailers: MutableList<TrailerData> = mutableListOf(),
@@ -180,11 +191,9 @@ class TvSeriesLoadResponse(
     override var posterHeaders: Map<String, String>? = null,
     override var backgroundPosterUrl: String? = null,
     override var contentRating: String? = null,
-) : LoadResponse(name, url, apiName, type, posterUrl, year, plot, rating, tags, duration,
+) : LoadResponse(name, url, apiName, type, posterUrl, year, plot, rating, score, tags, duration,
     trailers, recommendations, actors, comingSoon, posterHeaders, backgroundPosterUrl, contentRating)
 
-// LiveStreamLoadResponse — alias for MovieLoadResponse with TvType.Live.
-// Compiled plugins reference this class name directly when using newLiveStreamLoadResponse().
 typealias LiveStreamLoadResponse = MovieLoadResponse
 
 class HomePageList(
@@ -204,58 +213,33 @@ class MainPageRequest(
     val horizontalImages: Boolean = false,
 )
 
-fun mainPage(data: String, name: String, horizontalImages: Boolean = false) =
-    MainPageRequest(name = name, data = data, horizontalImages = horizontalImages)
+// ── Score — represents a content rating (0..1_000_000_000 internally) ─────────
 
-fun mainPageOf(vararg pairs: Pair<String, String>): List<MainPageRequest> =
-    pairs.map { (data, name) -> MainPageRequest(name, data, false) }
-
-// ── newHomePageResponse overloads (matching the real CloudStream SDK) ─────────
-
-fun newHomePageResponse(name: String, list: List<SearchResponse>,
-    hasNext: Boolean? = null): HomePageResponse =
-    HomePageResponse(listOf(HomePageList(name, list)),
-        hasNext = hasNext ?: list.isNotEmpty())
-
-/** Single HomePageList variant — this is what most modern plugins use. */
-fun newHomePageResponse(list: HomePageList, hasNext: Boolean? = null): HomePageResponse =
-    HomePageResponse(listOf(list), hasNext = hasNext ?: list.list.isNotEmpty())
-
-fun newHomePageResponse(items: List<HomePageList>, hasNext: Boolean? = null): HomePageResponse =
-    HomePageResponse(items, hasNext = hasNext ?: items.any { it.list.isNotEmpty() })
-
-fun newHomePageResponse(request: MainPageRequest, list: List<SearchResponse>,
-    hasNext: Boolean? = null): HomePageResponse =
-    HomePageResponse(listOf(HomePageList(request.name, list, request.horizontalImages)),
-        hasNext = hasNext ?: list.isNotEmpty())
-
-// ── Quality / Extractor types ─────────────────────────────────────────────────
-
-enum class Qualities(val value: Int) {
-    Unknown(0), P144(144), P240(240), P360(360), P480(480),
-    P720(720), P1080(1080), P1440(1440), P2160(2160);
-    companion object { fun getStringByInt(q: Int?): String = (q ?: 0).toString() + "p" }
+class Score private constructor(private val data: Int) {
+    companion object {
+        const val MAX = 1_000_000_000
+        val NONE: Score get() = Score(0)
+        fun from(value: Int): Score = Score(value.coerceIn(0, MAX))
+        fun from(value: Float): Score = from((value * MAX / 10.0f).toInt())
+        fun from(value: Double): Score = from((value * MAX / 10.0).toInt())
+        fun fromDecimal(value: Number): Score = from(value.toFloat())
+    }
+    override fun hashCode(): Int = data.hashCode()
+    override fun equals(other: Any?): Boolean = other is Score && data == other.data
+    fun toInt(maxScore: Int = 10): Int = toLong(maxScore).toInt()
+    fun toFloat(maxScore: Int = 10): Float = (data.toFloat() * maxScore) / MAX.toFloat()
+    fun toLong(maxScore: Int = 10): Long = (data.toLong() * maxScore) / MAX.toLong()
+    override fun toString(): String = String.format("%.1f", toFloat())
 }
 
-open class ExtractorLink(
-    var source: String,
-    var name: String,
-    var url: String,
-    var referer: String,
-    var quality: Int,
-    var isM3u8: Boolean = false,
-    var headers: Map<String, String> = emptyMap(),
-    var extractorData: String? = null,
-)
+// ── Thread-safe list helper ────────────────────────────────────────────────────
 
-class SubtitleFile(val lang: String, val url: String)
+fun <T> threadSafeListOf(vararg elements: T): MutableList<T> =
+    java.util.Collections.synchronizedList(mutableListOf(*elements))
 
+// ── Settings / override data classes ──────────────────────────────────────────
 
-// ── Settings / override data classes ────────────────────────────────────────
-
-class SettingsJson(
-    var enableAdult: Boolean = false,
-)
+class SettingsJson(var enableAdult: Boolean = false)
 
 data class ProvidersInfoJson(
     val name: String = "",
@@ -265,40 +249,72 @@ data class ProvidersInfoJson(
 
 class ErrorLoadingException(message: String? = null) : Exception(message)
 
-// ── APIHolder — tracks all registered providers ───────────────────────────────
+class SubtitleFile(val lang: String, val url: String)
+
+// ── APIHolder — plugin registry ────────────────────────────────────────────────
+
 object APIHolder {
-    val allProviders: MutableList<MainAPI> = java.util.Collections.synchronizedList(mutableListOf())
+    /** Unix timestamp in seconds. Plugins call getUnixTime() (Kotlin getter). */
+    val unixTime: Long get() = System.currentTimeMillis() / 1000L
+    /** Unix timestamp in milliseconds. Plugins call getUnixTimeMS(). */
+    val unixTimeMS: Long get() = System.currentTimeMillis()
+
+    val allProviders: MutableList<MainAPI> = threadSafeListOf()
+    var apis: List<MainAPI> = threadSafeListOf()
+    var apiMap: Map<String, Int>? = null
+
+    fun initAll() {
+        synchronized(allProviders) {
+            for (api in allProviders) runCatching { api.init() }
+        }
+        apiMap = null
+    }
+
+    private fun initMap(force: Boolean = false) {
+        if (apiMap == null || force)
+            apiMap = apis.mapIndexed { i, a -> a.name to i }.toMap()
+    }
 
     fun addPluginMapping(plugin: MainAPI) {
         synchronized(allProviders) { allProviders.add(plugin) }
+        synchronized(allProviders) {
+            apis = apis + plugin
+            initMap(true)
+        }
     }
 
     fun removePluginMapping(plugin: MainAPI) {
         synchronized(allProviders) { allProviders.remove(plugin) }
+        synchronized(allProviders) {
+            apis = apis.filter { it != plugin }
+            initMap(true)
+        }
     }
 
     fun getApiFromNameNull(apiName: String?): MainAPI? {
         if (apiName == null) return null
-        synchronized(allProviders) { return allProviders.firstOrNull { it.name == apiName } }
+        synchronized(allProviders) {
+            initMap()
+            return apiMap?.get(apiName)?.let { apis.getOrNull(it) }
+                ?: allProviders.firstOrNull { it.name == apiName }
+        }
+    }
+
+    fun getApiFromUrlNull(url: String?): MainAPI? {
+        if (url == null) return null
+        synchronized(allProviders) {
+            return allProviders.firstOrNull { url.startsWith(it.mainUrl) }
+        }
     }
 }
 
-// ── MainAPI ───────────────────────────────────────────────────────────────────
+// ── MainAPI ────────────────────────────────────────────────────────────────────
 
 abstract class MainAPI {
-    /**
-     * companion object — plugins access MainAPI.Companion for:
-     *   - settingsForProvider (ShowBox calls getSettingsForProvider())
-     *   - overrideData
-     *   - USER_AGENT constant
-     *   - getQualityFromName()
-     */
     companion object {
         const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         const val CLOUDSTREAM_AGENT = "CloudStream"
 
-        // settingsForProvider generates getSettingsForProvider()/setSettingsForProvider()
-        // JVM getters — ShowBox calls getSettingsForProvider() on the companion instance
         var settingsForProvider: SettingsJson = SettingsJson()
         var overrideData: HashMap<String, ProvidersInfoJson>? = null
 
@@ -327,14 +343,12 @@ abstract class MainAPI {
     open var sequentialMainPageDelay: Long = 0L
     open var sequentialMainPageScrollDelay: Long = 0L
 
+    open fun init() {}
+
     open suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? = null
-
     open suspend fun search(query: String): List<SearchResponse>? = null
-
     open suspend fun quickSearch(query: String): List<SearchResponse>? = null
-
     open suspend fun load(url: String): LoadResponse? = null
-
     open suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -343,7 +357,26 @@ abstract class MainAPI {
     ): Boolean = false
 }
 
-// ── Utility functions ─────────────────────────────────────────────────────────
+// ── Top-level helpers ──────────────────────────────────────────────────────────
+
+fun mainPage(data: String, name: String, horizontalImages: Boolean = false) =
+    MainPageRequest(name = name, data = data, horizontalImages = horizontalImages)
+
+fun mainPageOf(vararg pairs: Pair<String, String>): List<MainPageRequest> =
+    pairs.map { (data, name) -> MainPageRequest(name, data, false) }
+
+fun newHomePageResponse(name: String, list: List<SearchResponse>, hasNext: Boolean? = null): HomePageResponse =
+    HomePageResponse(listOf(HomePageList(name, list)), hasNext = hasNext ?: list.isNotEmpty())
+
+fun newHomePageResponse(list: HomePageList, hasNext: Boolean? = null): HomePageResponse =
+    HomePageResponse(listOf(list), hasNext = hasNext ?: list.list.isNotEmpty())
+
+fun newHomePageResponse(items: List<HomePageList>, hasNext: Boolean? = null): HomePageResponse =
+    HomePageResponse(items, hasNext = hasNext ?: items.any { it.list.isNotEmpty() })
+
+fun newHomePageResponse(request: MainPageRequest, list: List<SearchResponse>, hasNext: Boolean? = null): HomePageResponse =
+    HomePageResponse(listOf(HomePageList(request.name, list, request.horizontalImages)),
+        hasNext = hasNext ?: list.isNotEmpty())
 
 fun fixUrl(url: String, mainUrl: String): String = when {
     url.isBlank() -> ""
@@ -353,14 +386,9 @@ fun fixUrl(url: String, mainUrl: String): String = when {
     else -> "$mainUrl/$url"
 }
 fun fixUrlNull(url: String?, mainUrl: String): String? = url?.let { fixUrl(it, mainUrl) }
-// Top-level form (called without receiver)
 fun fixUrlNull(url: String?): String? = url?.takeIf { it.isNotBlank() }
-
-// Extension form — compiled plugins reference fixUrlNull(MainAPI, String?)
-// (Kotlin extension functions compile to static methods with receiver as first arg)
-fun MainAPI.fixUrlNull(url: String?): String? = url?.let {
-    if (it.isBlank()) null else fixUrl(it, this.mainUrl)
-}
+fun MainAPI.fixUrlNull(url: String?): String? =
+    url?.let { if (it.isBlank()) null else fixUrl(it, this.mainUrl) }
 
 suspend fun <T> safeApiCall(apiCall: suspend () -> T): T? =
     try { apiCall() } catch (_: Exception) { null }
@@ -374,7 +402,7 @@ fun getQualityFromName(name: String?): Int = when (name?.lowercase()) {
     else -> name.filter(Char::isDigit).toIntOrNull() ?: 0
 }
 
-// ── SearchResponse builders ───────────────────────────────────────────────────
+// ── SearchResponse builders ────────────────────────────────────────────────────
 
 inline fun MainAPI.newMovieSearchResponse(
     name: String, url: String, type: TvType = TvType.Movie,
@@ -411,7 +439,7 @@ inline fun MainAPI.newTorrentSearchResponse(
     name = name, url = if (fix) fixUrl(url, this.mainUrl) else url, apiName = this.name, type = type,
 ).apply(initializer)
 
-// ── LoadResponse builders ─────────────────────────────────────────────────────
+// ── LoadResponse builders ──────────────────────────────────────────────────────
 
 inline fun MainAPI.newMovieLoadResponse(
     name: String, url: String, type: TvType, dataUrl: String,
@@ -434,11 +462,8 @@ inline fun MainAPI.newAnimeLoadResponse(
     name = name, url = url, apiName = this.name, type = type, episodes = emptyList(),
 ).apply(initializer)
 
-/** Live stream — wraps MovieLoadResponse with TvType.Live. */
 inline fun MainAPI.newLiveStreamLoadResponse(
-    name: String,
-    url: String,
-    dataUrl: String,
+    name: String, url: String, dataUrl: String,
     initializer: MovieLoadResponse.() -> Unit = {},
 ): MovieLoadResponse = MovieLoadResponse(
     name = name, url = url, apiName = this.name, type = TvType.Live, dataUrl = dataUrl,
@@ -447,9 +472,7 @@ inline fun MainAPI.newLiveStreamLoadResponse(
 inline fun newEpisode(data: String, initializer: Episode.() -> Unit = {}): Episode =
     Episode(data = data).apply(initializer)
 
-// ── ExtractorLinkType and newExtractorLink ─────────────────────────────────────
-
-enum class ExtractorLinkType { VIDEO, M3U8, DASH, MAGNET, TORRENT }
+// ── ExtractorLink builder ──────────────────────────────────────────────────────
 
 inline fun newExtractorLink(
     source: String,
@@ -459,14 +482,17 @@ inline fun newExtractorLink(
     initializer: ExtractorLink.() -> Unit = {},
 ): ExtractorLink = ExtractorLink(
     source = source, name = name, url = url, referer = "", quality = 0,
-    isM3u8 = (type == ExtractorLinkType.M3U8),
+    isM3u8 = (type == ExtractorLinkType.M3U8), type = type,
 ).apply(initializer)
 
-// ── Mutation helpers ──────────────────────────────────────────────────────────
+// ── Mutation helpers ───────────────────────────────────────────────────────────
 
 fun SearchResponse.addPoster(url: String?, headers: Map<String, String>? = null) {
     this.posterUrl = url; if (headers != null) this.posterHeaders = headers
 }
+fun SearchResponse.addScore(s: Score?) { this.score = s }
+fun SearchResponse.addScore(s: Float?) { this.score = s?.let { Score.from(it) } }
+fun SearchResponse.addScore(s: Double?) { this.score = s?.let { Score.from(it) } }
 fun MovieSearchResponse.addYear(y: Int?) { this.year = y }
 fun TvSeriesSearchResponse.addYear(y: Int?) { this.year = y }
 fun TvSeriesSearchResponse.addEpisodes(count: Int?) { this.episodes = count }
@@ -483,6 +509,9 @@ fun LoadResponse.addRating(score: Int?) { this.rating = score }
 fun LoadResponse.addRating(scoreOutOf10: String?) {
     this.rating = scoreOutOf10?.toDoubleOrNull()?.times(1000)?.toInt()
 }
+fun LoadResponse.addScore(s: Score?) { this.score = s }
+fun LoadResponse.addScore(s: Float?) { this.score = s?.let { Score.from(it) } }
+fun LoadResponse.addScore(s: Double?) { this.score = s?.let { Score.from(it) } }
 fun LoadResponse.addPlot(p: String?) { this.plot = p }
 fun LoadResponse.addYear(y: Int?) { this.year = y }
 fun LoadResponse.addDuration(durationMin: Int?) { this.duration = durationMin }
@@ -493,16 +522,17 @@ fun LoadResponse.addTrailer(extractorUrl: String?, referer: String? = null) {
     if (extractorUrl != null) this.trailers.add(TrailerData(extractorUrl, referer))
 }
 
-// ── Base64 helpers ────────────────────────────────────────────────────────────
+// ── Base64 helpers ─────────────────────────────────────────────────────────────
 
 fun base64Decode(s: String): String =
     String(android.util.Base64.decode(s, android.util.Base64.DEFAULT))
 fun base64Encode(s: String): String =
     android.util.Base64.encodeToString(s.toByteArray(), android.util.Base64.NO_WRAP)
+fun base64Encode(b: ByteArray): String =
+    android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP)
 fun base64DecodeArray(s: String): ByteArray =
     android.util.Base64.decode(s, android.util.Base64.DEFAULT)
 
 fun String.isVideoFile(): Boolean = lowercase().substringAfterLast('.') in setOf(
     "mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "m3u8", "ts", "mpd", "3gp",
 )
-
