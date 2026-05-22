@@ -223,14 +223,15 @@ object YtPlayerUtils {
             http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return
                 val text = resp.body?.string() ?: return
-                val vd = json.parseToJsonElement(text).jsonObject["visitorData"]
+                val vd = json.parseToJsonElement(text).jsonObject["responseContext"]
+                    ?.jsonObject?.get("visitorData")
                     ?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: return
                 cachedVisitorData = vd
                 visitorDataFetchedAt = now
                 Log.d(TAG, "visitorData refreshed: ${vd.take(24)}…")
             }
         } catch (e: Exception) {
-            Log.d(TAG, "visitorData fetch failed: ${e.message}")
+            AppLogger.w(TAG, "visitorData fetch failed: ${e.message}")
         }
     }
 
@@ -269,14 +270,16 @@ object YtPlayerUtils {
             }
 
             var poToken: String? = null
-            if (client.useWebPoTokens && sessionId != null) {
+            if (client.useWebPoTokens && sessionId == null) {
+                AppLogger.w(TAG, "[${client.label}] PoToken skipped — visitorData is null")
+            } else if (client.useWebPoTokens && sessionId != null) {
                 val ctx = appContext
                 if (ctx != null) {
                     try {
                         poToken = poTokenGenerator.getWebClientPoToken(ctx, videoId, sessionId)
                             ?.playerRequestPoToken
                     } catch (e: Exception) {
-                        Log.d(TAG, "[${client.label}] PoToken generation failed: ${e.message}")
+                        AppLogger.w(TAG, "[${client.label}] PoToken generation failed: ${e.message}")
                     }
                 }
             }
