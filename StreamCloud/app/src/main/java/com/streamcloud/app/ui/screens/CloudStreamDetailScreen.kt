@@ -31,7 +31,7 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.WatchProgressKey
 import com.lagradost.cloudstream3.Episode
-import com.lagradost.cloudstream3.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
