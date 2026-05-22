@@ -1,9 +1,10 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Plain framework theme. The app uses Jetpack Compose Material 3 entirely, so
-         we don't need com.google.android.material XML themes here.
-         Using android:Theme.Material.NoActionBar avoids dependency on Material lib styles
-         while still giving us a no-action-bar Activity host. -->
-    <style name="Theme.StreamCloud" parent="android:Theme.Material.NoActionBar">
+    <!-- Theme.AppCompat.DayNight.NoActionBar is required because MainActivity
+         extends AppCompatActivity (needed so CloudStream plugins can cast the
+         Activity context to AppCompatActivity in their load() hooks).
+         All visual appearance is handled by Jetpack Compose MaterialTheme; the
+         XML theme only configures window chrome (status bar, nav bar colours). -->
+    <style name="Theme.StreamCloud" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">@color/bg_primary</item>
         <item name="android:statusBarColor">@color/bg_primary</item>
         <item name="android:navigationBarColor">@color/bg_primary</item>
