@@ -62,6 +62,15 @@ object EndlessPlayback {
                 ?: return@mapNotNull null
             if (vid == excludeVideoId) return@mapNotNull null
 
+            val musicVideoType = node["navigationEndpoint"]?.jsonObject
+                ?.get("watchEndpoint")?.jsonObject
+                ?.get("watchEndpointMusicSupportedConfigs")?.jsonObject
+                ?.get("watchEndpointMusicConfig")?.jsonObject
+                ?.get("musicVideoType")?.jsonPrimitive?.contentOrNull
+            if (musicVideoType == "MUSIC_VIDEO_TYPE_OMV" || musicVideoType == "MUSIC_VIDEO_TYPE_UGC") {
+                return@mapNotNull null
+            }
+
             val title = node["title"].runsText()?.takeIf { it.isNotBlank() }
                 ?: return@mapNotNull null
 
