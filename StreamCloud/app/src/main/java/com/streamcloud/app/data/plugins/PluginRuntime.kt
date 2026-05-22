@@ -64,6 +64,9 @@ object PluginRuntime {
             val klass = loader.loadClass(pluginClassName)
             val instance = klass.getDeclaredConstructor().newInstance() as? Plugin
                 ?: error("Class `$pluginClassName` is not a subclass of `Plugin`")
+            // Set filename before any lifecycle calls so plugins can use it for
+            // cache keys, preferences namespacing, etc.
+            instance.filename = filePath
             instance.beforeLoad()
             instance.load(context)
             instance.afterLoad()
