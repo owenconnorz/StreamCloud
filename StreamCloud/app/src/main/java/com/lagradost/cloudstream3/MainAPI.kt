@@ -183,6 +183,10 @@ class TvSeriesLoadResponse(
 ) : LoadResponse(name, url, apiName, type, posterUrl, year, plot, rating, tags, duration,
     trailers, recommendations, actors, comingSoon, posterHeaders, backgroundPosterUrl, contentRating)
 
+// LiveStreamLoadResponse — alias for MovieLoadResponse with TvType.Live.
+// Compiled plugins reference this class name directly when using newLiveStreamLoadResponse().
+typealias LiveStreamLoadResponse = MovieLoadResponse
+
 class HomePageList(
     val name: String,
     val list: List<SearchResponse>,
@@ -206,13 +210,26 @@ fun mainPage(data: String, name: String, horizontalImages: Boolean = false) =
 fun mainPageOf(vararg pairs: Pair<String, String>): List<MainPageRequest> =
     pairs.map { (data, name) -> MainPageRequest(name, data, false) }
 
-fun newHomePageResponse(name: String, list: List<SearchResponse>): HomePageResponse =
-    HomePageResponse(listOf(HomePageList(name, list)))
+// ── newHomePageResponse overloads (matching the real CloudStream SDK) ─────────
 
-fun newHomePageResponse(items: List<HomePageList>): HomePageResponse = HomePageResponse(items)
+fun newHomePageResponse(name: String, list: List<SearchResponse>,
+    hasNext: Boolean? = null): HomePageResponse =
+    HomePageResponse(listOf(HomePageList(name, list)),
+        hasNext = hasNext ?: list.isNotEmpty())
 
-fun newHomePageResponse(request: MainPageRequest, list: List<SearchResponse>) =
-    HomePageResponse(listOf(HomePageList(request.name, list, request.horizontalImages)))
+/** Single HomePageList variant — this is what most modern plugins use. */
+fun newHomePageResponse(list: HomePageList, hasNext: Boolean? = null): HomePageResponse =
+    HomePageResponse(listOf(list), hasNext = hasNext ?: list.list.isNotEmpty())
+
+fun newHomePageResponse(items: List<HomePageList>, hasNext: Boolean? = null): HomePageResponse =
+    HomePageResponse(items, hasNext = hasNext ?: items.any { it.list.isNotEmpty() })
+
+fun newHomePageResponse(request: MainPageRequest, list: List<SearchResponse>,
+    hasNext: Boolean? = null): HomePageResponse =
+    HomePageResponse(listOf(HomePageList(request.name, list, request.horizontalImages)),
+        hasNext = hasNext ?: list.isNotEmpty())
+
+// ── Quality / Extractor types ─────────────────────────────────────────────────
 
 enum class Qualities(val value: Int) {
     Unknown(0), P144(144), P240(240), P360(360), P480(480),
@@ -232,6 +249,8 @@ open class ExtractorLink(
 )
 
 class SubtitleFile(val lang: String, val url: String)
+
+// ── MainAPI ───────────────────────────────────────────────────────────────────
 
 abstract class MainAPI {
     open var name: String = "Unnamed Provider"
@@ -265,6 +284,8 @@ abstract class MainAPI {
     ): Boolean = false
 }
 
+// ── Utility functions ─────────────────────────────────────────────────────────
+
 fun fixUrl(url: String, mainUrl: String): String = when {
     url.isBlank() -> ""
     url.startsWith("http") -> url
@@ -273,8 +294,10 @@ fun fixUrl(url: String, mainUrl: String): String = when {
     else -> "$mainUrl/$url"
 }
 fun fixUrlNull(url: String?, mainUrl: String): String? = url?.let { fixUrl(it, mainUrl) }
+fun fixUrlNull(url: String?): String? = url?.takeIf { it.isNotBlank() }
 
-suspend fun <T> safeApiCall(apiCall: suspend () -> T): T? = try { apiCall() } catch (_: Exception) { null }
+suspend fun <T> safeApiCall(apiCall: suspend () -> T): T? =
+    try { apiCall() } catch (_: Exception) { null }
 
 fun getQualityFromName(name: String?): Int = when (name?.lowercase()) {
     null -> 0
@@ -285,106 +308,82 @@ fun getQualityFromName(name: String?): Int = when (name?.lowercase()) {
     else -> name.filter(Char::isDigit).toIntOrNull() ?: 0
 }
 
+// ── SearchResponse builders ───────────────────────────────────────────────────
+
 inline fun MainAPI.newMovieSearchResponse(
-    name: String,
-    url: String,
-    type: TvType = TvType.Movie,
-    fix: Boolean = true,
-    initializer: MovieSearchResponse.() -> Unit = {},
+    name: String, url: String, type: TvType = TvType.Movie,
+    fix: Boolean = true, initializer: MovieSearchResponse.() -> Unit = {},
 ): MovieSearchResponse = MovieSearchResponse(
-    name = name,
-    url = if (fix) fixUrl(url, this.mainUrl) else url,
-    apiName = this.name,
-    type = type,
+    name = name, url = if (fix) fixUrl(url, this.mainUrl) else url, apiName = this.name, type = type,
 ).apply(initializer)
 
 inline fun MainAPI.newAnimeSearchResponse(
-    name: String,
-    url: String,
-    type: TvType = TvType.Anime,
-    fix: Boolean = true,
-    initializer: AnimeSearchResponse.() -> Unit = {},
+    name: String, url: String, type: TvType = TvType.Anime,
+    fix: Boolean = true, initializer: AnimeSearchResponse.() -> Unit = {},
 ): AnimeSearchResponse = AnimeSearchResponse(
-    name = name,
-    url = if (fix) fixUrl(url, this.mainUrl) else url,
-    apiName = this.name,
-    type = type,
+    name = name, url = if (fix) fixUrl(url, this.mainUrl) else url, apiName = this.name, type = type,
 ).apply(initializer)
 
 inline fun MainAPI.newTvSeriesSearchResponse(
-    name: String,
-    url: String,
-    type: TvType = TvType.TvSeries,
-    fix: Boolean = true,
-    initializer: TvSeriesSearchResponse.() -> Unit = {},
+    name: String, url: String, type: TvType = TvType.TvSeries,
+    fix: Boolean = true, initializer: TvSeriesSearchResponse.() -> Unit = {},
 ): TvSeriesSearchResponse = TvSeriesSearchResponse(
-    name = name,
-    url = if (fix) fixUrl(url, this.mainUrl) else url,
-    apiName = this.name,
-    type = type,
+    name = name, url = if (fix) fixUrl(url, this.mainUrl) else url, apiName = this.name, type = type,
 ).apply(initializer)
 
 inline fun MainAPI.newLiveSearchResponse(
-    name: String,
-    url: String,
-    type: TvType = TvType.Live,
-    fix: Boolean = true,
-    initializer: LiveSearchResponse.() -> Unit = {},
+    name: String, url: String, type: TvType = TvType.Live,
+    fix: Boolean = true, initializer: LiveSearchResponse.() -> Unit = {},
 ): LiveSearchResponse = LiveSearchResponse(
-    name = name,
-    url = if (fix) fixUrl(url, this.mainUrl) else url,
-    apiName = this.name,
-    type = type,
+    name = name, url = if (fix) fixUrl(url, this.mainUrl) else url, apiName = this.name, type = type,
 ).apply(initializer)
 
 inline fun MainAPI.newTorrentSearchResponse(
-    name: String,
-    url: String,
-    type: TvType = TvType.Torrent,
-    fix: Boolean = true,
-    initializer: TorrentSearchResponse.() -> Unit = {},
+    name: String, url: String, type: TvType = TvType.Torrent,
+    fix: Boolean = true, initializer: TorrentSearchResponse.() -> Unit = {},
 ): TorrentSearchResponse = TorrentSearchResponse(
-    name = name,
-    url = if (fix) fixUrl(url, this.mainUrl) else url,
-    apiName = this.name,
-    type = type,
+    name = name, url = if (fix) fixUrl(url, this.mainUrl) else url, apiName = this.name, type = type,
 ).apply(initializer)
 
+// ── LoadResponse builders ─────────────────────────────────────────────────────
+
 inline fun MainAPI.newMovieLoadResponse(
-    name: String,
-    url: String,
-    type: TvType,
-    dataUrl: String,
+    name: String, url: String, type: TvType, dataUrl: String,
     initializer: MovieLoadResponse.() -> Unit = {},
 ): MovieLoadResponse = MovieLoadResponse(
     name = name, url = url, apiName = this.name, type = type, dataUrl = dataUrl,
 ).apply(initializer)
 
 inline fun MainAPI.newTvSeriesLoadResponse(
-    name: String,
-    url: String,
-    type: TvType = TvType.TvSeries,
-    episodes: List<Episode>,
+    name: String, url: String, type: TvType = TvType.TvSeries, episodes: List<Episode>,
     initializer: TvSeriesLoadResponse.() -> Unit = {},
 ): TvSeriesLoadResponse = TvSeriesLoadResponse(
     name = name, url = url, apiName = this.name, type = type, episodes = episodes,
 ).apply(initializer)
 
 inline fun MainAPI.newAnimeLoadResponse(
-    name: String,
-    url: String,
-    type: TvType = TvType.Anime,
+    name: String, url: String, type: TvType = TvType.Anime,
     initializer: TvSeriesLoadResponse.() -> Unit = {},
 ): TvSeriesLoadResponse = TvSeriesLoadResponse(
     name = name, url = url, apiName = this.name, type = type, episodes = emptyList(),
 ).apply(initializer)
 
-inline fun newEpisode(
-    data: String,
-    initializer: Episode.() -> Unit = {},
-): Episode = Episode(data = data).also {  }
-    .let { e -> e.copy().also {  } }
-    .let { Episode(data = data) }
+/** Live stream — wraps MovieLoadResponse with TvType.Live. */
+inline fun MainAPI.newLiveStreamLoadResponse(
+    name: String,
+    url: String,
+    dataUrl: String,
+    initializer: MovieLoadResponse.() -> Unit = {},
+): MovieLoadResponse = MovieLoadResponse(
+    name = name, url = url, apiName = this.name, type = TvType.Live, dataUrl = dataUrl,
+).apply(initializer)
+
+inline fun newEpisode(data: String, initializer: Episode.() -> Unit = {}): Episode =
+    Episode(data = data).apply(initializer)
+
+// ── ExtractorLinkType and newExtractorLink ─────────────────────────────────────
+
+enum class ExtractorLinkType { VIDEO, M3U8, DASH, MAGNET, TORRENT }
 
 inline fun newExtractorLink(
     source: String,
@@ -397,25 +396,22 @@ inline fun newExtractorLink(
     isM3u8 = (type == ExtractorLinkType.M3U8),
 ).apply(initializer)
 
-enum class ExtractorLinkType { VIDEO, M3U8, DASH, MAGNET, TORRENT }
+// ── Mutation helpers ──────────────────────────────────────────────────────────
 
 fun SearchResponse.addPoster(url: String?, headers: Map<String, String>? = null) {
-    this.posterUrl = url
-    if (headers != null) this.posterHeaders = headers
+    this.posterUrl = url; if (headers != null) this.posterHeaders = headers
 }
 fun MovieSearchResponse.addYear(y: Int?) { this.year = y }
 fun TvSeriesSearchResponse.addYear(y: Int?) { this.year = y }
 fun TvSeriesSearchResponse.addEpisodes(count: Int?) { this.episodes = count }
 fun AnimeSearchResponse.addDubStatus(sub: Boolean = false, dub: Boolean = false) {
     this.dubStatus = (this.dubStatus ?: EnumSet()).also {
-        if (sub) it.add(DubStatus.Subbed)
-        if (dub) it.add(DubStatus.Dubbed)
+        if (sub) it.add(DubStatus.Subbed); if (dub) it.add(DubStatus.Dubbed)
     }
 }
 
 fun LoadResponse.addPoster(url: String?, headers: Map<String, String>? = null) {
-    this.posterUrl = url
-    if (headers != null) this.posterHeaders = headers
+    this.posterUrl = url; if (headers != null) this.posterHeaders = headers
 }
 fun LoadResponse.addRating(score: Int?) { this.rating = score }
 fun LoadResponse.addRating(scoreOutOf10: String?) {
@@ -431,11 +427,22 @@ fun LoadResponse.addTrailer(extractorUrl: String?, referer: String? = null) {
     if (extractorUrl != null) this.trailers.add(TrailerData(extractorUrl, referer))
 }
 
-fun base64Decode(s: String): String = String(android.util.Base64.decode(s, android.util.Base64.DEFAULT))
+// ── Base64 helpers ────────────────────────────────────────────────────────────
+
+fun base64Decode(s: String): String =
+    String(android.util.Base64.decode(s, android.util.Base64.DEFAULT))
 fun base64Encode(s: String): String =
     android.util.Base64.encodeToString(s.toByteArray(), android.util.Base64.NO_WRAP)
-fun base64DecodeArray(s: String): ByteArray = android.util.Base64.decode(s, android.util.Base64.DEFAULT)
+fun base64DecodeArray(s: String): ByteArray =
+    android.util.Base64.decode(s, android.util.Base64.DEFAULT)
 
 fun String.isVideoFile(): Boolean = lowercase().substringAfterLast('.') in setOf(
     "mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "m3u8", "ts", "mpd", "3gp",
 )
+
+// ── installPrefs forward reference (defined in MainActivity.kt) ───────────────
+
+// No-op — actual implementation is in MainActivity.kt. This alias prevents
+// "unresolved reference: installPrefs" from plugins that import cloudstream3.*.
+@Suppress("NOTHING_TO_INLINE")
+internal inline fun com.lagradost.cloudstream3.installPrefsAlias() = Unit
