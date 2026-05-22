@@ -5,12 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.plugins.PluginRuntime
@@ -36,10 +38,25 @@ import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+private val BgColor = Color(0xFF120D07)
+private val AccentColor = Color(0xFFE8735A)
+private val StarColor = Color(0xFFE8B25A)
+private val TextPrimary = Color(0xFFF5F0EA)
+private val TextSecondary = Color(0xFFAA9B8A)
+private val SurfaceColor = Color(0xFF1E1710)
+private val DarkOverlay = Color(0xFF1A1108).copy(alpha = 0.7f)
+
 private sealed class CsDetailState {
     data object Loading : CsDetailState()
     data class Error(val message: String) : CsDetailState()
     data class Ready(val response: LoadResponse) : CsDetailState()
+}
+
+// Pre-fetched source count — null = not fetched yet, -1 = failed, >= 0 = count
+private sealed class SourcesState {
+    data object Idle : SourcesState()
+    data object Fetching : SourcesState()
+    data class Done(val count: Int) : SourcesState()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,7 +67,6 @@ fun CloudStreamDetailScreen(
     initialTitle: String,
     initialPoster: String?,
     onBack: () -> Unit,
-
     onPlay: (initialUrl: String, title: String, sources: List<PlayerSource>, progressKey: WatchProgressKey) -> Unit,
 ) {
     val context = LocalContext.current
@@ -58,10 +74,12 @@ fun CloudStreamDetailScreen(
     val scope = rememberCoroutineScope()
 
     var state by remember { mutableStateOf<CsDetailState>(CsDetailState.Loading) }
+    var sourcesState by remember { mutableStateOf<SourcesState>(SourcesState.Idle) }
     var pluginFilePath by remember { mutableStateOf<String?>(null) }
     var pluginDisplayName by remember { mutableStateOf<String?>(null) }
     var resolving by remember { mutableStateOf(false) }
     var resolveError by remember { mutableStateOf<String?>(null) }
+    var cachedSources by remember { mutableStateOf<List<ExtractorLink>>(emptyList()) }
 
     LaunchedEffect(pluginInternalName, url) {
         val installed = repo.installed.first().firstOrNull { it.internalName == pluginInternalName }
@@ -78,6 +96,20 @@ fun CloudStreamDetailScreen(
                     ?: "Plugin returned no detail page for this item."
                 CsDetailState.Error(msg)
             } else {
+                // Background pre-fetch of sources for the source count badge
+                val dataUrl = (lr as? MovieLoadResponse)?.dataUrl
+                if (dataUrl != null) {
+                    sourcesState = SourcesState.Fetching
+                    scope.launch {
+                        try {
+                            val (links, _) = PluginRuntime.loadLinks(context, installed.filePath, dataUrl)
+                            cachedSources = links
+                            sourcesState = SourcesState.Done(links.size)
+                        } catch (_: Throwable) {
+                            sourcesState = SourcesState.Done(0)
+                        }
+                    }
+                }
                 CsDetailState.Ready(lr)
             }
         } catch (e: Throwable) {
@@ -91,16 +123,21 @@ fun CloudStreamDetailScreen(
             resolving = true
             resolveError = null
             try {
-                val (links, _) = PluginRuntime.loadLinks(context, path, data, isCasting = false)
+                val links = if (data == (state as? CsDetailState.Ready)?.let {
+                        (it.response as? MovieLoadResponse)?.dataUrl } && cachedSources.isNotEmpty()
+                ) {
+                    cachedSources
+                } else {
+                    val (l, _) = PluginRuntime.loadLinks(context, path, data)
+                    l
+                }
                 if (links.isEmpty()) {
-                    resolveError = "No streams returned by ${pluginDisplayName ?: "plugin"}."
+                    resolveError = "No streams found — ${pluginDisplayName ?: "plugin"} returned nothing."
                     return@launch
                 }
                 val sources = links.toPlayerSources(pluginDisplayName ?: pluginInternalName)
                 val sorted = sources.sortedByDescending { it.qualityScoreCs() }
                 val displayTitle = listOfNotNull(initialTitle, episodeTitle).joinToString(" · ")
-
-
                 val progressKey = WatchProgressKey(
                     tmdbId = -((pluginInternalName + "|" + url + "|" + (episodeTitle ?: "")).hashCode().toLong()),
                     title = displayTitle,
@@ -109,75 +146,94 @@ fun CloudStreamDetailScreen(
                 )
                 onPlay(sorted.first().url, displayTitle, sorted, progressKey)
             } catch (e: Throwable) {
-                resolveError = "Resolve failed: ${e::class.simpleName}: ${e.message}"
+                resolveError = "Failed to load streams: ${e::class.simpleName}: ${e.message}"
             } finally {
                 resolving = false
             }
         }
     }
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(BgColor)
+    ) {
         when (val s = state) {
-            is CsDetailState.Loading -> CenteredLoader("Loading ${initialTitle}…")
-            is CsDetailState.Error -> ErrorBanner(s.message, onBack)
-            is CsDetailState.Ready -> CsDetailContent(
-                lr = s.response,
-                initialTitle = initialTitle,
-                initialPoster = initialPoster,
-                pluginName = pluginDisplayName.orEmpty(),
-                resolving = resolving,
-                resolveError = resolveError,
-                onPlayMovie = { resolveAndPlay((s.response as MovieLoadResponse).dataUrl, null) },
-                onPlayEpisode = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
+            is CsDetailState.Loading -> CsLoadingScreen(initialTitle)
+            is CsDetailState.Error  -> CsErrorScreen(s.message, onBack)
+            is CsDetailState.Ready  -> CsReadyContent(
+                lr              = s.response,
+                initialTitle    = initialTitle,
+                initialPoster   = initialPoster,
+                pluginName      = pluginDisplayName.orEmpty(),
+                sourcesState    = sourcesState,
+                resolving       = resolving,
+                resolveError    = resolveError,
+                onPlayMovie     = { resolveAndPlay((s.response as MovieLoadResponse).dataUrl, null) },
+                onPlayEpisode   = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
             )
         }
 
-        IconButton(
-            onClick = onBack,
-            modifier = Modifier
-                .padding(12.dp)
-                .clip(RoundedCornerShape(50))
-                .background(Color.Black.copy(alpha = 0.45f))
+        // Back button — always visible, overlaid on content
+        Box(
+            Modifier
+                .padding(16.dp)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.55f))
+                .clickable(onClick = onBack),
+            contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White,
+                modifier = Modifier.size(22.dp))
         }
     }
 }
 
 @Composable
-private fun CenteredLoader(label: String) {
+private fun CsLoadingScreen(title: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            Spacer(Modifier.width(12.dp))
-            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = AccentColor, strokeWidth = 2.5.dp,
+                modifier = Modifier.size(36.dp))
+            Spacer(Modifier.height(16.dp))
+            Text("Loading $title…", color = TextSecondary,
+                style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
 
 @Composable
-private fun ErrorBanner(message: String, onBack: () -> Unit) {
+private fun CsErrorScreen(message: String, onBack: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .padding(20.dp)
-            .padding(top = 56.dp),
+            .padding(horizontal = 24.dp)
+            .padding(top = 80.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Couldn't open item", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(16.dp))
-        Button(onClick = onBack) { Text("Go back") }
+        Text("Couldn't open item",
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+            color = TextPrimary)
+        Spacer(Modifier.height(12.dp))
+        Text(message, color = TextSecondary,
+            style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(28.dp))
+        Button(
+            onClick = onBack,
+            colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+            shape = RoundedCornerShape(50),
+        ) { Text("Go back", color = Color.White) }
     }
 }
 
 @Composable
-private fun CsDetailContent(
+private fun CsReadyContent(
     lr: LoadResponse,
     initialTitle: String,
     initialPoster: String?,
     pluginName: String,
+    sourcesState: SourcesState,
     resolving: Boolean,
     resolveError: String?,
     onPlayMovie: () -> Unit,
@@ -185,123 +241,205 @@ private fun CsDetailContent(
 ) {
     val isSeries = lr is TvSeriesLoadResponse
     val episodes = (lr as? TvSeriesLoadResponse)?.episodes.orEmpty()
+    val displayTitle = lr.name.ifBlank { initialTitle }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    // Rating stored as Int * 1000 in CloudStream (e.g. 7900 = 7.9)
+    val ratingDisplay = lr.rating?.let { r ->
+        if (r > 1000) "%.1f".format(r / 1000.0) else r.toString()
+    }
+
+    LazyColumn(Modifier.fillMaxSize()) {
+
+        // ── Hero backdrop ─────────────────────────────────────────────────────
         item {
-            Box(Modifier.fillMaxWidth().height(280.dp)) {
+            Box(Modifier.fillMaxWidth().height(340.dp)) {
                 AsyncImage(
                     model = lr.backgroundPosterUrl ?: lr.posterUrl ?: initialPoster,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxSize().background(SurfaceColor),
                 )
+                // Bottom gradient fade into BgColor
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.verticalGradient(
-                            listOf(
-                                Color.Black.copy(alpha = 0.45f),
-                                Color.Transparent,
-                                MaterialTheme.colorScheme.background,
-                            )
+                            0f    to Color.Black.copy(alpha = 0.25f),
+                            0.55f to Color.Transparent,
+                            1f    to BgColor,
                         )
                     )
                 )
             }
         }
+
+        // ── Metadata panel ────────────────────────────────────────────────────
         item {
-            Column(Modifier.padding(horizontal = 20.dp).offset(y = (-40).dp)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(BgColor)
+                    .padding(horizontal = 20.dp)
+                    .offset(y = (-20).dp),
+            ) {
+                // Title
                 Text(
-                    lr.name.ifBlank { initialTitle },
-                    style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    displayTitle,
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        lineHeight = 38.sp,
+                    ),
+                    color = TextPrimary,
                 )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "via $pluginName" + (lr.year?.let { " · $it" } ?: ""),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(8.dp))
 
-                if (!isSeries) {
-                    PlayCsCta(
-                        label = "Play",
-                        loading = resolving,
-                        onClick = onPlayMovie,
-                    )
-                }
-
-                resolveError?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                // Star · rating · year · tags
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (ratingDisplay != null) {
+                        Icon(Icons.Filled.Star, null, tint = StarColor,
+                            modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(ratingDisplay, color = TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    lr.year?.let { y ->
+                        Text(y.toString(), color = TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    lr.duration?.let { d ->
+                        Text("${d}m", color = TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    if (pluginName.isNotBlank()) {
+                        Text(pluginName, color = TextSecondary.copy(alpha = 0.6f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
 
                 Spacer(Modifier.height(20.dp))
+
+                // ── Action row — Play + Bookmark ───────────────────────────
+                if (!isSeries) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        // Play button
+                        val playLabel = when {
+                            resolving -> "Finding streams…"
+                            sourcesState is SourcesState.Done && (sourcesState as SourcesState.Done).count > 0 ->
+                                "Play Movie · ${(sourcesState as SourcesState.Done).count} sources"
+                            sourcesState is SourcesState.Fetching -> "Play Movie"
+                            else -> "Play Movie"
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(AccentColor)
+                                .clickable(enabled = !resolving, onClick = onPlayMovie)
+                                .padding(horizontal = 20.dp),
+                        ) {
+                            if (resolving) {
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp), strokeWidth = 2.dp,
+                                    color = Color.White,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                            } else {
+                                Icon(Icons.Default.PlayArrow, null, tint = Color.White,
+                                    modifier = Modifier.size(22.dp))
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(
+                                playLabel,
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        // Bookmark button
+                        Box(
+                            Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(SurfaceColor),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Default.BookmarkBorder, "Bookmark",
+                                tint = TextSecondary, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+
+                // Resolve error
+                resolveError?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+
+                // ── Tags ───────────────────────────────────────────────────
+                val tags = lr.tags
+                if (!tags.isNullOrEmpty()) {
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        tags.take(4).forEach { tag ->
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(SurfaceColor)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(tag, color = TextSecondary,
+                                    style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
+
+                // ── Overview ───────────────────────────────────────────────
                 lr.plot?.takeIf { it.isNotBlank() }?.let { plot ->
-                    Text("Overview", style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onBackground)
+                    Spacer(Modifier.height(24.dp))
+                    Text("Overview",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = TextPrimary)
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        plot,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(20.dp))
+                    Text(plot, color = TextSecondary,
+                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 26.sp))
                 }
+
+                // ── Episodes heading ───────────────────────────────────────
                 if (isSeries) {
-                    Text(
-                        "Episodes",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Spacer(Modifier.height(24.dp))
+                    Text("Episodes",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = TextPrimary)
                     Spacer(Modifier.height(8.dp))
                 }
+
+                Spacer(Modifier.height(8.dp))
             }
         }
+
+        // ── Episode list ──────────────────────────────────────────────────────
         if (isSeries) {
-            items(episodes, key = { it.season.toString() + ":" + it.episode + ":" + it.data.hashCode() }) { ep ->
+            items(episodes,
+                key = { ep -> ep.season.toString() + ":" + ep.episode + ":" + ep.data.hashCode() }
+            ) { ep ->
                 EpisodeRow(ep = ep, loading = resolving, onClick = { onPlayEpisode(ep) })
             }
-        }
-    }
-}
-
-@Composable
-private fun PlayCsCta(label: String, loading: Boolean, onClick: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.primary)
-            .clickable(enabled = !loading, onClick = onClick),
-    ) {
-        if (loading) {
-            CircularProgressIndicator(
-                Modifier.size(22.dp), strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onPrimary,
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                "Finding best stream…",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onPrimary,
-            )
-        } else {
-            Icon(
-                Icons.Default.PlayArrow, null,
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(28.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onPrimary,
-            )
+            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }
@@ -312,9 +450,9 @@ private fun EpisodeRow(ep: Episode, loading: Boolean, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .padding(horizontal = 20.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .background(SurfaceColor)
             .clickable(enabled = !loading, onClick = onClick)
             .padding(12.dp),
     ) {
@@ -324,43 +462,39 @@ private fun EpisodeRow(ep: Episode, loading: Boolean, onClick: () -> Unit) {
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(width = 120.dp, height = 72.dp)
+                    .size(width = 112.dp, height = 68.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(BgColor),
             )
             Spacer(Modifier.width(12.dp))
         } else {
             Box(
                 Modifier
-                    .size(width = 56.dp, height = 56.dp)
+                    .size(width = 52.dp, height = 52.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(BgColor),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Default.PlayArrow, null, tint = TextSecondary,
+                    modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.width(12.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(
                 ep.displayLabel(),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = TextPrimary,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
             ep.description?.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Spacer(Modifier.height(3.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
+        Icon(Icons.Default.PlayArrow, null, tint = AccentColor,
+            modifier = Modifier.size(20.dp))
     }
 }
 
@@ -393,21 +527,21 @@ private fun qualityLabel(q: Int): String? = when {
     q >= 2160 -> "4K"
     q >= 1440 -> "1440p"
     q >= 1080 -> "1080p"
-    q >= 720 -> "720p"
-    q >= 480 -> "480p"
-    q >= 360 -> "360p"
-    q > 0 -> "${q}p"
-    else -> null
+    q >= 720  -> "720p"
+    q >= 480  -> "480p"
+    q >= 360  -> "360p"
+    q > 0     -> "${q}p"
+    else      -> null
 }
 
 private fun PlayerSource.qualityScoreCs(): Int {
     val q = when (qualityTag) {
-        "4K" -> 4
+        "4K"    -> 4
         "1440p" -> 3
         "1080p" -> 3
-        "720p" -> 2
-        "480p" -> 1
-        else -> 0
+        "720p"  -> 2
+        "480p"  -> 1
+        else    -> 0
     }
     return q * 10 + if (!isMagnet) 1 else 0
 }
