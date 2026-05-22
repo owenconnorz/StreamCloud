@@ -20,19 +20,46 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout (LFS disabled — libtorrserver.so extracted from release APK below)
         uses: actions/checkout@v4
         with:
-          lfs: true   # pull real libtorrserver.so binaries (not LFS pointer stubs)
+          lfs: false
+
+      # The libtorrserver.so binaries (~75 MB each × 4 arches) were previously tracked
+      # via Git LFS, which burned through the LFS bandwidth quota every build.
+      # Instead we extract them from the last known-good release APK (which lives on
+      # GitHub Releases, not LFS).  The extracted files are cached so the 138 MB APK
+      # download only happens on a cache miss.
+      - name: Restore libtorrserver.so cache
+        id: so-cache
+        uses: actions/cache@v4
+        with:
+          path: StreamCloud/app/src/main/jniLibs
+          key: libtorrserver-V1.0.5
+
+      - name: Extract libtorrserver.so from V1.0.5 release APK
+        if: steps.so-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "Downloading reference APK (V1.0.5) to extract libtorrserver.so…"
+          curl -fL             "https://github.com/owenconnorz/StreamCloud/releases/download/V1.0.5/StreamCloud-release.apk"             -o /tmp/reference.apk
+          echo "APK downloaded: $(stat -c%s /tmp/reference.apk) bytes"
+          for arch in arm64-v8a armeabi-v7a x86 x86_64; do
+            mkdir -p app/src/main/jniLibs/$arch
+            unzip -p /tmp/reference.apk "lib/$arch/libtorrserver.so"               > app/src/main/jniLibs/$arch/libtorrserver.so
+            SIZE=$(stat -c%s app/src/main/jniLibs/$arch/libtorrserver.so)
+            if [ "$SIZE" -lt 1000000 ]; then
+              echo "::error::libtorrserver.so for $arch is suspiciously small ($SIZE bytes) — extraction may have failed"
+              exit 1
+            fi
+            echo "  ✓ $arch: $SIZE bytes"
+          done
+          rm /tmp/reference.apk
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-
-      # ubuntu-latest ships the Android SDK at /usr/local/lib/android/sdk
-      # and sets ANDROID_HOME automatically — no separate setup-android step needed.
 
       - name: Setup Gradle (with caching + retry on transient CDN failures)
         uses: gradle/actions/setup-gradle@v3
@@ -42,7 +69,6 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # ---------- Decode the release keystore from GitHub Secrets ----------
       # Required secrets (Settings → Secrets and variables → Actions):
       #   KEYSTORE_BASE64    – `base64 -w0 release.keystore`
       #   KEYSTORE_PASSWORD  – store password
@@ -66,20 +92,17 @@ jobs:
           fi
           exit 0
 
-      - name: Build Debug + Release APKs (release auto-signed via streamcloud-debug.jks fallback)
+      - name: Build Debug + Release APKs
         run: ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Collect APK artifacts
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk \
-             "artifacts/StreamCloud-debug-${{ github.run_number }}.apk" || true
+          cp app/build/outputs/apk/debug/app-debug.apk              "artifacts/StreamCloud-debug-${{ github.run_number }}.apk" || true
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk \
-               "artifacts/StreamCloud-release-${{ github.run_number }}.apk"
+            cp app/build/outputs/apk/release/app-release.apk                "artifacts/StreamCloud-release-${{ github.run_number }}.apk"
           elif [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
-            cp app/build/outputs/apk/release/app-release-unsigned.apk \
-               "artifacts/StreamCloud-release-UNSIGNED-${{ github.run_number }}.apk"
+            cp app/build/outputs/apk/release/app-release-unsigned.apk                "artifacts/StreamCloud-release-UNSIGNED-${{ github.run_number }}.apk"
           fi
           ls -la artifacts/
 
