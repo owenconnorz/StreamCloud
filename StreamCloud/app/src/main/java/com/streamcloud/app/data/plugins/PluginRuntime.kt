@@ -158,58 +158,64 @@ object PluginRuntime {
      * parsing the DEX binary format directly — no deprecated APIs needed.
      *
      * DEX format reference: https://source.android.com/docs/core/runtime/dex-format
-     *   Offset 56: string_ids_size (u4)
-     *   Offset 60: string_ids_off  (u4)
-     *   Offset 64: type_ids_size   (u4)
-     *   Offset 68: type_ids_off    (u4)
+     *   Header offsets:
+     *     56: string_ids_size (u4)   60: string_ids_off (u4)
+     *     64: type_ids_size   (u4)   68: type_ids_off   (u4)
+     *
+     * Each type_id is an index into string_ids; each string is a ULEB128 length
+     * followed by MUTF-8 bytes. Class descriptors look like "Lcom/example/Foo;".
      */
-    private fun extractClassNamesFromDex(file: File): List<String>? = runCatching {
-        val dexBytes: ByteArray = java.util.zip.ZipFile(file).use { zip ->
-            val entry = zip.getEntry("classes.dex") ?: return@runCatching null
-            zip.getInputStream(entry).readBytes()
-        } ?: return null
+    private fun extractClassNamesFromDex(file: File): List<String>? {
+        return try {
+            // Extract classes.dex from the plugin zip
+            val dexBytes: ByteArray = ZipFile(file).use { zip ->
+                val entry = zip.getEntry("classes.dex") ?: return null
+                zip.getInputStream(entry).readBytes()
+            }
+            if (dexBytes.size < 112) return null
 
-        if (dexBytes.size < 112) return null
-        val bb = java.nio.ByteBuffer.wrap(dexBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            val bb = java.nio.ByteBuffer.wrap(dexBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            bb.position(56)
+            val stringIdsSize = bb.int
+            val stringIdsOff  = bb.int
+            val typeIdsSize   = bb.int
+            val typeIdsOff    = bb.int
 
-        bb.position(56)
-        val stringIdsSize = bb.int
-        val stringIdsOff  = bb.int
-        val typeIdsSize   = bb.int
-        val typeIdsOff    = bb.int
+            if (typeIdsSize <= 0 || typeIdsOff <= 0 || stringIdsOff <= 0) return null
 
-        if (typeIdsSize <= 0 || typeIdsOff <= 0 || stringIdsOff <= 0) return null
+            // Read the type_id_list: each entry is a u4 index into string_ids
+            val typeStringIndices = IntArray(typeIdsSize)
+            bb.position(typeIdsOff)
+            for (i in 0 until typeIdsSize) typeStringIndices[i] = bb.int
 
-        // Read type_id_list: each entry is a 4-byte index into string_ids
-        val typeStringIndices = IntArray(typeIdsSize)
-        bb.position(typeIdsOff)
-        for (i in 0 until typeIdsSize) typeStringIndices[i] = bb.int
-
-        // Read each string that corresponds to a class type (starts with 'L', ends with ';')
-        typeStringIndices.mapNotNull { strIdx ->
-            runCatching {
-                bb.position(stringIdsOff + strIdx * 4)
-                val strDataOff = bb.int
-                bb.position(strDataOff)
-                // ULEB128-encoded string length in UTF-16 code units, followed by MUTF-8 bytes
-                var b = bb.get().toInt() and 0xFF
-                var charLen = b and 0x7F
-                var shift = 7
-                while (b and 0x80 != 0) {
-                    b = bb.get().toInt() and 0xFF
-                    charLen = charLen or ((b and 0x7F) shl shift)
-                    shift += 7
-                }
-                val bytes = ByteArray(charLen)
-                bb.get(bytes)
-                val raw = String(bytes, Charsets.UTF_8)
-                // DEX class descriptors: Lcom/example/Foo; → com.example.Foo
-                if (raw.startsWith("L") && raw.endsWith(";"))
-                    raw.substring(1, raw.length - 1).replace('/', '.')
-                else null
-            }.getOrNull()
-        }
-    }.getOrNull()
+            // Resolve each type → string → class name
+            val results = mutableListOf<String>()
+            for (strIdx in typeStringIndices) {
+                try {
+                    bb.position(stringIdsOff + strIdx * 4)
+                    val strDataOff = bb.int
+                    bb.position(strDataOff)
+                    // ULEB128-encoded UTF-16 length, then MUTF-8 bytes
+                    var b = bb.get().toInt() and 0xFF
+                    var charLen = b and 0x7F
+                    var shift = 7
+                    while (b and 0x80 != 0) {
+                        b = bb.get().toInt() and 0xFF
+                        charLen = charLen or ((b and 0x7F) shl shift)
+                        shift += 7
+                    }
+                    val bytes = ByteArray(charLen)
+                    bb.get(bytes)
+                    val raw = String(bytes, Charsets.UTF_8)
+                    // Convert DEX descriptor "Lcom/example/Foo;" → "com.example.Foo"
+                    if (raw.startsWith("L") && raw.endsWith(";")) {
+                        results += raw.substring(1, raw.length - 1).replace('/', '.')
+                    }
+                } catch (_: Throwable) { /* skip malformed entry */ }
+            }
+            results
+        } catch (_: Throwable) { null }
+    }
 
     suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> {
         val apis = load(context, filePath)
