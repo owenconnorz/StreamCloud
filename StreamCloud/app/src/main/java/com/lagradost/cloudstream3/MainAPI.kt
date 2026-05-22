@@ -250,14 +250,58 @@ open class ExtractorLink(
 
 class SubtitleFile(val lang: String, val url: String)
 
+
+// ── Settings / override data classes ────────────────────────────────────────
+
+class SettingsJson(
+    var enableAdult: Boolean = false,
+)
+
+data class ProvidersInfoJson(
+    val name: String = "",
+    val url: String = "",
+    val credentials: String? = null,
+)
+
+class ErrorLoadingException(message: String? = null) : Exception(message)
+
+// ── APIHolder — tracks all registered providers ───────────────────────────────
+object APIHolder {
+    val allProviders: MutableList<MainAPI> = java.util.Collections.synchronizedList(mutableListOf())
+
+    fun addPluginMapping(plugin: MainAPI) {
+        synchronized(allProviders) { allProviders.add(plugin) }
+    }
+
+    fun removePluginMapping(plugin: MainAPI) {
+        synchronized(allProviders) { allProviders.remove(plugin) }
+    }
+
+    fun getApiFromNameNull(apiName: String?): MainAPI? {
+        if (apiName == null) return null
+        synchronized(allProviders) { return allProviders.firstOrNull { it.name == apiName } }
+    }
+}
+
 // ── MainAPI ───────────────────────────────────────────────────────────────────
 
 abstract class MainAPI {
-    // companion object required by plugins — they access MainAPI.Companion
-    // (e.g. ShowBox) for constants and utility methods.
+    /**
+     * companion object — plugins access MainAPI.Companion for:
+     *   - settingsForProvider (ShowBox calls getSettingsForProvider())
+     *   - overrideData
+     *   - USER_AGENT constant
+     *   - getQualityFromName()
+     */
     companion object {
         const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         const val CLOUDSTREAM_AGENT = "CloudStream"
+
+        // settingsForProvider generates getSettingsForProvider()/setSettingsForProvider()
+        // JVM getters — ShowBox calls getSettingsForProvider() on the companion instance
+        var settingsForProvider: SettingsJson = SettingsJson()
+        var overrideData: HashMap<String, ProvidersInfoJson>? = null
+
         fun getQualityFromName(name: String?): Int = when (name?.lowercase()) {
             null -> 0
             "144p" -> 144; "240p" -> 240; "360p" -> 360; "480p" -> 480
