@@ -253,6 +253,21 @@ class SubtitleFile(val lang: String, val url: String)
 // ── MainAPI ───────────────────────────────────────────────────────────────────
 
 abstract class MainAPI {
+    // companion object required by plugins — they access MainAPI.Companion
+    // (e.g. ShowBox) for constants and utility methods.
+    companion object {
+        const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        const val CLOUDSTREAM_AGENT = "CloudStream"
+        fun getQualityFromName(name: String?): Int = when (name?.lowercase()) {
+            null -> 0
+            "144p" -> 144; "240p" -> 240; "360p" -> 360; "480p" -> 480
+            "720p" -> 720; "1080p" -> 1080; "1440p" -> 1440
+            "2160p", "4k" -> 2160
+            "hd" -> 720; "fhd" -> 1080; "uhd" -> 2160; "sd" -> 480
+            else -> name.filter(Char::isDigit).toIntOrNull() ?: 0
+        }
+    }
+
     open var name: String = "Unnamed Provider"
     open var mainUrl: String = ""
     open var lang: String = "en"
@@ -294,7 +309,14 @@ fun fixUrl(url: String, mainUrl: String): String = when {
     else -> "$mainUrl/$url"
 }
 fun fixUrlNull(url: String?, mainUrl: String): String? = url?.let { fixUrl(it, mainUrl) }
+// Top-level form (called without receiver)
 fun fixUrlNull(url: String?): String? = url?.takeIf { it.isNotBlank() }
+
+// Extension form — compiled plugins reference fixUrlNull(MainAPI, String?)
+// (Kotlin extension functions compile to static methods with receiver as first arg)
+fun MainAPI.fixUrlNull(url: String?): String? = url?.let {
+    if (it.isBlank()) null else fixUrl(it, this.mainUrl)
+}
 
 suspend fun <T> safeApiCall(apiCall: suspend () -> T): T? =
     try { apiCall() } catch (_: Exception) { null }
