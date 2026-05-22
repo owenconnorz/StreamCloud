@@ -253,13 +253,6 @@ class SubtitleFile(val lang: String, val url: String)
 
 // ── Settings / override data classes ────────────────────────────────────────
 
-/**
- * Called by PluginRuntime before loading a plugin.
- * Real CloudStream uses this to initialise SharedPreferences for the plugin;
- * our stub is a no-op so we don't pull in the full preference machinery.
- */
-fun installPrefs(@Suppress("UNUSED_PARAMETER") context: android.content.Context) { /* no-op stub */ }
-
 class SettingsJson(
     var enableAdult: Boolean = false,
 )
