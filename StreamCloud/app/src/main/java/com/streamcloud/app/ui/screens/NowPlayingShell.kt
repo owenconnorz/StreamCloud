@@ -218,17 +218,19 @@ fun NowPlayingShell(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF0E0E0E))
             .then(
-                if (activeCanvas == null) Modifier.background(
-                    Brush.verticalGradient(
-                        listOf(
-                            animDominant,
-                            animDominant.copy(alpha = 0.55f).compositeOver(Color(0xFF161616)),
-                            Color(0xFF0E0E0E),
+                if (activeCanvas == null) Modifier
+                    .background(Color(0xFF0E0E0E))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                animDominant,
+                                animDominant.copy(alpha = 0.55f).compositeOver(Color(0xFF161616)),
+                                Color(0xFF0E0E0E),
+                            )
                         )
                     )
-                ) else Modifier
+                else Modifier
             )
     ) {
 
@@ -306,12 +308,14 @@ fun NowPlayingShell(
                                 totalX < -threshold -> {
                                     artworkSwipeX.animateTo(-widthPx, tween(220))
                                     controller.seekToNextMediaItem()
+                                    controller.play()
                                     artworkSwipeX.snapTo(widthPx)
                                     artworkSwipeX.animateTo(0f, tween(300))
                                 }
                                 totalX > threshold -> {
                                     artworkSwipeX.animateTo(widthPx, tween(220))
                                     controller.seekToPreviousMediaItem()
+                                    controller.play()
                                     artworkSwipeX.snapTo(-widthPx)
                                     artworkSwipeX.animateTo(0f, tween(300))
                                 }
@@ -451,7 +455,7 @@ fun NowPlayingShell(
             ) {
                 DarkCapsule(
                     icon = Icons.Default.SkipPrevious, contentDescription = "Previous",
-                    onClick = { controller.seekToPreviousMediaItem() },
+                    onClick = { controller.seekToPreviousMediaItem(); controller.play() },
                 )
                 PlayPill(
                     playing = isPlaying,
@@ -460,7 +464,7 @@ fun NowPlayingShell(
                 )
                 DarkCapsule(
                     icon = Icons.Default.SkipNext, contentDescription = "Next",
-                    onClick = { controller.seekToNextMediaItem() },
+                    onClick = { controller.seekToNextMediaItem(); controller.play() },
                 )
             }
 
@@ -796,6 +800,13 @@ private fun CanvasVideoLayer(url: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val player = remember(url) {
         ExoPlayer.Builder(context).build().apply {
+            setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                false,
+            )
             setMediaItem(MediaItem.fromUri(url))
             repeatMode = Player.REPEAT_MODE_ONE
             volume = 0f
@@ -809,11 +820,13 @@ private fun CanvasVideoLayer(url: String, modifier: Modifier = Modifier) {
     AndroidView(
         factory = { ctx ->
             PlayerView(ctx).apply {
-                this.player = player
                 useController = false
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                this.player = player
             }
         },
+        update = { view -> view.player = player },
         modifier = modifier,
     )
 }
