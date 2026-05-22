@@ -3,6 +3,8 @@ package com.lagradost.nicehttp
 
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -21,17 +23,12 @@ import kotlin.reflect.KClass
 // so both the interface and the property must exactly match the published SDK.
 
 interface ResponseParser {
-    /** Parse JSON text into an instance of [kClass]. May throw. */
     fun <T : Any> parse(text: String, kClass: KClass<T>): T
-
-    /** Same as [parse] but returns null on any failure. */
     fun <T : Any> parseSafe(text: String, kClass: KClass<T>): T?
-
-    /** Serialize [obj] to a JSON string (used for request bodies). */
     fun writeValueAsString(obj: Any): String
 }
 
-// ── Default JSON parser (Jackson) ──────────────────────────────────────────
+// ── Default JSON parser (Jackson) ───────────────────────────────────────────
 
 private val defaultMapper by lazy {
     jacksonObjectMapper().apply {
@@ -39,11 +36,6 @@ private val defaultMapper by lazy {
     }
 }
 
-/**
- * Jackson-backed [ResponseParser] used as the default for every [NiceResponse].
- * Plugins that call [NiceResponse.parsed] / [NiceResponse.parsedSafe] will use
- * this unless the caller explicitly passes a different parser.
- */
 object DefaultResponseParser : ResponseParser {
     override fun <T : Any> parse(text: String, kClass: KClass<T>): T =
         defaultMapper.readValue(text, kClass.java)
@@ -55,13 +47,13 @@ object DefaultResponseParser : ResponseParser {
         defaultMapper.writeValueAsString(obj)
 }
 
-// ── NiceFile ────────────────────────────────────────────────────────────────
+// ── NiceFile ─────────────────────────────────────────────────────────────────
 
 class NiceFile(val name: String, val fileName: String) {
     constructor(name: String, file: java.io.File) : this(name, file.name)
 }
 
-// ── Requests ────────────────────────────────────────────────────────────────
+// ── Requests ─────────────────────────────────────────────────────────────────
 
 object Requests {
 
@@ -79,7 +71,6 @@ object Requests {
         "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
-    // ── GET ──────────────────────────────────────────────────────────────────
     suspend fun get(
         url: String,
         headers: Map<String, String> = emptyMap(),
@@ -97,7 +88,6 @@ object Requests {
         body = null, allowRedirects = allowRedirects, timeout = timeout,
         interceptor = interceptor, responseParser = responseParser)
 
-    // ── POST ─────────────────────────────────────────────────────────────────
     suspend fun post(
         url: String,
         headers: Map<String, String> = emptyMap(),
@@ -123,7 +113,6 @@ object Requests {
             interceptor = interceptor, responseParser = responseParser)
     }
 
-    // ── PUT ──────────────────────────────────────────────────────────────────
     suspend fun put(
         url: String,
         headers: Map<String, String> = emptyMap(),
@@ -148,7 +137,6 @@ object Requests {
             interceptor = interceptor, responseParser = responseParser)
     }
 
-    // ── PATCH ────────────────────────────────────────────────────────────────
     suspend fun patch(
         url: String,
         headers: Map<String, String> = emptyMap(),
@@ -173,7 +161,6 @@ object Requests {
             interceptor = interceptor, responseParser = responseParser)
     }
 
-    // ── DELETE ───────────────────────────────────────────────────────────────
     suspend fun delete(
         url: String,
         headers: Map<String, String> = emptyMap(),
@@ -197,7 +184,6 @@ object Requests {
             interceptor = interceptor, responseParser = responseParser)
     }
 
-    // ── HEAD ─────────────────────────────────────────────────────────────────
     suspend fun head(
         url: String,
         headers: Map<String, String> = emptyMap(),
@@ -215,8 +201,6 @@ object Requests {
         body = null, allowRedirects = allowRedirects, timeout = timeout,
         interceptor = interceptor, responseParser = responseParser)
 
-    // ── Internal ─────────────────────────────────────────────────────────────
-
     private fun buildBody(json: Any?, requestBody: String?, data: Map<String, String>?):
         Pair<ByteArray?, String> = when {
         json != null -> {
@@ -230,7 +214,10 @@ object Requests {
         else -> null to "application/octet-stream"
     }
 
-    private fun execute(
+    // execute() is suspend + withContext(Dispatchers.IO) so OkHttp blocking call
+    // never runs on the Android main thread, even when getMainPage() is invoked
+    // from LaunchedEffect (Dispatchers.Main).
+    private suspend fun execute(
         method: String,
         url: String,
         headers: Map<String, String>,
@@ -242,7 +229,7 @@ object Requests {
         timeout: Long,
         interceptor: Interceptor?,
         responseParser: ResponseParser?,
-    ): NiceResponse {
+    ): NiceResponse = withContext(Dispatchers.IO) {
         val finalUrl = buildUrl(url, params)
         val httpClient = (if (interceptor != null)
             client.newBuilder().addInterceptor(interceptor).build()
@@ -282,7 +269,7 @@ object Requests {
             else -> builder.get()
         }
 
-        return try {
+        try {
             httpClient.newCall(builder.build()).execute().use { resp ->
                 NiceResponse(
                     code    = resp.code,
@@ -311,11 +298,6 @@ object Requests {
 }
 
 // ── NiceResponse ─────────────────────────────────────────────────────────────
-//
-// The `parser` property is a val — Kotlin generates getParser() for it.
-// Compiled plugins call response.getParser() via the inlined parsed<T>() /
-// parsedSafe<T>() helpers in the real NiceHTTP library, so the property MUST
-// exist with exactly this type signature.
 
 class NiceResponse(
     val code: Int,
@@ -323,7 +305,6 @@ class NiceResponse(
     val headers: Map<String, List<String>>,
     val url: String,
     val error: Throwable? = null,
-    /** Must be non-null; real NiceHttp SDK passes the parser in the constructor. */
     val parser: ResponseParser? = DefaultResponseParser,
 ) {
     val ok: Boolean get() = code in 200..299
@@ -338,11 +319,9 @@ class NiceResponse(
 
     val document: Document by lazy { Jsoup.parse(text, url) }
 
-    /** Delegate to [parser] — matches the inlined version compiled into plugins. */
     inline fun <reified T : Any> parsed(): T =
         parser!!.parse(text, T::class)
 
-    /** Null-safe variant. */
     inline fun <reified T : Any> parsedSafe(): T? =
         runCatching { parser!!.parseSafe(text, T::class) }.getOrNull()
 
