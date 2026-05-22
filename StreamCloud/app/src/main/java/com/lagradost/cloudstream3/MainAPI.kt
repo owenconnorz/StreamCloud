@@ -440,9 +440,3 @@ fun String.isVideoFile(): Boolean = lowercase().substringAfterLast('.') in setOf
     "mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "m3u8", "ts", "mpd", "3gp",
 )
 
-// ── installPrefs forward reference (defined in MainActivity.kt) ───────────────
-
-// No-op — actual implementation is in MainActivity.kt. This alias prevents
-// "unresolved reference: installPrefs" from plugins that import cloudstream3.*.
-@Suppress("NOTHING_TO_INLINE")
-internal inline fun com.lagradost.cloudstream3.installPrefsAlias() = Unit
