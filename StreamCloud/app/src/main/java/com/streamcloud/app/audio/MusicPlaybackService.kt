@@ -302,12 +302,35 @@ class MusicPlaybackService : MediaLibraryService() {
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
 
+        // Explicitly allow all controllers (Android Auto, Google Assistant, widgets).
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            val result = super.onConnect(session, controller)
+            // Ensure search commands are available so voice/Gemini queries reach onSearch()
+            val commands = result.availableSessionCommands.buildUpon()
+                .add(androidx.media3.session.SessionCommand(
+                    androidx.media3.session.SessionCommand.COMMAND_CODE_LIBRARY_SEARCH))
+                .build()
+            return MediaSession.ConnectionResult.accept(commands, result.availablePlayerCommands)
+        }
+
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?,
-        ): ListenableFuture<LibraryResult<MediaItem>> =
-            Futures.immediateFuture(LibraryResult.ofItem(buildRoot(), params))
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            // Android Auto sends isRecent=true when the car starts, expecting a root
+            // whose children are immediately playable (recently played tracks).
+            // Returning the full browse tree here causes AA to show "cannot connect".
+            val root = if (params?.isRecent == true) {
+                playlist(RECENT_ID, "Recently played")
+            } else {
+                buildRoot()
+            }
+            return Futures.immediateFuture(LibraryResult.ofItem(root, params))
+        }
 
         override fun onGetItem(
             session: MediaLibrarySession,
@@ -428,7 +451,24 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
 
-    private fun buildRoot(): MediaItem = folder(ROOT_ID, "StreamCloud")
+    private fun buildRoot(): MediaItem = MediaItem.Builder()
+        .setMediaId(ROOT_ID)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle("StreamCloud")
+                .setIsBrowsable(true)
+                .setIsPlayable(false)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                .setExtras(android.os.Bundle().apply {
+                    // Content style: grid for browsable items (playlists), list for songs
+                    putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", 2)
+                    putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT", 1)
+                    // Advertise voice/Gemini search support to Android Auto
+                    putBoolean("android.media.browse.SEARCH_SUPPORTED", true)
+                })
+                .build(),
+        )
+        .build()
 
     private fun rootChildren(): List<MediaItem> = listOf(
         folder(HOME_ID, "Home"),
