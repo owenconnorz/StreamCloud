@@ -142,12 +142,14 @@ fun GlobalMiniPlayer(
                             dirLocked && isHorizontal && totalX < -80f -> {
                                 swipeOffsetX.animateTo(-90f, tween(100))
                                 controller?.seekToNextMediaItem()
+                                controller?.play()
                                 swipeOffsetX.snapTo(90f)
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
                             dirLocked && isHorizontal && totalX > 80f -> {
                                 swipeOffsetX.animateTo(90f, tween(100))
                                 controller?.seekToPreviousMediaItem()
+                                controller?.play()
                                 swipeOffsetX.snapTo(-90f)
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
