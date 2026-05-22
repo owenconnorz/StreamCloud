@@ -37,7 +37,7 @@ import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.WatchProgressKey
-import com.lagradost.cloudstream3.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import kotlinx.coroutines.async
