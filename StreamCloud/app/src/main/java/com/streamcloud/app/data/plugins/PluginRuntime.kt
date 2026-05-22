@@ -204,12 +204,27 @@ object PluginRuntime {
         return out
     }
 
-    suspend fun loadDetail(context: Context, filePath: String, url: String): LoadResponse? {
-        val apis = load(context, filePath)
-        return apis.firstNotNullOfOrNull { api ->
-            try { api.load(url) } catch (_: Throwable) { null }
+    suspend fun loadDetail(context: Context, filePath: String, url: String): LoadResponse? =
+        withContext(Dispatchers.IO) {
+            val apis = load(context, filePath)
+            var lastEx: Throwable? = null
+            val result = apis.firstNotNullOfOrNull { api ->
+                try {
+                    api.load(url)
+                } catch (e: Throwable) {
+                    lastEx = e
+                    null
+                }
+            }
+            if (result == null) {
+                val errMsg = lastEx?.let { "${it::class.simpleName}: ${it.message}" }
+                    ?: "Plugin returned no detail page for this URL."
+                lastErrors[filePath] = errMsg
+            } else {
+                lastErrors.remove(filePath)
+            }
+            result
         }
-    }
 
 
     suspend fun loadLinks(
