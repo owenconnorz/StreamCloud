@@ -56,7 +56,8 @@ object YtPlayerUtils {
                 "deviceModel"       to "Quest 3",
                 "androidSdkVersion" to "32",
             ),
-            supportsAuth = false,
+            supportsAuth    = false,
+            useWebPoTokens  = true,
         ),
 
         ClientConfig(
