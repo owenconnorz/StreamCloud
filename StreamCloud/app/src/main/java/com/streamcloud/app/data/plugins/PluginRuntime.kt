@@ -11,7 +11,6 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.installPrefs
 import com.lagradost.cloudstream3.plugins.Plugin
 import dalvik.system.DexClassLoader
-import dalvik.system.DexFile
 import dalvik.system.PathClassLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -119,36 +118,98 @@ object PluginRuntime {
     }
 
 
-    @Suppress("DEPRECATION")
+    /**
+     * Scan the plugin DEX for a concrete subclass of [Plugin].
+     *
+     * DexFile.loadDex() was deprecated in API 26 and REMOVED in API 31 (Android 12) —
+     * calling it on modern devices throws RuntimeException: "No DexFile".
+     * We parse class names directly from the DEX binary instead, which works on
+     * all API levels without reflection into internal JVM structures.
+     */
     private fun scanDexForPluginClass(
         readOnlyFile: File,
         optimizedDir: File,
         parent: ClassLoader,
     ): String? {
-        return try {
-            val loader = DexClassLoader(
-                readOnlyFile.absolutePath,
-                optimizedDir.absolutePath,
-                null,
-                parent,
-            )
-            val dexFile = DexFile.loadDex(
-                readOnlyFile.absolutePath,
-                File(optimizedDir, readOnlyFile.name + ".odex").absolutePath,
-                0,
-            )
-            val pluginBase = Plugin::class.java
-            dexFile.entries().toList().firstOrNull { className ->
-
-                if (className.startsWith("com.lagradost.cloudstream3.") &&
-                    !className.contains("plugin", ignoreCase = true)) return@firstOrNull false
-                runCatching {
-                    val c = loader.loadClass(className)
-                    pluginBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
-                }.getOrDefault(false)
-            }
-        } catch (_: Throwable) { null }
+        val classNames = extractClassNamesFromDex(readOnlyFile) ?: return null
+        val loader = DexClassLoader(
+            readOnlyFile.absolutePath,
+            optimizedDir.absolutePath,
+            null,
+            parent,
+        )
+        val pluginBase = Plugin::class.java
+        return classNames.firstOrNull { className ->
+            // Skip framework classes that are definitely not Plugin subclasses
+            if (className.startsWith("com.lagradost.cloudstream3.") &&
+                !className.contains("plugin", ignoreCase = true) &&
+                !className.contains("Plugin", ignoreCase = false)) return@firstOrNull false
+            if (className.startsWith("kotlin.") || className.startsWith("kotlinx.") ||
+                className.startsWith("androidx.") || className.startsWith("android.")) return@firstOrNull false
+            runCatching {
+                val c = loader.loadClass(className)
+                pluginBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
+            }.getOrDefault(false)
+        }
     }
+
+    /**
+     * Extract all class names from the classes.dex inside a plugin .cs3 file by
+     * parsing the DEX binary format directly — no deprecated APIs needed.
+     *
+     * DEX format reference: https://source.android.com/docs/core/runtime/dex-format
+     *   Offset 56: string_ids_size (u4)
+     *   Offset 60: string_ids_off  (u4)
+     *   Offset 64: type_ids_size   (u4)
+     *   Offset 68: type_ids_off    (u4)
+     */
+    private fun extractClassNamesFromDex(file: File): List<String>? = runCatching {
+        val dexBytes: ByteArray = java.util.zip.ZipFile(file).use { zip ->
+            val entry = zip.getEntry("classes.dex") ?: return@runCatching null
+            zip.getInputStream(entry).readBytes()
+        } ?: return null
+
+        if (dexBytes.size < 112) return null
+        val bb = java.nio.ByteBuffer.wrap(dexBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+
+        bb.position(56)
+        val stringIdsSize = bb.int
+        val stringIdsOff  = bb.int
+        val typeIdsSize   = bb.int
+        val typeIdsOff    = bb.int
+
+        if (typeIdsSize <= 0 || typeIdsOff <= 0 || stringIdsOff <= 0) return null
+
+        // Read type_id_list: each entry is a 4-byte index into string_ids
+        val typeStringIndices = IntArray(typeIdsSize)
+        bb.position(typeIdsOff)
+        for (i in 0 until typeIdsSize) typeStringIndices[i] = bb.int
+
+        // Read each string that corresponds to a class type (starts with 'L', ends with ';')
+        typeStringIndices.mapNotNull { strIdx ->
+            runCatching {
+                bb.position(stringIdsOff + strIdx * 4)
+                val strDataOff = bb.int
+                bb.position(strDataOff)
+                // ULEB128-encoded string length in UTF-16 code units, followed by MUTF-8 bytes
+                var b = bb.get().toInt() and 0xFF
+                var charLen = b and 0x7F
+                var shift = 7
+                while (b and 0x80 != 0) {
+                    b = bb.get().toInt() and 0xFF
+                    charLen = charLen or ((b and 0x7F) shl shift)
+                    shift += 7
+                }
+                val bytes = ByteArray(charLen)
+                bb.get(bytes)
+                val raw = String(bytes, Charsets.UTF_8)
+                // DEX class descriptors: Lcom/example/Foo; → com.example.Foo
+                if (raw.startsWith("L") && raw.endsWith(";"))
+                    raw.substring(1, raw.length - 1).replace('/', '.')
+                else null
+            }.getOrNull()
+        }
+    }.getOrNull()
 
     suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> {
         val apis = load(context, filePath)
