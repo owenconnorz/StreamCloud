@@ -179,7 +179,7 @@ object PluginRuntime {
             var apiSectionsAdded = 0
             requests.forEach { req: MainPageRequest ->
                 try {
-                    val page = api.getMainPage(1, req)
+                    val page = withContext(Dispatchers.IO) { api.getMainPage(1, req) }
                     page?.items?.forEach { hpl ->
                         if (hpl.list.isNotEmpty()) {
                             out += hpl.name to hpl.list
