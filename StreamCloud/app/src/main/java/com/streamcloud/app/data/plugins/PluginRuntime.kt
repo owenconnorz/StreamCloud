@@ -1,7 +1,7 @@
 package com.streamcloud.app.data.plugins
 
 import android.content.Context
-import com.lagradost.cloudstream3.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
