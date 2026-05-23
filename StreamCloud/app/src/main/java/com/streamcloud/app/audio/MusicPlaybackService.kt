@@ -123,9 +123,8 @@ class MusicPlaybackService : MediaLibraryService() {
                 ioScope.launch {
                     val recentUrls = runCatching {
                         com.streamcloud.app.data.library.LibraryDb
-                            .get(this@MusicPlaybackService).tracks().recent()
-                            .value?.take(5)?.mapNotNull { it.thumbnail }
-                            ?: emptyList()
+                            .get(this@MusicPlaybackService).tracks().recent().first()
+                            .take(5).mapNotNull { it.thumbnail }
                     }.getOrElse { emptyList() }
                     MusicWidgetProvider.updateNowPlaying(
                         applicationContext, title, artist, artworkUrl, recentUrls,
