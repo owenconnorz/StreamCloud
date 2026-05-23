@@ -23,6 +23,7 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.streamcloud.app.MainActivity
 import com.streamcloud.app.data.AppLogger
+import com.streamcloud.app.widget.MusicWidgetProvider
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.downloads.DownloadCaches
@@ -109,6 +110,26 @@ class MusicPlaybackService : MediaLibraryService() {
                 if (isPlaying && SonosRepository.castState.value is SonosRepository.CastState.Casting) {
                     player.pause()
                     SonosRepository.resume()
+                }
+            }
+        })
+
+        // Update the home-screen widget whenever the current track changes.
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val title      = mediaItem?.mediaMetadata?.title?.toString()  ?: return
+                val artist     = mediaItem?.mediaMetadata?.artist?.toString() ?: ""
+                val artworkUrl = mediaItem?.mediaMetadata?.artworkUri?.toString() ?: ""
+                ioScope.launch {
+                    val recentUrls = runCatching {
+                        com.streamcloud.app.data.library.LibraryDb
+                            .get(this@MusicPlaybackService).tracks().recent()
+                            .value?.take(5)?.mapNotNull { it.thumbnail }
+                            ?: emptyList()
+                    }.getOrElse { emptyList() }
+                    MusicWidgetProvider.updateNowPlaying(
+                        applicationContext, title, artist, artworkUrl, recentUrls,
+                    )
                 }
             }
         })
