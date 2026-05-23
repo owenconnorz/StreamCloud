@@ -100,6 +100,31 @@ class NuvioRepository(private val context: Context) {
         }.awaitAll().flatten()
     }
 
+    // Re-run a single provider on demand — used when the user selects a Nuvio
+    // source from the player source picker to get a fresh (non-stale) URL.
+    suspend fun resolveOne(
+        providerId: String,
+        tmdbId: String,
+        mediaType: String = "movie",
+        season: Int? = null,
+        episode: Int? = null,
+    ): List<Pair<InstalledNuvioProvider, NuvioStream>> = withContext(Dispatchers.IO) {
+        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        val provider = installed.first().firstOrNull { it.id == providerId }
+            ?: return@withContext emptyList()
+        val js = runCatching { File(provider.filePath).readText() }.getOrNull()
+            ?: return@withContext emptyList()
+        val streams = NuvioRuntime.runProvider(
+            scriptText = js,
+            tmdbId = resolvedTmdb,
+            mediaType = normaliseMediaType(mediaType),
+            season = season,
+            episode = episode,
+            scriptKey = provider.id,
+        )
+        streams.map { provider to it }
+    }
+
 
     private val tmdbIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private suspend fun resolveTmdbId(raw: String, mediaType: String): String? {
