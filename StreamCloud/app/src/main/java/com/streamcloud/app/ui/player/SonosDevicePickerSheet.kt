@@ -21,7 +21,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.streamcloud.app.data.sonos.SonosDevice
+import androidx.compose.ui.unit.sp
+import com.streamcloud.app.data.sonos.SonosGroup
 import com.streamcloud.app.data.sonos.SonosRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,7 +33,7 @@ fun SonosDevicePickerSheet(
     watchUrl: String,
     onDismiss: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val context   = LocalContext.current
     val castState by SonosRepository.castState.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -45,7 +46,7 @@ fun SonosDevicePickerSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = Color(0xFF1A1A1A),
-        tonalElevation = 0.dp,
+        tonalElevation  = 0.dp,
     ) {
         Column(
             Modifier
@@ -53,10 +54,8 @@ fun SonosDevicePickerSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp),
         ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            // ── Header ────────────────────────────────────────────────────────
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.SpeakerGroup,
                     contentDescription = null,
@@ -77,26 +76,27 @@ fun SonosDevicePickerSheet(
 
             Spacer(Modifier.height(16.dp))
 
+            // ── Body ──────────────────────────────────────────────────────────
             when (val state = castState) {
-                is SonosRepository.CastState.Discovering -> {
-                    SheetMessage("Scanning for Sonos devices on your network…", showSpinner = true)
-                }
 
-                is SonosRepository.CastState.DevicesFound -> {
+                is SonosRepository.CastState.Discovering ->
+                    SheetStatus("Scanning for Sonos speakers…", showSpinner = true)
+
+                is SonosRepository.CastState.GroupsFound -> {
                     Text(
-                        "Select a device",
+                        "Choose a speaker or group",
                         color = Color.White.copy(alpha = 0.55f),
                         style = MaterialTheme.typography.labelLarge,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(10.dp))
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(state.devices, key = { it.udn }) { device ->
-                            DeviceRow(device = device) {
+                        items(state.groups, key = { it.id }) { group ->
+                            GroupRow(group = group) {
                                 SonosRepository.connect(
-                                    context = context,
-                                    device = device,
-                                    videoId = videoId,
-                                    title = title,
+                                    context  = context,
+                                    group    = group,
+                                    videoId  = videoId,
+                                    title    = title,
                                     watchUrl = watchUrl,
                                 )
                             }
@@ -104,18 +104,18 @@ fun SonosDevicePickerSheet(
                     }
                 }
 
-                is SonosRepository.CastState.Connecting -> {
-                    SheetMessage("Connecting…", showSpinner = true)
-                }
+                is SonosRepository.CastState.Connecting ->
+                    SheetStatus("Connecting…", showSpinner = true)
 
                 is SonosRepository.CastState.Casting -> {
-                    val sonosVolume by SonosRepository.sonosVolume.collectAsState()
+                    val vol by SonosRepository.sonosVolume.collectAsState()
                     Column(
                         Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Icon(
-                            Icons.Default.Speaker,
+                            if (state.group.isMultiRoom) Icons.Default.SpeakerGroup
+                            else Icons.Default.Speaker,
                             contentDescription = null,
                             tint = Color(0xFF4FC3F7),
                             modifier = Modifier.size(48.dp),
@@ -127,10 +127,20 @@ fun SonosDevicePickerSheet(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            state.device.name,
+                            state.group.displayName,
                             color = Color.White,
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         )
+                        if (state.group.isMultiRoom) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                state.group.memberNames.joinToString("  ·  "),
+                                color = Color(0xFF4FC3F7).copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         Spacer(Modifier.height(4.dp))
                         Text(
                             state.title,
@@ -139,9 +149,9 @@ fun SonosDevicePickerSheet(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(24.dp))
 
-
+                        // Volume slider
                         Text(
                             "Volume",
                             color = Color.White.copy(alpha = 0.55f),
@@ -149,10 +159,7 @@ fun SonosDevicePickerSheet(
                             modifier = Modifier.align(Alignment.Start),
                         )
                         Spacer(Modifier.height(4.dp))
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 Icons.Default.VolumeDown,
                                 contentDescription = "Volume down",
@@ -160,12 +167,12 @@ fun SonosDevicePickerSheet(
                                 modifier = Modifier.size(20.dp),
                             )
                             Slider(
-                                value = sonosVolume / 100f,
+                                value = vol / 100f,
                                 onValueChange = { SonosRepository.setVolume((it * 100).toInt()) },
                                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                                 colors = SliderDefaults.colors(
-                                    thumbColor = Color(0xFF4FC3F7),
-                                    activeTrackColor = Color(0xFF4FC3F7),
+                                    thumbColor        = Color(0xFF4FC3F7),
+                                    activeTrackColor  = Color(0xFF4FC3F7),
                                     inactiveTrackColor = Color.White.copy(alpha = 0.2f),
                                 ),
                             )
@@ -177,29 +184,24 @@ fun SonosDevicePickerSheet(
                             )
                         }
                         Text(
-                            "$sonosVolume%",
+                            "$vol%",
                             color = Color.White.copy(alpha = 0.4f),
                             style = MaterialTheme.typography.labelSmall,
                         )
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(20.dp))
                         Button(
-                            onClick = {
-                                SonosRepository.disconnect()
-                                onDismiss()
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF992222),
-                            ),
+                            onClick = { SonosRepository.disconnect(); onDismiss() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF992222)),
                             shape = RoundedCornerShape(12.dp),
                         ) {
-                            Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Stop, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Disconnect")
                         }
                     }
                 }
 
-                is SonosRepository.CastState.Error -> {
+                is SonosRepository.CastState.Error ->
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             state.message,
@@ -214,58 +216,76 @@ fun SonosDevicePickerSheet(
                             Text("Try Again", color = Color.White)
                         }
                     }
-                }
 
-                SonosRepository.CastState.Idle -> {
-                    SheetMessage("Opening scanner…", showSpinner = true)
-                }
+                SonosRepository.CastState.Idle ->
+                    SheetStatus("Opening scanner…", showSpinner = true)
             }
         }
     }
 }
 
 @Composable
-private fun DeviceRow(device: SonosDevice, onClick: () -> Unit) {
+private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         color = Color.White.copy(alpha = 0.07f),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.Default.Speaker,
+                if (group.isMultiRoom) Icons.Default.SpeakerGroup else Icons.Default.Speaker,
                 contentDescription = null,
                 tint = Color(0xFF4FC3F7),
-                modifier = Modifier.size(26.dp),
+                modifier = Modifier.size(28.dp),
             )
             Spacer(Modifier.width(14.dp))
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    device.name,
+                    group.displayName,
                     color = Color.White,
                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    device.host,
-                    color = Color.White.copy(alpha = 0.45f),
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                if (group.isMultiRoom) {
+                    Text(
+                        "${group.memberNames.size} speakers",
+                        color = Color(0xFF4FC3F7).copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    )
+                } else {
+                    Text(
+                        group.coordinatorHost,
+                        color = Color.White.copy(alpha = 0.35f),
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    )
+                }
+            }
+            if (group.isMultiRoom) {
+                Spacer(Modifier.width(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF4FC3F7).copy(alpha = 0.15f),
+                ) {
+                    Text(
+                        "GROUP",
+                        color = Color(0xFF4FC3F7),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SheetMessage(text: String, showSpinner: Boolean) {
+private fun SheetStatus(text: String, showSpinner: Boolean) {
     Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 24.dp),
+        Modifier.fillMaxWidth().padding(vertical = 28.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -277,6 +297,6 @@ private fun SheetMessage(text: String, showSpinner: Boolean) {
             )
             Spacer(Modifier.width(12.dp))
         }
-        Text(text, color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodyMedium)
+        Text(text, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium)
     }
 }
