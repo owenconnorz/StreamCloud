@@ -19,12 +19,12 @@ object SonosController {
     private const val TOPOLOGY_SERVICE     = "urn:schemas-upnp-org:service:ZoneGroupTopology:1"
     private const val TOPOLOGY_PATH        = "/ZoneGroupTopology/Control"
 
-    /** Last SOAP failure description — shown in the error UI for diagnostics. */
+    /** Last SOAP failure — shown in error UI for diagnostics. */
     @Volatile var lastSoapError: String = ""
         private set
 
-    // One client per action type — short timeouts for control actions, longer
-    // for topology (which can take a few seconds on first call).
+    private val XML_MT = "text/xml; charset=utf-8".toMediaType()
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
@@ -56,21 +56,29 @@ object SonosController {
     // ── AVTransport ────────────────────────────────────────────────────────────
 
     /**
-     * SetAVTransportURI — two strategies tried in order:
-     *   1. Minimal DIDL with bare <res> (no protocolInfo) — most compatible.
-     *   2. Empty metadata string — absolute fallback.
-     * Returns true on first success; records the last UPnP error for diagnostics.
+     * SetAVTransportURI.
+     *
+     * [mimeType] must match what the proxy actually serves (e.g. "audio/mp4").
+     * Sonos firmware validates the MIME type at SetAVTransportURI time — passing
+     * an incorrect or unsupported MIME type causes UPnP error 714.
+     *
+     * Two strategies are tried:
+     *   1. Full DIDL with correct protocolInfo (most compatible).
+     *   2. Empty CurrentURIMetaData (absolute fallback for strict firmware).
      */
-    suspend fun setUri(device: SonosDevice, streamUrl: String, title: String = ""): Boolean {
-        // Strategy 1: minimal DIDL without protocolInfo
-        val didl = buildDIDL(title, streamUrl)
+    suspend fun setUri(
+        device: SonosDevice,
+        streamUrl: String,
+        title: String = "",
+        mimeType: String = "audio/mp4",
+    ): Boolean {
+        val didl  = buildDIDL(title, streamUrl, mimeType)
         val body1 = "<InstanceID>0</InstanceID>" +
             "<CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>" +
             "<CurrentURIMetaData>${didl.xmlEscape()}</CurrentURIMetaData>"
         if (soap(device, "SetAVTransportURI", body1)) return true
 
-        // Strategy 2: empty metadata (some firmware strict about DIDL format)
-        Log.w(TAG, "setUri with DIDL failed ($lastSoapError) — retrying with empty metadata")
+        Log.w(TAG, "setUri with DIDL failed [$lastSoapError] — retrying with empty metadata")
         val body2 = "<InstanceID>0</InstanceID>" +
             "<CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>" +
             "<CurrentURIMetaData></CurrentURIMetaData>"
@@ -119,26 +127,16 @@ object SonosController {
         }
     }
 
-    suspend fun setVolume(device: SonosDevice, volume: Int): Boolean {
-        val v = volume.coerceIn(0, 100)
-        return renderingSoap(device, "SetVolume",
-            "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>$v</DesiredVolume>")
-    }
+    suspend fun setVolume(device: SonosDevice, volume: Int): Boolean = renderingSoap(
+        device, "SetVolume",
+        "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>${volume.coerceIn(0,100)}</DesiredVolume>",
+    )
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
-    private val XML_MT = "text/xml; charset=utf-8".toMediaType()
-
-    /**
-     * Build a minimal SOAP envelope body — no XML declaration (some Sonos firmware
-     * is strict about leading whitespace before <?xml), no encodingStyle for
-     * compatibility with both S1 and S2 hardware.
-     */
     private fun soapBody(action: String, service: String, innerBody: String) =
         "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">" +
-        "<s:Body>" +
-        "<u:$action xmlns:u=\"$service\">$innerBody</u:$action>" +
-        "</s:Body>" +
+        "<s:Body><u:$action xmlns:u=\"$service\">$innerBody</u:$action></s:Body>" +
         "</s:Envelope>"
 
     private fun avRequest(device: SonosDevice, action: String, innerBody: String): Request =
@@ -154,11 +152,10 @@ object SonosController {
         withContext(Dispatchers.IO) {
             try {
                 val resp = http.newCall(avRequest(device, action, body)).execute()
-                val ok = resp.isSuccessful
+                val ok   = resp.isSuccessful
                 if (!ok) {
-                    val err = runCatching { resp.body?.string() }.getOrNull() ?: ""
-                    val upnp = Regex("<errorCode>(\\d+)</errorCode>")
-                        .find(err)?.groupValues?.get(1)
+                    val err  = runCatching { resp.body?.string() }.getOrNull() ?: ""
+                    val upnp = Regex("<errorCode>(\\d+)</errorCode>").find(err)?.groupValues?.get(1)
                     lastSoapError = if (upnp != null) "UPnP $upnp (HTTP ${resp.code})"
                                     else              "HTTP ${resp.code}"
                     Log.w(TAG, "SOAP $action → $lastSoapError  body=$err")
@@ -167,7 +164,7 @@ object SonosController {
                 }
                 ok
             } catch (e: Exception) {
-                lastSoapError = e.javaClass.simpleName + ": " + (e.message ?: "timeout")
+                lastSoapError = "${e.javaClass.simpleName}: ${e.message ?: "timeout"}"
                 Log.w(TAG, "SOAP $action failed: $lastSoapError")
                 false
             }
@@ -184,7 +181,7 @@ object SonosController {
                     .header("Connection", "close")
                     .build()
                 val resp = http.newCall(req).execute()
-                val ok = resp.isSuccessful
+                val ok   = resp.isSuccessful
                 if (!ok) Log.w(TAG, "Rendering SOAP $action → HTTP ${resp.code}")
                 resp.body?.close()
                 ok
@@ -195,13 +192,18 @@ object SonosController {
         }
 
     /**
-     * Minimal DIDL-Lite with bare <res> (no protocolInfo attribute).
-     * Sonos auto-detects the stream format, avoiding UPnP error 714.
-     * Includes the Rincon namespace used by Sonos's own apps.
+     * DIDL-Lite metadata for Sonos.
+     *
+     * protocolInfo is set to the ACTUAL MIME type of the proxied stream.
+     * Using the correct type (e.g. "audio/mp4" for M4A/AAC) prevents Sonos from
+     * returning UPnP error 714 (Illegal MIME-type) at SetAVTransportURI time.
+     *
+     * Includes the Rincon namespace (xmlns:r) used by Sonos's own apps.
      */
-    internal fun buildDIDL(title: String, uri: String): String {
-        val t = title.xmlEscape()
-        val u = uri.xmlEscape()
+    internal fun buildDIDL(title: String, uri: String, mimeType: String = "audio/mp4"): String {
+        val t    = title.xmlEscape()
+        val u    = uri.xmlEscape()
+        val info = "http-get:*:$mimeType:DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000"
         return "<DIDL-Lite" +
             " xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"" +
             " xmlns:dc=\"http://purl.org/dc/elements/1.1/\"" +
@@ -211,7 +213,7 @@ object SonosController {
             "<dc:title>$t</dc:title>" +
             "<upnp:class>object.item.audioItem.musicTrack</upnp:class>" +
             "<r:streamContent/>" +
-            "<res>$u</res>" +
+            "<res protocolInfo=\"$info\">$u</res>" +
             "</item>" +
             "</DIDL-Lite>"
     }
