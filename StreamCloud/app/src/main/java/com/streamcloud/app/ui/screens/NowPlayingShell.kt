@@ -181,22 +181,6 @@ fun NowPlayingShell(
     val isCasting       = castState is SonosRepository.CastState.Casting
     val isSonosPlaying by SonosRepository.isSonosPlaying.collectAsState()
 
-    // When casting and the queue track changes (user skipped), push the new track
-    // to Sonos automatically. sonosAckedId tracks the last mediaId we sent so we
-    // don't resend the initial track (connect() already handled that).
-    var sonosAckedId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, isCasting) {
-        if (!isCasting) { sonosAckedId = null; return@LaunchedEffect }
-        val id = mediaId ?: return@LaunchedEffect
-        if (sonosAckedId == null) { sonosAckedId = id; return@LaunchedEffect }  // initial cast
-        if (id == sonosAckedId) return@LaunchedEffect
-        sonosAckedId = id
-        delay(400)  // let onMediaMetadataChanged update title/videoId
-        SonosRepository.updateTrack(context, videoId, title, sonosCastWatchUrl)
-    }
-
-
-
 
     val videoId = remember(mediaId) {
         val mid = mediaId ?: return@remember ""
@@ -214,6 +198,20 @@ fun NowPlayingShell(
             videoId.isNotBlank() -> "https://music.youtube.com/watch?v=$videoId"
             else -> ""
         }
+    }
+
+    // When casting and the queue track changes (user skipped), push the new track
+    // to Sonos. sonosAckedId tracks the last mediaId we sent so we don't
+    // resend the initial track (connect() already handled that).
+    var sonosAckedId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(mediaId, isCasting) {
+        if (!isCasting) { sonosAckedId = null; return@LaunchedEffect }
+        val id = mediaId ?: return@LaunchedEffect
+        if (sonosAckedId == null) { sonosAckedId = id; return@LaunchedEffect } // initial cast
+        if (id == sonosAckedId) return@LaunchedEffect
+        sonosAckedId = id
+        delay(400) // let onMediaMetadataChanged update title / videoId / sonosCastWatchUrl
+        SonosRepository.updateTrack(context, videoId, title, sonosCastWatchUrl)
     }
 
 
