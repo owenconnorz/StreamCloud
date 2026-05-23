@@ -20,8 +20,11 @@ import org.jsoup.nodes.Element
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import javax.crypto.Cipher
 import javax.crypto.Mac
+import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import java.security.SecureRandom
 import kotlin.random.Random
 
 object NuvioRuntime {
@@ -322,6 +325,74 @@ object NuvioRuntime {
                 }
                 String(bytes, Charsets.UTF_8)
             }.getOrDefault("")
+        }
+
+        // ── AES encrypt / decrypt ─────────────────────────────────────────
+        // args: mode (CBC/ECB/CTR), operation (encrypt/decrypt),
+        //       keyHex, ivHex, dataHex, padding (PKCS5Padding/NoPadding)
+        function("__crypto_aes_process") { args ->
+            val mode      = args.getOrNull(0)?.toString() ?: "CBC"
+            val operation = args.getOrNull(1)?.toString() ?: "decrypt"
+            val keyHex    = args.getOrNull(2)?.toString() ?: ""
+            val ivHex     = args.getOrNull(3)?.toString() ?: ""
+            val dataHex   = args.getOrNull(4)?.toString() ?: ""
+            val padding   = args.getOrNull(5)?.toString() ?: "PKCS5Padding"
+            runCatching {
+                val keyBytes  = normaliseAesKey(hexToBytes(keyHex))
+                val dataBytes = hexToBytes(dataHex)
+                if (dataBytes.isEmpty()) return@runCatching ""
+                val padSpec   = if (padding.equals("NoPadding", ignoreCase = true)) "NoPadding" else "PKCS5Padding"
+                val transform = when (mode.uppercase()) {
+                    "ECB" -> "AES/ECB/$padSpec"
+                    "CTR" -> "AES/CTR/NoPadding"
+                    else  -> "AES/CBC/$padSpec"
+                }
+                val cipher  = Cipher.getInstance(transform)
+                val keySpec = SecretKeySpec(keyBytes, "AES")
+                val opCode  = if (operation.equals("encrypt", ignoreCase = true))
+                    Cipher.ENCRYPT_MODE else Cipher.DECRYPT_MODE
+                if (mode.uppercase() == "ECB") {
+                    cipher.init(opCode, keySpec)
+                } else {
+                    val ivBytes = if (ivHex.isNotBlank()) hexToBytes(ivHex).copyOf(16) else ByteArray(16)
+                    cipher.init(opCode, keySpec, IvParameterSpec(ivBytes))
+                }
+                cipher.doFinal(dataBytes).joinToString("") { "%02x".format(it) }
+            }.getOrDefault("")
+        }
+
+        // OpenSSL EVP_BytesToKey — MD5-based key + IV derivation used by
+        // CryptoJS when the caller passes a passphrase string (not a WordArray).
+        // Returns "keyHex:ivHex".
+        function("__crypto_evp_bytes_to_key") { args ->
+            val passphrase = args.getOrNull(0)?.toString() ?: ""
+            val saltHex    = args.getOrNull(1)?.toString() ?: ""
+            val keyLen     = (args.getOrNull(2) as? Number)?.toInt() ?: 32
+            val ivLen      = (args.getOrNull(3) as? Number)?.toInt() ?: 16
+            runCatching {
+                val pass = passphrase.toByteArray(Charsets.UTF_8)
+                val salt = if (saltHex.isNotBlank()) hexToBytes(saltHex) else ByteArray(0)
+                val md   = java.security.MessageDigest.getInstance("MD5")
+                val out  = mutableListOf<Byte>()
+                var prev = ByteArray(0)
+                while (out.size < keyLen + ivLen) {
+                    md.reset(); md.update(prev); md.update(pass)
+                    if (salt.isNotEmpty()) md.update(salt)
+                    prev = md.digest()
+                    out.addAll(prev.toList())
+                }
+                val key = out.subList(0, keyLen).toByteArray()
+                val iv  = out.subList(keyLen, minOf(keyLen + ivLen, out.size)).toByteArray()
+                key.joinToString("") { "%02x".format(it) } + ":" +
+                    iv.joinToString("") { "%02x".format(it) }
+            }.getOrDefault(":")
+        }
+
+        // Cryptographically random hex string of n bytes (for AES salt generation).
+        function("__crypto_random_hex") { args ->
+            val n = (args.getOrNull(0) as? Number)?.toInt() ?: 8
+            ByteArray(n).also { SecureRandom().nextBytes(it) }
+                .joinToString("") { "%02x".format(it) }
         }
     }
 
@@ -726,11 +797,68 @@ object NuvioRuntime {
                     return h(b[0])+h(b[1])+h(b[2])+h(b[3])+'-'+h(b[4])+h(b[5])+'-'+h(b[6])+h(b[7])+'-'+h(b[8])+h(b[9])+'-'+h(b[10])+h(b[11])+h(b[12])+h(b[13])+h(b[14])+h(b[15]);
                 },
                 subtle: {
-                    digest: function(algo, data) { return Promise.resolve(new ArrayBuffer(32)); },
-                    importKey: function() { return Promise.resolve({}); },
-                    sign: function() { return Promise.resolve(new ArrayBuffer(32)); },
-                    encrypt: function() { return Promise.resolve(new ArrayBuffer(0)); },
-                    decrypt: function() { return Promise.resolve(new ArrayBuffer(0)); },
+                    digest: function(algo, data) {
+                        // Return real digest for providers that use crypto.subtle.digest()
+                        var algoName = (typeof algo === 'string') ? algo : (algo && algo.name) || 'SHA-256';
+                        var hex = '';
+                        try {
+                            if (data instanceof Uint8Array) {
+                                var s = '';
+                                for (var _i = 0; _i < data.length; _i++) s += String.fromCharCode(data[_i]);
+                                hex = __crypto_digest_hex(algoName, s);
+                            } else {
+                                hex = __crypto_digest_hex(algoName, (typeof data === 'string') ? data : '');
+                            }
+                        } catch(e) {}
+                        // Return ArrayBuffer from hex
+                        var ab = new ArrayBuffer(hex.length / 2);
+                        var view = new Uint8Array(ab);
+                        for (var _j = 0; _j < hex.length; _j += 2) view[_j/2] = parseInt(hex.substring(_j, _j+2), 16);
+                        return Promise.resolve(ab);
+                    },
+                    importKey: function(fmt, keyData, algo, extractable, uses) { return Promise.resolve({ _keyData: keyData, _algo: algo }); },
+                    sign: function(algo, key, data) { return Promise.resolve(new ArrayBuffer(32)); },
+                    verify: function() { return Promise.resolve(true); },
+                    encrypt: function(algo, key, data) {
+                        // AES-CBC encrypt via native bridge
+                        try {
+                            var algoName = (typeof algo === 'string') ? algo : (algo && algo.name) || '';
+                            if (algoName.indexOf('AES') >= 0) {
+                                var keyHex  = key._keyData ? Array.prototype.map.call(key._keyData, function(b) { return ('00'+b.toString(16)).slice(-2); }).join('') : '';
+                                var ivHex   = (algo.iv) ? Array.prototype.map.call(algo.iv, function(b) { return ('00'+b.toString(16)).slice(-2); }).join('') : '';
+                                var dataHex = Array.prototype.map.call(data instanceof Uint8Array ? data : new Uint8Array(data||[]), function(b) { return ('00'+b.toString(16)).slice(-2); }).join('');
+                                var res = __crypto_aes_process('CBC', 'encrypt', keyHex, ivHex, dataHex, 'PKCS5Padding');
+                                var ab2 = new ArrayBuffer(res.length / 2);
+                                var v2 = new Uint8Array(ab2);
+                                for (var _k = 0; _k < res.length; _k += 2) v2[_k/2] = parseInt(res.substring(_k, _k+2), 16);
+                                return Promise.resolve(ab2);
+                            }
+                        } catch(e) {}
+                        return Promise.resolve(new ArrayBuffer(0));
+                    },
+                    decrypt: function(algo, key, data) {
+                        // AES-CBC decrypt via native bridge
+                        try {
+                            var algoName = (typeof algo === 'string') ? algo : (algo && algo.name) || '';
+                            if (algoName.indexOf('AES') >= 0) {
+                                var keyHex  = key._keyData ? Array.prototype.map.call(key._keyData, function(b) { return ('00'+b.toString(16)).slice(-2); }).join('') : '';
+                                var ivHex   = (algo.iv) ? Array.prototype.map.call(algo.iv, function(b) { return ('00'+b.toString(16)).slice(-2); }).join('') : '';
+                                var dataHex = Array.prototype.map.call(data instanceof Uint8Array ? data : new Uint8Array(data||[]), function(b) { return ('00'+b.toString(16)).slice(-2); }).join('');
+                                var res = __crypto_aes_process('CBC', 'decrypt', keyHex, ivHex, dataHex, 'PKCS5Padding');
+                                var ab3 = new ArrayBuffer(res.length / 2);
+                                var v3 = new Uint8Array(ab3);
+                                for (var _l = 0; _l < res.length; _l += 2) v3[_l/2] = parseInt(res.substring(_l, _l+2), 16);
+                                return Promise.resolve(ab3);
+                            }
+                        } catch(e) {}
+                        return Promise.resolve(new ArrayBuffer(0));
+                    },
+                    deriveBits: function() { return Promise.resolve(new ArrayBuffer(32)); },
+                    deriveKey: function() { return Promise.resolve({}); },
+                    generateKey: function() { return Promise.resolve({}); },
+                    exportKey: function() { return Promise.resolve(new ArrayBuffer(0)); },
+                    wrapKey: function() { return Promise.resolve(new ArrayBuffer(0)); },
+                    unwrapKey: function() { return Promise.resolve({}); },
                 },
             };
         }
@@ -1099,6 +1227,113 @@ object NuvioRuntime {
             HmacSHA1:   function(m, k) { return __hexWrap(__crypto_hmac_hex('SHA-1', __normUtf8(k), __normUtf8(m))); },
             HmacSHA256: function(m, k) { return __hexWrap(__crypto_hmac_hex('SHA-256', __normUtf8(k), __normUtf8(m))); },
             HmacSHA512: function(m, k) { return __hexWrap(__crypto_hmac_hex('SHA-512', __normUtf8(k), __normUtf8(m))); },
+
+            // ── CryptoJS.lib ────────────────────────────────────────────────
+            lib: {
+                WordArray: {
+                    create: function(words, sigBytes) {
+                        if (!words) return __hexWrap('');
+                        if (words instanceof Uint8Array || (words && typeof words.length === 'number' && !Array.isArray(words))) {
+                            var hex2 = '';
+                            for (var _i = 0; _i < words.length; _i++) hex2 += ('00' + words[_i].toString(16)).slice(-2);
+                            return __hexWrap(hex2);
+                        }
+                        if (Array.isArray(words)) {
+                            var hex3 = words.map(function(w) { return ('00000000' + (w >>> 0).toString(16)).slice(-8); }).join('');
+                            if (typeof sigBytes === 'number') hex3 = hex3.substring(0, sigBytes * 2);
+                            return __hexWrap(hex3);
+                        }
+                        return __hexWrap('');
+                    },
+                    random: function(nBytes) { return __hexWrap(__crypto_random_hex(nBytes)); },
+                },
+                CipherParams: {
+                    create: function(params) {
+                        return { ciphertext: params.ciphertext || __hexWrap(''), iv: params.iv, salt: params.salt };
+                    }
+                },
+            },
+
+            // ── CryptoJS.mode / pad ─────────────────────────────────────────
+            mode: { CBC: {name:'CBC'}, ECB: {name:'ECB'}, CTR: {name:'CTR'}, CFB: {name:'CBC'}, OFB: {name:'CBC'} },
+            pad: { Pkcs7: 'Pkcs7', NoPadding: 'NoPadding', ZeroPadding: 'NoPadding', AnsiX923: 'Pkcs7', Iso10126: 'Pkcs7', ISO_IEC_7816_4: 'Pkcs7' },
+
+            // ── CryptoJS.AES ────────────────────────────────────────────────
+            AES: {
+                _modeStr: function(opt) {
+                    var m = opt && opt.mode;
+                    if (!m) return 'CBC';
+                    return (typeof m === 'string') ? m.toUpperCase() : ((m.name || 'CBC').toUpperCase());
+                },
+                _padStr: function(opt) {
+                    var p = opt && opt.padding;
+                    if (!p || p === 'Pkcs7' || p === 'AnsiX923' || p === 'Iso10126' || p === 'ISO_IEC_7816_4') return 'PKCS5Padding';
+                    return 'NoPadding';
+                },
+                _ctHex: function(ct) {
+                    if (typeof ct === 'string') return __crypto_base64_to_hex(ct);
+                    if (ct && ct.ciphertext && ct.ciphertext.__hex) return ct.ciphertext.__hex;
+                    if (ct && ct.__hex) return ct.__hex;
+                    return '';
+                },
+                decrypt: function(ciphertext, key, options) {
+                    options = options || {};
+                    var modeStr = this._modeStr(options);
+                    var padStr  = this._padStr(options);
+                    var ctHex   = this._ctHex(ciphertext);
+                    var keyHex, ivHex;
+                    if (typeof key === 'string') {
+                        var saltHex = '';
+                        if (ctHex.substring(0, 16) === '53616c7465645f5f') {
+                            saltHex = ctHex.substring(16, 32);
+                            ctHex   = ctHex.substring(32);
+                        }
+                        var dv = __crypto_evp_bytes_to_key(key, saltHex, 32, 16).split(':');
+                        keyHex = dv[0]; ivHex = dv[1] || '';
+                    } else if (key && key.__hex) {
+                        keyHex = key.__hex;
+                        var iv = options.iv;
+                        ivHex  = iv ? (iv.__hex || '') : '';
+                    } else { return __hexWrap(''); }
+                    var res = __crypto_aes_process(modeStr, 'decrypt', keyHex, ivHex, ctHex, padStr);
+                    return __hexWrap(res);
+                },
+                encrypt: function(message, key, options) {
+                    options = options || {};
+                    var modeStr = this._modeStr(options);
+                    var padStr  = this._padStr(options);
+                    var msgHex  = (typeof message === 'string') ? __crypto_utf8_to_hex(message)
+                                  : (message && message.__hex) ? message.__hex : '';
+                    var keyHex, ivHex, saltHex = '';
+                    if (typeof key === 'string') {
+                        saltHex = __crypto_random_hex(8);
+                        var dv = __crypto_evp_bytes_to_key(key, saltHex, 32, 16).split(':');
+                        keyHex = dv[0]; ivHex = dv[1] || '';
+                    } else if (key && key.__hex) {
+                        keyHex = key.__hex;
+                        var iv = options.iv;
+                        ivHex  = iv ? (iv.__hex || '') : '';
+                    } else { keyHex = ''; ivHex = ''; }
+                    var res = __crypto_aes_process(modeStr, 'encrypt', keyHex, ivHex, msgHex, padStr);
+                    var header = saltHex ? ('53616c7465645f5f' + saltHex) : '';
+                    var full = header + res;
+                    return {
+                        ciphertext: __hexWrap(res),
+                        toString: function(enc) {
+                            var raw = '';
+                            for (var _i2 = 0; _i2 < full.length; _i2 += 2)
+                                raw += String.fromCharCode(parseInt(full.substring(_i2, _i2 + 2), 16));
+                            if (!enc || enc === CryptoJS.enc.Base64) return __crypto_base64_encode(raw);
+                            return full;
+                        }
+                    };
+                },
+            },
+
+            // Additional common CryptoJS algorithms
+            RC4:      { decrypt: function() { return __hexWrap(''); }, encrypt: function() { return { ciphertext: __hexWrap(''), toString: function() { return ''; } }; } },
+            TripleDES:{ decrypt: function() { return __hexWrap(''); }, encrypt: function() { return { ciphertext: __hexWrap(''), toString: function() { return ''; } }; } },
+            Rabbit:   { decrypt: function() { return __hexWrap(''); }, encrypt: function() { return { ciphertext: __hexWrap(''), toString: function() { return ''; } }; } },
         };
         globalThis.CryptoJS = CryptoJS;
 
@@ -1177,7 +1412,14 @@ object NuvioRuntime {
 
         var require = function(name) {
             if (name === 'cheerio' || name === 'cheerio-without-node-native' || name === 'react-native-cheerio') return cheerio;
-            if (name === 'crypto-js' || name === 'crypto-js/core') return CryptoJS;
+            if (name === 'crypto-js' || name === 'crypto-js/core' ||
+                name === 'crypto-js/aes' || name === 'crypto-js/enc-utf8' ||
+                name === 'crypto-js/enc-hex' || name === 'crypto-js/enc-base64' ||
+                name === 'crypto-js/md5' || name === 'crypto-js/sha1' ||
+                name === 'crypto-js/sha256' || name === 'crypto-js/sha512' ||
+                name === 'crypto-js/hmac-sha256' || name === 'crypto-js/hmac-sha512' ||
+                name === 'crypto-js/pad-pkcs7' || name === 'crypto-js/mode-cbc' ||
+                name.startsWith('crypto-js/')) return CryptoJS;
             if (name === 'axios') return __axiosShim;
             if (name === 'node-fetch' || name === 'cross-fetch' || name === 'isomorphic-fetch') return fetch;
             // got — supports extend({prefixUrl}) and .json()/.text() response chaining.
@@ -1386,6 +1628,19 @@ object NuvioRuntime {
     """.trimIndent()
 
 
+
+    private fun hexToBytes(hex: String): ByteArray {
+        val h = hex.replace(" ", "").lowercase()
+        if (h.isEmpty()) return ByteArray(0)
+        return ByteArray(h.length / 2) { h.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+    }
+
+    // AES key must be 16/24/32 bytes — pad or truncate to nearest valid size.
+    private fun normaliseAesKey(raw: ByteArray): ByteArray = when {
+        raw.size <= 16 -> raw.copyOf(16)
+        raw.size <= 24 -> raw.copyOf(24)
+        else           -> raw.copyOf(32)
+    }
 
     private fun jsString(s: String): String =
         "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
