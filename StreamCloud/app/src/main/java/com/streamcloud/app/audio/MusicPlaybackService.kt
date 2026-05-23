@@ -403,6 +403,9 @@ class MusicPlaybackService : MediaLibraryService() {
                     parentId == ON_REPEAT_ID -> roomTracks { it.mostPlayed().first() }
                     parentId == LIKED_ID    -> likedChildren()
                     parentId == DOWNLOADED_ID -> roomTracks { it.downloaded().first() }
+                    parentId == ARTISTS_ID -> artistsChildren()
+                    parentId.startsWith(ARTIST_PREFIX) ->
+                        artistTracks(parentId.removePrefix(ARTIST_PREFIX))
                     parentId.startsWith(YT_PLAYLIST_PREFIX) -> ytPlaylistTracks(
                         parentId.removePrefix(YT_PLAYLIST_PREFIX),
                     )
@@ -512,20 +515,43 @@ class MusicPlaybackService : MediaLibraryService() {
         .build()
 
     private fun rootChildren(): List<MediaItem> = listOf(
-        folder(HOME_ID, "Home"),
-        folder(LIBRARY_ID, "Your Library"),
+        tab(HOME_ID,    "Home"),
+        tab(RECENT_ID,  "Recents"),
+        tab(LIBRARY_ID, "Your Library"),
     )
 
-    private fun homeChildren(): List<MediaItem> = listOf(
-        playlist(RECENT_ID, "Recently played"),
-        playlist(ON_REPEAT_ID, "On repeat"),
-    )
+    /**
+     * Home tab content: up to 20 recently played tracks with artwork so Android Auto
+     * shows them immediately as a grid — no sub-folder drilling required.
+     * Falls back to folder links when there is no listen history yet.
+     */
+    private suspend fun homeChildren(): List<MediaItem> {
+        val recent = runCatching {
+            LibraryDb.get(this@MusicPlaybackService).tracks().recent().first()
+        }.getOrElse { emptyList() }.take(20)
+
+        if (recent.isEmpty()) return listOf(
+            playlist(RECENT_ID,   "Recently played"),
+            playlist(ON_REPEAT_ID, "On repeat"),
+        )
+
+        // Actual playable tracks (with artwork) appear directly on the home grid.
+        // Append user's YT playlists as browsable tiles so they are reachable too.
+        val trackItems = recent.map(::trackEntityItem)
+        val ytItems = ytLibrary.playlists
+            .filter { !it.isAlbum }
+            .take(6)
+            .map { pl -> ytPlaylistBrowsable("$YT_PLAYLIST_PREFIX\${pl.id}", pl) }
+        return trackItems + ytItems
+    }
 
 
     private fun libraryChildren(): List<MediaItem> {
         val fixed = listOf(
-            playlist(LIKED_ID, "Liked Music"),
+            playlist(LIKED_ID,      "Liked Music"),
             playlist(DOWNLOADED_ID, "Downloads"),
+            playlist(ON_REPEAT_ID,  "On repeat"),
+            folder(ARTISTS_ID,      "Artists"),
         )
         val ytPlaylists = ytLibrary.playlists
             .filter { !it.isAlbum }
@@ -566,6 +592,39 @@ class MusicPlaybackService : MediaLibraryService() {
         } catch (e: Throwable) {
             emptyList()
         }
+    }
+
+    /** Deduplicated artist list built from recent playback history. */
+    private suspend fun artistsChildren(): List<MediaItem> {
+        val recent = runCatching {
+            LibraryDb.get(this@MusicPlaybackService).tracks().recent().first()
+        }.getOrElse { emptyList() }
+        val seen = mutableSetOf<String>()
+        return recent
+            .filter { it.artist.isNotBlank() && seen.add(it.artist) }
+            .take(30)
+            .map { track ->
+                MediaItem.Builder()
+                    .setMediaId("$ARTIST_PREFIX\${track.artist}")
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(track.artist)
+                            .setArtworkUri(track.thumbnail?.let(Uri::parse))
+                            .setIsBrowsable(true)
+                            .setIsPlayable(false)
+                            .setMediaType(MediaMetadata.MEDIA_TYPE_ARTIST)
+                            .build(),
+                    )
+                    .build()
+            }
+    }
+
+    /** All recent tracks by a specific artist name. */
+    private suspend fun artistTracks(artistName: String): List<MediaItem> {
+        val recent = runCatching {
+            LibraryDb.get(this@MusicPlaybackService).tracks().recent().first()
+        }.getOrElse { emptyList() }
+        return recent.filter { it.artist == artistName }.map(::trackEntityItem)
     }
 
     private suspend fun roomTracks(query: suspend (dao: com.streamcloud.app.data.library.TrackDao) -> List<TrackEntity>): List<MediaItem> =
@@ -625,6 +684,26 @@ class MusicPlaybackService : MediaLibraryService() {
         )
         .build()
 
+    /**
+     * Root-level tab item. Sets per-item content style hints so Android Auto
+     * renders children as a grid (browsable) or list (playable) automatically.
+     */
+    private fun tab(id: String, title: String): MediaItem = MediaItem.Builder()
+        .setMediaId(id)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(title)
+                .setIsBrowsable(true)
+                .setIsPlayable(false)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                .setExtras(Bundle().apply {
+                    putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", 2)
+                    putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT",  1)
+                })
+                .build(),
+        )
+        .build()
+
     private fun folder(id: String, title: String): MediaItem = MediaItem.Builder()
         .setMediaId(id)
         .setMediaMetadata(
@@ -657,6 +736,14 @@ class MusicPlaybackService : MediaLibraryService() {
         id == ON_REPEAT_ID -> playlist(ON_REPEAT_ID, "On repeat")
         id == LIKED_ID     -> playlist(LIKED_ID, "Liked Music")
         id == DOWNLOADED_ID -> playlist(DOWNLOADED_ID, "Downloads")
+        id == ARTISTS_ID    -> folder(ARTISTS_ID, "Artists")
+        id.startsWith(ARTIST_PREFIX) ->
+            MediaItem.Builder().setMediaId(id).setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(id.removePrefix(ARTIST_PREFIX))
+                    .setIsBrowsable(true).setIsPlayable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_ARTIST).build()
+            ).build()
         id.startsWith(YT_PLAYLIST_PREFIX) -> {
             val plId = id.removePrefix(YT_PLAYLIST_PREFIX)
             val pl = ytLibrary.playlists.find { it.id == plId }
@@ -698,5 +785,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
         const val YT_PLAYLIST_PREFIX = "ytpl_"
+        const val ARTISTS_ID     = "streamcloud_artists"
+        const val ARTIST_PREFIX  = "sc_artist_"
     }
 }
