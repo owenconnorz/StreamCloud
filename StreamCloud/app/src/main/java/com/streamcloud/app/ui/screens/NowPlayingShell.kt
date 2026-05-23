@@ -103,6 +103,17 @@ fun NowPlayingShell(
 
     DisposableEffect(controller) {
         val listener = object : Player.Listener {
+            // Fire immediately when ExoPlayer moves to next/prev item in the queue.
+            // This is crucial when casting: we need mediaId to update right away so
+            // the LaunchedEffect(mediaId) can push the new track to Sonos.
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                mediaId = mediaItem?.mediaId
+                mediaItem?.mediaMetadata?.let { md ->
+                    if (md.title != null) title = md.title.toString()
+                    if (md.artist != null) artist = md.artist.toString()
+                    artwork = md.artworkUri?.toString()
+                }
+            }
             override fun onMediaMetadataChanged(md: MediaMetadata) {
                 title = md.title?.toString().orEmpty()
                 artist = md.artist?.toString().orEmpty()
@@ -179,7 +190,9 @@ fun NowPlayingShell(
     var showSonos by remember { mutableStateOf(false) }
     val castState by SonosRepository.castState.collectAsState()
     val isCasting       = castState is SonosRepository.CastState.Casting
-    val isSonosPlaying by SonosRepository.isSonosPlaying.collectAsState()
+    val isSonosPlaying  by SonosRepository.isSonosPlaying.collectAsState()
+    val sonosPosMs       by SonosRepository.sonosPositionMs.collectAsState()
+    val sonosDurMs       by SonosRepository.sonosDurationMs.collectAsState()
 
 
     val videoId = remember(mediaId) {
@@ -435,11 +448,15 @@ fun NowPlayingShell(
 
             Spacer(Modifier.height(16.dp))
 
+            // When casting, use position/duration polled from Sonos; ExoPlayer is paused.
+            val effectivePosMs = if (isCasting && sonosDurMs > 0) sonosPosMs else positionMs
+            val effectiveDurMs = if (isCasting && sonosDurMs > 0) sonosDurMs else durationMs
+
 
             Slider(
-                value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
+                value = if (effectiveDurMs > 0) effectivePosMs / effectiveDurMs.toFloat() else 0f,
                 onValueChange = { v ->
-                    if (durationMs > 0) controller.seekTo((v * durationMs).toLong())
+                    if (!isCasting && effectiveDurMs > 0) controller.seekTo((v * effectiveDurMs).toLong())
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = SliderDefaults.colors(
@@ -450,11 +467,11 @@ fun NowPlayingShell(
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
-                    formatTime(positionMs), color = onBg.copy(alpha = 0.85f),
+                    formatTime(effectivePosMs), color = onBg.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 )
                 Text(
-                    formatTime(durationMs), color = onBg.copy(alpha = 0.85f),
+                    formatTime(effectiveDurMs), color = onBg.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 )
             }
