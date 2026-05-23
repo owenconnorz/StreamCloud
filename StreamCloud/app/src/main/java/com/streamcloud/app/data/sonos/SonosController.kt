@@ -94,6 +94,32 @@ object SonosController {
     suspend fun stop(device: SonosDevice): Boolean =
         soap(device, "Stop", "<InstanceID>0</InstanceID>")
 
+    /** Returns (positionMs, durationMs) from Sonos GetPositionInfo, or null on failure. */
+    suspend fun getPositionInfo(device: SonosDevice): Pair<Long, Long>? = withContext(Dispatchers.IO) {
+        try {
+            val resp = http.newCall(avRequest(device, "GetPositionInfo",
+                "<InstanceID>0</InstanceID>")).execute()
+            val body = resp.body?.string() ?: return@withContext null
+            val dur = Regex("<TrackDuration>([^<]+)</TrackDuration>").find(body)?.groupValues?.get(1)
+            val pos = Regex("<RelTime>([^<]+)</RelTime>").find(body)?.groupValues?.get(1)
+            if (dur == null || pos == null) return@withContext null
+            Pair(sonosTimeToMs(pos), sonosTimeToMs(dur))
+        } catch (e: Exception) {
+            Log.w(TAG, "getPositionInfo: \${e.message}")
+            null
+        }
+    }
+
+    /** Parse Sonos time string "H:MM:SS" or "H:MM:SS.mmm" → milliseconds. */
+    private fun sonosTimeToMs(t: String): Long {
+        val parts = t.trimEnd().split(":").map { it.toDoubleOrNull() ?: 0.0 }
+        return when (parts.size) {
+            3    -> ((parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000).toLong()
+            2    -> ((parts[0] * 60  + parts[1]) * 1000).toLong()
+            else -> (parts.firstOrNull() ?: 0.0).toLong() * 1000
+        }
+    }
+
     suspend fun getState(device: SonosDevice): String? = withContext(Dispatchers.IO) {
         try {
             val resp = http.newCall(avRequest(device, "GetTransportInfo",

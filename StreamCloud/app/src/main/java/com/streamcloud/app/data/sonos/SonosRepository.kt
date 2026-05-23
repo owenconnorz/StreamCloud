@@ -5,6 +5,7 @@ import android.util.Log
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +41,16 @@ object SonosRepository {
     /** True while Sonos is actively playing; false when paused or not casting. */
     private val _isSonosPlaying = MutableStateFlow(false)
     val isSonosPlaying: StateFlow<Boolean> = _isSonosPlaying.asStateFlow()
+
+    /** Current playback position on Sonos (ms), polled every second while casting. */
+    private val _sonosPositionMs = MutableStateFlow(0L)
+    val sonosPositionMs: StateFlow<Long> = _sonosPositionMs.asStateFlow()
+
+    /** Duration of the current Sonos track (ms). */
+    private val _sonosDurationMs = MutableStateFlow(0L)
+    val sonosDurationMs: StateFlow<Long> = _sonosDurationMs.asStateFlow()
+
+    private var positionPollJob: Job? = null
 
     private var activeGroup: SonosGroup? = null
     private var appContext: Context? = null
@@ -141,6 +152,8 @@ object SonosRepository {
                     }
                     SonosController.getVolume(coordinator)?.let { _sonosVolume.value = it }
                     _isSonosPlaying.value = true
+                    _sonosPositionMs.value = 0L
+                    startPositionPolling()
                     _castState.update { CastState.Casting(group, title) }
                 } else {
                     SonosProxyServer.stop()
@@ -213,6 +226,8 @@ object SonosRepository {
             SonosController.setUri(coordinator, proxyUrl, title, mimeType)
             SonosController.play(coordinator)
             _isSonosPlaying.value = true
+            _sonosPositionMs.value = 0L
+            startPositionPolling()
             _castState.update { CastState.Casting(group, title) }
         }
     }
@@ -232,6 +247,19 @@ object SonosRepository {
         scope.launch { SonosController.setVolume(group.coordinatorDevice, _sonosVolume.value) }
     }
 
+    private fun startPositionPolling() {
+        positionPollJob?.cancel()
+        positionPollJob = scope.launch {
+            while (true) {
+                delay(1_000)
+                val group = activeGroup ?: break
+                val (pos, dur) = SonosController.getPositionInfo(group.coordinatorDevice) ?: continue
+                _sonosPositionMs.value = pos
+                _sonosDurationMs.value = dur
+            }
+        }
+    }
+
     // ── Disconnect ─────────────────────────────────────────────────────────────
 
     fun disconnect() {
@@ -241,6 +269,10 @@ object SonosRepository {
         appContext  = null
         SonosProxyServer.stop()
         if (group != null) scope.launch { SonosController.stop(group.coordinatorDevice) }
+        positionPollJob?.cancel()
+        positionPollJob = null
+        _sonosPositionMs.value = 0L
+        _sonosDurationMs.value = 0L
         _castState.update { CastState.Idle }
         _isSonosPlaying.value = false
         _sonosVolume.value = 50
