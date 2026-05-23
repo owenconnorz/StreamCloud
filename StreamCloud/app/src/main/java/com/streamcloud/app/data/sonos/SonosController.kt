@@ -2,7 +2,6 @@ package com.streamcloud.app.data.sonos
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -20,36 +19,34 @@ object SonosController {
     private const val TOPOLOGY_SERVICE     = "urn:schemas-upnp-org:service:ZoneGroupTopology:1"
     private const val TOPOLOGY_PATH        = "/ZoneGroupTopology/Control"
 
+    /** Last SOAP failure description — shown in the error UI for diagnostics. */
+    @Volatile var lastSoapError: String = ""
+        private set
+
+    // One client per action type — short timeouts for control actions, longer
+    // for topology (which can take a few seconds on first call).
     private val http = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .build()
+
+    private val topologyHttp = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
         .build()
 
     // ── Zone Group Topology ────────────────────────────────────────────────────
 
-    /**
-     * Fetch the full Sonos group topology from any discovered device.
-     * Returns the raw SOAP response body (caller handles parsing via SonosGroup).
-     */
     suspend fun getZoneGroupState(device: SonosDevice): String? = withContext(Dispatchers.IO) {
         try {
-            val envelope = """
-                <?xml version="1.0" encoding="utf-8"?>
-                <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
-                    s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-                  <s:Body>
-                    <u:GetZoneGroupState xmlns:u="$TOPOLOGY_SERVICE">
-                    </u:GetZoneGroupState>
-                  </s:Body>
-                </s:Envelope>
-            """.trimIndent()
             val req = Request.Builder()
                 .url("http://${device.host}:${device.port}$TOPOLOGY_PATH")
-                .post(envelope.toRequestBody("text/xml; charset=utf-8".toMediaType()))
+                .post(soapBody("GetZoneGroupState", TOPOLOGY_SERVICE, "").toRequestBody(XML_MT))
                 .header("SOAPACTION", "\"$TOPOLOGY_SERVICE#GetZoneGroupState\"")
                 .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                .header("Connection", "close")
                 .build()
-            http.newCall(req).execute().use { it.body?.string() }
+            topologyHttp.newCall(req).execute().use { it.body?.string() }
         } catch (e: Exception) {
             Log.w(TAG, "GetZoneGroupState failed: ${e.message}")
             null
@@ -58,16 +55,27 @@ object SonosController {
 
     // ── AVTransport ────────────────────────────────────────────────────────────
 
-    suspend fun setUri(device: SonosDevice, streamUrl: String, title: String = ""): Boolean =
-        soap(
-            device = device,
-            action = "SetAVTransportURI",
-            body   = """
-                <InstanceID>0</InstanceID>
-                <CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>
-                <CurrentURIMetaData>${buildDIDL(title, streamUrl).xmlEscape()}</CurrentURIMetaData>
-            """.trimIndent(),
-        )
+    /**
+     * SetAVTransportURI — two strategies tried in order:
+     *   1. Minimal DIDL with bare <res> (no protocolInfo) — most compatible.
+     *   2. Empty metadata string — absolute fallback.
+     * Returns true on first success; records the last UPnP error for diagnostics.
+     */
+    suspend fun setUri(device: SonosDevice, streamUrl: String, title: String = ""): Boolean {
+        // Strategy 1: minimal DIDL without protocolInfo
+        val didl = buildDIDL(title, streamUrl)
+        val body1 = "<InstanceID>0</InstanceID>" +
+            "<CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>" +
+            "<CurrentURIMetaData>${didl.xmlEscape()}</CurrentURIMetaData>"
+        if (soap(device, "SetAVTransportURI", body1)) return true
+
+        // Strategy 2: empty metadata (some firmware strict about DIDL format)
+        Log.w(TAG, "setUri with DIDL failed ($lastSoapError) — retrying with empty metadata")
+        val body2 = "<InstanceID>0</InstanceID>" +
+            "<CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>" +
+            "<CurrentURIMetaData></CurrentURIMetaData>"
+        return soap(device, "SetAVTransportURI", body2)
+    }
 
     suspend fun play(device: SonosDevice): Boolean =
         soap(device, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
@@ -80,13 +88,13 @@ object SonosController {
 
     suspend fun getState(device: SonosDevice): String? = withContext(Dispatchers.IO) {
         try {
-            val resp = http.newCall(soapRequest(device, "GetTransportInfo",
+            val resp = http.newCall(avRequest(device, "GetTransportInfo",
                 "<InstanceID>0</InstanceID>")).execute()
             val body = resp.body?.string() ?: return@withContext null
             Regex("<CurrentTransportState>([^<]+)</CurrentTransportState>")
                 .find(body)?.groupValues?.get(1)
         } catch (e: Exception) {
-            Log.w(TAG, "getState failed: ${e.message}")
+            Log.w(TAG, "getState: ${e.message}")
             null
         }
     }
@@ -95,53 +103,72 @@ object SonosController {
 
     suspend fun getVolume(device: SonosDevice): Int? = withContext(Dispatchers.IO) {
         try {
-            val envelope = renderingEnvelope("GetVolume",
-                "<InstanceID>0</InstanceID><Channel>Master</Channel>")
             val req = Request.Builder()
                 .url("http://${device.host}:${device.port}$RENDERING_PATH")
-                .post(envelope.toRequestBody("text/xml; charset=utf-8".toMediaType()))
+                .post(soapBody("GetVolume", RENDERING_SERVICE,
+                    "<InstanceID>0</InstanceID><Channel>Master</Channel>").toRequestBody(XML_MT))
                 .header("SOAPACTION", "\"$RENDERING_SERVICE#GetVolume\"")
                 .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                .header("Connection", "close")
                 .build()
-            val body = http.newCall(req).execute().use { it.body?.string() }
-                ?: return@withContext null
-            Regex("<CurrentVolume>([0-9]+)</CurrentVolume>")
-                .find(body)?.groupValues?.get(1)?.toIntOrNull()
+            val body = http.newCall(req).execute().use { it.body?.string() } ?: return@withContext null
+            Regex("<CurrentVolume>([0-9]+)</CurrentVolume>").find(body)?.groupValues?.get(1)?.toIntOrNull()
         } catch (e: Exception) {
-            Log.w(TAG, "getVolume failed: ${e.message}")
+            Log.w(TAG, "getVolume: ${e.message}")
             null
         }
     }
 
-    suspend fun setVolume(device: SonosDevice, volume: Int): Boolean = renderingSoap(
-        device, "SetVolume",
-        "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>${volume.coerceIn(0,100)}</DesiredVolume>",
-    )
+    suspend fun setVolume(device: SonosDevice, volume: Int): Boolean {
+        val v = volume.coerceIn(0, 100)
+        return renderingSoap(device, "SetVolume",
+            "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>$v</DesiredVolume>")
+    }
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
-    private fun soapRequest(device: SonosDevice, action: String, body: String): Request =
+    private val XML_MT = "text/xml; charset=utf-8".toMediaType()
+
+    /**
+     * Build a minimal SOAP envelope body — no XML declaration (some Sonos firmware
+     * is strict about leading whitespace before <?xml), no encodingStyle for
+     * compatibility with both S1 and S2 hardware.
+     */
+    private fun soapBody(action: String, service: String, innerBody: String) =
+        "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">" +
+        "<s:Body>" +
+        "<u:$action xmlns:u=\"$service\">$innerBody</u:$action>" +
+        "</s:Body>" +
+        "</s:Envelope>"
+
+    private fun avRequest(device: SonosDevice, action: String, innerBody: String): Request =
         Request.Builder()
             .url("http://${device.host}:${device.port}$AV_TRANSPORT_PATH")
-            .post(soapEnvelope(action, body).toRequestBody("text/xml; charset=utf-8".toMediaType()))
+            .post(soapBody(action, AV_TRANSPORT_SERVICE, innerBody).toRequestBody(XML_MT))
             .header("SOAPACTION", "\"$AV_TRANSPORT_SERVICE#$action\"")
             .header("Content-Type", "text/xml; charset=\"utf-8\"")
+            .header("Connection", "close")
             .build()
 
     private suspend fun soap(device: SonosDevice, action: String, body: String): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                val resp = http.newCall(soapRequest(device, action, body)).execute()
+                val resp = http.newCall(avRequest(device, action, body)).execute()
                 val ok = resp.isSuccessful
                 if (!ok) {
                     val err = runCatching { resp.body?.string() }.getOrNull() ?: ""
-                    Log.w(TAG, "SOAP $action → HTTP ${resp.code}: $err")
+                    val upnp = Regex("<errorCode>(\\d+)</errorCode>")
+                        .find(err)?.groupValues?.get(1)
+                    lastSoapError = if (upnp != null) "UPnP $upnp (HTTP ${resp.code})"
+                                    else              "HTTP ${resp.code}"
+                    Log.w(TAG, "SOAP $action → $lastSoapError  body=$err")
                 } else {
                     resp.body?.close()
                 }
                 ok
             } catch (e: Exception) {
-                Log.w(TAG, "SOAP $action failed: ${e.message}")
+                lastSoapError = e.javaClass.simpleName + ": " + (e.message ?: "timeout")
+                Log.w(TAG, "SOAP $action failed: $lastSoapError")
                 false
             }
         }
@@ -151,9 +178,10 @@ object SonosController {
             try {
                 val req = Request.Builder()
                     .url("http://${device.host}:${device.port}$RENDERING_PATH")
-                    .post(renderingEnvelope(action, body).toRequestBody("text/xml; charset=utf-8".toMediaType()))
+                    .post(soapBody(action, RENDERING_SERVICE, body).toRequestBody(XML_MT))
                     .header("SOAPACTION", "\"$RENDERING_SERVICE#$action\"")
                     .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                    .header("Connection", "close")
                     .build()
                 val resp = http.newCall(req).execute()
                 val ok = resp.isSuccessful
@@ -166,54 +194,28 @@ object SonosController {
             }
         }
 
-    private fun soapEnvelope(action: String, body: String) = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
-            s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:$action xmlns:u="$AV_TRANSPORT_SERVICE">
-              $body
-            </u:$action>
-          </s:Body>
-        </s:Envelope>
-    """.trimIndent()
-
-    private fun renderingEnvelope(action: String, body: String) = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
-            s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:$action xmlns:u="$RENDERING_SERVICE">
-              $body
-            </u:$action>
-          </s:Body>
-        </s:Envelope>
-    """.trimIndent()
-
     /**
-     * DIDL-Lite metadata block.
-     *
-     * protocolInfo uses wildcard MIME + DLNA.ORG_OP=01 (byte-range supported),
-     * so Sonos won't reject the stream with error 714 (Illegal MIME-type)
-     * regardless of whether YouTube delivers audio/webm, audio/mp4, or video/mp4.
+     * Minimal DIDL-Lite with bare <res> (no protocolInfo attribute).
+     * Sonos auto-detects the stream format, avoiding UPnP error 714.
+     * Includes the Rincon namespace used by Sonos's own apps.
      */
     internal fun buildDIDL(title: String, uri: String): String {
-        val safeTitle = title.xmlEscape()
-        val safeUri   = uri.xmlEscape()
-        return "<DIDL-Lite " +
-            "xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
-            "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
-            "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
+        val t = title.xmlEscape()
+        val u = uri.xmlEscape()
+        return "<DIDL-Lite" +
+            " xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"" +
+            " xmlns:dc=\"http://purl.org/dc/elements/1.1/\"" +
+            " xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\"" +
+            " xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\">" +
             "<item id=\"1\" parentID=\"-1\" restricted=\"true\">" +
-            "<dc:title>$safeTitle</dc:title>" +
+            "<dc:title>$t</dc:title>" +
             "<upnp:class>object.item.audioItem.musicTrack</upnp:class>" +
-            "<res protocolInfo=\"http-get:*:*:DLNA.ORG_OP=01;" +
-            "DLNA.ORG_FLAGS=01700000000000000000000000000000\">$safeUri</res>" +
+            "<r:streamContent/>" +
+            "<res>$u</res>" +
             "</item>" +
             "</DIDL-Lite>"
     }
 
-    private fun String.xmlEscape() = this
-        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        .replace("\"", "&quot;").replace("'", "&apos;")
+    private fun String.xmlEscape() = replace("&","&amp;").replace("<","&lt;")
+        .replace(">","&gt;").replace("\"","&quot;").replace("'","&apos;")
 }

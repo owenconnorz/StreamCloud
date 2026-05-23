@@ -23,7 +23,6 @@ object SonosRepository {
     sealed interface CastState {
         object Idle : CastState
         object Discovering : CastState
-        /** Discovered groups ready for the user to choose from. */
         data class GroupsFound(val groups: List<SonosGroup>) : CastState
         object Connecting : CastState
         data class Casting(val group: SonosGroup, val title: String) : CastState
@@ -47,16 +46,11 @@ object SonosRepository {
         _castState.update { CastState.Discovering }
         scope.launch {
             try {
-                // 1. SSDP to find raw devices
                 val devices = SonosDiscovery.discover(context)
                 if (devices.isEmpty()) {
                     _castState.update { CastState.Error("No Sonos speakers found on this network.") }
                     return@launch
                 }
-
-                // 2. Fetch zone group topology from the first responsive device.
-                //    GetZoneGroupState returns the topology for the ENTIRE household,
-                //    so querying any single speaker is sufficient.
                 val groups = fetchGroups(devices)
                 _castState.update { CastState.GroupsFound(groups) }
             } catch (e: Exception) {
@@ -66,34 +60,23 @@ object SonosRepository {
         }
     }
 
-    /**
-     * Build the group list from the household topology.
-     * Falls back to wrapping individual devices when the topology call fails.
-     */
     private suspend fun fetchGroups(devices: List<SonosDevice>): List<SonosGroup> {
+        // Try each discovered device until one returns valid topology
         for (dev in devices) {
             val soap = SonosController.getZoneGroupState(dev) ?: continue
+            Log.d(TAG, "GetZoneGroupState from ${dev.name}: ${soap.take(200)}")
             val groups = SonosGroup.parseZoneGroupXml(soap)
             if (groups.isNotEmpty()) {
-                Log.d(TAG, "Parsed ${groups.size} group(s) from ${dev.name}")
+                Log.d(TAG, "Parsed ${groups.size} group(s): ${groups.map { it.displayName }}")
                 return groups
             }
         }
-        // Fallback: present each SSDP device as a solo group
-        Log.w(TAG, "GetZoneGroupState unavailable — falling back to individual devices")
+        Log.w(TAG, "GetZoneGroupState unavailable — using individual devices as fallback")
         return SonosGroup.fromDevices(devices)
     }
 
     // ── Connect ────────────────────────────────────────────────────────────────
 
-    /**
-     * Start casting [title] to the selected Sonos [group].
-     *
-     * All UPnP commands are routed to the **group coordinator** — the master
-     * speaker that tells every member of the group what to play.  Sending
-     * SetAVTransportURI to a non-coordinator returns UPnP error 701 and causes
-     * the "Sonos rejected the stream" failure.
-     */
     fun connect(
         context: Context,
         group: SonosGroup,
@@ -106,56 +89,58 @@ object SonosRepository {
             try {
                 val localIp = SonosDiscovery.localIp(context)
                 if (localIp == null) {
-                    _castState.update {
-                        CastState.Error("Cannot determine local IP — connect to Wi-Fi first.")
-                    }
+                    _castState.update { CastState.Error("Cannot determine local IP — connect to Wi-Fi first.") }
                     return@launch
                 }
 
-                // Resolve the audio stream URL before starting the proxy, so the
-                // proxy can serve it immediately without an extra round-trip.
                 val resolvedUrl = resolveStream(videoId, watchUrl)
                 if (resolvedUrl == null) {
-                    _castState.update {
-                        CastState.Error("Could not resolve audio stream for this track.")
-                    }
+                    _castState.update { CastState.Error("Could not resolve audio stream for this track.") }
                     return@launch
                 }
 
                 val proxyUrl = SonosProxyServer.start(localIp)
-                SonosProxyServer.setTrack(
-                    SonosProxyServer.TrackInfo(
-                        videoId     = videoId,
-                        title       = title,
-                        watchUrl    = watchUrl,
-                        resolvedUrl = resolvedUrl,
-                    ),
-                )
+                SonosProxyServer.setTrack(SonosProxyServer.TrackInfo(
+                    videoId = videoId, title = title, watchUrl = watchUrl, resolvedUrl = resolvedUrl,
+                ))
                 Log.d(TAG, "Proxy: $proxyUrl  Coordinator: ${group.coordinatorHost}:${group.coordinatorPort}")
 
-                // Route to the GROUP COORDINATOR — this is what makes all speakers
-                // in the group play simultaneously.
                 val coordinator = group.coordinatorDevice
 
-                // Stop current playback and wait for Sonos to reach STOPPED.
-                // SetAVTransportURI during TRANSITIONING → UPnP error 701.
+                // ── Attempt 1: stop first, wait for STOPPED ────────────────
                 SonosController.stop(coordinator)
-                waitForStopped(coordinator, timeoutMs = 2_000)
+                waitForStopped(coordinator, 2_000)
 
-                // Set URI + Play (with one automatic retry on transient failure)
                 var ok = SonosController.setUri(coordinator, proxyUrl, title) &&
                     SonosController.play(coordinator)
+
+                // ── Attempt 2: skip stop, just set+play ────────────────────
+                // Some firmware rejects SetAVTransportURI if Stop puts it in
+                // an unexpected intermediate state. Try without Stop.
                 if (!ok) {
-                    Log.w(TAG, "setUri/play failed — retrying in 600 ms")
-                    delay(600)
+                    Log.w(TAG, "Attempt 1 failed [${SonosController.lastSoapError}] — retrying without Stop")
+                    delay(500)
                     ok = SonosController.setUri(coordinator, proxyUrl, title) &&
                         SonosController.play(coordinator)
+                }
+
+                // ── Attempt 3: re-fetch topology, maybe coordinator changed ─
+                if (!ok) {
+                    Log.w(TAG, "Attempt 2 failed [${SonosController.lastSoapError}] — re-fetching topology")
+                    delay(500)
+                    val freshGroups = fetchGroups(listOf(coordinator))
+                    val freshCoord  = freshGroups.firstOrNull { it.memberNames.any { n ->
+                        n == group.memberNames.firstOrNull()
+                    } }?.coordinatorDevice ?: coordinator
+                    SonosController.stop(freshCoord)
+                    delay(600)
+                    ok = SonosController.setUri(freshCoord, proxyUrl, title) &&
+                        SonosController.play(freshCoord)
                 }
 
                 if (ok) {
                     activeGroup = group
                     appContext  = context.applicationContext
-                    // Pause the on-device player so audio doesn't overlap
                     runCatching {
                         withContext(Dispatchers.Main) {
                             MusicController.get(context.applicationContext).pause()
@@ -165,10 +150,12 @@ object SonosRepository {
                     _castState.update { CastState.Casting(group, title) }
                 } else {
                     SonosProxyServer.stop()
+                    // Include the actual UPnP/HTTP error so it's visible in the UI
+                    val detail = SonosController.lastSoapError.ifBlank { "unknown error" }
                     _castState.update {
                         CastState.Error(
-                            "Sonos rejected the stream.\n" +
-                            "Try selecting a different group or restarting the speaker."
+                            "Sonos rejected the stream.\n[$detail]\n\n" +
+                            "If this keeps happening, try restarting the Sonos app on your phone or rebooting the speaker."
                         )
                     }
                 }
@@ -189,10 +176,6 @@ object SonosRepository {
         }
     }
 
-    /**
-     * Poll GetTransportInfo until Sonos is STOPPED (or timeout elapses).
-     * Prevents SetAVTransportURI from failing with UPnP error 701.
-     */
     private suspend fun waitForStopped(device: SonosDevice, timeoutMs: Long) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
@@ -217,14 +200,9 @@ object SonosRepository {
         scope.launch {
             val localIp  = SonosDiscovery.localIp(context) ?: return@launch
             val resolved = resolveStream(videoId, watchUrl) ?: return@launch
-            SonosProxyServer.setTrack(
-                SonosProxyServer.TrackInfo(
-                    videoId     = videoId,
-                    title       = title,
-                    watchUrl    = watchUrl,
-                    resolvedUrl = resolved,
-                ),
-            )
+            SonosProxyServer.setTrack(SonosProxyServer.TrackInfo(
+                videoId = videoId, title = title, watchUrl = watchUrl, resolvedUrl = resolved,
+            ))
             val proxyUrl    = SonosProxyServer.start(localIp)
             val coordinator = group.coordinatorDevice
             SonosController.stop(coordinator)
@@ -245,10 +223,9 @@ object SonosRepository {
     }
 
     fun setVolume(level: Int) {
-        val group   = activeGroup ?: return
-        val clamped = level.coerceIn(0, 100)
-        _sonosVolume.value = clamped
-        scope.launch { SonosController.setVolume(group.coordinatorDevice, clamped) }
+        val group = activeGroup ?: return
+        _sonosVolume.value = level.coerceIn(0, 100)
+        scope.launch { SonosController.setVolume(group.coordinatorDevice, _sonosVolume.value) }
     }
 
     // ── Disconnect ─────────────────────────────────────────────────────────────
