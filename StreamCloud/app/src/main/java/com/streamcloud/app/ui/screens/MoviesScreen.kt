@@ -189,17 +189,25 @@ fun MoviesScreen(
                         ) {
                             items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
                                 StremioPoster(meta = meta) {
-                                    if (meta.id.startsWith("tt", ignoreCase = true)) {
-
-
-
+                                    // Only route to MovieDetailScreen (TMDB) for confirmed
+                                    // movie-type items with an IMDB ID.  TV shows / series
+                                    // always go to StremioDetailScreen — there is no TV
+                                    // details endpoint in TmdbApi and the movie endpoint
+                                    // returns HTTP 404 for TV content.
+                                    val isConfirmedMovie =
+                                        meta.type.equals("movie", ignoreCase = true) &&
+                                        meta.id.startsWith("tt", ignoreCase = true)
+                                    if (isConfirmedMovie) {
                                         vm.openStremioMeta(meta) { tmdbId, _ ->
                                             if (tmdbId != null) onMovieClick(tmdbId)
+                                            else onOpenStremio(
+                                                row.addonId, row.type, meta.id,
+                                                meta.name, meta.poster,
+                                            )
                                         }
                                     } else {
-
-
-
+                                        // series, channel, podcasts, or movies without
+                                        // IMDB ID → StremioDetailScreen
                                         onOpenStremio(
                                             row.addonId, row.type, meta.id,
                                             meta.name, meta.poster,
