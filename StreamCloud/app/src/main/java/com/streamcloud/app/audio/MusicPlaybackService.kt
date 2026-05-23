@@ -23,6 +23,7 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.streamcloud.app.MainActivity
 import com.streamcloud.app.data.AppLogger
+import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.downloads.DownloadCaches
 import com.streamcloud.app.data.library.LibraryDb
@@ -99,6 +100,18 @@ class MusicPlaybackService : MediaLibraryService() {
             .apply {
                 playWhenReady = false
             }
+
+        // When casting to Sonos, ExoPlayer must stay paused so audio only plays from the
+        // Sonos speaker (not the phone). If something triggers player.play() (e.g. the
+        // media notification Play button), immediately re-pause and resume Sonos instead.
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying && SonosRepository.castState.value is SonosRepository.CastState.Casting) {
+                    player.pause()
+                    SonosRepository.resume()
+                }
+            }
+        })
 
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -282,6 +295,14 @@ class MusicPlaybackService : MediaLibraryService() {
         StreamUrlCache.put(videoId, npUrl, npUserAgent, now + 3_600_000L)
         Log.d(TAG, "NewPipe resolved $videoId (cached 1 h)")
         return Pair(npUrl, npUserAgent)
+    }
+
+    // Keep the media notification (and foreground service) alive while casting to Sonos.
+    // By default Media3 stops the foreground service when player.isPlaying == false,
+    // which is exactly the state ExoPlayer is in during casting.
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        val casting = SonosRepository.castState.value is SonosRepository.CastState.Casting
+        super.onUpdateNotification(session, startInForegroundRequired || casting)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
