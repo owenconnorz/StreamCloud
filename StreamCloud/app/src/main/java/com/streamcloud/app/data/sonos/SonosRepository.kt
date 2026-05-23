@@ -215,16 +215,25 @@ object SonosRepository {
         scope.launch {
             val localIp = SonosDiscovery.localIp(context) ?: return@launch
             val (resolved, mimeType) = resolveStreamForSonos(videoId, watchUrl) ?: return@launch
+            // start() calls stop() internally which clears currentTrack — MUST start first,
+            // then setTrack so the proxy has the correct info when Sonos connects.
+            val proxyUrl    = SonosProxyServer.start(localIp)
             SonosProxyServer.setTrack(SonosProxyServer.TrackInfo(
                 videoId = videoId, title = title, watchUrl = watchUrl,
                 resolvedUrl = resolved, mimeType = mimeType,
             ))
-            val proxyUrl    = SonosProxyServer.start(localIp)
             val coordinator = group.coordinatorDevice
             SonosController.stop(coordinator)
             waitForStopped(coordinator, 1_500)
-            SonosController.setUri(coordinator, proxyUrl, title, mimeType)
-            SonosController.play(coordinator)
+            var ok = SonosController.setUri(coordinator, proxyUrl, title, mimeType) &&
+                     SonosController.play(coordinator)
+            if (!ok) {
+                Log.w(TAG, "updateTrack attempt 1 failed [${SonosController.lastSoapError}] — retrying")
+                delay(600)
+                ok = SonosController.setUri(coordinator, proxyUrl, title, mimeType) &&
+                     SonosController.play(coordinator)
+            }
+            if (!ok) return@launch
             _isSonosPlaying.value = true
             _sonosPositionMs.value = 0L
             startPositionPolling()
