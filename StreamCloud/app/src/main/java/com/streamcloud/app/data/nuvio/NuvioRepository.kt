@@ -81,7 +81,10 @@ class NuvioRepository(private val context: Context) {
         season: Int? = null,
         episode: Int? = null,
     ): List<Pair<InstalledNuvioProvider, NuvioStream>> = coroutineScope {
-        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        // Strip any prefix so we always work with a bare numeric TMDB ID.
+        val numericId = numericTmdbId(tmdbId)
+        // Resolve to IMDB ID (tt…) — the first-arg contract of every Nuvio provider.
+        val imdbId = resolveImdbId(numericId, mediaType) ?: ""
         val list = installed.first()
         list.map { provider ->
             async(Dispatchers.IO) {
@@ -89,7 +92,8 @@ class NuvioRepository(private val context: Context) {
                     ?: return@async emptyList()
                 val streams = NuvioRuntime.runProvider(
                     scriptText = js,
-                    tmdbId = resolvedTmdb,
+                    tmdbId = numericId,
+                    imdbId = imdbId,
                     mediaType = normaliseMediaType(mediaType),
                     season = season,
                     episode = episode,
@@ -109,14 +113,16 @@ class NuvioRepository(private val context: Context) {
         season: Int? = null,
         episode: Int? = null,
     ): List<Pair<InstalledNuvioProvider, NuvioStream>> = withContext(Dispatchers.IO) {
-        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        val numericId = numericTmdbId(tmdbId)
+        val imdbId = resolveImdbId(numericId, mediaType) ?: ""
         val provider = installed.first().firstOrNull { it.id == providerId }
             ?: return@withContext emptyList()
         val js = runCatching { File(provider.filePath).readText() }.getOrNull()
             ?: return@withContext emptyList()
         val streams = NuvioRuntime.runProvider(
             scriptText = js,
-            tmdbId = resolvedTmdb,
+            tmdbId = numericId,
+            imdbId = imdbId,
             mediaType = normaliseMediaType(mediaType),
             season = season,
             episode = episode,
@@ -126,39 +132,43 @@ class NuvioRepository(private val context: Context) {
     }
 
 
-    private val tmdbIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private suspend fun resolveTmdbId(raw: String, mediaType: String): String? {
-        val trimmed = raw.trim()
-        if (trimmed.isBlank()) return null
-        val noPrefix = trimmed
+    // Strip any textual prefix (tmdb:/movie:/series:) and return the bare numeric ID.
+    private fun numericTmdbId(raw: String): String =
+        raw.trim()
             .removePrefix("tmdb:").removePrefix("tmdb/")
-            .removePrefix("imdb:").removePrefix("movie:").removePrefix("series:")
+            .removePrefix("movie:").removePrefix("series:")
             .substringBefore(':').substringBefore('/')
             .trim()
-        if (noPrefix.isBlank()) return null
-        if (noPrefix.all(Char::isDigit)) return noPrefix
-        if (!noPrefix.startsWith("tt", ignoreCase = true)) return null
 
-        val cacheKey = "$noPrefix:${normaliseMediaType(mediaType)}"
-        tmdbIdCache[cacheKey]?.let { return it }
+    // TMDB numeric ID → IMDB "tt..." ID.
+    // This is the direction Nuvio providers need: their getStreams() first argument
+    // is an IMDB ID, not a numeric TMDB ID.
+    private val imdbIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private suspend fun resolveImdbId(numericId: String, mediaType: String): String? {
+        if (numericId.isBlank()) return null
+
+        // If the caller already handed us an IMDB ID, return it unchanged.
+        if (numericId.startsWith("tt", ignoreCase = true)) return numericId.lowercase()
+
+        // Only process bare numeric TMDB IDs.
+        if (!numericId.all(Char::isDigit)) return null
+
+        val cacheKey = "$numericId:${normaliseMediaType(mediaType)}"
+        imdbIdCache[cacheKey]?.let { return it }
 
         return withContext(Dispatchers.IO) {
             val apiKey = com.streamcloud.app.BuildConfig.TMDB_API_KEY
             if (apiKey.isBlank()) return@withContext null
-            val url = "https://api.themoviedb.org/3/find/$noPrefix?api_key=$apiKey&external_source=imdb_id"
+            val type = if (normaliseMediaType(mediaType) == "tv") "tv" else "movie"
+            val url = "https://api.themoviedb.org/3/$type/$numericId/external_ids?api_key=$apiKey"
             runCatching {
                 val text = httpGet(url)
                 val root = Net.json.parseToJsonElement(text) as?
                     kotlinx.serialization.json.JsonObject ?: return@runCatching null
-                val results = when (normaliseMediaType(mediaType)) {
-                    "tv" -> root["tv_results"] as? kotlinx.serialization.json.JsonArray
-                    else -> root["movie_results"] as? kotlinx.serialization.json.JsonArray
-                } ?: return@runCatching null
-                val first = results.firstOrNull() as? kotlinx.serialization.json.JsonObject
-                val id = (first?.get("id") as? kotlinx.serialization.json.JsonPrimitive)?.content
-                    ?.takeIf { it.isNotBlank() && it != "0" }
-                if (id != null) tmdbIdCache[cacheKey] = id
-                id
+                val imdb = (root["imdb_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    ?.takeIf { it.isNotBlank() && it != "null" && it.startsWith("tt") }
+                if (imdb != null) imdbIdCache[cacheKey] = imdb
+                imdb
             }.getOrNull()
         }
     }

@@ -43,6 +43,9 @@ object NuvioRuntime {
     suspend fun runProvider(
         scriptText: String,
         tmdbId: String,
+        // IMDB ID (tt…) — passed as params.id and as the first positional argument
+        // to getStreams(), which is the contract every public Nuvio provider follows.
+        imdbId: String = "",
         mediaType: String = "movie",
         season: Int? = null,
         episode: Int? = null,
@@ -94,8 +97,14 @@ object NuvioRuntime {
                     appendLine("  var module = { exports: {} };")
                     appendLine("  var exports = module.exports;")
                     appendLine("  // ── Inject per-execution globals (official app contract) ──")
+                    // id = IMDB ID if resolved, else fall back to numeric TMDB ID.
+                    // Nuvio providers read params.id for the IMDB ID and params.tmdbId
+                    // for the numeric TMDB ID — both must be present.
+                    val resolvedId = imdbId.takeIf { it.isNotBlank() } ?: tmdbId
                     appendLine("  globalThis.params = {")
+                    appendLine("    id:        ${jsString(resolvedId)},")
                     appendLine("    tmdbId:    ${jsString(tmdbId)},")
+                    appendLine("    imdbId:    ${jsString(imdbId)},")
                     appendLine("    mediaType: ${jsString(mediaType)},")
                     appendLine("    season:    $seasonArg,")
                     appendLine("    episode:   $episodeArg,")
@@ -123,7 +132,9 @@ object NuvioRuntime {
                     appendLine("    return '[]';")
                     appendLine("  }")
                     appendLine("  try {")
-                    appendLine("    var arr = await __fn(${jsString(tmdbId)}, ${jsString(mediaType)}, $seasonArg, $episodeArg);")
+                    // Pass the IMDB ID (or TMDB fallback) as the first positional
+                    // argument — this is the universal Nuvio provider contract.
+                    appendLine("    var arr = await __fn(${jsString(resolvedId)}, ${jsString(mediaType)}, $seasonArg, $episodeArg);")
                     appendLine("    var result = JSON.stringify(arr || []);")
                     appendLine("    __capture_result(result);")
                     appendLine("    return result;")
