@@ -2,6 +2,7 @@ package com.streamcloud.app.data.sonos
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -18,8 +19,8 @@ object SonosController {
     private const val RENDERING_PATH       = "/MediaRenderer/RenderingControl/Control"
 
     private val http = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
     suspend fun setUri(device: SonosDevice, streamUrl: String, title: String = ""): Boolean =
@@ -74,9 +75,6 @@ object SonosController {
         }
     }
 
-
-
-
     suspend fun getVolume(device: SonosDevice): Int? = withContext(Dispatchers.IO) {
         try {
             val envelope = renderingEnvelope(
@@ -97,7 +95,6 @@ object SonosController {
             null
         }
     }
-
 
     suspend fun setVolume(device: SonosDevice, volume: Int): Boolean {
         val clamped = volume.coerceIn(0, 100)
@@ -141,8 +138,6 @@ object SonosController {
         </s:Envelope>
     """.trimIndent()
 
-
-
     private suspend fun soap(device: SonosDevice, action: String, body: String): Boolean =
         withContext(Dispatchers.IO) {
             try {
@@ -180,17 +175,29 @@ object SonosController {
         </s:Envelope>
     """.trimIndent()
 
-
-    private fun buildDIDL(title: String, uri: String): String {
+    /**
+     * Build a DIDL-Lite metadata block for the given track.
+     *
+     * Key fixes vs. the old version:
+     * - protocolInfo uses "http-get:*:*:DLNA.ORG_OP=01" (wildcard MIME type)
+     *   instead of hardcoded "audio/mp4", so Sonos won't reject the stream with
+     *   UPnP error 714 (Illegal MIME-type) when YouTube delivers audio/webm or
+     *   video/mp4.
+     * - DLNA.ORG_OP=01 tells Sonos that byte-range seeking is supported, which
+     *   is required for some firmware versions to accept HTTP streams.
+     */
+    internal fun buildDIDL(title: String, uri: String): String {
         val safeTitle = title.xmlEscape()
-        val safeUri = uri.xmlEscape()
-        return "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
+        val safeUri   = uri.xmlEscape()
+        return "<DIDL-Lite " +
+            "xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
             "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
             "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
             "<item id=\"1\" parentID=\"-1\" restricted=\"true\">" +
             "<dc:title>$safeTitle</dc:title>" +
             "<upnp:class>object.item.audioItem.musicTrack</upnp:class>" +
-            "<res protocolInfo=\"http-get:*:audio/mp4:*\">$safeUri</res>" +
+            "<res protocolInfo=\"http-get:*:*:DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000\">" +
+            "$safeUri</res>" +
             "</item>" +
             "</DIDL-Lite>"
     }
