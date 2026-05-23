@@ -61,7 +61,6 @@ object SonosRepository {
     }
 
     private suspend fun fetchGroups(devices: List<SonosDevice>): List<SonosGroup> {
-        // Try each discovered device until one returns valid topology
         for (dev in devices) {
             val soap = SonosController.getZoneGroupState(dev) ?: continue
             Log.d(TAG, "GetZoneGroupState from ${dev.name}: ${soap.take(200)}")
@@ -71,7 +70,7 @@ object SonosRepository {
                 return groups
             }
         }
-        Log.w(TAG, "GetZoneGroupState unavailable — using individual devices as fallback")
+        Log.w(TAG, "GetZoneGroupState unavailable — falling back to individual devices")
         return SonosGroup.fromDevices(devices)
     }
 
@@ -93,49 +92,39 @@ object SonosRepository {
                     return@launch
                 }
 
-                val resolvedUrl = resolveStream(videoId, watchUrl)
-                if (resolvedUrl == null) {
+                // Resolve stream preferring audio/mp4 (M4A/AAC).
+                // Sonos does NOT support WebM/Opus — it causes UPnP error 714.
+                val (resolvedUrl, mimeType) = resolveStreamForSonos(videoId, watchUrl) ?: run {
                     _castState.update { CastState.Error("Could not resolve audio stream for this track.") }
                     return@launch
                 }
+                Log.d(TAG, "Resolved stream: mimeType=$mimeType url=${resolvedUrl.take(80)}")
 
                 val proxyUrl = SonosProxyServer.start(localIp)
                 SonosProxyServer.setTrack(SonosProxyServer.TrackInfo(
-                    videoId = videoId, title = title, watchUrl = watchUrl, resolvedUrl = resolvedUrl,
+                    videoId     = videoId,
+                    title       = title,
+                    watchUrl    = watchUrl,
+                    resolvedUrl = resolvedUrl,
+                    mimeType    = mimeType,
                 ))
                 Log.d(TAG, "Proxy: $proxyUrl  Coordinator: ${group.coordinatorHost}:${group.coordinatorPort}")
 
                 val coordinator = group.coordinatorDevice
 
-                // ── Attempt 1: stop first, wait for STOPPED ────────────────
+                // Stop → wait for STOPPED → set URI → play
                 SonosController.stop(coordinator)
                 waitForStopped(coordinator, 2_000)
 
-                var ok = SonosController.setUri(coordinator, proxyUrl, title) &&
+                var ok = SonosController.setUri(coordinator, proxyUrl, title, mimeType) &&
                     SonosController.play(coordinator)
 
-                // ── Attempt 2: skip stop, just set+play ────────────────────
-                // Some firmware rejects SetAVTransportURI if Stop puts it in
-                // an unexpected intermediate state. Try without Stop.
+                // Retry without Stop in case Stop left device in bad state
                 if (!ok) {
-                    Log.w(TAG, "Attempt 1 failed [${SonosController.lastSoapError}] — retrying without Stop")
-                    delay(500)
-                    ok = SonosController.setUri(coordinator, proxyUrl, title) &&
-                        SonosController.play(coordinator)
-                }
-
-                // ── Attempt 3: re-fetch topology, maybe coordinator changed ─
-                if (!ok) {
-                    Log.w(TAG, "Attempt 2 failed [${SonosController.lastSoapError}] — re-fetching topology")
-                    delay(500)
-                    val freshGroups = fetchGroups(listOf(coordinator))
-                    val freshCoord  = freshGroups.firstOrNull { it.memberNames.any { n ->
-                        n == group.memberNames.firstOrNull()
-                    } }?.coordinatorDevice ?: coordinator
-                    SonosController.stop(freshCoord)
+                    Log.w(TAG, "Attempt 1 failed [${SonosController.lastSoapError}] — retrying")
                     delay(600)
-                    ok = SonosController.setUri(freshCoord, proxyUrl, title) &&
-                        SonosController.play(freshCoord)
+                    ok = SonosController.setUri(coordinator, proxyUrl, title, mimeType) &&
+                        SonosController.play(coordinator)
                 }
 
                 if (ok) {
@@ -150,12 +139,11 @@ object SonosRepository {
                     _castState.update { CastState.Casting(group, title) }
                 } else {
                     SonosProxyServer.stop()
-                    // Include the actual UPnP/HTTP error so it's visible in the UI
                     val detail = SonosController.lastSoapError.ifBlank { "unknown error" }
                     _castState.update {
                         CastState.Error(
                             "Sonos rejected the stream.\n[$detail]\n\n" +
-                            "If this keeps happening, try restarting the Sonos app on your phone or rebooting the speaker."
+                            "Try restarting the Sonos app or rebooting the speaker."
                         )
                     }
                 }
@@ -167,13 +155,20 @@ object SonosRepository {
         }
     }
 
-    private suspend fun resolveStream(videoId: String, watchUrl: String): String? {
-        return if (videoId.isNotBlank()) {
-            YtPlayerUtils.resolveAudioStream(videoId)
-                ?: runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
-        } else {
-            runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+    /**
+     * Resolve audio stream for Sonos, explicitly preferring M4A/AAC (audio/mp4).
+     * WebM/Opus is excluded because Sonos hardware cannot decode it.
+     * Returns (url, mimeType) or null if resolution fails entirely.
+     */
+    private suspend fun resolveStreamForSonos(videoId: String, watchUrl: String): Pair<String, String>? {
+        if (videoId.isNotBlank()) {
+            val result = runCatching { YtPlayerUtils.resolveAudioStreamForSonos(videoId) }.getOrNull()
+            if (result != null) return result
         }
+        // Fallback: NewPipe / direct URL — assume audio/mpeg if unknown
+        val url = runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+            ?: return null
+        return Pair(url, "audio/mpeg")
     }
 
     private suspend fun waitForStopped(device: SonosDevice, timeoutMs: Long) {
@@ -198,16 +193,17 @@ object SonosRepository {
     fun updateTrack(context: Context, videoId: String, title: String, watchUrl: String) {
         val group = activeGroup ?: return
         scope.launch {
-            val localIp  = SonosDiscovery.localIp(context) ?: return@launch
-            val resolved = resolveStream(videoId, watchUrl) ?: return@launch
+            val localIp = SonosDiscovery.localIp(context) ?: return@launch
+            val (resolved, mimeType) = resolveStreamForSonos(videoId, watchUrl) ?: return@launch
             SonosProxyServer.setTrack(SonosProxyServer.TrackInfo(
-                videoId = videoId, title = title, watchUrl = watchUrl, resolvedUrl = resolved,
+                videoId = videoId, title = title, watchUrl = watchUrl,
+                resolvedUrl = resolved, mimeType = mimeType,
             ))
             val proxyUrl    = SonosProxyServer.start(localIp)
             val coordinator = group.coordinatorDevice
             SonosController.stop(coordinator)
             waitForStopped(coordinator, 1_500)
-            SonosController.setUri(coordinator, proxyUrl, title)
+            SonosController.setUri(coordinator, proxyUrl, title, mimeType)
             SonosController.play(coordinator)
             _castState.update { CastState.Casting(group, title) }
         }

@@ -258,6 +258,7 @@ object YtPlayerUtils {
         videoId: String,
         preferItag: Int? = null,
         preferHighQuality: Boolean = true,
+        excludeWebM: Boolean = false,
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
         ensureVisitorData()
         val isLoggedIn = ytMusicCookie.isNotBlank()
@@ -284,7 +285,7 @@ object YtPlayerUtils {
                 }
             }
 
-            val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken)
+            val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken, excludeWebM)
             when (result) {
                 is ClientResult.Success -> {
                     AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag}")
@@ -331,6 +332,7 @@ object YtPlayerUtils {
         preferItag: Int?,
         preferHighQuality: Boolean,
         poToken: String?,
+        excludeWebM: Boolean = false,
     ): ClientResult {
         return try {
             val root = fetchPlayerResponse(client, videoId, poToken)
@@ -349,6 +351,9 @@ object YtPlayerUtils {
             val audioOnly = adaptiveFormats
                 .mapNotNull { it as? JsonObject }
                 .filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/") }
+                .filter { fmt ->
+                    !excludeWebM || !fmt["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
+                }
 
             if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason, playabilityStatus)
 
@@ -497,4 +502,24 @@ object YtPlayerUtils {
         val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         return (1..16).map { alphabet[Random.nextInt(alphabet.length)] }.joinToString("")
     }
+    /**
+     * Resolve audio stream for Sonos casting.
+     * Explicitly excludes WebM/Opus (audio/webm) because Sonos speakers do not
+     * support the WebM container or the Opus codec, even though those formats have
+     * higher bitrate scores in the general resolver.  M4A/AAC (audio/mp4) is the
+     * most broadly supported format across all Sonos hardware generations.
+     *
+     * Returns the resolved URL and its MIME type (e.g. "audio/mp4").
+     */
+    suspend fun resolveAudioStreamForSonos(videoId: String): Pair<String, String>? =
+        withContext(Dispatchers.IO) {
+            val info = resolveAudioFormatInfo(
+                videoId          = videoId,
+                preferHighQuality = true,
+                excludeWebM      = true,
+            ) ?: return@withContext null
+            val mimeType = info.mimeType.substringBefore(";").trim().ifBlank { "audio/mp4" }
+            Pair(info.url, mimeType)
+        }
+
 }
