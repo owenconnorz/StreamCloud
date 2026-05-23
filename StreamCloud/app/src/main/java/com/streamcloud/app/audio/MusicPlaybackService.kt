@@ -35,6 +35,9 @@ import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import com.streamcloud.app.data.ytmusic.StreamUrlCache
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+import com.streamcloud.app.data.ytmusic.YtMusicHomeRepository
+import com.streamcloud.app.data.ytmusic.YtMusicHomeFeed
+import com.streamcloud.app.data.ytmusic.HomeSection
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.google.common.collect.ImmutableList
@@ -66,6 +69,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
+    @Volatile private var ytHomeFeed: YtMusicHomeFeed = YtMusicHomeFeed()
 
 
     @Volatile private var ytMusicCookieForStream: String = ""
@@ -176,7 +180,8 @@ class MusicPlaybackService : MediaLibraryService() {
                 ytMusicCookieForStream = cookie
                 YtPlayerUtils.ytMusicCookie = cookie
                 if (cookie.isNotBlank()) {
-                    ytLibrary = YtMusicLibraryRepository.sync(cookie)
+                    ytLibrary  = YtMusicLibraryRepository.sync(cookie)
+                    ytHomeFeed = YtMusicHomeRepository.load(cookie)
                 }
             }
         }
@@ -406,6 +411,8 @@ class MusicPlaybackService : MediaLibraryService() {
                     parentId == ARTISTS_ID -> artistsChildren()
                     parentId.startsWith(ARTIST_PREFIX) ->
                         artistTracks(parentId.removePrefix(ARTIST_PREFIX))
+                    parentId.startsWith(YT_HOME_SECTION_PREFIX) ->
+                        ytHomeSectionItems(parentId.removePrefix(YT_HOME_SECTION_PREFIX))
                     parentId.startsWith(YT_PLAYLIST_PREFIX) -> ytPlaylistTracks(
                         parentId.removePrefix(YT_PLAYLIST_PREFIX),
                     )
@@ -515,9 +522,9 @@ class MusicPlaybackService : MediaLibraryService() {
         .build()
 
     private fun rootChildren(): List<MediaItem> = listOf(
-        tab(HOME_ID,    "Home"),
-        tab(RECENT_ID,  "Recents"),
-        tab(LIBRARY_ID, "Your Library"),
+        tab(HOME_ID,    "Home",         browsableHint = 2), // grid — section tiles have artwork
+        tab(RECENT_ID,  "Recents",      browsableHint = 1), // list — track rows
+        tab(LIBRARY_ID, "Your Library", browsableHint = 1), // list — sub-folders have no artwork
     )
 
     /**
@@ -525,25 +532,80 @@ class MusicPlaybackService : MediaLibraryService() {
      * shows them immediately as a grid — no sub-folder drilling required.
      * Falls back to folder links when there is no listen history yet.
      */
+    /**
+     * Home tab — mirrors the in-app Music home page.
+     *
+     * Priority 1: YT Music home feed sections (Listen again, Forgotten favorites, etc.)
+     *   shown as browsable grid tiles with the first item's artwork.
+     * Priority 2: YT library (liked songs + playlists) when the home feed is unavailable.
+     * Priority 3: Local Room DB recent tracks as a last-resort offline fallback.
+     */
     private suspend fun homeChildren(): List<MediaItem> {
+
+        // ── 1. YT Music home feed sections ──────────────────────────────────
+        val feedSections = ytHomeFeed.sections.filter { section ->
+            when (section) {
+                is HomeSection.PlaylistRail -> section.items.isNotEmpty()
+                is HomeSection.SongRail     -> section.items.isNotEmpty()
+                else                        -> false
+            }
+        }
+        if (feedSections.isNotEmpty()) {
+            return feedSections.map { section ->
+                val thumb = when (section) {
+                    is HomeSection.PlaylistRail -> section.items.firstOrNull()?.thumbnail
+                    is HomeSection.SongRail     -> section.items.firstOrNull()?.thumbnail
+                    else                        -> null
+                }
+                sectionFolder("$YT_HOME_SECTION_PREFIX${section.title}", section.title, thumb)
+            }
+        }
+
+        // ── 2. YT library fallback (cookie set but home feed failed) ────────
+        val ytSongs  = ytLibrary.likedSongs.take(10)
+        val ytPlists = ytLibrary.playlists.filter { !it.isAlbum }.take(8)
+        if (ytSongs.isNotEmpty() || ytPlists.isNotEmpty()) {
+            return ytSongs.map(::ytmSongItem) +
+                ytPlists.map { pl -> ytPlaylistBrowsable("$YT_PLAYLIST_PREFIX${pl.id}", pl) }
+        }
+
+        // ── 3. Local recent tracks fallback ─────────────────────────────────
         val recent = runCatching {
             LibraryDb.get(this@MusicPlaybackService).tracks().recent().first()
         }.getOrElse { emptyList() }.take(20)
 
         if (recent.isEmpty()) return listOf(
-            playlist(RECENT_ID,   "Recently played"),
+            playlist(RECENT_ID,    "Recently played"),
             playlist(ON_REPEAT_ID, "On repeat"),
         )
-
-        // Actual playable tracks (with artwork) appear directly on the home grid.
-        // Append user's YT playlists as browsable tiles so they are reachable too.
-        val trackItems = recent.map(::trackEntityItem)
-        val ytItems = ytLibrary.playlists
-            .filter { !it.isAlbum }
-            .take(6)
-            .map { pl -> ytPlaylistBrowsable("$YT_PLAYLIST_PREFIX\${pl.id}", pl) }
-        return trackItems + ytItems
+        return recent.map(::trackEntityItem)
     }
+
+    /** Expands a YT Music home-feed section into its playable/browsable children. */
+    private fun ytHomeSectionItems(sectionTitle: String): List<MediaItem> {
+        val section = ytHomeFeed.sections.find { it.title == sectionTitle }
+        return when (section) {
+            is HomeSection.PlaylistRail ->
+                section.items.map { pl -> ytPlaylistBrowsable("$YT_PLAYLIST_PREFIX${pl.id}", pl) }
+            is HomeSection.SongRail -> section.items.map(::ytmSongItem)
+            else                    -> emptyList()
+        }
+    }
+
+    /** Browsable grid tile for a home-feed section (e.g. "Listen again"). */
+    private fun sectionFolder(id: String, title: String, thumbnail: String? = null): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(id)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtworkUri(thumbnail?.let(Uri::parse))
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                    .build(),
+            )
+            .build()
 
 
     private fun libraryChildren(): List<MediaItem> {
@@ -688,7 +750,12 @@ class MusicPlaybackService : MediaLibraryService() {
      * Root-level tab item. Sets per-item content style hints so Android Auto
      * renders children as a grid (browsable) or list (playable) automatically.
      */
-    private fun tab(id: String, title: String): MediaItem = MediaItem.Builder()
+    private fun tab(
+        id: String,
+        title: String,
+        browsableHint: Int = 2,
+        playableHint: Int  = 1,
+    ): MediaItem = MediaItem.Builder()
         .setMediaId(id)
         .setMediaMetadata(
             MediaMetadata.Builder()
@@ -697,8 +764,8 @@ class MusicPlaybackService : MediaLibraryService() {
                 .setIsPlayable(false)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
                 .setExtras(Bundle().apply {
-                    putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", 2)
-                    putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT",  1)
+                    putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", browsableHint)
+                    putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT",  playableHint)
                 })
                 .build(),
         )
@@ -737,6 +804,16 @@ class MusicPlaybackService : MediaLibraryService() {
         id == LIKED_ID     -> playlist(LIKED_ID, "Liked Music")
         id == DOWNLOADED_ID -> playlist(DOWNLOADED_ID, "Downloads")
         id == ARTISTS_ID    -> folder(ARTISTS_ID, "Artists")
+        id.startsWith(YT_HOME_SECTION_PREFIX) -> {
+            val ttl = id.removePrefix(YT_HOME_SECTION_PREFIX)
+            val thb = ytHomeFeed.sections.find { it.title == ttl }
+                ?.let { s -> when (s) {
+                    is HomeSection.PlaylistRail -> s.items.firstOrNull()?.thumbnail
+                    is HomeSection.SongRail     -> s.items.firstOrNull()?.thumbnail
+                    else                        -> null
+                }}
+            sectionFolder(id, ttl, thb)
+        }
         id.startsWith(ARTIST_PREFIX) ->
             MediaItem.Builder().setMediaId(id).setMediaMetadata(
                 MediaMetadata.Builder()
@@ -784,7 +861,8 @@ class MusicPlaybackService : MediaLibraryService() {
         const val DOWNLOADED_ID  = "streamcloud_downloaded"
 
 
-        const val YT_PLAYLIST_PREFIX = "ytpl_"
+        const val YT_PLAYLIST_PREFIX    = "ytpl_"
+        const val YT_HOME_SECTION_PREFIX = "yths_"
         const val ARTISTS_ID     = "streamcloud_artists"
         const val ARTIST_PREFIX  = "sc_artist_"
     }
