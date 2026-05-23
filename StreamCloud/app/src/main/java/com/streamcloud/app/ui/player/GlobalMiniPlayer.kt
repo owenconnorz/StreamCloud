@@ -37,6 +37,7 @@ import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.audio.PlaybackBus
+import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
@@ -63,8 +64,11 @@ fun GlobalMiniPlayer(
     var artist by remember { mutableStateOf<String?>(null) }
     var artworkUri by remember { mutableStateOf<String?>(null) }
 
-    val isPlaying by PlaybackBus.isPlaying.collectAsState()
-    val nowMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
+    val isPlaying      by PlaybackBus.isPlaying.collectAsState()
+    val nowMediaId     by PlaybackBus.nowPlayingMediaId.collectAsState()
+    val castState      by SonosRepository.castState.collectAsState()
+    val isCasting       = castState is SonosRepository.CastState.Casting
+    val isSonosPlaying by SonosRepository.isSonosPlaying.collectAsState()
 
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
 
@@ -149,7 +153,7 @@ fun GlobalMiniPlayer(
                             dirLocked && isHorizontal && totalX > 80f -> {
                                 swipeOffsetX.animateTo(90f, tween(100))
                                 controller?.seekToPreviousMediaItem()
-                                controller?.play()
+                                if (!isCasting) controller?.play()
                                 swipeOffsetX.snapTo(-90f)
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
@@ -168,7 +172,12 @@ fun GlobalMiniPlayer(
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable {
-                        controller?.let { if (it.isPlaying) it.pause() else it.play() }
+                        if (isCasting) {
+                            if (isSonosPlaying) SonosRepository.pause()
+                            else SonosRepository.resume()
+                        } else {
+                            controller?.let { if (it.isPlaying) it.pause() else it.play() }
+                        }
                     },
             ) {
                 AsyncImage(

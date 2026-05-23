@@ -34,8 +34,12 @@ object SonosRepository {
     private val _castState = MutableStateFlow<CastState>(CastState.Idle)
     val castState: StateFlow<CastState> = _castState.asStateFlow()
 
-    private val _sonosVolume = MutableStateFlow(50)
+    private val _sonosVolume    = MutableStateFlow(50)
     val sonosVolume: StateFlow<Int> = _sonosVolume.asStateFlow()
+
+    /** True while Sonos is actively playing; false when paused or not casting. */
+    private val _isSonosPlaying = MutableStateFlow(false)
+    val isSonosPlaying: StateFlow<Boolean> = _isSonosPlaying.asStateFlow()
 
     private var activeGroup: SonosGroup? = null
     private var appContext: Context? = null
@@ -136,6 +140,7 @@ object SonosRepository {
                         }
                     }
                     SonosController.getVolume(coordinator)?.let { _sonosVolume.value = it }
+                    _isSonosPlaying.value = true
                     _castState.update { CastState.Casting(group, title) }
                 } else {
                     SonosProxyServer.stop()
@@ -183,10 +188,12 @@ object SonosRepository {
     // ── Playback controls ──────────────────────────────────────────────────────
 
     fun pause() {
+        _isSonosPlaying.value = false
         scope.launch { activeGroup?.coordinatorDevice?.let { SonosController.pause(it) } }
     }
 
     fun resume() {
+        _isSonosPlaying.value = true
         scope.launch { activeGroup?.coordinatorDevice?.let { SonosController.play(it) } }
     }
 
@@ -205,6 +212,7 @@ object SonosRepository {
             waitForStopped(coordinator, 1_500)
             SonosController.setUri(coordinator, proxyUrl, title, mimeType)
             SonosController.play(coordinator)
+            _isSonosPlaying.value = true
             _castState.update { CastState.Casting(group, title) }
         }
     }
@@ -234,6 +242,7 @@ object SonosRepository {
         SonosProxyServer.stop()
         if (group != null) scope.launch { SonosController.stop(group.coordinatorDevice) }
         _castState.update { CastState.Idle }
+        _isSonosPlaying.value = false
         _sonosVolume.value = 50
 
         if (ctx != null) {
