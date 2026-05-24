@@ -236,6 +236,11 @@ dependencies {
     // because the older stdlib it bundled doesn't have the method that Kotlin 2.0 generates calls to.
     implementation("io.github.dokar3:quickjs-kt-android:1.0.0-alpha13")
 
+    // Gson — required by CloudStream plugins (e.g. ShowBox) that call Gson APIs
+    // directly. Plugins load via DexClassLoader with the app as parent, so Gson
+    // must be present in the app's own classpath.
+    implementation("com.google.gson:gson:2.11.0")
+
     // Jackson — required by CloudStream `.cs3` plugins that call
     // `MainActivityKt.mapper.readValue(...)` or `parsedSafe<...>()`. Without it,
     // every plugin dies with NoClassDefFoundError on first JSON parse.
