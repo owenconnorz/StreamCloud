@@ -249,6 +249,15 @@ class Score private constructor(private val data: Int) {
         fun from(value: Float): Score = from((value * MAX / 10.0f).toInt())
         fun from(value: Double): Score = from((value * MAX / 10.0).toInt())
         fun fromDecimal(value: Number): Score = from(value.toFloat())
+        // from10: parse a string on a 0-10 scale ("8.5" → 8.5/10)
+        fun from10(value: String): Score = from(value.trim().toDoubleOrNull() ?: 0.0)
+        fun from10(value: Number): Score = from(value.toDouble())
+        // from100: parse a string on a 0-100 scale ("85" → 85/100 = 8.5/10)
+        fun from100(value: String): Score = from((value.trim().toDoubleOrNull() ?: 0.0) / 10.0)
+        fun from100(value: Number): Score = from(value.toDouble() / 10.0)
+        // from1000: parse a string on a 0-1000 scale
+        fun from1000(value: String): Score = from((value.trim().toDoubleOrNull() ?: 0.0) / 100.0)
+        fun from1000(value: Number): Score = from(value.toDouble() / 100.0)
     }
     override fun hashCode(): Int = data.hashCode()
     override fun equals(other: Any?): Boolean = other is Score && data == other.data
