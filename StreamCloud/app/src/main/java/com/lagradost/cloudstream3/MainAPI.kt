@@ -136,12 +136,12 @@ class ActorData(
 class Actor(val name: String, val image: String? = null)
 enum class ActorRole { Main, Supporting, Background }
 
-class MovieLoadResponse(
+open class MovieLoadResponse(
     override var name: String,
     override var url: String,
     override var apiName: String,
     override var type: TvType,
-    var dataUrl: String,
+    open var dataUrl: String,
     override var posterUrl: String? = null,
     override var year: Int? = null,
     override var plot: String? = null,
@@ -194,29 +194,28 @@ class TvSeriesLoadResponse(
 ) : LoadResponse(name, url, apiName, type, posterUrl, year, plot, rating, score, tags, duration,
     trailers, recommendations, actors, comingSoon, posterHeaders, backgroundPosterUrl, contentRating)
 
-// LiveStreamLoadResponse must be a concrete class, not a typealias.
-// A typealias leaves no JVM class entry; plugins referencing it at runtime
-// (casts, instanceof, reflection) would get NoClassDefFoundError.
+// LiveStreamLoadResponse is a concrete class (not a typealias) so plugins can
+// reference it at runtime via instanceof/cast/reflection/class-literal.
 class LiveStreamLoadResponse(
-    override var name: String,
-    override var url: String,
-    override var apiName: String,
-    override var type: TvType = TvType.Live,
-    var dataUrl: String,
-    override var posterUrl: String? = null,
-    override var year: Int? = null,
-    override var plot: String? = null,
-    override var rating: Int? = null,
-    override var score: Score? = null,
-    override var tags: List<String>? = null,
-    override var duration: Int? = null,
-    override var trailers: MutableList<TrailerData> = mutableListOf(),
-    override var recommendations: List<SearchResponse>? = null,
-    override var actors: List<ActorData>? = null,
-    override var comingSoon: Boolean = false,
-    override var posterHeaders: Map<String, String>? = null,
-    override var backgroundPosterUrl: String? = null,
-    override var contentRating: String? = null,
+    name: String,
+    url: String,
+    apiName: String,
+    type: TvType = TvType.Live,
+    override var dataUrl: String,
+    posterUrl: String? = null,
+    year: Int? = null,
+    plot: String? = null,
+    rating: Int? = null,
+    score: Score? = null,
+    tags: List<String>? = null,
+    duration: Int? = null,
+    trailers: MutableList<TrailerData> = mutableListOf(),
+    recommendations: List<SearchResponse>? = null,
+    actors: List<ActorData>? = null,
+    comingSoon: Boolean = false,
+    posterHeaders: Map<String, String>? = null,
+    backgroundPosterUrl: String? = null,
+    contentRating: String? = null,
 ) : MovieLoadResponse(
     name, url, apiName, type, dataUrl, posterUrl, year, plot,
     rating, score, tags, duration, trailers, recommendations,
