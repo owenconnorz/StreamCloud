@@ -134,9 +134,26 @@ object ShortLink {
 }
 
 object AppUtils {
-    fun Any.toJson(): String = this.toString()
-    inline fun <reified T> tryParseJson(value: String?): T? = null
+    /** Serialize any object to its JSON representation.
+     *  If the receiver is already a String it is returned as-is.
+     *  Mirrors com.lagradost.cloudstream3.utils.AppUtils.toJson from the real
+     *  CloudStream library — plugins call AppUtils.INSTANCE.toJson(obj). */
+    fun Any.toJson(): String {
+        if (this is String) return this
+        return com.lagradost.cloudstream3.mapper.writeValueAsString(this)
+    }
+
+    /** Deserialize a JSON string to T using the shared Jackson mapper. */
     inline fun <reified T> parseJson(value: String): T {
-        throw UnsupportedOperationException("parseJson stub: $value")
+        return com.lagradost.cloudstream3.mapper.readValue(value, T::class.java)
+    }
+
+    /** Like parseJson but returns null instead of throwing on any failure. */
+    inline fun <reified T> tryParseJson(value: String?): T? {
+        return try {
+            parseJson(value ?: return null)
+        } catch (_: Exception) {
+            null
+        }
     }
 }
