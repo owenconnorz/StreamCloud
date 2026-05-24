@@ -115,6 +115,7 @@ open class LoadResponse(
     open var posterUrl: String? = null,
     open var year: Int? = null,
     open var plot: String? = null,
+    @Deprecated("Use score", replaceWith = ReplaceWith("score"))
     open var rating: Int? = null,
     open var score: Score? = null,
     open var tags: List<String>? = null,
@@ -123,15 +124,128 @@ open class LoadResponse(
     open var recommendations: List<SearchResponse>? = null,
     open var actors: List<ActorData>? = null,
     open var comingSoon: Boolean = false,
+    open var syncData: MutableMap<String, String> = mutableMapOf(),
     open var posterHeaders: Map<String, String>? = null,
     open var backgroundPosterUrl: String? = null,
     open var contentRating: String? = null,
-)
+    open var logoUrl: String? = null,
+    open var uniqueUrl: String = "",
+) {
+    companion object {
+        // ── Sync id prefixes (set by sync providers at runtime) ─────────────
+        var malIdPrefix    = ""
+        var kitsuIdPrefix  = ""
+        var aniListIdPrefix = ""
+        var simklIdPrefix  = ""
+        var isTrailersEnabled = true
+
+        // ── Helpers used by plugin init blocks ────────────────────────────
+        fun LoadResponse.isMovie(): Boolean =
+            this.type.isMovieType() || this is MovieLoadResponse
+
+        @JvmName("addActorNames")
+        fun LoadResponse.addActors(actors: List<String>?) {
+            this.actors = actors?.map { ActorData(Actor(it)) }
+        }
+
+        @JvmName("addActors")
+        fun LoadResponse.addActors(actors: List<Pair<Actor, String?>>?) {
+            this.actors = actors?.map { (actor, role) -> ActorData(actor, roleString = role) }
+        }
+
+        @JvmName("addActorsRole")
+        fun LoadResponse.addActors(actors: List<Pair<Actor, ActorRole?>>?) {
+            this.actors = actors?.map { (actor, role) -> ActorData(actor, role = role) }
+        }
+
+        @JvmName("addActorsOnly")
+        fun LoadResponse.addActors(actors: List<Actor>?) {
+            this.actors = actors?.map { actor -> ActorData(actor) }
+        }
+
+        // ── Trailer helpers ───────────────────────────────────────────────
+        @Suppress("RedundantSuspendModifier")
+        suspend fun LoadResponse.addTrailer(
+            trailerUrl: String?,
+            referer: String? = null,
+            addRaw: Boolean = false,
+        ) {
+            if (!isTrailersEnabled || trailerUrl.isNullOrBlank()) return
+            this.trailers.add(TrailerData(trailerUrl, referer, addRaw))
+        }
+
+        @Suppress("RedundantSuspendModifier")
+        suspend fun LoadResponse.addTrailer(
+            trailerUrl: String?,
+            referer: String? = null,
+            addRaw: Boolean = false,
+            headers: Map<String, String> = mapOf(),
+        ) {
+            if (!isTrailersEnabled || trailerUrl.isNullOrBlank()) return
+            this.trailers.add(TrailerData(trailerUrl, referer, addRaw, headers))
+        }
+
+        @Suppress("RedundantSuspendModifier")
+        suspend fun LoadResponse.addTrailer(
+            trailerUrls: List<String>?,
+            referer: String? = null,
+            addRaw: Boolean = false,
+        ) {
+            if (!isTrailersEnabled || trailerUrls == null) return
+            trailers.addAll(trailerUrls.map { TrailerData(it, referer, addRaw) })
+        }
+
+        // ── Score / rating helpers ────────────────────────────────────────
+        fun LoadResponse.addScore(score: String?, maxValue: Int = 10) {
+            this.score = Score.from(score, maxValue)
+        }
+        fun LoadResponse.addScore(score: Score?) { this.score = score }
+
+        @Suppress("DEPRECATION")
+        fun LoadResponse.addRating(text: String?) { this.score = Score.from10(text) }
+        @Suppress("DEPRECATION")
+        fun LoadResponse.addRating(value: Int?) { this.score = Score.fromOld(value) }
+
+        fun LoadResponse.addDuration(input: String?) {
+            this.duration = getDurationFromString(input) ?: this.duration
+        }
+
+        // ── Sync id helpers ───────────────────────────────────────────────
+        fun LoadResponse.addMalId(id: Int?) {
+            if (id != null) this.syncData[malIdPrefix] = id.toString()
+        }
+        fun LoadResponse.addKitsuId(id: Int?) {
+            if (id != null) this.syncData[kitsuIdPrefix] = id.toString()
+        }
+        fun LoadResponse.addAniListId(id: Int?) {
+            if (id != null) this.syncData[aniListIdPrefix] = id.toString()
+        }
+        fun LoadResponse.addImdbId(id: String?) {
+            if (id != null) this.syncData["imdb"] = id
+        }
+        fun LoadResponse.addImdbUrl(url: String?) {
+            val id = url?.substringAfter("tt")?.let { "tt$it" } ?: return
+            addImdbId(id)
+        }
+        fun LoadResponse.addTMDbId(id: String?) {
+            if (id != null) this.syncData["tmdb"] = id
+        }
+        @Suppress("UNUSED_PARAMETER")
+        fun LoadResponse.addTraktId(id: String?) {}
+
+        fun LoadResponse.getMalId(): String?      = this.syncData[malIdPrefix]
+        fun LoadResponse.getKitsuId(): String?    = this.syncData[kitsuIdPrefix]
+        fun LoadResponse.getAniListId(): String?  = this.syncData[aniListIdPrefix]
+        fun LoadResponse.getImdbId(): String?     = this.syncData["imdb"]
+        fun LoadResponse.getTMDbId(): String?     = this.syncData["tmdb"]
+    }
+}
 
 class TrailerData(
     val extractorUrl: String,
     val referer: String? = null,
     val raw: Boolean = false,
+    val headers: Map<String, String> = emptyMap(),
 )
 
 class ActorData(
@@ -458,6 +572,21 @@ fun mainPage(data: String, name: String, horizontalImages: Boolean = false) =
 
 fun mainPageOf(vararg pairs: Pair<String, String>): List<MainPageRequest> =
     pairs.map { (data, name) -> MainPageRequest(name, data, false) }
+
+// ── getDurationFromString ─────────────────────────────────────────────────────
+fun getDurationFromString(input: String?): Int? {
+    val clean = input?.trim()?.replace(" ", "") ?: return null
+    var seconds = 0
+    Regex("(\\d+)\\s*(hr|hour|min|sec)", RegexOption.IGNORE_CASE).findAll(input).forEach {
+        val time = it.groupValues[1].toIntOrNull() ?: return@forEach
+        seconds += when (it.groupValues[2].lowercase()) {
+            "hr", "hour" -> time * 3600
+            "min"        -> time * 60
+            else         -> time
+        }
+    }
+    return if (seconds > 0) seconds / 60 else null
+}
 
 fun newHomePageResponse(name: String, list: List<SearchResponse>, hasNext: Boolean? = null): HomePageResponse =
     HomePageResponse(listOf(HomePageList(name, list)), hasNext = hasNext ?: list.isNotEmpty())
