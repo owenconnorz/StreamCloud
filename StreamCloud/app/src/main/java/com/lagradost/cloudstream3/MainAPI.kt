@@ -1,8 +1,11 @@
 @file:Suppress("unused", "UNUSED_PARAMETER", "MemberVisibilityCanBePrivate")
 package com.lagradost.cloudstream3
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect
+import com.fasterxml.jackson.annotation.PropertyAccessor
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -401,10 +404,24 @@ abstract class MainAPI {
 // getter on MainAPIKt. Declared here (not MainActivity.kt) so it lives in the
 // MainAPIKt class that plugins reference. JsonMapper extends ObjectMapper, so
 // existing writeValueAsString/readValue calls in MainActivity.kt still work.
+//
+// Field-based visibility (ANY) is critical for cross-ClassLoader serialization:
+// Plugin classes are loaded by DexClassLoader. Jackson's default getter-based
+// introspection cannot reliably discover constructor parameters for those classes
+// via KotlinModule (which reads @kotlin.Metadata that may not be accessible
+// across ClassLoaders on Android). Using field access instead makes Jackson call
+// getDeclaredFields() on the class — this works reliably regardless of which
+// ClassLoader loaded the class, allowing toJson()/parseJson() to work for
+// arbitrary plugin data classes.
 val mapper: JsonMapper by lazy {
     JsonMapper.builder()
         .addModule(KotlinModule.Builder().build())
+        // Suppress failures on empty/unknown beans — produce {} rather than throw.
         .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        .configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+        // Field-based access: works across DexClassLoader / app ClassLoader boundary.
+        .visibility(PropertyAccessor.ALL,   JsonAutoDetect.Visibility.NONE)
+        .visibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY)
         .build()
 }
 
