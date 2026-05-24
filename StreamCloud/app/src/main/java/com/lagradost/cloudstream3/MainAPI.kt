@@ -271,17 +271,17 @@ data class ProvidersInfoJson(
 
 data class SettingsJson(@JsonProperty("enableAdult") var enableAdult: Boolean = false)
 
-data class MainPageData(val name: String, val data: String, val horizontalImages: Boolean = false)
+data class MainPageRequest(val name: String, val data: String, val horizontalImages: Boolean = false)
 
-typealias MainPageRequest = MainPageData
+typealias MainPageData = MainPageRequest
 
-fun mainPage(url: String, name: String, horizontalImages: Boolean = false): MainPageData =
-    MainPageData(name = name, data = url, horizontalImages = horizontalImages)
+fun mainPage(url: String, name: String, horizontalImages: Boolean = false): MainPageRequest =
+    MainPageRequest(name = name, data = url, horizontalImages = horizontalImages)
 
-fun mainPageOf(vararg elements: MainPageData): List<MainPageData> = elements.toList()
+fun mainPageOf(vararg elements: MainPageRequest): List<MainPageRequest> = elements.toList()
 
-fun mainPageOf(vararg elements: Pair<String, String>): List<MainPageData> =
-    elements.map { (url, name) -> MainPageData(name = name, data = url) }
+fun mainPageOf(vararg elements: Pair<String, String>): List<MainPageRequest> =
+    elements.map { (url, name) -> MainPageRequest(name = name, data = url) }
 
 // ---------------------------------------------------------------------------
 // Episode
@@ -1080,9 +1080,9 @@ abstract class MainAPI {
     open val supportedTypes: Set<TvType> = setOf(TvType.Movie, TvType.TvSeries, TvType.Cartoon, TvType.Anime, TvType.OVA)
     open val vpnStatus: VPNStatus = VPNStatus.None
     open val providerType: ProviderType = ProviderType.DirectProvider
-    open val mainPage: List<MainPageData> = listOf(MainPageData("", "", false))
+    open val mainPage: List<MainPageRequest> = listOf(MainPageRequest("", "", false))
 
-    open suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? { throw NotImplementedError() }
+    open suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? = null
 
     open suspend fun search(query: String, page: Int): SearchResponseList? {
         val results = search(query) ?: return null
