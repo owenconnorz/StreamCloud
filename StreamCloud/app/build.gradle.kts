@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
-    id("org.jetbrains.kotlin.kapt")
+    id("com.google.devtools.ksp")
 }
 
 import java.util.Properties
@@ -197,7 +197,7 @@ dependencies {
     // Room for Library (liked + recently played).
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
-    kapt("androidx.room:room-compiler:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
 
     // Androidx Palette — extracts dominant color from album art for Metrolist-style
     // gradient backgrounds in the Now Playing sheet.
@@ -211,7 +211,7 @@ dependencies {
     // object rest destructuring, both of which Rhino chokes on. QuickJS supports
     // full ES2020+ natively (it's the same engine used by Bun, edge runtimes, etc.).
     //
-    // alpha13 is built with Kotlin 2.0 and is compatible with our Kotlin 2.0.21 toolchain.
+    // alpha13 is built with Kotlin 2.0 and is compatible with our Kotlin 2.1.20 toolchain.
     // alpha09 (Kotlin 1.9.22) caused a NoSuchMethodError on SpillingKt.nullOutSpilledVariable
     // because the older stdlib it bundled doesn't have the method that Kotlin 2.0 generates calls to.
     implementation("io.github.dokar3:quickjs-kt-android:1.0.0-alpha13")
