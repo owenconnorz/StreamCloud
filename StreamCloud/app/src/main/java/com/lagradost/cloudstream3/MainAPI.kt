@@ -10,6 +10,9 @@ package com.lagradost.cloudstream3
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.lagradost.cloudstream3.syncproviders.SyncIdName
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
@@ -40,6 +43,17 @@ annotation class InternalAPI
 @Retention(AnnotationRetention.BINARY)
 @RequiresOptIn(level = RequiresOptIn.Level.WARNING)
 annotation class UnsafeSSL
+
+// ---------------------------------------------------------------------------
+// Top-level Jackson mapper (mirrors com.lagradost.cloudstream3.mapper in the
+// real CloudStream library – used by AppUtils, plugins, and the app itself)
+// ---------------------------------------------------------------------------
+
+val mapper: ObjectMapper by lazy {
+    jacksonObjectMapper().apply {
+        configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -259,7 +273,7 @@ data class SettingsJson(@JsonProperty("enableAdult") var enableAdult: Boolean = 
 
 data class MainPageData(val name: String, val data: String, val horizontalImages: Boolean = false)
 
-data class MainPageRequest(val name: String, val data: String, val horizontalImages: Boolean)
+typealias MainPageRequest = MainPageData
 
 fun mainPage(url: String, name: String, horizontalImages: Boolean = false): MainPageData =
     MainPageData(name = name, data = url, horizontalImages = horizontalImages)

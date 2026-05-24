@@ -159,7 +159,7 @@ constructor(
         if (type != ExtractorLinkType.VIDEO) return null
         return try {
             app.head(url, headers = headers, referer = referer, timeout = timeoutSeconds)
-                .headers["Content-Length"]?.toLong()
+                .headers["Content-Length"]?.firstOrNull()?.toLong()
         } catch (_: Exception) { null }
     }
 

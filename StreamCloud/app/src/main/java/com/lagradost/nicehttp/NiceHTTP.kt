@@ -165,7 +165,7 @@ object Requests {
         java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 }
 
-private val jacksonMapper by lazy {
+internal val jacksonMapper by lazy {
     jacksonObjectMapper().apply {
         configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
     }
