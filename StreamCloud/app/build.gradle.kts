@@ -110,6 +110,20 @@ android {
     }
 }
 
+// Force all transitive dependencies to use the same kotlin-stdlib as our Kotlin compiler.
+// Without this, libraries compiled with older Kotlin (e.g. quickjs-kt alpha09 / Kotlin 1.9)
+// can pull in an older stdlib whose SpillingKt lacks nullOutSpilledVariable — a method
+// that Kotlin 2.0+ generates calls to in every suspend function with spilled variables.
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlin" &&
+                requested.name.startsWith("kotlin-stdlib")) {
+            useVersion("2.0.21")
+            because("Keep Kotlin stdlib in sync with Kotlin compiler 2.0.21")
+        }
+    }
+}
+
 dependencies {
     // Core Android
     implementation("androidx.core:core-ktx:1.13.1")
@@ -197,10 +211,10 @@ dependencies {
     // object rest destructuring, both of which Rhino chokes on. QuickJS supports
     // full ES2020+ natively (it's the same engine used by Bun, edge runtimes, etc.).
     //
-    // We pin to alpha09 because it's the last release built with Kotlin 1.9.22 —
-    // newer versions require Kotlin 2.0+ which would force-upgrade our entire
-    // toolchain (Compose compiler, kapt, ksp, etc.).
-    implementation("io.github.dokar3:quickjs-kt-android:1.0.0-alpha09")
+    // alpha13 is built with Kotlin 2.0 and is compatible with our Kotlin 2.0.21 toolchain.
+    // alpha09 (Kotlin 1.9.22) caused a NoSuchMethodError on SpillingKt.nullOutSpilledVariable
+    // because the older stdlib it bundled doesn't have the method that Kotlin 2.0 generates calls to.
+    implementation("io.github.dokar3:quickjs-kt-android:1.0.0-alpha13")
 
     // Jackson — required by CloudStream `.cs3` plugins that call
     // `MainActivityKt.mapper.readValue(...)` or `parsedSafe<...>()`. Without it,
