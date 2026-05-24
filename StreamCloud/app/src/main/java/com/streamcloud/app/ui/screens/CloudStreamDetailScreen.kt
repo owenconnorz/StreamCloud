@@ -243,9 +243,10 @@ private fun CsReadyContent(
     val episodes = (lr as? TvSeriesLoadResponse)?.episodes.orEmpty()
     val displayTitle = lr.name.ifBlank { initialTitle }
 
-    // Rating stored as Int * 1000 in CloudStream (e.g. 7900 = 7.9)
-    val ratingDisplay = lr.rating?.let { r ->
-        if (r > 1000) "%.1f".format(r / 1000.0) else r.toString()
+    // Use Score.toDouble(10) for a 0-10 scale display value
+    val ratingDisplay = lr.score?.let { s ->
+        val v = s.toDouble(10)
+        if (v > 0) "%.1f".format(v) else null
     }
 
     LazyColumn(Modifier.fillMaxSize()) {

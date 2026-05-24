@@ -14,7 +14,8 @@ object AppUtils {
 
     inline fun <reified T> parseJson(reader: Reader, valueType: Class<T>): T = mapper.readValue(reader, valueType)
 
-    inline fun <reified T> tryParseJson(value: String?): T? = try {
-        parseJson(value ?: return null)
-    } catch (_: Exception) { null }
+    inline fun <reified T> tryParseJson(value: String?): T? {
+        if (value == null) return null
+        return try { parseJson(value) } catch (_: Exception) { null }
+    }
 }
