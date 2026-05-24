@@ -553,26 +553,79 @@ inline fun MainAPI.newTorrentSearchResponse(
 
 // ── LoadResponse builders ──────────────────────────────────────────────────────
 
-inline fun MainAPI.newMovieLoadResponse(
-    name: String, url: String, type: TvType, dataUrl: String,
-    initializer: MovieLoadResponse.() -> Unit = {},
-): MovieLoadResponse = MovieLoadResponse(
-    name = name, url = url, apiName = this.name, type = type, dataUrl = dataUrl,
-).apply(initializer)
+// ── newMovieLoadResponse ─────────────────────────────────────────────────────
+// Two overloads mirroring the real CloudStream signatures so that pre-compiled
+// plugin DEX files resolve the static methods correctly.
 
-inline fun MainAPI.newTvSeriesLoadResponse(
-    name: String, url: String, type: TvType = TvType.TvSeries, episodes: List<Episode>,
-    initializer: TvSeriesLoadResponse.() -> Unit = {},
-): TvSeriesLoadResponse = TvSeriesLoadResponse(
-    name = name, url = url, apiName = this.name, type = type, episodes = episodes,
-).apply(initializer)
+/** Generic overload — data: T? is serialized to JSON via AppUtils.toJson().
+ *  JVM signature: newMovieLoadResponse(MainAPI,String,String,TvType,Object,Function2,Continuation)
+ *  This is what most modern plugins call (data class LoadData → JSON string). */
+suspend fun <T> MainAPI.newMovieLoadResponse(
+    name: String,
+    url: String,
+    type: TvType,
+    data: T?,
+    initializer: suspend MovieLoadResponse.() -> Unit = {},
+): MovieLoadResponse {
+    val dataUrl = when (data) {
+        null -> ""
+        is String -> data
+        else -> com.lagradost.cloudstream3.mapper.writeValueAsString(data)
+    }
+    @Suppress("DEPRECATION")
+    val builder = MovieLoadResponse(
+        name = name, url = url, apiName = this.name, type = type, dataUrl = dataUrl,
+    )
+    builder.initializer()
+    return builder
+}
 
-inline fun MainAPI.newAnimeLoadResponse(
-    name: String, url: String, type: TvType = TvType.Anime,
-    initializer: TvSeriesLoadResponse.() -> Unit = {},
-): TvSeriesLoadResponse = TvSeriesLoadResponse(
-    name = name, url = url, apiName = this.name, type = type, episodes = emptyList(),
-).apply(initializer)
+/** String overload — dataUrl is used directly.
+ *  JVM signature: newMovieLoadResponse(MainAPI,String,String,TvType,String,Function2,Continuation) */
+suspend fun MainAPI.newMovieLoadResponse(
+    name: String,
+    url: String,
+    type: TvType,
+    dataUrl: String,
+    initializer: suspend MovieLoadResponse.() -> Unit = {},
+): MovieLoadResponse {
+    @Suppress("DEPRECATION")
+    val builder = MovieLoadResponse(
+        name = name, url = url, apiName = this.name, type = type, dataUrl = dataUrl,
+    )
+    builder.initializer()
+    return builder
+}
+
+suspend fun MainAPI.newTvSeriesLoadResponse(
+    name: String,
+    url: String,
+    type: TvType = TvType.TvSeries,
+    episodes: List<Episode>,
+    initializer: suspend TvSeriesLoadResponse.() -> Unit = {},
+): TvSeriesLoadResponse {
+    @Suppress("DEPRECATION")
+    val builder = TvSeriesLoadResponse(
+        name = name, url = url, apiName = this.name, type = type, episodes = episodes,
+    )
+    builder.initializer()
+    return builder
+}
+
+suspend fun MainAPI.newAnimeLoadResponse(
+    name: String,
+    url: String,
+    type: TvType = TvType.Anime,
+    comingSoonIfNone: Boolean = true,
+    initializer: suspend TvSeriesLoadResponse.() -> Unit = {},
+): TvSeriesLoadResponse {
+    @Suppress("DEPRECATION")
+    val builder = TvSeriesLoadResponse(
+        name = name, url = url, apiName = this.name, type = type, episodes = emptyList(),
+    )
+    builder.initializer()
+    return builder
+}
 
 suspend fun MainAPI.newLiveStreamLoadResponse(
     name: String, url: String, dataUrl: String,
