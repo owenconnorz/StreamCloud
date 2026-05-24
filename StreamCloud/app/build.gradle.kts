@@ -239,7 +239,7 @@ dependencies {
     // Gson — required by CloudStream plugins (e.g. ShowBox) that call Gson APIs
     // directly. Plugins load via DexClassLoader with the app as parent, so Gson
     // must be present in the app's own classpath.
-    implementation("com.google.gson:gson:2.11.0")
+    implementation("com.google.gson:gson:2.10.1")
 
     // Jackson — required by CloudStream `.cs3` plugins that call
     // `MainActivityKt.mapper.readValue(...)` or `parsedSafe<...>()`. Without it,
