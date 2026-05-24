@@ -462,12 +462,12 @@ inline fun MainAPI.newAnimeLoadResponse(
     name = name, url = url, apiName = this.name, type = type, episodes = emptyList(),
 ).apply(initializer)
 
-inline fun MainAPI.newLiveStreamLoadResponse(
+suspend fun MainAPI.newLiveStreamLoadResponse(
     name: String, url: String, dataUrl: String,
-    initializer: MovieLoadResponse.() -> Unit = {},
+    initializer: suspend MovieLoadResponse.() -> Unit = {},
 ): MovieLoadResponse = MovieLoadResponse(
     name = name, url = url, apiName = this.name, type = TvType.Live, dataUrl = dataUrl,
-).apply(initializer)
+).apply { initializer() }
 
 inline fun newEpisode(data: String, initializer: Episode.() -> Unit = {}): Episode =
     Episode(data = data).apply(initializer)
