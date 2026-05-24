@@ -1,6 +1,7 @@
 @file:Suppress("unused", "UNUSED_PARAMETER", "MemberVisibilityCanBePrivate")
 package com.lagradost.cloudstream3
 
+import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.KotlinModule
@@ -405,6 +406,32 @@ val mapper: JsonMapper by lazy {
         .addModule(KotlinModule.Builder().build())
         .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
         .build()
+}
+
+// ── JSON helpers (used pervasively by CloudStream plugins) ────────────────────
+
+// toJson: serialize any object to a compact JSON string via the shared mapper.
+// Plugins call MainAPIKt.toJson(Object) — must be a top-level fun.
+fun toJson(value: Any): String = mapper.writeValueAsString(value)
+
+// parseJson: deserialize a JSON string to T.
+// Uses TypeReference so generic types (e.g. List<Episode>) survive erasure.
+inline fun <reified T> parseJson(value: String): T =
+    mapper.readValue(value, object : TypeReference<T>() {})
+
+// tryParseJson: null-safe version — returns null on any parse failure.
+inline fun <reified T> tryParseJson(value: String?): T? = runCatching {
+    if (value.isNullOrBlank()) null else parseJson<T>(value)
+}.getOrNull()
+
+// AppUtils is referenced by some plugins as a thin adapter over the above fns.
+object AppUtils {
+    fun toJson(value: Any): String = mapper.writeValueAsString(value)
+    inline fun <reified T> parseJson(value: String): T =
+        mapper.readValue(value, object : TypeReference<T>() {})
+    inline fun <reified T> tryParseJson(value: String?): T? = runCatching {
+        if (value.isNullOrBlank()) null else parseJson<T>(value)
+    }.getOrNull()
 }
 
 // ── Top-level helpers ──────────────────────────────────────────────────────────
