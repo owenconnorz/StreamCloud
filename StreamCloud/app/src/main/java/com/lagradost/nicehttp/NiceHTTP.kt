@@ -3,9 +3,7 @@ package com.lagradost.nicehttp
 
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import okhttp3.Interceptor
+import com.fasterxml.jackson.module.kotlin.readValue
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -13,47 +11,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.util.concurrent.TimeUnit
-import kotlin.reflect.KClass
-
-// ── ResponseParser ──────────────────────────────────────────────────────────
-//
-// Signature matches the real NiceHTTP library (Blatzar/NiceHttp).
-// Plugins compiled against CloudStream call:
-//   response.getParser()!!.parse(text, T::class)
-// so both the interface and the property must exactly match the published SDK.
-
-interface ResponseParser {
-    fun <T : Any> parse(text: String, kClass: KClass<T>): T
-    fun <T : Any> parseSafe(text: String, kClass: KClass<T>): T?
-    fun writeValueAsString(obj: Any): String
-}
-
-// ── Default JSON parser (Jackson) ───────────────────────────────────────────
-
-private val defaultMapper by lazy {
-    jacksonObjectMapper().apply {
-        configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-    }
-}
-
-object DefaultResponseParser : ResponseParser {
-    override fun <T : Any> parse(text: String, kClass: KClass<T>): T =
-        defaultMapper.readValue(text, kClass.java)
-
-    override fun <T : Any> parseSafe(text: String, kClass: KClass<T>): T? =
-        runCatching { defaultMapper.readValue(text, kClass.java) }.getOrNull()
-
-    override fun writeValueAsString(obj: Any): String =
-        defaultMapper.writeValueAsString(obj)
-}
-
-// ── NiceFile ─────────────────────────────────────────────────────────────────
-
-class NiceFile(val name: String, val fileName: String) {
-    constructor(name: String, file: java.io.File) : this(name, file.name)
-}
-
-// ── Requests ─────────────────────────────────────────────────────────────────
 
 object Requests {
 
@@ -71,6 +28,8 @@ object Requests {
         "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
+
+
     suspend fun get(
         url: String,
         headers: Map<String, String> = emptyMap(),
@@ -79,14 +38,10 @@ object Requests {
         cookies: Map<String, String> = emptyMap(),
         allowRedirects: Boolean = true,
         cacheTime: Int = 0,
-        cacheUnit: TimeUnit = TimeUnit.MINUTES,
-        timeout: Long = 30L,
-        interceptor: Interceptor? = null,
+        timeout: Long = 30,
+        interceptor: Any? = null,
         verify: Boolean = true,
-        responseParser: ResponseParser? = DefaultResponseParser,
-    ): NiceResponse = execute("GET", url, headers, referer, params, cookies,
-        body = null, allowRedirects = allowRedirects, timeout = timeout,
-        interceptor = interceptor, responseParser = responseParser)
+    ): NiceResponse = executeBlocking("GET", url, headers, referer, params, cookies, body = null)
 
     suspend fun post(
         url: String,
@@ -100,17 +55,21 @@ object Requests {
         files: List<Any>? = null,
         allowRedirects: Boolean = true,
         cacheTime: Int = 0,
-        cacheUnit: TimeUnit = TimeUnit.MINUTES,
-        timeout: Long = 30L,
-        interceptor: Interceptor? = null,
-        verify: Boolean = true,
-        responseParser: ResponseParser? = DefaultResponseParser,
+        timeout: Long = 30,
     ): NiceResponse {
-        val (bodyBytes, contentType) = buildBody(json, requestBody, data)
-        return execute("POST", url, headers, referer, params, cookies,
-            body = if (bodyBytes != null) bodyBytes to contentType else null,
-            allowRedirects = allowRedirects, timeout = timeout,
-            interceptor = interceptor, responseParser = responseParser)
+        val bodyBytes: ByteArray? = when {
+            json != null -> json.toString().toByteArray(Charsets.UTF_8)
+            requestBody != null -> requestBody.toByteArray(Charsets.UTF_8)
+            data != null -> data.entries.joinToString("&") {
+                "${urlEncode(it.key)}=${urlEncode(it.value)}"
+            }.toByteArray(Charsets.UTF_8)
+            else -> null
+        }
+        val contentType = when {
+            json != null -> "application/json; charset=utf-8"
+            else -> "application/x-www-form-urlencoded"
+        }
+        return executeBlocking("POST", url, headers, referer, params, cookies, bodyBytes to contentType)
     }
 
     suspend fun put(
@@ -121,67 +80,15 @@ object Requests {
         cookies: Map<String, String> = emptyMap(),
         data: Map<String, String>? = null,
         json: Any? = null,
-        requestBody: String? = null,
-        allowRedirects: Boolean = true,
-        cacheTime: Int = 0,
-        cacheUnit: TimeUnit = TimeUnit.MINUTES,
-        timeout: Long = 30L,
-        interceptor: Interceptor? = null,
-        verify: Boolean = true,
-        responseParser: ResponseParser? = DefaultResponseParser,
+        timeout: Long = 30,
     ): NiceResponse {
-        val (bodyBytes, contentType) = buildBody(json, requestBody, data)
-        return execute("PUT", url, headers, referer, params, cookies,
-            body = if (bodyBytes != null) bodyBytes to contentType else null,
-            allowRedirects = allowRedirects, timeout = timeout,
-            interceptor = interceptor, responseParser = responseParser)
-    }
-
-    suspend fun patch(
-        url: String,
-        headers: Map<String, String> = emptyMap(),
-        referer: String? = null,
-        params: Map<String, String> = emptyMap(),
-        cookies: Map<String, String> = emptyMap(),
-        data: Map<String, String>? = null,
-        json: Any? = null,
-        requestBody: String? = null,
-        allowRedirects: Boolean = true,
-        cacheTime: Int = 0,
-        cacheUnit: TimeUnit = TimeUnit.MINUTES,
-        timeout: Long = 30L,
-        interceptor: Interceptor? = null,
-        verify: Boolean = true,
-        responseParser: ResponseParser? = DefaultResponseParser,
-    ): NiceResponse {
-        val (bodyBytes, contentType) = buildBody(json, requestBody, data)
-        return execute("PATCH", url, headers, referer, params, cookies,
-            body = if (bodyBytes != null) bodyBytes to contentType else null,
-            allowRedirects = allowRedirects, timeout = timeout,
-            interceptor = interceptor, responseParser = responseParser)
-    }
-
-    suspend fun delete(
-        url: String,
-        headers: Map<String, String> = emptyMap(),
-        referer: String? = null,
-        params: Map<String, String> = emptyMap(),
-        cookies: Map<String, String> = emptyMap(),
-        data: Map<String, String>? = null,
-        json: Any? = null,
-        allowRedirects: Boolean = true,
-        cacheTime: Int = 0,
-        cacheUnit: TimeUnit = TimeUnit.MINUTES,
-        timeout: Long = 30L,
-        interceptor: Interceptor? = null,
-        verify: Boolean = true,
-        responseParser: ResponseParser? = DefaultResponseParser,
-    ): NiceResponse {
-        val (bodyBytes, contentType) = buildBody(json, null, data)
-        return execute("DELETE", url, headers, referer, params, cookies,
-            body = if (bodyBytes != null) bodyBytes to contentType else null,
-            allowRedirects = allowRedirects, timeout = timeout,
-            interceptor = interceptor, responseParser = responseParser)
+        val bodyBytes: ByteArray? = when {
+            json != null -> json.toString().toByteArray(Charsets.UTF_8)
+            data != null -> data.entries.joinToString("&") { "${it.key}=${it.value}" }.toByteArray()
+            else -> null
+        }
+        val ct = if (json != null) "application/json" else "application/x-www-form-urlencoded"
+        return executeBlocking("PUT", url, headers, referer, params, cookies, bodyBytes to ct)
     }
 
     suspend fun head(
@@ -190,34 +97,12 @@ object Requests {
         referer: String? = null,
         params: Map<String, String> = emptyMap(),
         cookies: Map<String, String> = emptyMap(),
-        allowRedirects: Boolean = true,
-        cacheTime: Int = 0,
-        cacheUnit: TimeUnit = TimeUnit.MINUTES,
-        timeout: Long = 30L,
-        interceptor: Interceptor? = null,
-        verify: Boolean = true,
-        responseParser: ResponseParser? = DefaultResponseParser,
-    ): NiceResponse = execute("HEAD", url, headers, referer, params, cookies,
-        body = null, allowRedirects = allowRedirects, timeout = timeout,
-        interceptor = interceptor, responseParser = responseParser)
+        timeout: Long = 30,
+    ): NiceResponse = executeBlocking("HEAD", url, headers, referer, params, cookies, body = null)
 
-    private fun buildBody(json: Any?, requestBody: String?, data: Map<String, String>?):
-        Pair<ByteArray?, String> = when {
-        json != null -> {
-            val s = if (json is String) json else defaultMapper.writeValueAsString(json)
-            s.toByteArray(Charsets.UTF_8) to "application/json; charset=utf-8"
-        }
-        requestBody != null -> requestBody.toByteArray(Charsets.UTF_8) to "text/plain; charset=utf-8"
-        data != null -> data.entries.joinToString("&") {
-            "${urlEncode(it.key)}=${urlEncode(it.value)}"
-        }.toByteArray(Charsets.UTF_8) to "application/x-www-form-urlencoded"
-        else -> null to "application/octet-stream"
-    }
 
-    // execute() is suspend + withContext(Dispatchers.IO) so OkHttp blocking call
-    // never runs on the Android main thread, even when getMainPage() is invoked
-    // from LaunchedEffect (Dispatchers.Main).
-    private suspend fun execute(
+
+    private fun executeBlocking(
         method: String,
         url: String,
         headers: Map<String, String>,
@@ -225,71 +110,54 @@ object Requests {
         params: Map<String, String>,
         cookies: Map<String, String>,
         body: Any?,
-        allowRedirects: Boolean,
-        timeout: Long,
-        interceptor: Interceptor?,
-        responseParser: ResponseParser?,
-    ): NiceResponse = withContext(Dispatchers.IO) {
+    ): NiceResponse {
         val finalUrl = buildUrl(url, params)
-        val httpClient = (if (interceptor != null)
-            client.newBuilder().addInterceptor(interceptor).build()
-        else client)
-
         val builder = Request.Builder().url(finalUrl)
+
         builder.header("User-Agent", headers["User-Agent"] ?: DEFAULT_UA)
         headers.forEach { (k, v) ->
             if (!k.equals("User-Agent", ignoreCase = true)) builder.header(k, v)
         }
         if (referer != null) builder.header("Referer", referer)
-        if (cookies.isNotEmpty())
-            builder.header("Cookie",
-                cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
+        if (cookies.isNotEmpty()) {
+            builder.header("Cookie", cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
+        }
 
-        @Suppress("UNCHECKED_CAST")
         when (method.uppercase()) {
             "POST", "PUT", "PATCH" -> {
+                @Suppress("UNCHECKED_CAST")
                 val pair = body as? Pair<ByteArray?, String>
                 val raw = pair?.first ?: ByteArray(0)
-                val ct  = pair?.second ?: "application/octet-stream"
-                val rb  = raw.toRequestBody(ct.toMediaType())
+                val ct = pair?.second ?: "application/octet-stream"
+                val reqBody = raw.toRequestBody(ct.toMediaType())
                 when (method.uppercase()) {
-                    "PUT"   -> builder.put(rb)
-                    "PATCH" -> builder.patch(rb)
-                    else    -> builder.post(rb)
+                    "PUT"   -> builder.put(reqBody)
+                    "PATCH" -> builder.patch(reqBody)
+                    else    -> builder.post(reqBody)
                 }
             }
             "HEAD"   -> builder.head()
-            "DELETE" -> {
-                val pair = body as? Pair<ByteArray?, String>
-                if (pair?.first != null)
-                    builder.delete(pair.first!!.toRequestBody(pair.second.toMediaType()))
-                else
-                    builder.delete()
-            }
-            else -> builder.get()
+            "DELETE" -> builder.delete()
+            else     -> builder.get()
         }
 
-        try {
-            httpClient.newCall(builder.build()).execute().use { resp ->
+        return try {
+            client.newCall(builder.build()).execute().use { resp ->
                 NiceResponse(
                     code    = resp.code,
                     text    = resp.body?.string().orEmpty(),
                     headers = resp.headers.toMultimap(),
                     url     = resp.request.url.toString(),
-                    parser  = responseParser ?: DefaultResponseParser,
                 )
             }
         } catch (e: Throwable) {
-            NiceResponse(code = -1, text = "", headers = emptyMap(), url = finalUrl,
-                error = e, parser = responseParser ?: DefaultResponseParser)
+            NiceResponse(code = -1, text = "", headers = emptyMap(), url = finalUrl, error = e)
         }
     }
 
     private fun buildUrl(base: String, params: Map<String, String>): String {
         if (params.isEmpty()) return base
-        val qs = params.entries.joinToString("&") {
-            "${urlEncode(it.key)}=${urlEncode(it.value)}"
-        }
+        val qs = params.entries.joinToString("&") { "${urlEncode(it.key)}=${urlEncode(it.value)}" }
         return if (base.contains("?")) "$base&$qs" else "$base?$qs"
     }
 
@@ -297,7 +165,11 @@ object Requests {
         java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 }
 
-// ── NiceResponse ─────────────────────────────────────────────────────────────
+private val jacksonMapper by lazy {
+    jacksonObjectMapper().apply {
+        configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+    }
+}
 
 class NiceResponse(
     val code: Int,
@@ -305,10 +177,11 @@ class NiceResponse(
     val headers: Map<String, List<String>>,
     val url: String,
     val error: Throwable? = null,
-    val parser: ResponseParser? = DefaultResponseParser,
 ) {
     val ok: Boolean get() = code in 200..299
     val isSuccessful: Boolean get() = ok
+
+
     val body: String get() = text
 
     val cookies: Map<String, String> by lazy {
@@ -319,11 +192,11 @@ class NiceResponse(
 
     val document: Document by lazy { Jsoup.parse(text, url) }
 
-    inline fun <reified T : Any> parsed(): T =
-        parser!!.parse(text, T::class)
+    fun parsed(): Document = document
 
-    inline fun <reified T : Any> parsedSafe(): T? =
-        runCatching { parser!!.parseSafe(text, T::class) }.getOrNull()
+    inline fun <reified T> parsedSafe(): T? = try {
+        jacksonMapper.readValue<T>(text)
+    } catch (_: Exception) { null }
 
     override fun toString(): String = "NiceResponse(code=$code, url=$url)"
 }
