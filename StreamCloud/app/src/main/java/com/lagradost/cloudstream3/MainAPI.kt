@@ -194,7 +194,34 @@ class TvSeriesLoadResponse(
 ) : LoadResponse(name, url, apiName, type, posterUrl, year, plot, rating, score, tags, duration,
     trailers, recommendations, actors, comingSoon, posterHeaders, backgroundPosterUrl, contentRating)
 
-typealias LiveStreamLoadResponse = MovieLoadResponse
+// LiveStreamLoadResponse must be a concrete class, not a typealias.
+// A typealias leaves no JVM class entry; plugins referencing it at runtime
+// (casts, instanceof, reflection) would get NoClassDefFoundError.
+class LiveStreamLoadResponse(
+    override var name: String,
+    override var url: String,
+    override var apiName: String,
+    override var type: TvType = TvType.Live,
+    var dataUrl: String,
+    override var posterUrl: String? = null,
+    override var year: Int? = null,
+    override var plot: String? = null,
+    override var rating: Int? = null,
+    override var score: Score? = null,
+    override var tags: List<String>? = null,
+    override var duration: Int? = null,
+    override var trailers: MutableList<TrailerData> = mutableListOf(),
+    override var recommendations: List<SearchResponse>? = null,
+    override var actors: List<ActorData>? = null,
+    override var comingSoon: Boolean = false,
+    override var posterHeaders: Map<String, String>? = null,
+    override var backgroundPosterUrl: String? = null,
+    override var contentRating: String? = null,
+) : MovieLoadResponse(
+    name, url, apiName, type, dataUrl, posterUrl, year, plot,
+    rating, score, tags, duration, trailers, recommendations,
+    actors, comingSoon, posterHeaders, backgroundPosterUrl, contentRating,
+)
 
 class HomePageList(
     val name: String,
@@ -402,6 +429,24 @@ fun getQualityFromName(name: String?): Int = when (name?.lowercase()) {
     else -> name.filter(Char::isDigit).toIntOrNull() ?: 0
 }
 
+// getQualityFromString: returns the SearchQuality enum value that best matches
+// the given string. Plugins call this on MainAPIKt; must return SearchQuality.
+fun getQualityFromString(string: String?): SearchQuality? = when (string?.trim()?.lowercase()) {
+    "hd", "hd quality", "720p", "720" -> SearchQuality.HD
+    "fhd", "full hd", "fullhd", "1080p", "1080" -> SearchQuality.FHD
+    "bluray", "blu ray", "blu-ray", "blueray" -> SearchQuality.BluRay
+    "uhd", "4k", "ultra hd", "2160p", "2160" -> SearchQuality.UHD
+    "fourk" -> SearchQuality.FourK
+    "sd", "standard", "480p", "360p" -> SearchQuality.SD
+    "camrip", "cam rip", "cam-rip" -> SearchQuality.CamRip
+    "cam", "tc", "telesync" -> SearchQuality.Cam
+    "hdcam", "hd cam", "hd-cam" -> SearchQuality.HDCam
+    "hdr", "hdr10", "hdr10+" -> SearchQuality.HDR
+    "dvd", "dvdrip", "dvd rip", "dvd-rip" -> SearchQuality.DVD
+    "webrip", "web rip", "web-rip" -> SearchQuality.WebRip
+    else -> null
+}
+
 // ── SearchResponse builders ────────────────────────────────────────────────────
 
 inline fun MainAPI.newMovieSearchResponse(
@@ -464,8 +509,8 @@ inline fun MainAPI.newAnimeLoadResponse(
 
 suspend fun MainAPI.newLiveStreamLoadResponse(
     name: String, url: String, dataUrl: String,
-    initializer: suspend MovieLoadResponse.() -> Unit = {},
-): MovieLoadResponse = MovieLoadResponse(
+    initializer: suspend LiveStreamLoadResponse.() -> Unit = {},
+): LiveStreamLoadResponse = LiveStreamLoadResponse(
     name = name, url = url, apiName = this.name, type = TvType.Live, dataUrl = dataUrl,
 ).apply { initializer() }
 
