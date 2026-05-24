@@ -1,6 +1,9 @@
 @file:Suppress("unused", "UNUSED_PARAMETER", "MemberVisibilityCanBePrivate")
 package com.lagradost.cloudstream3
 
+import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.json.JsonMapper
+import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
@@ -391,6 +394,17 @@ abstract class MainAPI {
         callback: (ExtractorLink) -> Unit,
     ): Boolean = false
 }
+
+// ── Shared Jackson mapper ─────────────────────────────────────────────────────
+// Plugins reference MainAPIKt.getMapper() to obtain a shared JsonMapper instance.
+// Must be a top-level val so Kotlin compiles it as a static field/getter on MainAPIKt.
+val mapper: JsonMapper = JsonMapper.builder()
+    .addModule(
+        KotlinModule.Builder()
+            .build()
+    )
+    .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+    .build()
 
 // ── Top-level helpers ──────────────────────────────────────────────────────────
 
