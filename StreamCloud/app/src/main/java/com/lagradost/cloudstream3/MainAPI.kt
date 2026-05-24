@@ -12,6 +12,8 @@ import com.fasterxml.jackson.annotation.JsonAutoDetect
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.json.JsonMapper
+import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.lagradost.cloudstream3.syncproviders.SyncIdName
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
@@ -49,10 +51,11 @@ annotation class UnsafeSSL
 // real CloudStream library – used by AppUtils, plugins, and the app itself)
 // ---------------------------------------------------------------------------
 
-val mapper: ObjectMapper by lazy {
-    jacksonObjectMapper().apply {
-        configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-    }
+val mapper: JsonMapper by lazy {
+    JsonMapper.builder()
+        .addModule(KotlinModule.Builder().build())
+        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        .build()
 }
 
 // ---------------------------------------------------------------------------
