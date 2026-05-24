@@ -118,8 +118,8 @@ configurations.all {
     resolutionStrategy.eachDependency {
         if (requested.group == "org.jetbrains.kotlin" &&
                 requested.name.startsWith("kotlin-stdlib")) {
-            useVersion("2.0.21")
-            because("Keep Kotlin stdlib in sync with Kotlin compiler 2.0.21")
+            useVersion("2.1.20")
+            because("Keep Kotlin stdlib in sync with Kotlin compiler 2.1.20")
         }
     }
 }
@@ -144,7 +144,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Kotlin Coroutines + Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     // Networking (Retrofit + OkHttp + official Kotlinx serialization converter)
