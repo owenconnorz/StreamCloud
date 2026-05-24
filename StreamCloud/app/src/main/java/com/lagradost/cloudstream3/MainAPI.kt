@@ -396,15 +396,16 @@ abstract class MainAPI {
 }
 
 // ── Shared Jackson mapper ─────────────────────────────────────────────────────
-// Plugins reference MainAPIKt.getMapper() to obtain a shared JsonMapper instance.
-// Must be a top-level val so Kotlin compiles it as a static field/getter on MainAPIKt.
-val mapper: JsonMapper = JsonMapper.builder()
-    .addModule(
-        KotlinModule.Builder()
-            .build()
-    )
-    .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-    .build()
+// Plugins call MainAPIKt.getMapper() — this top-level val compiles to a static
+// getter on MainAPIKt. Declared here (not MainActivity.kt) so it lives in the
+// MainAPIKt class that plugins reference. JsonMapper extends ObjectMapper, so
+// existing writeValueAsString/readValue calls in MainActivity.kt still work.
+val mapper: JsonMapper by lazy {
+    JsonMapper.builder()
+        .addModule(KotlinModule.Builder().build())
+        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        .build()
+}
 
 // ── Top-level helpers ──────────────────────────────────────────────────────────
 

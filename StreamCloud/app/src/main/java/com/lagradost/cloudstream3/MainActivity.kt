@@ -3,17 +3,10 @@ package com.lagradost.cloudstream3
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-
 val app: com.lagradost.nicehttp.Requests = com.lagradost.nicehttp.Requests
 
-val mapper: ObjectMapper by lazy {
-    jacksonObjectMapper().apply {
-        configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-    }
-}
+// mapper is declared in MainAPI.kt as val mapper: JsonMapper (same package).
+// JsonMapper extends ObjectMapper so writeValueAsString/readValue work unchanged.
 
 @Volatile private var prefsHolder: SharedPreferences? = null
 
