@@ -2,7 +2,10 @@ package com.streamcloud.app.player
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.content.pm.ActivityInfo
+import android.media.AudioManager
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -10,6 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
@@ -20,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Forward10
@@ -28,6 +33,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.VolumeUp
@@ -219,16 +225,48 @@ fun NativePlayerScreen(
 
     val activity = context as? Activity
     val window = activity?.window
+    var isLandscape by remember { mutableStateOf(true) }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    var volumeOverlay by remember { mutableStateOf<Float?>(null) }
+    var brightnessOverlay by remember { mutableStateOf<Float?>(null) }
+
     DisposableEffect(Unit) {
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
+        // Immersive fullscreen — hide status bar + navigation bar
+        @Suppress("DEPRECATION")
+        window?.decorView?.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        )
         val previousOrientation = activity?.requestedOrientation
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            @Suppress("DEPRECATION")
+            window?.decorView?.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             activity?.requestedOrientation =
                 previousOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+    }
+
+    // Respond to rotate-button taps
+    LaunchedEffect(isLandscape) {
+        activity?.requestedOrientation = if (isLandscape)
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        else
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    }
+
+    // Auto-hide volume/brightness overlays
+    LaunchedEffect(volumeOverlay) {
+        if (volumeOverlay != null) { delay(1500); volumeOverlay = null }
+    }
+    LaunchedEffect(brightnessOverlay) {
+        if (brightnessOverlay != null) { delay(1500); brightnessOverlay = null }
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -389,6 +427,7 @@ fun NativePlayerScreen(
         val density = LocalDensity.current
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val widthPx = with(density) { maxWidth.toPx() }
+            // Tap layer — double-tap seek, single-tap show controls
             Box(
                 Modifier
                     .fillMaxSize()
@@ -404,6 +443,61 @@ fun NativePlayerScreen(
                         )
                     }
             )
+            // Swipe layer — left side = volume, right side = brightness
+            var dragStartX by remember { mutableStateOf(0f) }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = { offset -> dragStartX = offset.x },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                val sensitivity = 0.003f
+                                val delta = -dragAmount.y * sensitivity
+                                if (dragStartX < widthPx / 2f) {
+                                    // Left side → volume
+                                    val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                                    val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                    val newVol = (cur + (delta * maxVol).toInt()).coerceIn(0, maxVol)
+                                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+                                    volumeOverlay = newVol.toFloat() / maxVol
+                                } else {
+                                    // Right side → brightness
+                                    val lp = window?.attributes ?: return@detectDragGestures
+                                    val cur = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
+                                    val newBr = (cur + delta).coerceIn(0.01f, 1f)
+                                    lp.screenBrightness = newBr
+                                    window?.attributes = lp
+                                    brightnessOverlay = newBr
+                                }
+                            }
+                        )
+                    }
+            )
+        }
+
+        // Volume indicator overlay
+        val curVol = volumeOverlay
+        if (curVol != null) {
+            Box(Modifier.align(Alignment.CenterStart).padding(start = 28.dp)) {
+                SwipeIndicatorPill(
+                    icon = Icons.Default.VolumeUp,
+                    label = "Volume",
+                    value = curVol,
+                )
+            }
+        }
+        // Brightness indicator overlay
+        val curBr = brightnessOverlay
+        if (curBr != null) {
+            Box(Modifier.align(Alignment.CenterEnd).padding(end = 28.dp)) {
+                SwipeIndicatorPill(
+                    icon = Icons.Default.Brightness6,
+                    label = "Brightness",
+                    value = curBr,
+                )
+            }
         }
 
 
@@ -532,6 +626,11 @@ fun NativePlayerScreen(
                                         bumpInteraction()
                                     }
                                 } else null,
+                                isLandscape = isLandscape,
+                                onRotate = {
+                                    isLandscape = !isLandscape
+                                    bumpInteraction()
+                                },
                             )
                         }
                     }
@@ -693,7 +792,11 @@ private fun TimestampChip(text: String) {
 }
 
 @Composable
-private fun PlayerToolbarPill(onSourcesClick: (() -> Unit)?) {
+private fun PlayerToolbarPill(
+    onSourcesClick: (() -> Unit)?,
+    isLandscape: Boolean = true,
+    onRotate: (() -> Unit)? = null,
+) {
     Row(
         Modifier
             .clip(RoundedCornerShape(50))
@@ -711,6 +814,41 @@ private fun PlayerToolbarPill(onSourcesClick: (() -> Unit)?) {
             "Sources",
             enabled = onSourcesClick != null,
         ) { onSourcesClick?.invoke() }
+        if (onRotate != null) {
+            ToolbarItem(
+                Icons.Default.ScreenRotation,
+                if (isLandscape) "Portrait" else "Landscape",
+            ) { onRotate() }
+        }
+    }
+}
+
+@Composable
+private fun SwipeIndicatorPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: Float,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black.copy(alpha = 0.70f))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Icon(icon, label, tint = Color.White, modifier = Modifier.size(24.dp))
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = { value },
+            modifier = Modifier.width(60.dp).height(4.dp).clip(RoundedCornerShape(50)),
+            color = Color.White,
+            trackColor = Color.White.copy(alpha = 0.25f),
+        )
+        Text(
+            "${(value * 100).toInt()}%",
+            color = Color.White,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
