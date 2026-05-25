@@ -8,7 +8,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
@@ -21,11 +26,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.lagradost.cloudstream3.SubtitleFile
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
@@ -69,6 +75,15 @@ fun MovieDetailScreen(
     val installedCsPlugins by sl.plugins.installed.collectAsState(initial = emptyList())
     var resolving by remember { mutableStateOf(false) }
     var resolverMessage by remember { mutableStateOf<String?>(null) }
+
+    // CS source picker sheet
+    var csPickerPlugin by remember { mutableStateOf<InstalledPlugin?>(null) }
+    var csPickerSources by remember { mutableStateOf<List<ExtractorLink>>(emptyList()) }
+    var csPickerSubs by remember { mutableStateOf<List<SubtitleFile>>(emptyList()) }
+    var csPickerLoading by remember { mutableStateOf(false) }
+    var csPickerError by remember { mutableStateOf<String?>(null) }
+    var csPickerSelSource by remember { mutableStateOf<ExtractorLink?>(null) }
+    var csPickerSelSub by remember { mutableStateOf<SubtitleFile?>(null) }
 
     LaunchedEffect(movieId) {
         try {
@@ -186,6 +201,51 @@ fun MovieDetailScreen(
         }
     }
 
+    fun openCsSourcePicker(plugin: InstalledPlugin) {
+        val title = movie?.displayTitle ?: return
+        val year = movie?.year()
+        csPickerPlugin = plugin
+        csPickerSources = emptyList()
+        csPickerSubs = emptyList()
+        csPickerSelSource = null
+        csPickerSelSub = null
+        csPickerError = null
+        csPickerLoading = true
+        scope.launch {
+            try {
+                val results = runCatching {
+                    PluginRuntime.search(context, plugin.filePath, title)
+                }.getOrDefault(emptyList())
+                val best = pickBestMatch(results, title, year)
+                if (best == null) {
+                    csPickerError = "No results found for \"$title\" in ${plugin.name}."
+                    return@launch
+                }
+                val detail = runCatching {
+                    PluginRuntime.loadDetail(context, plugin.filePath, best.url)
+                }.getOrNull()
+                val movieDetail = detail as? MovieLoadResponse ?: run {
+                    csPickerError = "Could not load movie details from ${plugin.name}."
+                    return@launch
+                }
+                val (links, subs) = runCatching {
+                    PluginRuntime.loadLinks(context, plugin.filePath, movieDetail.dataUrl)
+                }.getOrElse { emptyList<ExtractorLink>() to emptyList<SubtitleFile>() }
+                if (links.isEmpty()) {
+                    csPickerError = "No streams found for \"$title\" in ${plugin.name}."
+                    return@launch
+                }
+                csPickerSources = links.sortedByDescending { it.quality }
+                csPickerSubs = subs
+                csPickerSelSource = csPickerSources.first()
+            } catch (e: Throwable) {
+                csPickerError = "Error: ${e.message}"
+            } finally {
+                csPickerLoading = false
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Box(Modifier.fillMaxWidth().height(280.dp)) {
@@ -298,7 +358,7 @@ fun MovieDetailScreen(
                                     Modifier
                                         .clip(RoundedCornerShape(50))
                                         .background(MaterialTheme.colorScheme.surface)
-                                        .clickable { onOpenCsPluginForMovie(plugin.internalName, csTitle) }
+                                        .clickable { openCsSourcePicker(plugin) }
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                 ) {
                                     Text(
@@ -334,6 +394,290 @@ fun MovieDetailScreen(
                 .background(Color.Black.copy(alpha = 0.45f))
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+        }
+    }
+
+    // CloudStream source picker bottom sheet
+    val pickerPlugin = csPickerPlugin
+    if (pickerPlugin != null) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { csPickerPlugin = null },
+            sheetState = sheetState,
+            containerColor = Color(0xFF1C1C1E),
+            contentColor = Color.White,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
+            ) {
+                // Header
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        pickerPlugin.name,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (csPickerLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+
+                when {
+                    csPickerLoading && csPickerSources.isEmpty() -> {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(220.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(32.dp),
+                                    strokeWidth = 2.5.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    "Searching ${pickerPlugin.name}…",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
+                    }
+                    csPickerError != null -> {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 32.dp),
+                        ) {
+                            Column {
+                                Text(
+                                    csPickerError ?: "",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Spacer(Modifier.height(16.dp))
+                                TextButton(onClick = { csPickerPlugin = null }) {
+                                    Text("Close", color = Color.White.copy(alpha = 0.7f))
+                                }
+                            }
+                        }
+                    }
+                    else -> {
+                        // Two-column picker: Sources | Subtitles
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(300.dp),
+                        ) {
+                            // Sources column
+                            Column(Modifier.weight(1f)) {
+                                Row(
+                                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        "Sources",
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = 11.sp,
+                                    )
+                                    if (!csPickerLoading && csPickerSources.isNotEmpty()) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            "${csPickerSources.size}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                        )
+                                    }
+                                }
+                                LazyColumn(Modifier.fillMaxSize()) {
+                                    items(csPickerSources, key = { it.url }) { link ->
+                                        val isSelected = link.url == csPickerSelSource?.url
+                                        Row(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .clickable { csPickerSelSource = link }
+                                                .background(
+                                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                    else Color.Transparent,
+                                                )
+                                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            if (isSelected) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                            } else {
+                                                Spacer(Modifier.width(24.dp))
+                                            }
+                                            Column(Modifier.weight(1f)) {
+                                                val qLabel = csQualityLabel(link.quality)
+                                                val sourceName = link.name.ifBlank { link.source }
+                                                Text(
+                                                    buildString {
+                                                        append(sourceName)
+                                                        if (qLabel != null) append(" · $qLabel")
+                                                    },
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                                    ),
+                                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            VerticalDivider(color = Color.White.copy(alpha = 0.1f))
+
+                            // Subtitles column
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Subtitles",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                                LazyColumn(Modifier.fillMaxSize()) {
+                                    item(key = "no-sub") {
+                                        val isSelected = csPickerSelSub == null
+                                        Row(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .clickable { csPickerSelSub = null }
+                                                .background(
+                                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                    else Color.Transparent,
+                                                )
+                                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            if (isSelected) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                            } else {
+                                                Spacer(Modifier.width(24.dp))
+                                            }
+                                            Text(
+                                                "No Subtitles",
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                                ),
+                                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
+                                            )
+                                        }
+                                    }
+                                    items(csPickerSubs, key = { it.url }) { sub ->
+                                        val isSelected = sub.url == csPickerSelSub?.url
+                                        Row(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .clickable { csPickerSelSub = sub }
+                                                .background(
+                                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                    else Color.Transparent,
+                                                )
+                                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            if (isSelected) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                            } else {
+                                                Spacer(Modifier.width(24.dp))
+                                            }
+                                            Text(
+                                                sub.name,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                                ),
+                                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+
+                        // Apply / Cancel
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TextButton(onClick = { csPickerPlugin = null }) {
+                                Text("Cancel", color = Color.White.copy(alpha = 0.6f))
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    val selLink = csPickerSelSource ?: return@Button
+                                    val m = movie
+                                    val displayTitle = m?.displayTitle ?: "Playback"
+                                    val progressKey = WatchProgressKey(
+                                        tmdbId = movieId,
+                                        title = displayTitle,
+                                        posterUrl = m?.posterUrl ?: m?.backdropUrl,
+                                        mediaType = mediaType,
+                                    )
+                                    val ps = csPickerSources.toCsPlayerSources(pickerPlugin.name)
+                                    val selPs = ps.find { it.url == selLink.url } ?: ps.first()
+                                    val reordered = listOf(selPs) + ps.filter { it.url != selPs.url }
+                                    csPickerPlugin = null
+                                    onPlay(selPs.url, displayTitle, reordered, progressKey)
+                                },
+                                enabled = csPickerSelSource != null,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                            ) {
+                                Text("Apply", color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
