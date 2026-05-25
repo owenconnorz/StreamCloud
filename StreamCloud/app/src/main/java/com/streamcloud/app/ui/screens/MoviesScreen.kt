@@ -43,6 +43,7 @@ import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 @Composable
 fun MoviesScreen(
     onMovieClick: (Long) -> Unit,
+    onTvClick: (Long) -> Unit = {},
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
     onOpenCatalog: (source: String, title: String, subtitle: String) -> Unit = { _, _, _ -> },
@@ -114,7 +115,10 @@ fun MoviesScreen(
                             items(state.continueWatching, key = { "cw_${it.tmdbId}" }) { entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
-                                    onClick = { onMovieClick(entry.tmdbId) },
+                                    onClick = {
+                                        if (entry.mediaType == "tv") onTvClick(entry.tmdbId)
+                                        else onMovieClick(entry.tmdbId)
+                                    },
                                 )
                             }
                         }

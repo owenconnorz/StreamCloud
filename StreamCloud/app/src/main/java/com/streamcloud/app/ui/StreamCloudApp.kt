@@ -223,6 +223,7 @@ fun StreamCloudApp() {
                 composable(Tab.Movies.route) {
                     MoviesScreen(
                         onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
                         onOpenCloudStreamPlugin = { internalName ->
                             val n = URLEncoder.encode(internalName, "UTF-8")
                             nav.navigate("cloudstream/$n")
@@ -325,6 +326,27 @@ fun StreamCloudApp() {
                 ) {
                     MovieDetailScreen(
                         movieId = it.arguments!!.getLong("id"),
+                        mediaType = "movie",
+                        onBack = { nav.popBackStack() },
+                        onPlay = { initialUrl, title, sources, progressKey ->
+                            com.streamcloud.app.player.MoviePlayerSession.set(
+                                sources, progressKey,
+                                tmdbId = progressKey.tmdbId,
+                                mediaType = progressKey.mediaType,
+                            )
+                            val u = URLEncoder.encode(initialUrl, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/movie/$u/$t")
+                        },
+                    )
+                }
+                composable(
+                    "tv/{id}",
+                    arguments = listOf(navArgument("id") { type = NavType.LongType })
+                ) {
+                    MovieDetailScreen(
+                        movieId = it.arguments!!.getLong("id"),
+                        mediaType = "tv",
                         onBack = { nav.popBackStack() },
                         onPlay = { initialUrl, title, sources, progressKey ->
                             com.streamcloud.app.player.MoviePlayerSession.set(

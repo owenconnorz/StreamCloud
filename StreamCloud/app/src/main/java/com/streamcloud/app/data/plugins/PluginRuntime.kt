@@ -195,6 +195,27 @@ object PluginRuntime {
         out
     }
 
+    suspend fun homePage(
+        context: Context,
+        filePath: String,
+        sectionName: String,
+        pageNum: Int,
+    ): List<SearchResponse> = withContext(Dispatchers.IO) {
+        val apis = load(context, filePath)
+        val results = mutableListOf<SearchResponse>()
+        apis.forEach { api ->
+            val req = api.mainPage.firstOrNull { it.name == sectionName }
+                ?: return@forEach
+            try {
+                val page = api.getMainPage(pageNum, req)
+                page?.items?.forEach { hpl ->
+                    results.addAll(hpl.list)
+                }
+            } catch (_: Throwable) {}
+        }
+        results
+    }
+
     suspend fun loadDetail(context: Context, filePath: String, url: String): LoadResponse? = withContext(Dispatchers.IO) {
         val apis = load(context, filePath)
         apis.firstNotNullOfOrNull { api ->
