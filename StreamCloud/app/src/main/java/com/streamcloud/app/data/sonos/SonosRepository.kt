@@ -3,8 +3,6 @@ package com.streamcloud.app.data.sonos
 import android.content.Context
 import android.util.Log
 import com.streamcloud.app.audio.MusicController
-import com.streamcloud.app.data.newpipe.NewPipeRepository
-import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,7 +37,6 @@ object SonosRepository {
     private val _devices = MutableStateFlow<List<SonosDevice>>(emptyList())
     val devices: StateFlow<List<SonosDevice>> = _devices.asStateFlow()
 
-
     private val _sonosVolume = MutableStateFlow(50)
     val sonosVolume: StateFlow<Int> = _sonosVolume.asStateFlow()
 
@@ -53,11 +50,7 @@ object SonosRepository {
     val sonosDurationMs: StateFlow<Long> = _sonosDurationMs.asStateFlow()
 
     private var activeDevice: SonosDevice? = null
-
-
     private var appContext: Context? = null
-
-
 
     fun startDiscovery(context: Context) {
         _castState.update { CastState.Discovering }
@@ -68,14 +61,18 @@ object SonosRepository {
                 _castState.update { CastState.Error("No Sonos devices found on this network.") }
                 return@launch
             }
-            val groups = runCatching {
+            val allZones = runCatching {
                 SonosDiscovery.buildGroups(found.first(), found)
             }.getOrDefault(emptyList())
-            _castState.update { CastState.DevicesFound(found, groups) }
+            if (allZones.isNotEmpty()) {
+                val multiRoom     = allZones.filter { it.isMultiRoom }
+                val singleDevices = allZones.filter { !it.isMultiRoom }.map { it.coordinatorDevice }
+                _castState.update { CastState.DevicesFound(singleDevices, multiRoom) }
+            } else {
+                _castState.update { CastState.DevicesFound(found, emptyList()) }
+            }
         }
     }
-
-
 
     fun connect(
         context: Context,
@@ -94,51 +91,25 @@ object SonosRepository {
                     return@launch
                 }
 
-
-
-
-                val resolvedUrl = if (videoId.isNotBlank()) {
-                    runCatching { YtPlayerUtils.resolveAudioStream(videoId) }.getOrNull()
-                        ?: runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
-                } else {
-                    runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
-                }
-                if (resolvedUrl == null) {
-                    _castState.update { CastState.Error("Could not get audio stream — track may be restricted by YouTube.") }
-                    return@launch
-                }
-
-
-
-                val proxyUrl = SonosProxyServer.start(localIp)
-
-
-
-
-
                 SonosProxyServer.setTrack(
                     SonosProxyServer.TrackInfo(
-                        videoId = videoId,
-                        title = title,
+                        videoId  = videoId,
+                        title    = title,
                         watchUrl = watchUrl,
-                        resolvedUrl = resolvedUrl,
                     ),
                 )
+                val proxyUrl = SonosProxyServer.start(localIp)
                 Log.d(TAG, "Proxy URL: $proxyUrl")
 
-
-
                 SonosController.stop(device)
-
 
                 val ok = SonosController.setUri(device, proxyUrl, title) &&
                     SonosController.play(device)
 
                 if (ok) {
                     _isSonosPlaying.value = true
-                    activeDevice = device
-                    appContext = context.applicationContext
-
+                    activeDevice  = device
+                    appContext    = context.applicationContext
 
                     runCatching {
                         withContext(Dispatchers.Main) {
@@ -146,9 +117,7 @@ object SonosRepository {
                         }
                     }
 
-
                     SonosController.getVolume(device)?.let { _sonosVolume.value = it }
-
                     _castState.update { CastState.Casting(device, title, displayName) }
                 } else {
                     SonosProxyServer.stop()
@@ -164,22 +133,17 @@ object SonosRepository {
         }
     }
 
-
-
-
     fun pause() {
         val device = activeDevice ?: return
         _isSonosPlaying.value = false
         scope.launch { SonosController.pause(device) }
     }
 
-
     fun resume() {
         val device = activeDevice ?: return
         _isSonosPlaying.value = true
         scope.launch { SonosController.play(device) }
     }
-
 
     fun updateTrack(context: Context, videoId: String, title: String, watchUrl: String) {
         val device = activeDevice ?: return
@@ -195,16 +159,12 @@ object SonosRepository {
         }
     }
 
-
-
-
     fun adjustVolume(delta: Int) {
         val device = activeDevice ?: return
         val newVol = (_sonosVolume.value + delta).coerceIn(0, 100)
         _sonosVolume.value = newVol
         scope.launch { SonosController.setVolume(device, newVol) }
     }
-
 
     fun setVolume(level: Int) {
         val device = activeDevice ?: return
@@ -213,21 +173,17 @@ object SonosRepository {
         scope.launch { SonosController.setVolume(device, clamped) }
     }
 
-
-
-
     fun disconnect() {
         _isSonosPlaying.value = false
         val device = activeDevice
-        val ctx = appContext
+        val ctx    = appContext
         activeDevice = null
-        appContext = null
+        appContext    = null
         SonosProxyServer.stop()
         if (device != null) scope.launch { SonosController.stop(device) }
         _castState.update { CastState.Idle }
-        _devices.value = emptyList()
+        _devices.value    = emptyList()
         _sonosVolume.value = 50
-
 
         if (ctx != null) {
             scope.launch {
