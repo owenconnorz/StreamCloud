@@ -22,9 +22,12 @@ object SonosRepository {
     sealed interface CastState {
         object Idle : CastState
         object Discovering : CastState
-        data class DevicesFound(val devices: List<SonosDevice>) : CastState
+        data class DevicesFound(
+            val devices: List<SonosDevice>,
+            val groups: List<SonosGroup> = emptyList(),
+        ) : CastState
         object Connecting : CastState
-        data class Casting(val device: SonosDevice, val title: String) : CastState
+        data class Casting(val device: SonosDevice, val title: String, val displayName: String = device.name) : CastState
         data class Error(val message: String) : CastState
     }
 
@@ -61,10 +64,14 @@ object SonosRepository {
         scope.launch {
             val found = SonosDiscovery.discover(context)
             _devices.value = found
-            _castState.update {
-                if (found.isEmpty()) CastState.Error("No Sonos devices found on this network.")
-                else CastState.DevicesFound(found)
+            if (found.isEmpty()) {
+                _castState.update { CastState.Error("No Sonos devices found on this network.") }
+                return@launch
             }
+            val groups = runCatching {
+                SonosDiscovery.buildGroups(found.first(), found)
+            }.getOrDefault(emptyList())
+            _castState.update { CastState.DevicesFound(found, groups) }
         }
     }
 
@@ -76,6 +83,7 @@ object SonosRepository {
         videoId: String,
         title: String,
         watchUrl: String,
+        displayName: String = device.name,
     ) {
         _castState.update { CastState.Connecting }
         scope.launch {
@@ -90,13 +98,13 @@ object SonosRepository {
 
 
                 val resolvedUrl = if (videoId.isNotBlank()) {
-                    YtPlayerUtils.resolveAudioStream(videoId)
+                    runCatching { YtPlayerUtils.resolveAudioStream(videoId) }.getOrNull()
                         ?: runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
                 } else {
                     runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
                 }
                 if (resolvedUrl == null) {
-                    _castState.update { CastState.Error("Could not resolve audio stream for this track.") }
+                    _castState.update { CastState.Error("Could not get audio stream — track may be restricted by YouTube.") }
                     return@launch
                 }
 
@@ -141,7 +149,7 @@ object SonosRepository {
 
                     SonosController.getVolume(device)?.let { _sonosVolume.value = it }
 
-                    _castState.update { CastState.Casting(device, title) }
+                    _castState.update { CastState.Casting(device, title, displayName) }
                 } else {
                     SonosProxyServer.stop()
                     _castState.update {
