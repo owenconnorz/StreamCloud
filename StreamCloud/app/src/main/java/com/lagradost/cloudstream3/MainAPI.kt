@@ -1103,7 +1103,7 @@ abstract class MainAPI {
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (com.lagradost.cloudstream3.utils.ExtractorLink) -> Unit
-    ): Boolean { throw NotImplementedError() }
+    ): Boolean = false
 
     open fun getVideoInterceptor(extractorLink: com.lagradost.cloudstream3.utils.ExtractorLink): Interceptor? = null
     open suspend fun getLoadUrl(name: SyncIdName, id: String): String? = null
