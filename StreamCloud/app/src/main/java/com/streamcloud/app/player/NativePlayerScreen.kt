@@ -92,6 +92,8 @@ fun NativePlayerScreen(
     nuvioScanning: Boolean = false,
 
     restartKey: Any? = null,
+
+    forceDirectPlay: Boolean = false,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -146,16 +148,18 @@ fun NativePlayerScreen(
         title = title,
         artworkUrl = artworkUrl,
     )
-    val needsWebView = remember(resolvedUrl) {
-        val u = resolvedUrl?.lowercase().orEmpty()
-        u.isNotEmpty() && !u.startsWith("http://127.0.0.1") &&
-            !u.endsWith(".mp4") && !u.endsWith(".mkv") && !u.endsWith(".webm") &&
-            !u.endsWith(".m4v") && !u.endsWith(".mov") &&
-            !u.contains(".m3u8") && !u.contains(".mpd") &&
-            !u.startsWith("magnet:") &&
-
-            (u.contains("/embed") || u.contains("/iframe") || u.contains("/video/") ||
-             u.endsWith(".html") || u.endsWith("/"))
+    val needsWebView = remember(resolvedUrl, forceDirectPlay) {
+        if (forceDirectPlay) false
+        else {
+            val u = resolvedUrl?.lowercase().orEmpty()
+            u.isNotEmpty() && !u.startsWith("http://127.0.0.1") &&
+                !u.endsWith(".mp4") && !u.endsWith(".mkv") && !u.endsWith(".webm") &&
+                !u.endsWith(".m4v") && !u.endsWith(".mov") &&
+                !u.contains(".m3u8") && !u.contains(".mpd") &&
+                !u.startsWith("magnet:") &&
+                (u.contains("/embed") || u.contains("/iframe") || u.contains("/video/") ||
+                 u.endsWith(".html") || u.endsWith("/"))
+        }
     }
 
     LaunchedEffect(resolvedUrl, needsWebView, restartKey) {

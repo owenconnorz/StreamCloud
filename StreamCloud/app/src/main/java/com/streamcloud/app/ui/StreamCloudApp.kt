@@ -52,7 +52,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.NativePlayerScreen
-import com.streamcloud.app.player.toPlayerSource
 import com.streamcloud.app.ui.screens.AdultScreen
 import com.streamcloud.app.ui.screens.AiScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
@@ -530,44 +529,12 @@ fun StreamCloudApp() {
                         selectedSourceId = currentId,
                         restartKey = switchKey,
                         nuvioScanning = nuvioScanning,
+                        forceDirectPlay = true,
                         artworkUrl = com.streamcloud.app.player.MoviePlayerSession.progressKey?.posterUrl,
                         onSwitchSource = { src ->
-                            if (src.id.startsWith("nuvio::")) {
-                                // Match Nuvio's own behaviour: run the provider's scraper
-                                // at selection time so the URL is always fresh, not stale.
-                                val providerId = src.id.split("::").getOrNull(1).orEmpty()
-                                refreshScope.launch {
-                                    val tmdbId = com.streamcloud.app.player.MoviePlayerSession.tmdbId
-                                    val mediaType = com.streamcloud.app.player.MoviePlayerSession.mediaType
-                                    com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
-                                    try {
-                                        val fresh = runCatching {
-                                            sl.nuvio.resolveOne(
-                                                providerId = providerId,
-                                                tmdbId = tmdbId.toString(),
-                                                mediaType = mediaType,
-                                            ).map { (p, s) -> s.toPlayerSource(p) }
-                                        }.getOrDefault(emptyList())
-                                        val best = fresh.firstOrNull()
-                                        if (best != null) {
-                                            com.streamcloud.app.player.MoviePlayerSession.mergeSources(fresh)
-                                            currentUrl = best.url
-                                            currentId = best.id
-                                        } else {
-                                            // Provider returned nothing — fall back to cached URL
-                                            currentUrl = src.url
-                                            currentId = src.id
-                                        }
-                                        switchKey++
-                                    } finally {
-                                        com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(false)
-                                    }
-                                }
-                            } else {
-                                currentUrl = src.url
-                                currentId = src.id
-                                switchKey++
-                            }
+                            currentUrl = src.url
+                            currentId = src.id
+                            switchKey++
                         },
                         progressKey = com.streamcloud.app.player.MoviePlayerSession.progressKey,
                         onBack = { nav.popBackStack() },
@@ -579,7 +546,20 @@ fun StreamCloudApp() {
                                 com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
                                 val newSources = runCatching {
                                     sl.nuvio.resolveAll(tmdbId.toString(), mediaType)
-                                        .map { (provider, stream) -> stream.toPlayerSource(provider) }
+                                        .map { (provider, stream) ->
+                                            val label = stream.title?.takeIf { it.isNotBlank() }
+                                                ?: stream.name?.takeIf { it.isNotBlank() }
+                                                ?: "Stream"
+                                            com.streamcloud.app.player.PlayerSource(
+                                                id = "nuvio::${provider.id}::${stream.url.hashCode()}::${label.hashCode()}",
+                                                url = stream.url,
+                                                label = label,
+                                                addonName = provider.name,
+                                                qualityTag = nuvioQualityTag(stream.quality),
+                                                isMagnet = stream.url.startsWith("magnet:"),
+                                                headers = stream.headers ?: emptyMap(),
+                                            )
+                                        }
                                 }.getOrDefault(emptyList())
                                 com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(false)
                                 com.streamcloud.app.player.MoviePlayerSession.mergeSources(newSources)
