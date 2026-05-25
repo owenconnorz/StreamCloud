@@ -3,33 +3,40 @@ package com.lagradost.cloudstream3
 import kotlinx.coroutines.*
 
 /**
- * Stubs for com.lagradost.cloudstream3.ParCollectionsKt.
- * Plugins compiled against the real CloudStream SDK call amap/apmap/pmap for
- * concurrent item processing. These stubs run concurrently via coroutineScope.
+ * Stub of CloudStream's ParCollections — provides the parallel-execution helpers
+ * that plugins call at runtime.  The JVM class is ParCollectionsKt so all
+ * top-level functions here are accessible as static methods on that class.
  */
 
-/** Async map — runs all list items concurrently. */
-suspend fun <V, R> List<V>.amap(f: suspend (V) -> R): List<R> = coroutineScope {
-    map { async { f(it) } }.awaitAll()
+/** Run all jobs concurrently and return their results in order. */
+suspend fun <T> runAllAsync(vararg jobs: suspend () -> T): List<T> =
+    coroutineScope { jobs.map { async { it() } }.awaitAll() }
+
+/** Parallel map — runs [transform] on every element concurrently. */
+suspend fun <A, B> Iterable<A>.amap(transform: suspend (A) -> B): List<B> =
+    coroutineScope { map { async { transform(it) } }.awaitAll() }
+
+/** Parallel map alias used by some plugins. */
+suspend fun <A, B> Iterable<A>.apmap(transform: suspend (A) -> B): List<B> =
+    amap(transform)
+
+/** Parallel map that swallows per-element errors (returns null on failure). */
+suspend fun <A, B> Iterable<A>.amapNotNull(transform: suspend (A) -> B?): List<B> =
+    coroutineScope {
+        map { async { runCatching { transform(it) }.getOrNull() } }
+            .awaitAll()
+            .filterNotNull()
+    }
+
+/** Execute [block] in parallel for each element, ignoring failures. */
+suspend fun <A> Iterable<A>.forEach(block: suspend (A) -> Unit) {
+    coroutineScope { map { async { runCatching { block(it) } } }.awaitAll() }
 }
 
-/** Async parallel map for Map entries — runs all entries concurrently. */
-suspend fun <K, V, R> Map<out K, V>.amap(f: suspend (Map.Entry<K, V>) -> R): List<R> = coroutineScope {
-    map { async { f(it) } }.awaitAll()
-}
-
-/** Async parallel map — alias for amap on lists. */
-suspend fun <V, R> List<V>.apmap(f: suspend (V) -> R): List<R> = coroutineScope {
-    map { async { f(it) } }.awaitAll()
-}
-
-/** Async parallel map for Iterable. */
-suspend fun <V, R> Iterable<V>.pmap(f: suspend (V) -> R): List<R> = coroutineScope {
-    map { async { f(it) } }.awaitAll()
-}
-
-/** Async for-each — runs all items concurrently. */
-suspend fun <V> List<V>.apForEach(f: suspend (V) -> Unit): Unit = coroutineScope {
-    map { async { f(it) } }.awaitAll()
-    Unit
-}
+/** Run a collection of suspend lambdas in parallel; return all non-null results. */
+suspend fun <T> runAllAsyncNotNull(vararg jobs: suspend () -> T?): List<T> =
+    coroutineScope {
+        jobs.map { async { runCatching { it() }.getOrNull() } }
+            .awaitAll()
+            .filterNotNull()
+    }

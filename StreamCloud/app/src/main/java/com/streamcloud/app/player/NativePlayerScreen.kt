@@ -13,8 +13,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -427,52 +427,86 @@ fun NativePlayerScreen(
         val density = LocalDensity.current
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val widthPx = with(density) { maxWidth.toPx() }
-            // Tap layer — double-tap seek, single-tap show controls
+            // Unified tap + swipe layer:
+            //   · Single-tap  → show/hide controls
+            //   · Double-tap  → seek ±10 s (left / right half)
+            //   · Swipe up/down left  → volume
+            //   · Swipe up/down right → brightness
+            var lastTapTime by remember { mutableStateOf(0L) }
+            var lastTapX    by remember { mutableStateOf(0f) }
             Box(
                 Modifier
                     .fillMaxSize()
                     .pointerInput(ex) {
-                        detectTapGestures(
-                            onTap = { bumpInteraction() },
-                            onDoubleTap = { offset: Offset ->
-                                ex ?: return@detectTapGestures
-                                val side = if (offset.x < widthPx / 2f) -10_000L else +10_000L
-                                ex.seekTo((ex.currentPosition + side).coerceAtLeast(0L))
-                                bumpInteraction()
-                            },
-                        )
-                    }
-            )
-            // Swipe layer — left side = volume, right side = brightness
-            var dragStartX by remember { mutableStateOf(0f) }
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { offset -> dragStartX = offset.x },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                val sensitivity = 0.003f
-                                val delta = -dragAmount.y * sensitivity
-                                if (dragStartX < widthPx / 2f) {
-                                    // Left side → volume
-                                    val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                                    val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                                    val newVol = (cur + (delta * maxVol).toInt()).coerceIn(0, maxVol)
-                                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
-                                    volumeOverlay = newVol.toFloat() / maxVol
-                                } else {
-                                    // Right side → brightness
-                                    val lp = window?.attributes ?: return@detectDragGestures
-                                    val cur = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
-                                    val newBr = (cur + delta).coerceIn(0.01f, 1f)
-                                    lp.screenBrightness = newBr
-                                    window?.attributes = lp
-                                    brightnessOverlay = newBr
+                        val slop = viewConfiguration.touchSlop
+                        awaitEachGesture {
+                            val down      = awaitFirstDown(requireUnconsumed = false)
+                            val startX    = down.position.x
+                            val startY    = down.position.y
+                            val startTime = System.currentTimeMillis()
+                            var dragging  = false
+                            var dragSide  = startX
+                            while (true) {
+                                val event  = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) {
+                                    // Finger lifted — was this a tap?
+                                    if (!dragging) {
+                                        val elapsed = System.currentTimeMillis() - startTime
+                                        if (elapsed < 400) {
+                                            val now = System.currentTimeMillis()
+                                            if (now - lastTapTime < 400 &&
+                                                kotlin.math.abs(startX - lastTapX) < 160f
+                                            ) {
+                                                // Double-tap → seek
+                                                ex?.let { p ->
+                                                    val side = if (startX < widthPx / 2f) -10_000L else +10_000L
+                                                    p.seekTo((p.currentPosition + side).coerceAtLeast(0L))
+                                                    bumpInteraction()
+                                                }
+                                                lastTapTime = 0L
+                                            } else {
+                                                // Single tap → toggle controls
+                                                bumpInteraction()
+                                                lastTapTime = now
+                                                lastTapX    = startX
+                                            }
+                                        }
+                                    }
+                                    break
+                                }
+                                val dx   = change.position.x - startX
+                                val dy   = change.position.y - startY
+                                val dist = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                                if (!dragging && dist > slop) {
+                                    if (kotlin.math.abs(dy) >= kotlin.math.abs(dx)) {
+                                        dragging = true
+                                        dragSide = startX
+                                    } else {
+                                        // Horizontal — don't intercept
+                                        break
+                                    }
+                                }
+                                if (dragging) {
+                                    change.consume()
+                                    val delta = -change.positionChange().y * 0.003f
+                                    if (dragSide < widthPx / 2f) {
+                                        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                                        val cur    = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                        val newVol = (cur + (delta * maxVol).toInt()).coerceIn(0, maxVol)
+                                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+                                        volumeOverlay = newVol.toFloat() / maxVol
+                                    } else {
+                                        val lp  = window?.attributes ?: break
+                                        val cur = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
+                                        val newBr = (cur + delta).coerceIn(0.01f, 1f)
+                                        lp.screenBrightness = newBr
+                                        window?.attributes  = lp
+                                        brightnessOverlay   = newBr
+                                    }
                                 }
                             }
-                        )
+                        }
                     }
             )
         }
