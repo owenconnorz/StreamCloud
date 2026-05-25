@@ -158,7 +158,7 @@ constructor(
     suspend fun getVideoSize(timeoutSeconds: Long = 3L): Long? {
         if (type != ExtractorLinkType.VIDEO) return null
         return try {
-            app.head(url, headers = headers, referer = referer, timeout = timeoutSeconds)
+            app.head(url, headers = headers, referer = referer, timeout = timeoutSeconds.toInt())
                 .headers["Content-Length"]?.firstOrNull()?.toLong()
         } catch (_: Exception) { null }
     }
