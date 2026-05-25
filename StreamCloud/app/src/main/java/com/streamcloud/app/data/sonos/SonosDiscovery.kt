@@ -107,7 +107,7 @@ object SonosDiscovery {
         withContext(Dispatchers.IO) {
             val soapBody = SonosController.getZoneGroupState(anyDevice)
                 ?: return@withContext emptyList()
-            SonosGroup.parseZoneGroupXml(soapBody).filter { it.isMultiRoom }
+            SonosGroup.parseZoneGroupXml(soapBody)
         }
 
     fun localIp(context: Context): String? {
