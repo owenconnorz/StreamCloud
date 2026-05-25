@@ -39,8 +39,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.TrackEntity
+import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtmLibraryArtist
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
@@ -63,6 +71,7 @@ fun LibraryScreen(
     onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
     onOpenArtist: (channelUrl: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
+    onMovieClick: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val dao = remember { LibraryDb.get(context).tracks() }
@@ -117,6 +126,8 @@ fun LibraryScreen(
     var tab by remember { mutableStateOf(LibTab.Playlists) }
     var openTile by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var sectionMode by remember { mutableStateOf("Music") }
+    val watchlistItems by LibraryDb.get(context).watchlist().all().collectAsState(initial = emptyList())
 
     val localPlaylists by remember(context) {
         LibraryDb.get(context).localPlaylists().allPlaylists()
@@ -155,6 +166,91 @@ fun LibraryScreen(
         }
         Spacer(Modifier.height(12.dp))
 
+        Row(
+            Modifier
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            listOf("Music" to Icons.Default.MusicNote, "Movies" to Icons.Default.Movie).forEach { (label, icon) ->
+                val selected = sectionMode == label
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                        .clickable { sectionMode = label }
+                        .padding(horizontal = 22.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(icon, null,
+                        tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp))
+                    Text(label,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        if (sectionMode == "Movies") {
+            if (watchlistItems.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Movie, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                            modifier = Modifier.size(64.dp))
+                        Spacer(Modifier.height(14.dp))
+                        Text("No saved movies yet",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Bookmark a movie or show to see it here",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(watchlistItems, key = { "wl_${it.tmdbId}" }) { entry ->
+                        Column(
+                            Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { if (entry.tmdbId > 0L) onMovieClick(entry.tmdbId) }
+                        ) {
+                            AsyncImage(
+                                model = entry.posterUrl,
+                                contentDescription = entry.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(2f / 3f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                entry.title,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
 
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -300,6 +396,7 @@ fun LibraryScreen(
             }
             }
         }
+        } // end Music else
     }
 }
 

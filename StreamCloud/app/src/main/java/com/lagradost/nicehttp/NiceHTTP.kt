@@ -16,7 +16,9 @@ import java.util.concurrent.TimeUnit
 
 // ResponseParser MUST be an interface — plugins reference it via invokeinterface.
 // Declaring it as a class causes IncompatibleClassChangeError at runtime.
-interface ResponseParser
+interface ResponseParser {
+    fun <T : Any> parseSafe(json: String, klass: kotlin.reflect.KClass<T>): T? = null
+}
 
 private object NoOpResponseParser : ResponseParser
 

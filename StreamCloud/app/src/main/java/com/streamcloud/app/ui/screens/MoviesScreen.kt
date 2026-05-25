@@ -36,6 +36,7 @@ import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
+import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,6 +52,8 @@ fun MoviesScreen(
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
     val state by vm.state.collectAsState()
+    val settingsRepo = remember { SettingsRepository(context) }
+    val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
     var query by remember { mutableStateOf("") }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -90,7 +93,7 @@ fun MoviesScreen(
             if (query.isNotBlank()) {
                 item { SectionTitle("Search results") }
                 item {
-                    PosterGrid(movies = state.searchResults, onClick = onMovieClick)
+                    PosterGrid(movies = state.searchResults, posterStyle = posterStyle, onClick = onMovieClick)
                 }
             } else {
                 if (state.heroBanner.isNotEmpty()) {
@@ -111,27 +114,6 @@ fun MoviesScreen(
                             items(state.continueWatching, key = { "cw_${it.tmdbId}" }) { entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
-                                    onClick = { onMovieClick(entry.tmdbId) },
-                                )
-                            }
-                        }
-                    }
-                }
-                if (state.watchlist.isNotEmpty()) {
-                    item(key = "watchlist_t") { SectionTitle("Watchlist") }
-                    item(key = "watchlist") {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(state.watchlist, key = { "wl_${it.tmdbId}" }) { entry ->
-                                MidPoster(
-                                    m = com.streamcloud.app.data.api.TmdbMovie(
-                                        id = entry.tmdbId,
-                                        title = entry.title,
-                                        posterPath = entry.posterUrl
-                                            ?.removePrefix("https://image.tmdb.org/t/p/w500"),
-                                    ),
                                     onClick = { onMovieClick(entry.tmdbId) },
                                 )
                             }
@@ -162,7 +144,7 @@ fun MoviesScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(row.items, key = { "${row.id}_${it.id}" }) { m ->
-                                MidPoster(m, onClick = { onMovieClick(m.id) })
+                                MidPoster(m, posterStyle = posterStyle, onClick = { onMovieClick(m.id) })
                             }
                         }
                     }
@@ -188,26 +170,18 @@ fun MoviesScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
-                                StremioPoster(meta = meta) {
-                                    // Only route to MovieDetailScreen (TMDB) for confirmed
-                                    // movie-type items with an IMDB ID.  TV shows / series
-                                    // always go to StremioDetailScreen — there is no TV
-                                    // details endpoint in TmdbApi and the movie endpoint
-                                    // returns HTTP 404 for TV content.
-                                    val isConfirmedMovie =
-                                        meta.type.equals("movie", ignoreCase = true) &&
-                                        meta.id.startsWith("tt", ignoreCase = true)
-                                    if (isConfirmedMovie) {
+                                StremioPoster(meta = meta, posterStyle = posterStyle) {
+                                    if (meta.id.startsWith("tt", ignoreCase = true)) {
+
+
+
                                         vm.openStremioMeta(meta) { tmdbId, _ ->
                                             if (tmdbId != null) onMovieClick(tmdbId)
-                                            else onOpenStremio(
-                                                row.addonId, row.type, meta.id,
-                                                meta.name, meta.poster,
-                                            )
                                         }
                                     } else {
-                                        // series, channel, podcasts, or movies without
-                                        // IMDB ID → StremioDetailScreen
+
+
+
                                         onOpenStremio(
                                             row.addonId, row.type, meta.id,
                                             meta.name, meta.poster,
@@ -655,19 +629,23 @@ private fun ContinueWatchingCard(
 }
 
 @Composable
-private fun MidPoster(m: TmdbMovie, onClick: () -> Unit) {
+private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: () -> Unit) {
+    val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
+    val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
+    val ratio = if (useLandscape) 16f / 9f else 2f / 3f
+    val width = if (useLandscape) 220.dp else 140.dp
     Column(
         Modifier
-            .width(140.dp)
+            .width(width)
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
     ) {
         AsyncImage(
-            model = m.posterUrl,
+            model = imageUrl,
             contentDescription = m.displayTitle,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .fillMaxWidth().aspectRatio(2f / 3f)
+                .fillMaxWidth().aspectRatio(ratio)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surface),
         )
@@ -683,10 +661,13 @@ private fun MidPoster(m: TmdbMovie, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StremioPoster(meta: StremioMetaPreview, onClick: () -> Unit) {
+private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portrait", onClick: () -> Unit) {
+    val useLandscape = posterStyle == "landscape"
+    val ratio = if (useLandscape) 16f / 9f else 2f / 3f
+    val width = if (useLandscape) 220.dp else 140.dp
     Column(
         Modifier
-            .width(140.dp)
+            .width(width)
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
@@ -695,7 +676,7 @@ private fun StremioPoster(meta: StremioMetaPreview, onClick: () -> Unit) {
             contentDescription = meta.name,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .fillMaxWidth().aspectRatio(2f / 3f)
+                .fillMaxWidth().aspectRatio(ratio)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surface),
         )
@@ -718,14 +699,18 @@ private fun StremioPoster(meta: StremioMetaPreview, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PosterGrid(movies: List<TmdbMovie>, onClick: (Long) -> Unit) {
+private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait", onClick: (Long) -> Unit) {
+    val chunkSize = if (posterStyle == "landscape") 2 else 3
     Column(
         modifier = Modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        movies.chunked(3).forEach { row ->
+        movies.chunked(chunkSize).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 row.forEach { m ->
+                    val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
+                    val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
+                    val ratio = if (useLandscape) 16f / 9f else 2f / 3f
                     Column(
                         Modifier
                             .weight(1f)
@@ -733,11 +718,11 @@ private fun PosterGrid(movies: List<TmdbMovie>, onClick: (Long) -> Unit) {
                             .clickable { onClick(m.id) }
                     ) {
                         AsyncImage(
-                            model = m.posterUrl,
+                            model = imageUrl,
                             contentDescription = m.displayTitle,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .fillMaxWidth().aspectRatio(2f / 3f)
+                                .fillMaxWidth().aspectRatio(ratio)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surface),
                         )
@@ -751,7 +736,7 @@ private fun PosterGrid(movies: List<TmdbMovie>, onClick: (Long) -> Unit) {
                         )
                     }
                 }
-                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                repeat(chunkSize - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }

@@ -9,9 +9,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
+import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchlistEntity
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,6 +75,12 @@ fun CloudStreamDetailScreen(
     val context = LocalContext.current
     val repo = remember { PluginRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
+    val watchlistDao = remember { LibraryDb.get(context.applicationContext).watchlist() }
+    val syntheticId = remember(pluginInternalName, url) {
+        val h = (pluginInternalName + "|" + url).hashCode().toLong()
+        if (h < 0L) h else -(h + 1L)
+    }
+    val isWatchlisted by watchlistDao.isWatchlisted(syntheticId).collectAsState(initial = false)
 
     var state by remember { mutableStateOf<CsDetailState>(CsDetailState.Loading) }
     var sourcesState by remember { mutableStateOf<SourcesState>(SourcesState.Idle) }
@@ -174,8 +183,25 @@ fun CloudStreamDetailScreen(
                 sourcesState    = sourcesState,
                 resolving       = resolving,
                 resolveError    = resolveError,
+                isWatchlisted   = isWatchlisted,
                 onPlayMovie     = { resolveAndPlay((s.response as MovieLoadResponse).dataUrl, null) },
                 onPlayEpisode   = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
+                onToggleWatchlist = {
+                    scope.launch {
+                        if (isWatchlisted) {
+                            watchlistDao.remove(syntheticId)
+                        } else {
+                            watchlistDao.add(
+                                WatchlistEntity(
+                                    tmdbId    = syntheticId,
+                                    title     = s.response.name.ifBlank { initialTitle },
+                                    posterUrl = s.response.posterUrl ?: initialPoster,
+                                    mediaType = "cloudstream",
+                                )
+                            )
+                        }
+                    }
+                },
             )
         }
 
@@ -241,8 +267,10 @@ private fun CsReadyContent(
     sourcesState: SourcesState,
     resolving: Boolean,
     resolveError: String?,
+    isWatchlisted: Boolean,
     onPlayMovie: () -> Unit,
     onPlayEpisode: (Episode) -> Unit,
+    onToggleWatchlist: () -> Unit,
 ) {
     val isSeries = lr is TvSeriesLoadResponse
     val episodes = (lr as? TvSeriesLoadResponse)?.episodes.orEmpty()
@@ -378,11 +406,16 @@ private fun CsReadyContent(
                             Modifier
                                 .size(52.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(SurfaceColor),
+                                .background(SurfaceColor)
+                                .clickable(onClick = onToggleWatchlist),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Default.BookmarkBorder, "Bookmark",
-                                tint = TextSecondary, modifier = Modifier.size(24.dp))
+                            Icon(
+                                if (isWatchlisted) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = if (isWatchlisted) "Remove from watchlist" else "Add to watchlist",
+                                tint = if (isWatchlisted) AccentColor else TextSecondary,
+                                modifier = Modifier.size(24.dp),
+                            )
                         }
                     }
                     Spacer(Modifier.height(6.dp))

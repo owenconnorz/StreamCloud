@@ -5,11 +5,9 @@ import android.util.Log
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,9 +22,9 @@ object SonosRepository {
     sealed interface CastState {
         object Idle : CastState
         object Discovering : CastState
-        data class GroupsFound(val groups: List<SonosGroup>) : CastState
+        data class DevicesFound(val devices: List<SonosDevice>) : CastState
         object Connecting : CastState
-        data class Casting(val group: SonosGroup, val title: String) : CastState
+        data class Casting(val device: SonosDevice, val title: String) : CastState
         data class Error(val message: String) : CastState
     }
 
@@ -35,65 +33,37 @@ object SonosRepository {
     private val _castState = MutableStateFlow<CastState>(CastState.Idle)
     val castState: StateFlow<CastState> = _castState.asStateFlow()
 
-    private val _sonosVolume    = MutableStateFlow(50)
+    private val _devices = MutableStateFlow<List<SonosDevice>>(emptyList())
+    val devices: StateFlow<List<SonosDevice>> = _devices.asStateFlow()
+
+
+    private val _sonosVolume = MutableStateFlow(50)
     val sonosVolume: StateFlow<Int> = _sonosVolume.asStateFlow()
 
-    /** True while Sonos is actively playing; false when paused or not casting. */
-    private val _isSonosPlaying = MutableStateFlow(false)
-    val isSonosPlaying: StateFlow<Boolean> = _isSonosPlaying.asStateFlow()
+    private var activeDevice: SonosDevice? = null
 
-    /** Current playback position on Sonos (ms), polled every second while casting. */
-    private val _sonosPositionMs = MutableStateFlow(0L)
-    val sonosPositionMs: StateFlow<Long> = _sonosPositionMs.asStateFlow()
 
-    /** Duration of the current Sonos track (ms). */
-    private val _sonosDurationMs = MutableStateFlow(0L)
-    val sonosDurationMs: StateFlow<Long> = _sonosDurationMs.asStateFlow()
-
-    private var positionPollJob: Job? = null
-
-    private var activeGroup: SonosGroup? = null
     private var appContext: Context? = null
 
-    // ── Discovery ──────────────────────────────────────────────────────────────
+
 
     fun startDiscovery(context: Context) {
         _castState.update { CastState.Discovering }
         scope.launch {
-            try {
-                val devices = SonosDiscovery.discover(context)
-                if (devices.isEmpty()) {
-                    _castState.update { CastState.Error("No Sonos speakers found on this network.") }
-                    return@launch
-                }
-                val groups = fetchGroups(devices)
-                _castState.update { CastState.GroupsFound(groups) }
-            } catch (e: Exception) {
-                Log.w(TAG, "discovery error", e)
-                _castState.update { CastState.Error("Discovery failed: ${e.message}") }
+            val found = SonosDiscovery.discover(context)
+            _devices.value = found
+            _castState.update {
+                if (found.isEmpty()) CastState.Error("No Sonos devices found on this network.")
+                else CastState.DevicesFound(found)
             }
         }
     }
 
-    private suspend fun fetchGroups(devices: List<SonosDevice>): List<SonosGroup> {
-        for (dev in devices) {
-            val soap = SonosController.getZoneGroupState(dev) ?: continue
-            Log.d(TAG, "GetZoneGroupState from ${dev.name}: ${soap.take(200)}")
-            val groups = SonosGroup.parseZoneGroupXml(soap)
-            if (groups.isNotEmpty()) {
-                Log.d(TAG, "Parsed ${groups.size} group(s): ${groups.map { it.displayName }}")
-                return groups
-            }
-        }
-        Log.w(TAG, "GetZoneGroupState unavailable — falling back to individual devices")
-        return SonosGroup.fromDevices(devices)
-    }
 
-    // ── Connect ────────────────────────────────────────────────────────────────
 
     fun connect(
         context: Context,
-        group: SonosGroup,
+        device: SonosDevice,
         videoId: String,
         title: String,
         watchUrl: String,
@@ -103,193 +73,147 @@ object SonosRepository {
             try {
                 val localIp = SonosDiscovery.localIp(context)
                 if (localIp == null) {
-                    _castState.update { CastState.Error("Cannot determine local IP — connect to Wi-Fi first.") }
+                    _castState.update { CastState.Error("Cannot determine local IP — connect to WiFi first.") }
                     return@launch
                 }
 
-                // Resolve stream preferring audio/mp4 (M4A/AAC).
-                // Sonos does NOT support WebM/Opus — it causes UPnP error 714.
-                val (resolvedUrl, mimeType) = resolveStreamForSonos(videoId, watchUrl) ?: run {
+
+
+
+                val resolvedUrl = if (videoId.isNotBlank()) {
+                    YtPlayerUtils.resolveAudioStream(videoId)
+                        ?: runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+                } else {
+                    runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+                }
+                if (resolvedUrl == null) {
                     _castState.update { CastState.Error("Could not resolve audio stream for this track.") }
                     return@launch
                 }
-                Log.d(TAG, "Resolved stream: mimeType=$mimeType url=${resolvedUrl.take(80)}")
+
+
 
                 val proxyUrl = SonosProxyServer.start(localIp)
-                SonosProxyServer.setTrack(SonosProxyServer.TrackInfo(
-                    videoId     = videoId,
-                    title       = title,
-                    watchUrl    = watchUrl,
-                    resolvedUrl = resolvedUrl,
-                    mimeType    = mimeType,
-                ))
-                Log.d(TAG, "Proxy: $proxyUrl  Coordinator: ${group.coordinatorHost}:${group.coordinatorPort}")
 
-                val coordinator = group.coordinatorDevice
 
-                // Stop → wait for STOPPED → set URI → play
-                SonosController.stop(coordinator)
-                waitForStopped(coordinator, 2_000)
 
-                var ok = SonosController.setUri(coordinator, proxyUrl, title, mimeType) &&
-                    SonosController.play(coordinator)
 
-                // Retry without Stop in case Stop left device in bad state
-                if (!ok) {
-                    Log.w(TAG, "Attempt 1 failed [${SonosController.lastSoapError}] — retrying")
-                    delay(600)
-                    ok = SonosController.setUri(coordinator, proxyUrl, title, mimeType) &&
-                        SonosController.play(coordinator)
-                }
+
+                SonosProxyServer.setTrack(
+                    SonosProxyServer.TrackInfo(
+                        videoId = videoId,
+                        title = title,
+                        watchUrl = watchUrl,
+                        resolvedUrl = resolvedUrl,
+                    ),
+                )
+                Log.d(TAG, "Proxy URL: $proxyUrl")
+
+
+
+                SonosController.stop(device)
+
+
+                val ok = SonosController.setUri(device, proxyUrl, title) &&
+                    SonosController.play(device)
 
                 if (ok) {
-                    activeGroup = group
-                    appContext  = context.applicationContext
+                    activeDevice = device
+                    appContext = context.applicationContext
+
+
                     runCatching {
                         withContext(Dispatchers.Main) {
                             MusicController.get(context.applicationContext).pause()
                         }
                     }
-                    SonosController.getVolume(coordinator)?.let { _sonosVolume.value = it }
-                    _isSonosPlaying.value = true
-                    _sonosPositionMs.value = 0L
-                    startPositionPolling()
-                    _castState.update { CastState.Casting(group, title) }
+
+
+                    SonosController.getVolume(device)?.let { _sonosVolume.value = it }
+
+                    _castState.update { CastState.Casting(device, title) }
                 } else {
                     SonosProxyServer.stop()
-                    val detail = SonosController.lastSoapError.ifBlank { "unknown error" }
                     _castState.update {
-                        CastState.Error(
-                            "Sonos rejected the stream.\n[$detail]\n\n" +
-                            "Try restarting the Sonos app or rebooting the speaker."
-                        )
+                        CastState.Error("Sonos rejected the stream. Check that the device is on the same network.")
                     }
                 }
             } catch (e: Exception) {
                 SonosProxyServer.stop()
                 Log.w(TAG, "connect failed", e)
-                _castState.update { CastState.Error(e.message ?: "Connection failed.") }
+                _castState.update { CastState.Error(e.message ?: "Connection failed") }
             }
         }
     }
 
-    /**
-     * Resolve audio stream for Sonos, explicitly preferring M4A/AAC (audio/mp4).
-     * WebM/Opus is excluded because Sonos hardware cannot decode it.
-     * Returns (url, mimeType) or null if resolution fails entirely.
-     */
-    private suspend fun resolveStreamForSonos(videoId: String, watchUrl: String): Pair<String, String>? {
-        if (videoId.isNotBlank()) {
-            val result = runCatching { YtPlayerUtils.resolveAudioStreamForSonos(videoId) }.getOrNull()
-            if (result != null) return result
-        }
-        // Fallback: NewPipe / direct URL — assume audio/mpeg if unknown
-        val url = runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
-            ?: return null
-        return Pair(url, "audio/mpeg")
-    }
 
-    private suspend fun waitForStopped(device: SonosDevice, timeoutMs: Long) {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            val state = SonosController.getState(device) ?: break
-            if (state == "STOPPED" || state == "NO_MEDIA_PRESENT") break
-            delay(200)
-        }
-    }
 
-    // ── Playback controls ──────────────────────────────────────────────────────
 
     fun pause() {
-        _isSonosPlaying.value = false
-        scope.launch { activeGroup?.coordinatorDevice?.let { SonosController.pause(it) } }
+        val device = activeDevice ?: return
+        scope.launch { SonosController.pause(device) }
     }
+
 
     fun resume() {
-        _isSonosPlaying.value = true
-        scope.launch { activeGroup?.coordinatorDevice?.let { SonosController.play(it) } }
+        val device = activeDevice ?: return
+        scope.launch { SonosController.play(device) }
     }
+
 
     fun updateTrack(context: Context, videoId: String, title: String, watchUrl: String) {
-        val group = activeGroup ?: return
+        val device = activeDevice ?: return
+        SonosProxyServer.setTrack(
+            SonosProxyServer.TrackInfo(videoId = videoId, title = title, watchUrl = watchUrl),
+        )
         scope.launch {
             val localIp = SonosDiscovery.localIp(context) ?: return@launch
-            val (resolved, mimeType) = resolveStreamForSonos(videoId, watchUrl) ?: return@launch
-            // start() calls stop() internally which clears currentTrack — MUST start first,
-            // then setTrack so the proxy has the correct info when Sonos connects.
-            val proxyUrl    = SonosProxyServer.start(localIp)
-            SonosProxyServer.setTrack(SonosProxyServer.TrackInfo(
-                videoId = videoId, title = title, watchUrl = watchUrl,
-                resolvedUrl = resolved, mimeType = mimeType,
-            ))
-            val coordinator = group.coordinatorDevice
-            SonosController.stop(coordinator)
-            waitForStopped(coordinator, 1_500)
-            var ok = SonosController.setUri(coordinator, proxyUrl, title, mimeType) &&
-                     SonosController.play(coordinator)
-            if (!ok) {
-                Log.w(TAG, "updateTrack attempt 1 failed [${SonosController.lastSoapError}] — retrying")
-                delay(600)
-                ok = SonosController.setUri(coordinator, proxyUrl, title, mimeType) &&
-                     SonosController.play(coordinator)
-            }
-            if (!ok) return@launch
-            _isSonosPlaying.value = true
-            _sonosPositionMs.value = 0L
-            startPositionPolling()
-            _castState.update { CastState.Casting(group, title) }
+            val proxyUrl = SonosProxyServer.start(localIp)
+            SonosController.setUri(device, proxyUrl, title)
+            SonosController.play(device)
+            _castState.update { CastState.Casting(device, title) }
         }
     }
 
-    // ── Volume ─────────────────────────────────────────────────────────────────
+
+
 
     fun adjustVolume(delta: Int) {
-        val group = activeGroup ?: return
+        val device = activeDevice ?: return
         val newVol = (_sonosVolume.value + delta).coerceIn(0, 100)
         _sonosVolume.value = newVol
-        scope.launch { SonosController.setVolume(group.coordinatorDevice, newVol) }
+        scope.launch { SonosController.setVolume(device, newVol) }
     }
+
 
     fun setVolume(level: Int) {
-        val group = activeGroup ?: return
-        _sonosVolume.value = level.coerceIn(0, 100)
-        scope.launch { SonosController.setVolume(group.coordinatorDevice, _sonosVolume.value) }
+        val device = activeDevice ?: return
+        val clamped = level.coerceIn(0, 100)
+        _sonosVolume.value = clamped
+        scope.launch { SonosController.setVolume(device, clamped) }
     }
 
-    private fun startPositionPolling() {
-        positionPollJob?.cancel()
-        positionPollJob = scope.launch {
-            while (true) {
-                delay(1_000)
-                val group = activeGroup ?: break
-                val (pos, dur) = SonosController.getPositionInfo(group.coordinatorDevice) ?: continue
-                _sonosPositionMs.value = pos
-                _sonosDurationMs.value = dur
-            }
-        }
-    }
 
-    // ── Disconnect ─────────────────────────────────────────────────────────────
+
 
     fun disconnect() {
-        val group = activeGroup
-        val ctx   = appContext
-        activeGroup = null
-        appContext  = null
+        val device = activeDevice
+        val ctx = appContext
+        activeDevice = null
+        appContext = null
         SonosProxyServer.stop()
-        if (group != null) scope.launch { SonosController.stop(group.coordinatorDevice) }
-        positionPollJob?.cancel()
-        positionPollJob = null
-        _sonosPositionMs.value = 0L
-        _sonosDurationMs.value = 0L
+        if (device != null) scope.launch { SonosController.stop(device) }
         _castState.update { CastState.Idle }
-        _isSonosPlaying.value = false
+        _devices.value = emptyList()
         _sonosVolume.value = 50
+
 
         if (ctx != null) {
             scope.launch {
                 runCatching {
-                    withContext(Dispatchers.Main) { MusicController.get(ctx).play() }
+                    withContext(Dispatchers.Main) {
+                        MusicController.get(ctx).play()
+                    }
                 }
             }
         }
