@@ -79,7 +79,7 @@ object SonosProxyServer {
         track.resolvedUrl?.let { return it }
         return runBlocking {
             (if (track.videoId.isNotBlank())
-                runCatching { YtPlayerUtils.resolveAudioStream(track.videoId) }.getOrNull()
+                runCatching { YtPlayerUtils.resolveAudioStream(track.videoId, sonosSafe = true) }.getOrNull()
             else null)
                 ?: runCatching { NewPipeRepository.resolveAudioStream(track.watchUrl) }.getOrNull()
         }
