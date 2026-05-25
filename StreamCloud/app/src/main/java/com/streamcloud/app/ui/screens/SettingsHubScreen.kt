@@ -233,7 +233,10 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         when (page) {
 
 
-            null -> SettingsHubList(onNavigate = { currentPage = it })
+            null -> SettingsHubList(
+                onNavigate    = { currentPage = it },
+                onOpenPlugins = onOpenPlugins,
+            )
 
 
             SettingsPage.SystemUpdate -> SubPageScaffold(
@@ -746,13 +749,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                         },
                     )
                     SettingDivider()
-                    SettingNav(
-                        icon = Icons.Default.Extension, tint = ColourStorage,
-                        title = "CloudStream plugins",
-                        subtitle = "${formatBytes(pluginsCacheBytes)} on device",
-                        onClick = onOpenPlugins,
-                    )
-                    SettingDivider()
                     SettingToggle(
                         icon = Icons.Default.Wifi, tint = ColourStorage,
                         title = "Download over Wi-Fi only",
@@ -1004,7 +1000,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
 }
 
 @Composable
-private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit) {
+private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit) {
     val context = LocalContext.current
     val checker = remember { UpdateChecker(context.applicationContext) }
     var updateLabel by remember { mutableStateOf<String?>(null) }
@@ -1068,6 +1064,13 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit) {
                 badge      = hubItem.badge,
                 badgeError = hubItem.badgeError,
                 onClick    = { onNavigate(hubItem.page) },
+            )
+        }
+        item {
+            HubRow(
+                icon    = Icons.Default.Extension,
+                title   = "Plugins & Addons",
+                onClick = onOpenPlugins,
             )
         }
     }
