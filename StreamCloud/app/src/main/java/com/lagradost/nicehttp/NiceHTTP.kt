@@ -14,8 +14,11 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.util.concurrent.TimeUnit
 
-// Stub — plugins may pass a ResponseParser but our impl ignores it.
-open class ResponseParser
+// ResponseParser MUST be an interface — plugins reference it via invokeinterface.
+// Declaring it as a class causes IncompatibleClassChangeError at runtime.
+interface ResponseParser
+
+private object NoOpResponseParser : ResponseParser
 
 object Requests {
 
@@ -198,7 +201,7 @@ class NiceResponse(
     val headers: Map<String, List<String>>,
     val url: String,
     val error: Throwable? = null,
-    val parser: ResponseParser = ResponseParser(),
+    val parser: ResponseParser = NoOpResponseParser,
 ) {
     val ok: Boolean get() = code in 200..299
     val isSuccessful: Boolean get() = ok
