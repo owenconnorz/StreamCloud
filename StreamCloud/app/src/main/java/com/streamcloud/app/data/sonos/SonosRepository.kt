@@ -40,6 +40,15 @@ object SonosRepository {
     private val _sonosVolume = MutableStateFlow(50)
     val sonosVolume: StateFlow<Int> = _sonosVolume.asStateFlow()
 
+    private val _isSonosPlaying = MutableStateFlow(false)
+    val isSonosPlaying: StateFlow<Boolean> = _isSonosPlaying.asStateFlow()
+
+    private val _sonosPositionMs = MutableStateFlow(0L)
+    val sonosPositionMs: StateFlow<Long> = _sonosPositionMs.asStateFlow()
+
+    private val _sonosDurationMs = MutableStateFlow(0L)
+    val sonosDurationMs: StateFlow<Long> = _sonosDurationMs.asStateFlow()
+
     private var activeDevice: SonosDevice? = null
 
 
@@ -118,6 +127,7 @@ object SonosRepository {
                     SonosController.play(device)
 
                 if (ok) {
+                    _isSonosPlaying.value = true
                     activeDevice = device
                     appContext = context.applicationContext
 
@@ -151,12 +161,14 @@ object SonosRepository {
 
     fun pause() {
         val device = activeDevice ?: return
+        _isSonosPlaying.value = false
         scope.launch { SonosController.pause(device) }
     }
 
 
     fun resume() {
         val device = activeDevice ?: return
+        _isSonosPlaying.value = true
         scope.launch { SonosController.play(device) }
     }
 
@@ -197,6 +209,7 @@ object SonosRepository {
 
 
     fun disconnect() {
+        _isSonosPlaying.value = false
         val device = activeDevice
         val ctx = appContext
         activeDevice = null

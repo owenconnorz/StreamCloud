@@ -22,7 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.streamcloud.app.data.sonos.SonosGroup
+import com.streamcloud.app.data.sonos.SonosDevice
 import com.streamcloud.app.data.sonos.SonosRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,7 +54,6 @@ fun SonosDevicePickerSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp),
         ) {
-            // ── Header ────────────────────────────────────────────────────────
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.SpeakerGroup,
@@ -76,25 +75,24 @@ fun SonosDevicePickerSheet(
 
             Spacer(Modifier.height(16.dp))
 
-            // ── Body ──────────────────────────────────────────────────────────
             when (val state = castState) {
 
                 is SonosRepository.CastState.Discovering ->
                     SheetStatus("Scanning for Sonos speakers…", showSpinner = true)
 
-                is SonosRepository.CastState.GroupsFound -> {
+                is SonosRepository.CastState.DevicesFound -> {
                     Text(
-                        "Choose a speaker or group",
+                        "Choose a speaker",
                         color = Color.White.copy(alpha = 0.55f),
                         style = MaterialTheme.typography.labelLarge,
                     )
                     Spacer(Modifier.height(10.dp))
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(state.groups, key = { it.id }) { group ->
-                            GroupRow(group = group) {
+                        items(state.devices, key = { it.udn }) { device ->
+                            DeviceRow(device = device) {
                                 SonosRepository.connect(
                                     context  = context,
-                                    group    = group,
+                                    device   = device,
                                     videoId  = videoId,
                                     title    = title,
                                     watchUrl = watchUrl,
@@ -114,8 +112,7 @@ fun SonosDevicePickerSheet(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Icon(
-                            if (state.group.isMultiRoom) Icons.Default.SpeakerGroup
-                            else Icons.Default.Speaker,
+                            Icons.Default.Speaker,
                             contentDescription = null,
                             tint = Color(0xFF4FC3F7),
                             modifier = Modifier.size(48.dp),
@@ -127,20 +124,10 @@ fun SonosDevicePickerSheet(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            state.group.displayName,
+                            state.device.name,
                             color = Color.White,
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         )
-                        if (state.group.isMultiRoom) {
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                state.group.memberNames.joinToString("  ·  "),
-                                color = Color(0xFF4FC3F7).copy(alpha = 0.7f),
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
                         Spacer(Modifier.height(4.dp))
                         Text(
                             state.title,
@@ -151,7 +138,6 @@ fun SonosDevicePickerSheet(
                         )
                         Spacer(Modifier.height(24.dp))
 
-                        // Volume slider
                         Text(
                             "Volume",
                             color = Color.White.copy(alpha = 0.55f),
@@ -225,7 +211,7 @@ fun SonosDevicePickerSheet(
 }
 
 @Composable
-private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
+private fun DeviceRow(device: SonosDevice, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = Color.White.copy(alpha = 0.07f),
@@ -236,7 +222,7 @@ private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                if (group.isMultiRoom) Icons.Default.SpeakerGroup else Icons.Default.Speaker,
+                Icons.Default.Speaker,
                 contentDescription = null,
                 tint = Color(0xFF4FC3F7),
                 modifier = Modifier.size(28.dp),
@@ -244,39 +230,17 @@ private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    group.displayName,
+                    device.name,
                     color = Color.White,
                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (group.isMultiRoom) {
-                    Text(
-                        "${group.memberNames.size} speakers",
-                        color = Color(0xFF4FC3F7).copy(alpha = 0.8f),
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    )
-                } else {
-                    Text(
-                        group.coordinatorHost,
-                        color = Color.White.copy(alpha = 0.35f),
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    )
-                }
-            }
-            if (group.isMultiRoom) {
-                Spacer(Modifier.width(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFF4FC3F7).copy(alpha = 0.15f),
-                ) {
-                    Text(
-                        "GROUP",
-                        color = Color(0xFF4FC3F7),
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                    )
-                }
+                Text(
+                    device.host,
+                    color = Color.White.copy(alpha = 0.35f),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                )
             }
         }
     }
