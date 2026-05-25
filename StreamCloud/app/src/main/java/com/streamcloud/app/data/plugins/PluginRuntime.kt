@@ -50,18 +50,24 @@ object PluginRuntime {
             @Suppress("ResultOfMethodCallIgnored")
             readOnlyFile.setReadOnly()
 
-            val optimizedDir = File(context.codeCacheDir, "plugins-opt").apply { mkdirs() }
+            val optimizedDir = context.getDir("plugins-opt", android.content.Context.MODE_PRIVATE)
+            val appClassLoader = Plugin::class.java.classLoader ?: context.classLoader
             val loader = DexClassLoader(
                 readOnlyFile.absolutePath,
                 optimizedDir.absolutePath,
                 null,
-                context.classLoader,
+                appClassLoader,
             )
-            val pluginClassName = readPluginClassName(readOnlyFile)
-                ?: scanDexForPluginClass(readOnlyFile, optimizedDir, context.classLoader)
+            // Read manifest from the original file first (avoids codeCacheDir SELinux issues)
+            val pluginClassName = readPluginClassName(src)
+                ?: readPluginClassName(readOnlyFile)
+                ?: scanDexForPluginClass(readOnlyFile, optimizedDir, appClassLoader)
                 ?: error("Could not find plugin class in `$filePath` (no `manifest.json`, " +
                     "no `Plugin-Class` in MANIFEST.MF, and no `Plugin` subclass found in dex).")
-            val klass = loader.loadClass(pluginClassName)
+            val klass = runCatching { loader.loadClass(pluginClassName) }.getOrElse { e ->
+                error("Found plugin class `$pluginClassName` but failed to load it: " +
+                    "${e::class.simpleName}: ${e.message}")
+            }
             val instance = klass.getDeclaredConstructor().newInstance() as? Plugin
                 ?: error("Class `$pluginClassName` is not a subclass of `Plugin`")
             instance.beforeLoad()
