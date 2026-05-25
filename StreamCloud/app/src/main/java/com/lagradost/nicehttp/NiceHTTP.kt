@@ -198,6 +198,7 @@ class NiceResponse(
     val headers: Map<String, List<String>>,
     val url: String,
     val error: Throwable? = null,
+    val parser: ResponseParser = ResponseParser(),
 ) {
     val ok: Boolean get() = code in 200..299
     val isSuccessful: Boolean get() = ok
