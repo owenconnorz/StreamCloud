@@ -489,7 +489,7 @@ fun NativePlayerScreen(
                                 }
                                 if (dragging) {
                                     change.consume()
-                                    val delta = -change.positionChange().y * 0.003f
+                                    val delta = -(change.position.y - change.previousPosition.y) * 0.003f
                                     if (dragSide < widthPx / 2f) {
                                         val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                                         val cur    = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
