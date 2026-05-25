@@ -37,15 +37,18 @@
 # --- App models (kotlinx serialization) ---
 -keep class com.aioweb.app.data.api.** { *; }
 
-# --- CloudStream / lagradost plugin API ---
+# --- CloudStream plugin API stubs (called reflectively by .cs3 plugins via DexClassLoader) ---
 -keep class com.lagradost.** { *; }
--keep interface com.lagradost.** { *; }
+-keepclassmembers class com.lagradost.** { *; }
+-dontwarn com.lagradost.**
 
-# --- Jackson (CloudStream plugin JSON parsing) ---
+# --- Plugin loading infrastructure (PluginRuntime uses DexClassLoader + reflection) ---
+-keep class com.streamcloud.app.data.plugins.** { *; }
+-keepclassmembers class com.streamcloud.app.data.plugins.** { *; }
+
+# --- Jackson (used by MainAPI / cloudstream3 stubs) ---
 -keep class com.fasterxml.jackson.** { *; }
 -dontwarn com.fasterxml.jackson.**
-
-# --- Room ---
--keep @androidx.room.Entity class * { *; }
--keep @androidx.room.Dao class * { *; }
--keep @androidx.room.Database class * { *; }
+-keepclassmembers class * {
+    @com.fasterxml.jackson.annotation.* *;
+}

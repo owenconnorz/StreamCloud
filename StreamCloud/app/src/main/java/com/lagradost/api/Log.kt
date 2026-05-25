@@ -2,15 +2,17 @@ package com.lagradost.api
 
 import android.util.Log as AndroidLog
 
-/**
- * Stub for com.lagradost.api.Log used by Score and other classes.
- * Delegates to Android's standard Log.
- */
 object Log {
-    fun w(tag: String, msg: String)    = AndroidLog.w(tag, msg)
-    fun e(tag: String, msg: String)    = AndroidLog.e(tag, msg)
-    fun d(tag: String, msg: String)    = AndroidLog.d(tag, msg)
-    fun i(tag: String, msg: String)    = AndroidLog.i(tag, msg)
-    fun v(tag: String, msg: String)    = AndroidLog.v(tag, msg)
-    fun wtf(tag: String, msg: String)  = AndroidLog.wtf(tag, msg)
+    @JvmStatic fun w(tag: String, msg: String)   = AndroidLog.w(tag, msg)
+    @JvmStatic fun e(tag: String, msg: String)   = AndroidLog.e(tag, msg)
+    @JvmStatic fun d(tag: String, msg: String)   = AndroidLog.d(tag, msg)
+    @JvmStatic fun i(tag: String, msg: String)   = AndroidLog.i(tag, msg)
+    @JvmStatic fun v(tag: String, msg: String)   = AndroidLog.v(tag, msg)
+    @JvmStatic fun wtf(tag: String, msg: String) = AndroidLog.wtf(tag, msg)
+
+    @JvmStatic fun w(tag: String, msg: String, tr: Throwable?)   = if (tr != null) AndroidLog.w(tag, msg, tr) else AndroidLog.w(tag, msg)
+    @JvmStatic fun e(tag: String, msg: String, tr: Throwable?)   = if (tr != null) AndroidLog.e(tag, msg, tr) else AndroidLog.e(tag, msg)
+    @JvmStatic fun d(tag: String, msg: String, tr: Throwable?)   = if (tr != null) AndroidLog.d(tag, msg, tr) else AndroidLog.d(tag, msg)
+    @JvmStatic fun i(tag: String, msg: String, tr: Throwable?)   = if (tr != null) AndroidLog.i(tag, msg, tr) else AndroidLog.i(tag, msg)
+    @JvmStatic fun v(tag: String, msg: String, tr: Throwable?)   = if (tr != null) AndroidLog.v(tag, msg, tr) else AndroidLog.v(tag, msg)
 }

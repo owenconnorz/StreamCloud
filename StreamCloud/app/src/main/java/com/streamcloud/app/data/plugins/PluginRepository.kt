@@ -14,6 +14,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -96,7 +97,7 @@ class PluginRepository(private val context: Context) {
         error("No plugins found. Tried:\n" + errors.joinToString("\n"))
     }
 
-    private fun fetchOne(url: String): List<CloudStreamPlugin> {
+    private fun fetchOne(url: String, depth: Int = 0): List<CloudStreamPlugin> {
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", "StreamCloud/1.0")
@@ -107,6 +108,18 @@ class PluginRepository(private val context: Context) {
             val body = resp.body?.string().orEmpty()
             val element = runCatching { Net.json.parseToJsonElement(body) }.getOrNull()
                 ?: error("Response is not JSON")
+
+            if (depth < 2 && element is JsonObject) {
+                val listUrls = (element["pluginLists"] as? JsonArray)
+                    ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+                    .orEmpty()
+                if (listUrls.isNotEmpty()) {
+                    return listUrls.flatMap { listUrl ->
+                        runCatching { fetchOne(listUrl, depth + 1) }.getOrElse { emptyList() }
+                    }
+                }
+            }
+
             return parsePluginsFromAny(element)
         }
     }

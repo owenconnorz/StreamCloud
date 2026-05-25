@@ -135,10 +135,17 @@ object PluginRuntime {
                 0,
             )
             val pluginBase = Plugin::class.java
+            val skipPrefixes = listOf(
+                "kotlin.", "kotlinx.", "java.", "javax.", "android.",
+                "androidx.", "okhttp3.", "okio.", "org.jsoup.",
+                "com.fasterxml.", "com.lagradost.cloudstream3.utils.",
+                "com.lagradost.cloudstream3.mvvm.",
+                "com.lagradost.cloudstream3.extractors.",
+                "com.lagradost.cloudstream3.syncproviders.",
+                "com.lagradost.cloudstream3.metaproviders.",
+            )
             dexFile.entries().toList().firstOrNull { className ->
-
-                if (className.startsWith("com.lagradost.cloudstream3.") &&
-                    !className.contains("plugin", ignoreCase = true)) return@firstOrNull false
+                if (skipPrefixes.any { className.startsWith(it) }) return@firstOrNull false
                 runCatching {
                     val c = loader.loadClass(className)
                     pluginBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
