@@ -282,6 +282,7 @@ object YtPlayerUtils {
         videoId: String,
         preferItag: Int? = null,
         preferHighQuality: Boolean = true,
+        sonosSafe: Boolean = false,
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
         ensureVisitorData()
         val isLoggedIn = ytMusicCookie.isNotBlank()
@@ -306,7 +307,7 @@ object YtPlayerUtils {
                 }
             }
 
-            val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken)
+            val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken, sonosSafe)
             when (result) {
                 is ClientResult.Success -> {
                     AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag}")
@@ -330,8 +331,8 @@ object YtPlayerUtils {
     suspend fun resolveAudioStreamInfo(videoId: String): AudioStreamInfo? =
         resolveAudioFormatInfo(videoId)?.let { AudioStreamInfo(it.url, it.contentLength) }
 
-    suspend fun resolveAudioStream(videoId: String): String? =
-        resolveAudioFormatInfo(videoId)?.url
+    suspend fun resolveAudioStream(videoId: String, sonosSafe: Boolean = false): String? =
+        resolveAudioFormatInfo(videoId, sonosSafe = sonosSafe)?.url
 
     private val AGE_GATE_STATUSES = setOf(
         "AGE_CHECK_REQUIRED",
@@ -353,6 +354,7 @@ object YtPlayerUtils {
         preferItag: Int?,
         preferHighQuality: Boolean,
         poToken: String?,
+        sonosSafe: Boolean = false,
     ): ClientResult {
         return try {
             val root = fetchPlayerResponse(client, videoId, poToken)
@@ -374,8 +376,16 @@ object YtPlayerUtils {
 
             if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason, playabilityStatus)
 
-            val plainUrl = audioOnly.filter {
-                it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
+            val plainUrl = run {
+                val withUrl = audioOnly.filter {
+                    it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
+                }
+                if (sonosSafe) {
+                    val mp4Only = withUrl.filter {
+                        !it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
+                    }
+                    mp4Only.takeIf { it.isNotEmpty() } ?: withUrl
+                } else withUrl
             }
             if (plainUrl.isEmpty()) return ClientResult.CipheredOnly
 
