@@ -3,6 +3,8 @@ package com.streamcloud.app.data.sonos
 import android.content.Context
 import android.util.Log
 import com.streamcloud.app.audio.MusicController
+import com.streamcloud.app.data.newpipe.NewPipeRepository
+import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -91,15 +93,26 @@ object SonosRepository {
                     return@launch
                 }
 
+                // Pre-resolve the audio URL before starting the proxy so Sonos gets data
+                // instantly on its first GET request — lazy resolution causes Sonos to timeout.
+                val resolvedUrl: String? = withContext(Dispatchers.IO) {
+                    if (videoId.isNotBlank())
+                        runCatching { YtPlayerUtils.resolveAudioStream(videoId, sonosSafe = true) }.getOrNull()
+                    else null
+                } ?: withContext(Dispatchers.IO) {
+                    runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+                }
+
                 SonosProxyServer.setTrack(
                     SonosProxyServer.TrackInfo(
-                        videoId  = videoId,
-                        title    = title,
-                        watchUrl = watchUrl,
+                        videoId     = videoId,
+                        title       = title,
+                        watchUrl    = watchUrl,
+                        resolvedUrl = resolvedUrl,
                     ),
                 )
                 val proxyUrl = SonosProxyServer.start(localIp)
-                Log.d(TAG, "Proxy URL: $proxyUrl")
+                Log.d(TAG, "Proxy URL: $proxyUrl (resolved=${resolvedUrl != null})")
 
                 SonosController.stop(device)
 
@@ -147,11 +160,23 @@ object SonosRepository {
 
     fun updateTrack(context: Context, videoId: String, title: String, watchUrl: String) {
         val device = activeDevice ?: return
-        SonosProxyServer.setTrack(
-            SonosProxyServer.TrackInfo(videoId = videoId, title = title, watchUrl = watchUrl),
-        )
         scope.launch {
             val localIp = SonosDiscovery.localIp(context) ?: return@launch
+            val resolvedUrl: String? = withContext(Dispatchers.IO) {
+                if (videoId.isNotBlank())
+                    runCatching { YtPlayerUtils.resolveAudioStream(videoId, sonosSafe = true) }.getOrNull()
+                else null
+            } ?: withContext(Dispatchers.IO) {
+                runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+            }
+            SonosProxyServer.setTrack(
+                SonosProxyServer.TrackInfo(
+                    videoId     = videoId,
+                    title       = title,
+                    watchUrl    = watchUrl,
+                    resolvedUrl = resolvedUrl,
+                ),
+            )
             val proxyUrl = SonosProxyServer.start(localIp)
             SonosController.setUri(device, proxyUrl, title)
             SonosController.play(device)
