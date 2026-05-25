@@ -132,7 +132,12 @@ fun CloudStreamDetailScreen(
                     l
                 }
                 if (links.isEmpty()) {
-                    resolveError = "No streams found — ${pluginDisplayName ?: "plugin"} returned nothing."
+                    val internalErr = PluginRuntime.lastErrorFor(path)
+                    resolveError = buildString {
+                        append("No streams found")
+                        if (!pluginDisplayName.isNullOrBlank()) append(" — $pluginDisplayName")
+                        if (!internalErr.isNullOrBlank()) append("\n\n$internalErr")
+                    }
                     return@launch
                 }
                 val sources = links.toPlayerSources(pluginDisplayName ?: pluginInternalName)
