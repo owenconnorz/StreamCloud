@@ -213,15 +213,14 @@ class MusicViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun play(track: YtTrack, onResolved: (String) -> Unit) {
+    fun play(track: YtTrack, onResolved: (String) -> Unit = {}) {
         viewModelScope.launch {
             _state.update { it.copy(resolvingUrl = track.url, error = null) }
             try {
-
                 val cached = dao.byUrl(track.url)?.localPath?.takeIf {
                     java.io.File(it).exists()
                 }
-                val audio = cached ?: NewPipeRepository.resolveAudioStream(track.url)
+
                 _state.update {
                     it.copy(
                         nowPlayingUrl = track.url,
@@ -229,7 +228,26 @@ class MusicViewModel(context: Context) : ViewModel() {
                         resolvingUrl = null,
                     )
                 }
-                onResolved(audio)
+
+                if (cached != null) {
+                    onResolved(cached)
+                } else {
+                    val videoId = track.url
+                        .substringAfter("v=", missingDelimiterValue = "")
+                        .substringBefore("&")
+                        .ifBlank { track.url.substringAfterLast("/") }
+                    val song = com.streamcloud.app.data.ytmusic.YtmSong(
+                        videoId = videoId,
+                        title = track.title,
+                        artist = track.uploader,
+                        album = null,
+                        thumbnail = track.thumbnail,
+                        durationSeconds = track.durationSec,
+                    )
+                    com.streamcloud.app.data.ytmusic.YtPlayback.playSong(
+                        appContext, song, withAutoRadio = false,
+                    )
+                }
 
                 val ts = System.currentTimeMillis()
                 dao.upsert(

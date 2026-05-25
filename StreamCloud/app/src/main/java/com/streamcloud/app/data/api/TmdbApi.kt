@@ -107,6 +107,24 @@ interface TmdbApi {
     ): TmdbListResponse
 
 
+    @GET("3/tv/{id}")
+    suspend fun tvDetails(
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+    ): TmdbMovie
+
+    @GET("3/tv/{id}/videos")
+    suspend fun tvVideos(
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+    ): TmdbVideosResponse
+
+    @GET("3/tv/{id}/external_ids")
+    suspend fun tvExternalIds(
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+    ): TmdbExternalIds
+
     @GET("3/find/{externalId}")
     suspend fun find(
         @retrofit2.http.Path("externalId") externalId: String,

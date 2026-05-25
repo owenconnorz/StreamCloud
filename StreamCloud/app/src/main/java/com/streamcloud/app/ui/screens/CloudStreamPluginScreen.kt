@@ -7,8 +7,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -40,6 +42,16 @@ private data class PluginPageState(
     val loading: Boolean = false,
     val error: String? = null,
     val pluginName: String = "",
+    val pluginFilePath: String = "",
+)
+
+private data class ViewAllState(
+    val title: String,
+    val items: List<SearchResponse>,
+    val filePath: String,
+    val page: Int = 1,
+    val loadingMore: Boolean = false,
+    val noMore: Boolean = false,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,8 +66,7 @@ fun CloudStreamPluginScreen(
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(PluginPageState(loading = true)) }
     var query by remember { mutableStateOf("") }
-    // null = home, non-null = viewing all items in that section
-    var viewAllSection by remember { mutableStateOf<Pair<String, List<SearchResponse>>?>(null) }
+    var viewAllSection by remember { mutableStateOf<ViewAllState?>(null) }
 
     LaunchedEffect(internalName) {
         val plugin = repo.installed.first().firstOrNull { it.internalName == internalName }
@@ -63,7 +74,7 @@ fun CloudStreamPluginScreen(
             state = state.copy(loading = false, error = "Plugin not installed.")
             return@LaunchedEffect
         }
-        state = state.copy(pluginName = plugin.name, loading = true, error = null)
+        state = state.copy(pluginName = plugin.name, pluginFilePath = plugin.filePath, loading = true, error = null)
         try {
             val sections = PluginRuntime.home(context, plugin.filePath)
             if (sections.isEmpty()) {
@@ -81,12 +92,37 @@ fun CloudStreamPluginScreen(
         }
     }
 
-    // "View All" sub-screen
+    // "View All" sub-screen with infinite scroll
     val section = viewAllSection
     if (section != null) {
+        val gridState = rememberLazyGridState()
+
+        LaunchedEffect(gridState, section.page) {
+            snapshotFlow {
+                val last = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                val total = gridState.layoutInfo.totalItemsCount
+                last to total
+            }.collect { (last, total) ->
+                if (total > 0 && last >= total - 6 && !section.loadingMore && !section.noMore) {
+                    val vs = viewAllSection ?: return@collect
+                    viewAllSection = vs.copy(loadingMore = true)
+                    val nextPage = vs.page + 1
+                    val more = runCatching {
+                        PluginRuntime.homePage(context, vs.filePath, vs.title, nextPage)
+                    }.getOrDefault(emptyList())
+                    viewAllSection = vs.copy(
+                        items = vs.items + more,
+                        page = nextPage,
+                        loadingMore = false,
+                        noMore = more.isEmpty(),
+                    )
+                }
+            }
+        }
+
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             TopAppBar(
-                title = { Text(section.first, fontWeight = FontWeight.Bold) },
+                title = { Text(section.title, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { viewAllSection = null }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -95,12 +131,13 @@ fun CloudStreamPluginScreen(
             )
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
+                state = gridState,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(section.second, key = { it.url }) { sr ->
+                items(section.items, key = { it.url }) { sr ->
                     Column(
                         Modifier
                             .clip(RoundedCornerShape(12.dp))
@@ -123,6 +160,13 @@ fun CloudStreamPluginScreen(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                }
+                if (section.loadingMore) {
+                    item(key = "loading_more", span = { GridItemSpan(maxLineSpan) }) {
+                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
                     }
                 }
             }
@@ -240,7 +284,13 @@ fun CloudStreamPluginScreen(
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f),
                             )
-                            TextButton(onClick = { viewAllSection = title to items }) {
+                            TextButton(onClick = {
+                                viewAllSection = ViewAllState(
+                                    title = title,
+                                    items = items,
+                                    filePath = state.pluginFilePath,
+                                )
+                            }) {
                                 Text(
                                     "View All",
                                     style = MaterialTheme.typography.labelLarge,

@@ -37,9 +37,7 @@ import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.WatchProgressKey
-import com.streamcloud.app.player.normaliseNuvioQuality
-import com.streamcloud.app.player.toPlayerSource
-import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.ExtractorLink
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import kotlinx.coroutines.async
@@ -50,6 +48,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MovieDetailScreen(
     movieId: Long,
+    mediaType: String = "movie",
     onBack: () -> Unit,
 
     onPlay: (initialUrl: String, title: String, sources: List<PlayerSource>, progressKey: WatchProgressKey) -> Unit,
@@ -71,9 +70,15 @@ fun MovieDetailScreen(
 
     LaunchedEffect(movieId) {
         try {
-            movie = sl.tmdb.details(movieId, sl.tmdbApiKey)
-            videos = sl.tmdb.videos(movieId, sl.tmdbApiKey).results
-            imdbId = sl.tmdb.externalIds(movieId, sl.tmdbApiKey).imdbId
+            if (mediaType == "tv") {
+                movie = sl.tmdb.tvDetails(movieId, sl.tmdbApiKey)
+                videos = sl.tmdb.tvVideos(movieId, sl.tmdbApiKey).results
+                imdbId = sl.tmdb.tvExternalIds(movieId, sl.tmdbApiKey).imdbId
+            } else {
+                movie = sl.tmdb.details(movieId, sl.tmdbApiKey)
+                videos = sl.tmdb.videos(movieId, sl.tmdbApiKey).results
+                imdbId = sl.tmdb.externalIds(movieId, sl.tmdbApiKey).imdbId
+            }
         } catch (e: Exception) {
             error = "Failed to load: ${e.message}"
         }
@@ -97,10 +102,11 @@ fun MovieDetailScreen(
 
 
 
+                val stremioType = if (mediaType == "tv") "series" else "movie"
                 val stremioJob = async {
                     installedAddons.map { addon ->
                         async {
-                            runCatching { sl.stremio.fetchStreams(addon, "movie", tt) }
+                            runCatching { sl.stremio.fetchStreams(addon, stremioType, tt) }
                                 .map { streams -> streams.mapNotNull { it.toPlayerSource(addon) } }
                                 .getOrDefault(emptyList())
                         }
@@ -122,7 +128,7 @@ fun MovieDetailScreen(
                     tmdbId = movieId,
                     title = displayTitle,
                     posterUrl = m?.posterUrl ?: m?.backdropUrl,
-                    mediaType = "movie",
+                    mediaType = mediaType,
                 )
 
                 if (fastSources.isNotEmpty()) {
@@ -143,7 +149,7 @@ fun MovieDetailScreen(
                         scope.launch {
                             try {
                                 val nuvioSources = runCatching {
-                                    sl.nuvio.resolveAll(movieId.toString(), "movie")
+                                    sl.nuvio.resolveAll(movieId.toString(), mediaType)
                                         .map { (provider, stream) -> stream.toPlayerSource(provider) }
                                 }.getOrDefault(emptyList())
                                 if (nuvioSources.isNotEmpty()) {
@@ -157,7 +163,7 @@ fun MovieDetailScreen(
                 } else {
 
                     val nuvioSources = runCatching {
-                        sl.nuvio.resolveAll(movieId.toString(), "movie")
+                        sl.nuvio.resolveAll(movieId.toString(), mediaType)
                             .map { (provider, stream) -> stream.toPlayerSource(provider) }
                     }.getOrDefault(emptyList())
 
@@ -408,7 +414,42 @@ private fun PlayerSource.qualityScore(): Int {
     return q * 10 + if (!isMagnet) 1 else 0
 }
 
+private fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): PlayerSource {
+    val label = title?.takeIf { it.isNotBlank() }
+        ?: name?.takeIf { it.isNotBlank() }
+        ?: "Stream"
+    return PlayerSource(
+        id = "nuvio::${provider.id}::${url.hashCode()}::${label.hashCode()}",
+        url = url,
+        label = label,
+        addonName = provider.name,
+        qualityTag = normaliseNuvioQuality(quality),
+        isMagnet = url.startsWith("magnet:"),
+        headers = headers ?: emptyMap(),
+    )
+}
 
+private fun normaliseNuvioQuality(q: String?): String? {
+    if (q.isNullOrBlank()) return null
+    val s = q.trim()
+    return when {
+        s.equals("4K", ignoreCase = true) ||
+            s.contains("2160", ignoreCase = true) ||
+            s.contains("uhd", ignoreCase = true) -> "4K"
+        s.contains("1440", ignoreCase = true) ||
+            s.equals("2K", ignoreCase = true) -> "1440p"
+        s.contains("1080", ignoreCase = true) ||
+            s.equals("fhd", ignoreCase = true) ||
+            s.equals("fullhd", ignoreCase = true) ||
+            s.equals("full hd", ignoreCase = true) -> "1080p"
+        s.contains("720", ignoreCase = true) ||
+            s.equals("hd", ignoreCase = true) -> "720p"
+        s.contains("480", ignoreCase = true) ||
+            s.equals("sd", ignoreCase = true) -> "480p"
+        s.contains("360", ignoreCase = true) -> "360p"
+        else -> s
+    }
+}
 
 private suspend fun resolveCsPluginForMovie(
     context: android.content.Context,
