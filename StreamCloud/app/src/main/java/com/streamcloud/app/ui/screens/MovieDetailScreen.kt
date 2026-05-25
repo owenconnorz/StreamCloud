@@ -398,12 +398,12 @@ fun MovieDetailScreen(
     }
 
     // CloudStream source picker bottom sheet
+    val csSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pickerPlugin = csPickerPlugin
     if (pickerPlugin != null) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { csPickerPlugin = null },
-            sheetState = sheetState,
+            sheetState = csSheetState,
             containerColor = Color(0xFF1C1C1E),
             contentColor = Color.White,
         ) {
