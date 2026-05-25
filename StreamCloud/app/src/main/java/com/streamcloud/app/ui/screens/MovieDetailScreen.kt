@@ -115,9 +115,11 @@ fun MovieDetailScreen(
                 val csJob = async {
                     val title = movie?.displayTitle.orEmpty()
                     if (title.isBlank()) emptyList<PlayerSource>()
-                    else installedCsPlugins.map { plugin ->
-                        async { resolveCsPluginForMovie(context, plugin, title, movie?.year()) }
-                    }.awaitAll().flatten()
+                    else installedCsPlugins
+                        .filter { !it.isAdultPlugin() }
+                        .map { plugin ->
+                            async { resolveCsPluginForMovie(context, plugin, title, movie?.year()) }
+                        }.awaitAll().flatten()
                 }
 
                 val fastSources = stremioJob.await() + csJob.await()

@@ -48,4 +48,11 @@ data class InstalledPlugin(
     val description: String? = null,
     val authors: List<String>? = null,
     val language: String? = null,
-)
+    val tvTypes: List<String>? = null,
+) {
+    fun isAdultPlugin(): Boolean {
+        val types = tvTypes ?: return false
+        val adultKeywords = setOf("nsfw", "adult", "xxx", "hentai", "hentaisub", "18+", "porn", "erotic")
+        return types.any { it.lowercase() in adultKeywords }
+    }
+}
