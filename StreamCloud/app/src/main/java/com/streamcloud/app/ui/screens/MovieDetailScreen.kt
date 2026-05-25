@@ -2,6 +2,7 @@ package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +53,7 @@ fun MovieDetailScreen(
     onBack: () -> Unit,
 
     onPlay: (initialUrl: String, title: String, sources: List<PlayerSource>, progressKey: WatchProgressKey) -> Unit,
+    onOpenCsPluginForMovie: (internalName: String, title: String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
@@ -272,6 +274,42 @@ fun MovieDetailScreen(
                 resolverMessage?.let {
                     Spacer(Modifier.height(8.dp))
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
+
+                val csTitle = movie?.displayTitle.orEmpty()
+                if (installedCsPlugins.isNotEmpty() && csTitle.isNotBlank()) {
+                    val safePlugins = remember(installedCsPlugins) { installedCsPlugins.filter { !it.isAdultPlugin() } }
+                    if (safePlugins.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Find in Source",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            safePlugins.forEach { plugin ->
+                                Box(
+                                    Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(MaterialTheme.colorScheme.surface)
+                                        .clickable { onOpenCsPluginForMovie(plugin.internalName, csTitle) }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                ) {
+                                    Text(
+                                        plugin.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(24.dp))
