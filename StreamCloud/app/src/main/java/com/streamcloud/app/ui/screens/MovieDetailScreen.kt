@@ -621,7 +621,7 @@ fun MovieDetailScreen(
                                                 Spacer(Modifier.width(24.dp))
                                             }
                                             Text(
-                                                sub.name,
+                                                sub.lang,
                                                 style = MaterialTheme.typography.bodyMedium.copy(
                                                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                                 ),
