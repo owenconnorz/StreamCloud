@@ -11,14 +11,15 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.installPrefs
 import com.lagradost.cloudstream3.plugins.Plugin
 import dalvik.system.DexClassLoader
-import dalvik.system.DexFile
-import dalvik.system.PathClassLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 object PluginRuntime {
 
@@ -95,60 +96,87 @@ object PluginRuntime {
 
 
     private fun readPluginClassName(file: File): String? {
-
-        try {
+        // Strategy A: ZipFile (fast random-access)
+        runCatching {
             ZipFile(file).use { zf ->
-                val entry = zf.getEntry("manifest.json")
-                if (entry != null) {
+                zf.getEntry("manifest.json")?.let { entry ->
                     val body = zf.getInputStream(entry).bufferedReader().use { it.readText() }
-                    val mf = runCatching { json.decodeFromString(PluginManifest.serializer(), body) }.getOrNull()
-                    val name = mf?.pluginClassName?.takeIf { it.isNotBlank() }
-                    if (name != null) return name
+                    json.decodeFromString(PluginManifest.serializer(), body)
+                        .pluginClassName?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+                zf.getEntry("META-INF/MANIFEST.MF")?.let { entry ->
+                    zf.getInputStream(entry).bufferedReader().useLines { lines ->
+                        lines.firstOrNull { it.startsWith("Plugin-Class:", ignoreCase = true) }
+                            ?.substringAfter(':')?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+                    }
                 }
             }
-        } catch (_: Exception) {  }
-
-
-        return try {
-            ZipFile(file).use { zf ->
-                val entry = zf.getEntry("META-INF/MANIFEST.MF") ?: return null
-                zf.getInputStream(entry).bufferedReader().useLines { lines ->
-                    lines.firstOrNull { it.startsWith("Plugin-Class:", ignoreCase = true) }
-                        ?.substringAfter(':')
-                        ?.trim()
+        }
+        // Strategy B: ZipInputStream (works even when ZipFile fails due to OS restrictions)
+        runCatching {
+            ZipInputStream(file.inputStream().buffered()).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val name = entry.name
+                    if (name == "manifest.json") {
+                        val body = zis.readBytes().toString(Charsets.UTF_8)
+                        json.decodeFromString(PluginManifest.serializer(), body)
+                            .pluginClassName?.takeIf { it.isNotBlank() }?.let { return it }
+                    } else if (name == "META-INF/MANIFEST.MF") {
+                        zis.readBytes().toString(Charsets.UTF_8).lineSequence()
+                            .firstOrNull { it.startsWith("Plugin-Class:", ignoreCase = true) }
+                            ?.substringAfter(':')?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+                    }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
                 }
             }
-        } catch (_: Exception) { null }
+        }
+        return null
     }
 
-
-    @Suppress("DEPRECATION")
+    /**
+     * Scans the classes.dex inside the .cs3 ZIP by parsing the DEX string table directly,
+     * without using the deprecated DexFile.loadDex API (which is restricted on Android 12+).
+     * Falls back to DexFile.loadDex on older devices.
+     */
     private fun scanDexForPluginClass(
         readOnlyFile: File,
         optimizedDir: File,
         parent: ClassLoader,
     ): String? {
+        val pluginBase = Plugin::class.java
+        val skipPrefixes = listOf(
+            "kotlin.", "kotlinx.", "java.", "javax.", "android.",
+            "androidx.", "okhttp3.", "okio.", "org.jsoup.", "com.fasterxml.",
+            "com.lagradost.cloudstream3.utils.", "com.lagradost.cloudstream3.mvvm.",
+            "com.lagradost.cloudstream3.extractors.",
+            "com.lagradost.cloudstream3.syncproviders.",
+            "com.lagradost.cloudstream3.metaproviders.",
+        )
+
+        // Primary: read DEX string table directly from the ZIP (no deprecated APIs)
+        val candidates = readDexClassNamesFromZip(readOnlyFile)
+            .filterNot { name -> skipPrefixes.any { name.startsWith(it) } }
+
+        if (candidates.isNotEmpty()) {
+            val loader = DexClassLoader(readOnlyFile.absolutePath, optimizedDir.absolutePath, null, parent)
+            val found = candidates.firstOrNull { className ->
+                runCatching {
+                    val c = loader.loadClass(className)
+                    pluginBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
+                }.getOrDefault(false)
+            }
+            if (found != null) return found
+        }
+
+        // Fallback: deprecated DexFile.loadDex for older Android versions
+        @Suppress("DEPRECATION")
         return try {
-            val loader = DexClassLoader(
+            val loader = DexClassLoader(readOnlyFile.absolutePath, optimizedDir.absolutePath, null, parent)
+            val dexFile = dalvik.system.DexFile.loadDex(
                 readOnlyFile.absolutePath,
-                optimizedDir.absolutePath,
-                null,
-                parent,
-            )
-            val dexFile = DexFile.loadDex(
-                readOnlyFile.absolutePath,
-                File(optimizedDir, readOnlyFile.name + ".odex").absolutePath,
-                0,
-            )
-            val pluginBase = Plugin::class.java
-            val skipPrefixes = listOf(
-                "kotlin.", "kotlinx.", "java.", "javax.", "android.",
-                "androidx.", "okhttp3.", "okio.", "org.jsoup.",
-                "com.fasterxml.", "com.lagradost.cloudstream3.utils.",
-                "com.lagradost.cloudstream3.mvvm.",
-                "com.lagradost.cloudstream3.extractors.",
-                "com.lagradost.cloudstream3.syncproviders.",
-                "com.lagradost.cloudstream3.metaproviders.",
+                File(optimizedDir, readOnlyFile.name + ".odex").absolutePath, 0,
             )
             dexFile.entries().toList().firstOrNull { className ->
                 if (skipPrefixes.any { className.startsWith(it) }) return@firstOrNull false
@@ -158,6 +186,57 @@ object PluginRuntime {
                 }.getOrDefault(false)
             }
         } catch (_: Throwable) { null }
+    }
+
+    /** Extracts the classes.dex from the .cs3 ZIP and parses its string table for class names. */
+    private fun readDexClassNamesFromZip(cs3File: File): List<String> {
+        return try {
+            var dexBytes: ByteArray? = null
+            ZipInputStream(cs3File.inputStream().buffered()).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    if (entry.name == "classes.dex") { dexBytes = zis.readBytes(); break }
+                    zis.closeEntry(); entry = zis.nextEntry
+                }
+            }
+            parseDexTypeDescriptors(dexBytes ?: return emptyList())
+        } catch (_: Throwable) { emptyList() }
+    }
+
+    /**
+     * Parses a DEX file's string pool and returns class names inferred from type descriptors
+     * (entries of the form "Lcom/example/ClassName;").
+     * DEX format ref: https://source.android.com/docs/core/runtime/dex-format
+     */
+    private fun parseDexTypeDescriptors(dex: ByteArray): List<String> {
+        if (dex.size < 112) return emptyList()
+        return try {
+            val buf = ByteBuffer.wrap(dex).order(ByteOrder.LITTLE_ENDIAN)
+            val stringIdsSize = buf.getInt(56)
+            val stringIdsOff  = buf.getInt(60)
+            if (stringIdsSize <= 0 || stringIdsOff + stringIdsSize.toLong() * 4 > dex.size) return emptyList()
+            val result = mutableListOf<String>()
+            repeat(stringIdsSize) { i ->
+                val strDataOff = buf.getInt(stringIdsOff + i * 4)
+                if (strDataOff <= 0 || strDataOff >= dex.size) return@repeat
+                // ULEB128 character count (not byte count) — skip it
+                var pos = strDataOff
+                while (pos < dex.size && dex[pos].toInt() and 0x80 != 0) pos++
+                pos++ // skip final byte of ULEB128
+                if (pos >= dex.size || dex[pos].toInt().toChar() != 'L') return@repeat
+                // Scan to terminating ';'
+                val end = dex.indexOf(';'.code.toByte(), pos)
+                if (end < 0 || !dex.slice(pos until end).any { it == '/'.code.toByte() }) return@repeat
+                val descriptor = String(dex, pos, end - pos, Charsets.UTF_8)
+                result.add(descriptor.replace('/', '.'))
+            }
+            result.distinct()
+        } catch (_: Throwable) { emptyList() }
+    }
+
+    private fun ByteArray.indexOf(byte: Byte, fromIndex: Int): Int {
+        for (i in fromIndex until size) if (this[i] == byte) return i
+        return -1
     }
 
     suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> = withContext(Dispatchers.IO) {
