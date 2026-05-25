@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamcloud.app.data.sonos.SonosDevice
+import com.streamcloud.app.data.sonos.SonosGroup
 import com.streamcloud.app.data.sonos.SonosRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,14 +82,38 @@ fun SonosDevicePickerSheet(
                     SheetStatus("Scanning for Sonos speakers…", showSpinner = true)
 
                 is SonosRepository.CastState.DevicesFound -> {
-                    Text(
-                        "Choose a speaker",
-                        color = Color.White.copy(alpha = 0.55f),
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                    Spacer(Modifier.height(10.dp))
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(state.devices, key = { it.udn }) { device ->
+                        // Groups section
+                        if (state.groups.isNotEmpty()) {
+                            item(key = "groups_header") {
+                                SectionLabel("Groups")
+                                Spacer(Modifier.height(6.dp))
+                            }
+                            items(state.groups, key = { "g_${it.id}" }) { group ->
+                                GroupRow(group = group) {
+                                    SonosRepository.connect(
+                                        context     = context,
+                                        device      = group.coordinator,
+                                        videoId     = videoId,
+                                        title       = title,
+                                        watchUrl    = watchUrl,
+                                        displayName = group.name,
+                                    )
+                                }
+                            }
+                            item(key = "speakers_header") {
+                                Spacer(Modifier.height(10.dp))
+                                SectionLabel("Speakers")
+                                Spacer(Modifier.height(6.dp))
+                            }
+                        } else {
+                            item(key = "speakers_only_header") {
+                                SectionLabel("Choose a speaker")
+                                Spacer(Modifier.height(6.dp))
+                            }
+                        }
+                        // Individual speakers
+                        items(state.devices, key = { "d_${it.udn}" }) { device ->
                             DeviceRow(device = device) {
                                 SonosRepository.connect(
                                     context  = context,
@@ -112,7 +137,7 @@ fun SonosDevicePickerSheet(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Icon(
-                            Icons.Default.Speaker,
+                            Icons.Default.SpeakerGroup,
                             contentDescription = null,
                             tint = Color(0xFF4FC3F7),
                             modifier = Modifier.size(48.dp),
@@ -124,7 +149,7 @@ fun SonosDevicePickerSheet(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            state.device.name,
+                            state.displayName,
                             color = Color.White,
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         )
@@ -205,6 +230,53 @@ fun SonosDevicePickerSheet(
 
                 SonosRepository.CastState.Idle ->
                     SheetStatus("Opening scanner…", showSpinner = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        color = Color.White.copy(alpha = 0.55f),
+        style = MaterialTheme.typography.labelLarge,
+    )
+}
+
+@Composable
+private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF4FC3F7).copy(alpha = 0.1f),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.SpeakerGroup,
+                contentDescription = null,
+                tint = Color(0xFF4FC3F7),
+                modifier = Modifier.size(28.dp),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    group.name,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    group.members.joinToString(" · ") { it.name },
+                    color = Color.White.copy(alpha = 0.45f),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

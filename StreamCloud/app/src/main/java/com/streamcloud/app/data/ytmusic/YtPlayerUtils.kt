@@ -174,6 +174,36 @@ object YtPlayerUtils {
                 "androidSdkVersion" to "35",
             ),
         ),
+
+        ClientConfig(
+            label         = "ANDROID_EMBEDDED_PLAYER",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_EMBEDDED_PLAYER",
+            clientId      = "55",
+            clientVersion = "17.31.35",
+            userAgent     = "com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip",
+            embedUrlTemplate = "https://www.youtube.com/embed/%VIDEO_ID%",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "11",
+                "androidSdkVersion" to "30",
+            ),
+            supportsAuth = false,
+        ),
+
+        ClientConfig(
+            label         = "ANDROID_MUSIC_6",
+            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_MUSIC",
+            clientId      = "21",
+            clientVersion = "6.42.52",
+            userAgent     = "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 12) gzip",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "12",
+                "androidSdkVersion" to "31",
+            ),
+        ),
     )
 
     private val http = OkHttpClient.Builder()
