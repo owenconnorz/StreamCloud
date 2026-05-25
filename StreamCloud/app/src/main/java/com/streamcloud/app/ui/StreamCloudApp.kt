@@ -417,6 +417,7 @@ fun StreamCloudApp() {
                             nav.navigate("artist/$u")
                         },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
                     )
                 }
                 composable(

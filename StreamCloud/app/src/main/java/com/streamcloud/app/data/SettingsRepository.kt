@@ -70,6 +70,7 @@ object SettingsKeys {
 
 
     val CANVAS_ENABLED = booleanPreferencesKey("canvas_enabled")
+    val POSTER_STYLE = stringPreferencesKey("poster_style")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -242,4 +243,8 @@ class SettingsRepository(private val context: Context) {
     val canvasEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.CANVAS_ENABLED] ?: false }
 
     suspend fun setCanvasEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.CANVAS_ENABLED] = b }
+
+    val posterStyle: Flow<String> = context.dataStore.data.map { it[SettingsKeys.POSTER_STYLE] ?: "portrait" }
+
+    suspend fun setPosterStyle(s: String) = context.dataStore.edit { it[SettingsKeys.POSTER_STYLE] = s }
 }

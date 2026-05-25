@@ -153,6 +153,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var syncedLyrics        by remember { mutableStateOf(true) }
     var loudnessNorm        by remember { mutableStateOf(false) }
     var canvasEnabled       by remember { mutableStateOf(false) }
+    var posterStyle         by remember { mutableStateOf("portrait") }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
 
 
@@ -203,6 +204,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         syncedLyrics        = sl.settings.syncedLyrics.first()
         loudnessNorm        = sl.settings.loudnessNormalization.first()
         canvasEnabled       = sl.settings.canvasEnabled.first()
+        posterStyle         = sl.settings.posterStyle.first()
         safeSearch          = sl.settings.safeSearch.first()
         explicitContent     = sl.settings.explicitContent.first()
         contentLanguage     = sl.settings.contentLanguage.first()
@@ -387,6 +389,31 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                         subtitle = "Override form factor · Mobile / Tablet / TV",
                         onClick = { showUiModeDialog = true },
                     )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie posters")
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
+                    ) {
+                        Text(
+                            "Poster style",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            listOf("portrait" to "Portrait", "landscape" to "Landscape", "auto" to "Auto").forEach { (id, label) ->
+                                FilterChip(
+                                    selected = posterStyle == id,
+                                    onClick = { posterStyle = id; scope.launch { sl.settings.setPosterStyle(id) } },
+                                    label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                                )
+                            }
+                        }
+                    }
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
