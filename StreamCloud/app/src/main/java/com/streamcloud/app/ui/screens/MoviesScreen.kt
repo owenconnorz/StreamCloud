@@ -3,6 +3,7 @@ package com.streamcloud.app.ui.screens
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -12,8 +13,14 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,6 +46,13 @@ import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 
+private data class PosterSheetItem(
+    val tmdbId: Long?,
+    val title: String,
+    val posterUrl: String?,
+    val mediaType: String,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MoviesScreen(
@@ -56,6 +70,10 @@ fun MoviesScreen(
     val settingsRepo = remember { SettingsRepository(context) }
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
     var query by remember { mutableStateOf("") }
+    var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
+    var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
+    val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyColumn(
@@ -94,7 +112,14 @@ fun MoviesScreen(
             if (query.isNotBlank()) {
                 item { SectionTitle("Search results") }
                 item {
-                    PosterGrid(movies = state.searchResults, posterStyle = posterStyle, onClick = onMovieClick)
+                    PosterGrid(
+                        movies = state.searchResults,
+                        posterStyle = posterStyle,
+                        onClick = onMovieClick,
+                        onLongPress = { m ->
+                            posterSheet = PosterSheetItem(m.id, m.displayTitle, m.posterUrl, "movie")
+                        },
+                    )
                 }
             } else {
                 if (state.heroBanner.isNotEmpty()) {
@@ -119,6 +144,7 @@ fun MoviesScreen(
                                         if (entry.mediaType == "tv") onTvClick(entry.tmdbId)
                                         else onMovieClick(entry.tmdbId)
                                     },
+                                    onLongPress = { cwSheetEntry = entry },
                                 )
                             }
                         }
@@ -148,7 +174,14 @@ fun MoviesScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(row.items, key = { "${row.id}_${it.id}" }) { m ->
-                                MidPoster(m, posterStyle = posterStyle, onClick = { onMovieClick(m.id) })
+                                MidPoster(
+                                    m = m,
+                                    posterStyle = posterStyle,
+                                    onClick = { onMovieClick(m.id) },
+                                    onLongPress = {
+                                        posterSheet = PosterSheetItem(m.id, m.displayTitle, m.posterUrl, "movie")
+                                    },
+                                )
                             }
                         }
                     }
@@ -174,7 +207,18 @@ fun MoviesScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
-                                StremioPoster(meta = meta, posterStyle = posterStyle) {
+                                StremioPoster(
+                                    meta = meta,
+                                    posterStyle = posterStyle,
+                                    onLongPress = {
+                                        posterSheet = PosterSheetItem(
+                                            tmdbId = null,
+                                            title = meta.name,
+                                            posterUrl = meta.poster,
+                                            mediaType = row.type,
+                                        )
+                                    },
+                                ) {
                                     if (meta.id.startsWith("tt", ignoreCase = true)) {
 
 
@@ -206,6 +250,56 @@ fun MoviesScreen(
                         )
                     }
                 }
+            }
+        }
+
+        val cwEntry = cwSheetEntry
+        if (cwEntry != null) {
+            ModalBottomSheet(
+                onDismissRequest = { cwSheetEntry = null },
+                sheetState = cwSheetState,
+            ) {
+                CwOptionsSheet(
+                    entry = cwEntry,
+                    onGoToDetails = {
+                        cwSheetEntry = null
+                        if (cwEntry.mediaType == "tv") onTvClick(cwEntry.tmdbId) else onMovieClick(cwEntry.tmdbId)
+                    },
+                    onPlayManually = {
+                        cwSheetEntry = null
+                        if (cwEntry.mediaType == "tv") onTvClick(cwEntry.tmdbId) else onMovieClick(cwEntry.tmdbId)
+                    },
+                    onStartFromBeginning = {
+                        cwSheetEntry = null
+                        vm.resetWatchProgress(cwEntry.tmdbId)
+                        if (cwEntry.mediaType == "tv") onTvClick(cwEntry.tmdbId) else onMovieClick(cwEntry.tmdbId)
+                    },
+                    onRemove = {
+                        cwSheetEntry = null
+                        vm.deleteWatchProgress(cwEntry.tmdbId)
+                    },
+                )
+            }
+        }
+
+        val ps = posterSheet
+        if (ps != null) {
+            ModalBottomSheet(
+                onDismissRequest = { posterSheet = null },
+                sheetState = posterSheetState,
+            ) {
+                PosterOptionsSheet(
+                    item = ps,
+                    isInLibrary = ps.tmdbId != null && state.watchlist.any { it.tmdbId == ps.tmdbId },
+                    onAddToLibrary = {
+                        posterSheet = null
+                        ps.tmdbId?.let { vm.toggleWatchlist(it, ps.title, ps.posterUrl, ps.mediaType) }
+                    },
+                    onMarkAsWatched = {
+                        posterSheet = null
+                        ps.tmdbId?.let { vm.markAsWatched(it, ps.title, ps.posterUrl, ps.mediaType) }
+                    },
+                )
             }
         }
     }
@@ -564,10 +658,12 @@ private fun AddonSectionTitleWithViewAll(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingCard(
     entry: WatchProgressEntity,
     onClick: () -> Unit,
+    onLongPress: () -> Unit,
 ) {
     val pct = if (entry.durationMs > 0L)
         (entry.positionMs.toFloat() / entry.durationMs.toFloat()).coerceIn(0f, 1f)
@@ -578,7 +674,7 @@ private fun ContinueWatchingCard(
             .width(320.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress)
             .padding(8.dp),
     ) {
         AsyncImage(
@@ -632,8 +728,9 @@ private fun ContinueWatchingCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: () -> Unit) {
+private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: () -> Unit, onLongPress: () -> Unit = {}) {
     val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
@@ -642,7 +739,7 @@ private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: (
         Modifier
             .width(width)
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
         AsyncImage(
             model = imageUrl,
@@ -664,8 +761,9 @@ private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: (
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portrait", onClick: () -> Unit) {
+private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portrait", onLongPress: () -> Unit = {}, onClick: () -> Unit) {
     val useLandscape = posterStyle == "landscape"
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
@@ -673,7 +771,7 @@ private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portr
         Modifier
             .width(width)
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
         AsyncImage(
             model = meta.poster,
@@ -702,8 +800,9 @@ private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portr
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait", onClick: (Long) -> Unit) {
+private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait", onClick: (Long) -> Unit, onLongPress: (TmdbMovie) -> Unit = {}) {
     val chunkSize = if (posterStyle == "landscape") 2 else 3
     Column(
         modifier = Modifier.padding(horizontal = 16.dp),
@@ -719,7 +818,10 @@ private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait"
                         Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable { onClick(m.id) }
+                            .combinedClickable(
+                                onClick = { onClick(m.id) },
+                                onLongClick = { onLongPress(m) },
+                            )
                     ) {
                         AsyncImage(
                             model = imageUrl,
@@ -743,5 +845,130 @@ private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait"
                 repeat(chunkSize - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+    }
+}
+
+@Composable
+private fun CwOptionsSheet(
+    entry: WatchProgressEntity,
+    onGoToDetails: () -> Unit,
+    onPlayManually: () -> Unit,
+    onStartFromBeginning: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AsyncImage(
+                model = entry.posterUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(width = 60.dp, height = 86.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column {
+                Text(
+                    entry.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (entry.mediaType == "tv") "Series" else "Movie",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        HorizontalDivider()
+        QuickActionRow(Icons.Default.Info, "Go to details", onGoToDetails)
+        QuickActionRow(Icons.Default.PlayArrow, "Play manually", onPlayManually)
+        QuickActionRow(Icons.Default.Replay, "Start from beginning", onStartFromBeginning)
+        QuickActionRow(Icons.Default.Delete, "Remove", onRemove)
+    }
+}
+
+@Composable
+private fun PosterOptionsSheet(
+    item: PosterSheetItem,
+    isInLibrary: Boolean,
+    onAddToLibrary: () -> Unit,
+    onMarkAsWatched: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AsyncImage(
+                model = item.posterUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(width = 60.dp, height = 86.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column {
+                Text(
+                    item.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    when (item.mediaType) {
+                        "tv", "series" -> "Series"
+                        else -> "Movie"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        HorizontalDivider()
+        QuickActionRow(
+            icon = Icons.Default.Bookmark,
+            label = if (isInLibrary) "Remove from library" else "Add to library",
+            onClick = onAddToLibrary,
+        )
+        QuickActionRow(
+            icon = Icons.Default.CheckCircle,
+            label = "Mark as watched",
+            onClick = onMarkAsWatched,
+        )
+    }
+}
+
+@Composable
+private fun QuickActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+    ) {
+        Icon(
+            icon, null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(Modifier.width(16.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge)
     }
 }
