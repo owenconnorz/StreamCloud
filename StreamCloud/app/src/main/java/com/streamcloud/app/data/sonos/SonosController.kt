@@ -119,11 +119,7 @@ object SonosController {
                 .header("SOAPACTION", "\"$ZONE_TOPOLOGY_SERVICE#GetZoneGroupState\"")
                 .header("Content-Type", "text/xml; charset=\"utf-8\"")
                 .build()
-            val body = http.newCall(req).execute().use { it.body?.string() } ?: return@withContext null
-            Regex("<ZoneGroupState>([\\s\\S]*?)</ZoneGroupState>").find(body)
-                ?.groupValues?.get(1)
-                ?.replace("&lt;", "<").replace("&gt;", ">")
-                ?.replace("&amp;", "&").replace("&quot;", "\"").replace("&apos;", "'")
+            http.newCall(req).execute().use { it.body?.string() }
         } catch (e: Exception) {
             Log.w(TAG, "getZoneGroupState failed: ${e.message}")
             null

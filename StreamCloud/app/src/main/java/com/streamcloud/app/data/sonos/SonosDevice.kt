@@ -6,10 +6,3 @@ data class SonosDevice(
     val host: String,
     val port: Int = 1400,
 )
-
-data class SonosGroup(
-    val id: String,
-    val name: String,
-    val coordinator: SonosDevice,
-    val members: List<SonosDevice>,
-)

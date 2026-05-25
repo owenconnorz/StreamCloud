@@ -93,11 +93,11 @@ fun SonosDevicePickerSheet(
                                 GroupRow(group = group) {
                                     SonosRepository.connect(
                                         context     = context,
-                                        device      = group.coordinator,
+                                        device      = group.coordinatorDevice,
                                         videoId     = videoId,
                                         title       = title,
                                         watchUrl    = watchUrl,
-                                        displayName = group.name,
+                                        displayName = group.displayName,
                                     )
                                 }
                             }
@@ -264,14 +264,14 @@ private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    group.name,
+                    group.displayName,
                     color = Color.White,
                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    group.members.joinToString(" · ") { it.name },
+                    group.memberNames.joinToString(" · "),
                     color = Color.White.copy(alpha = 0.45f),
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     maxLines = 1,

@@ -105,26 +105,9 @@ object SonosDiscovery {
 
     suspend fun buildGroups(anyDevice: SonosDevice, allDevices: List<SonosDevice>): List<SonosGroup> =
         withContext(Dispatchers.IO) {
-            val zoneXml = SonosController.getZoneGroupState(anyDevice)
+            val soapBody = SonosController.getZoneGroupState(anyDevice)
                 ?: return@withContext emptyList()
-            val deviceMap = allDevices.associateBy { it.udn }
-            val groups = mutableListOf<SonosGroup>()
-            val groupRegex = Regex("""<ZoneGroup\s[^>]*Coordinator="([^"]+)"[^>]*ID="([^"]+)"[^>]*>([\s\S]*?)</ZoneGroup>""")
-            val memberRegex = Regex("""<ZoneGroupMember\s[^>]*UUID="([^"]+)"[^>]*/?>""")
-            groupRegex.findAll(zoneXml).forEach { gm ->
-                val coordinatorUdn = gm.groupValues[1]
-                val groupId = gm.groupValues[2]
-                val membersXml = gm.groupValues[3]
-                val coordinator = deviceMap[coordinatorUdn] ?: return@forEach
-                val members = memberRegex.findAll(membersXml)
-                    .mapNotNull { deviceMap[it.groupValues[1]] }
-                    .toList()
-                if (members.size >= 2) {
-                    val suffix = if (members.size == 2) "+ 1" else "+ ${members.size - 1}"
-                    groups.add(SonosGroup(groupId, "${coordinator.name} $suffix", coordinator, members))
-                }
-            }
-            groups
+            SonosGroup.parseZoneGroupXml(soapBody).filter { it.isMultiRoom }
         }
 
     fun localIp(context: Context): String? {
