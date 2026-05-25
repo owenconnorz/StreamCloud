@@ -93,7 +93,7 @@ jobs:
           exit 0
 
       - name: Build Debug + Release APKs
-        run: ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace --no-build-cache
 
       - name: Collect APK artifacts
         run: |
