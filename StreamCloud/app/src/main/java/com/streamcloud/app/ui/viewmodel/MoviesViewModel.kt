@@ -212,6 +212,39 @@ class MoviesViewModel(
         }
     }
 
+    fun deleteWatchProgress(tmdbId: Long) {
+        viewModelScope.launch {
+            LibraryDb.get(appContext).watchProgress().remove(tmdbId)
+        }
+    }
+
+    fun resetWatchProgress(tmdbId: Long) {
+        viewModelScope.launch {
+            val dao = LibraryDb.get(appContext).watchProgress()
+            val existing = dao.byId(tmdbId) ?: return@launch
+            dao.upsert(existing.copy(positionMs = 0L, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun markAsWatched(tmdbId: Long, title: String, posterUrl: String?, mediaType: String) {
+        viewModelScope.launch {
+            val dao = LibraryDb.get(appContext).watchProgress()
+            val existing = dao.byId(tmdbId)
+            val duration = existing?.durationMs?.takeIf { it > 0 } ?: 7_200_000L
+            dao.upsert(
+                WatchProgressEntity(
+                    tmdbId = tmdbId,
+                    title = title,
+                    posterUrl = posterUrl,
+                    mediaType = mediaType,
+                    positionMs = (duration * 0.97).toLong(),
+                    durationMs = duration,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            )
+        }
+    }
+
     companion object {
         fun factory(context: Context) = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
