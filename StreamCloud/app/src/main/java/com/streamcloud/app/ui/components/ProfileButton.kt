@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.streamcloud.app.data.ServiceLocator
 
 @Composable
@@ -45,7 +46,11 @@ fun ProfileButton(
     ) {
         if (avatar.isNotBlank()) {
             AsyncImage(
-                model = avatar,
+                model = ImageRequest.Builder(context)
+                    .data(avatar)
+                    .crossfade(true)
+                    .allowHardware(false)
+                    .build(),
                 contentDescription = "Profile",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(size).clip(CircleShape),

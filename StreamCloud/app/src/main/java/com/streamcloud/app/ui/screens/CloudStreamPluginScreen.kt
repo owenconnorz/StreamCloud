@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -51,6 +54,8 @@ fun CloudStreamPluginScreen(
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(PluginPageState(loading = true)) }
     var query by remember { mutableStateOf("") }
+    // null = home, non-null = viewing all items in that section
+    var viewAllSection by remember { mutableStateOf<Pair<String, List<SearchResponse>>?>(null) }
 
     LaunchedEffect(internalName) {
         val plugin = repo.installed.first().firstOrNull { it.internalName == internalName }
@@ -76,6 +81,56 @@ fun CloudStreamPluginScreen(
         }
     }
 
+    // "View All" sub-screen
+    val section = viewAllSection
+    if (section != null) {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            TopAppBar(
+                title = { Text(section.first, fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = { viewAllSection = null }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+            )
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(section.second, key = { it.url }) { sr ->
+                    Column(
+                        Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onOpenItem(internalName, sr.url, sr.name, sr.posterUrl) }
+                    ) {
+                        AsyncImage(
+                            model = sr.posterUrl,
+                            contentDescription = sr.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth().aspectRatio(2f / 3f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            sr.name,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    // Main home screen
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         TopAppBar(
             title = { Text(state.pluginName.ifBlank { "Plugin" }, fontWeight = FontWeight.Bold) },
@@ -172,12 +227,27 @@ fun CloudStreamPluginScreen(
             } else {
                 state.sections.forEachIndexed { idx, (title, items) ->
                     item(key = "psec_t_$idx") {
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                        )
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { viewAllSection = title to items }) {
+                                Text(
+                                    "View All",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
                     item(key = "psec_$idx") {
                         LazyRow(

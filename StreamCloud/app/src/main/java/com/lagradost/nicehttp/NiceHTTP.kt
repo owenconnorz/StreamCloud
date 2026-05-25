@@ -7,6 +7,7 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import org.jsoup.Jsoup
@@ -51,6 +52,11 @@ object Requests {
         responseParser: ResponseParser? = null,
     ): NiceResponse = execute("GET", url, headers, referer, params, cookies, body = null)
 
+    // Parameter order must match the real CloudStream NiceHTTP exactly so the $default
+    // synthetic stub resolves at runtime:
+    // url, headers, referer, params, cookies, data, files, json,
+    // requestBody (okhttp3.RequestBody), allowRedirects, timeout, timeUnit,
+    // cacheTime, interceptor, verify, responseParser
     suspend fun post(
         url: String,
         headers: Map<String, String>? = null,
@@ -58,9 +64,9 @@ object Requests {
         params: Map<String, String>? = null,
         cookies: Map<String, String>? = null,
         data: Map<String, String>? = null,
-        json: Any? = null,
-        requestBody: String? = null,
         files: List<Any>? = null,
+        json: Any? = null,
+        requestBody: RequestBody? = null,
         allowRedirects: Boolean = true,
         timeout: Int = 10,
         timeUnit: TimeUnit = TimeUnit.SECONDS,
@@ -69,17 +75,22 @@ object Requests {
         verify: Boolean = true,
         responseParser: ResponseParser? = null,
     ): NiceResponse {
-        val bodyBytes: ByteArray? = when {
-            json != null -> json.toString().toByteArray(Charsets.UTF_8)
-            requestBody != null -> requestBody.toByteArray(Charsets.UTF_8)
-            data != null -> data.entries.joinToString("&") {
-                "${urlEncode(it.key)}=${urlEncode(it.value)}"
-            }.toByteArray(Charsets.UTF_8)
+        val body: RequestBody? = when {
+            requestBody != null -> requestBody
+            json != null -> {
+                val bytes = json.toString().toByteArray(Charsets.UTF_8)
+                bytes.toRequestBody("application/json; charset=utf-8".toMediaType())
+            }
+            data != null -> {
+                val form = data.entries.joinToString("&") {
+                    "${urlEncode(it.key)}=${urlEncode(it.value)}"
+                }
+                form.toByteArray(Charsets.UTF_8)
+                    .toRequestBody("application/x-www-form-urlencoded".toMediaType())
+            }
             else -> null
         }
-        val contentType = if (json != null) "application/json; charset=utf-8"
-                          else "application/x-www-form-urlencoded"
-        return execute("POST", url, headers, referer, params, cookies, bodyBytes to contentType)
+        return execute("POST", url, headers, referer, params, cookies, body)
     }
 
     suspend fun put(
@@ -97,13 +108,15 @@ object Requests {
         verify: Boolean = true,
         responseParser: ResponseParser? = null,
     ): NiceResponse {
-        val bodyBytes: ByteArray? = when {
+        val body: RequestBody? = when {
             json != null -> json.toString().toByteArray(Charsets.UTF_8)
-            data != null -> data.entries.joinToString("&") { "${it.key}=${it.value}" }.toByteArray()
+                .toRequestBody("application/json".toMediaType())
+            data != null -> data.entries.joinToString("&") { "${it.key}=${it.value}" }
+                .toByteArray()
+                .toRequestBody("application/x-www-form-urlencoded".toMediaType())
             else -> null
         }
-        val ct = if (json != null) "application/json" else "application/x-www-form-urlencoded"
-        return execute("PUT", url, headers, referer, params, cookies, bodyBytes to ct)
+        return execute("PUT", url, headers, referer, params, cookies, body)
     }
 
     suspend fun head(
@@ -123,7 +136,7 @@ object Requests {
         referer: String?,
         params: Map<String, String>?,
         cookies: Map<String, String>?,
-        body: Any?,
+        body: RequestBody?,
     ): NiceResponse {
         val finalUrl = buildUrl(url, params ?: emptyMap())
         val builder = Request.Builder().url(finalUrl)
@@ -139,19 +152,11 @@ object Requests {
             builder.header("Cookie", ck.entries.joinToString("; ") { "${it.key}=${it.value}" })
         }
 
+        val emptyBody = ByteArray(0).toRequestBody("application/octet-stream".toMediaType())
         when (method.uppercase()) {
-            "POST", "PUT", "PATCH" -> {
-                @Suppress("UNCHECKED_CAST")
-                val pair = body as? Pair<ByteArray?, String>
-                val raw = pair?.first ?: ByteArray(0)
-                val ct  = pair?.second ?: "application/octet-stream"
-                val reqBody = raw.toRequestBody(ct.toMediaType())
-                when (method.uppercase()) {
-                    "PUT"   -> builder.put(reqBody)
-                    "PATCH" -> builder.patch(reqBody)
-                    else    -> builder.post(reqBody)
-                }
-            }
+            "POST"   -> builder.post(body ?: emptyBody)
+            "PUT"    -> builder.put(body ?: emptyBody)
+            "PATCH"  -> builder.patch(body ?: emptyBody)
             "HEAD"   -> builder.head()
             "DELETE" -> builder.delete()
             else     -> builder.get()

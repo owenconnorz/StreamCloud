@@ -103,7 +103,7 @@ private val ColourSonos      = Color(0xFF56C8D8)
 
 private enum class SettingsPage {
     SystemUpdate, Appearance, PlayerAudio, Account,
-    ListenTogether, Content, AiLyrics, Privacy,
+    ListenTogether, Content, Privacy,
     Storage, BackupRestore, About, Logs
 }
 
@@ -658,26 +658,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
             }
 
 
-            SettingsPage.AiLyrics -> SubPageScaffold(
-                title = "AI Lyrics Translation",
-                onBack = { currentPage = null },
-            ) {
-                SettingsGroup {
-                    SettingNav(
-                        icon = Icons.Default.AutoAwesome, tint = ColourAi,
-                        title = "AI provider",
-                        value = when (provider) {
-                            "openai"    -> "OpenAI · gpt-5.1"
-                            "anthropic" -> "Claude Sonnet 4.5"
-                            "gemini"    -> "Gemini 2.5 Pro"
-                            else        -> provider.ifBlank { "OpenAI" }
-                        },
-                        onClick = { showAiDialog = true },
-                    )
-                }
-            }
-
-
             SettingsPage.Privacy -> SubPageScaffold(
                 title = "Privacy",
                 onBack = { currentPage = null },
@@ -1028,7 +1008,6 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         HubItem(SettingsPage.Account,       Icons.Default.Person,       "Account"),
         HubItem(SettingsPage.ListenTogether,Icons.Default.Group,        "Listen Together"),
         HubItem(SettingsPage.Content,       Icons.Default.Public,       "Content"),
-        HubItem(SettingsPage.AiLyrics,      Icons.Default.Translate,    "AI Lyrics Translation"),
         HubItem(SettingsPage.Privacy,       Icons.Default.Shield,       "Privacy"),
         HubItem(SettingsPage.Storage,       Icons.Default.Storage,      "Storage"),
         HubItem(SettingsPage.BackupRestore, Icons.Default.CloudUpload,  "Backup and restore"),

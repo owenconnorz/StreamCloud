@@ -53,7 +53,6 @@ import androidx.navigation.navArgument
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
-import com.streamcloud.app.ui.screens.AiScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
 import com.streamcloud.app.ui.screens.MovieDetailScreen
 import com.streamcloud.app.ui.screens.MoviesScreen
@@ -77,7 +76,6 @@ import java.net.URLEncoder
 private sealed class Tab(val route: String, val label: String, val icon: ImageVector) {
     data object Movies   : Tab("movies",   "Movies",   Icons.Filled.Theaters)
     data object Music    : Tab("music",    "Music",    Icons.Filled.MusicNote)
-    data object Ai       : Tab("ai",       "AI",       Icons.Filled.AutoAwesome)
     data object Library  : Tab("library",  "Library",  Icons.Filled.Bookmarks)
     data object Adult    : Tab("adult",    "Adult",    Icons.Filled.Whatshot)
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings)
@@ -110,7 +108,6 @@ fun StreamCloudApp() {
         val pool: Map<String, Tab> = buildMap {
             put(Tab.Movies.route, Tab.Movies)
             put(Tab.Music.route, Tab.Music)
-            put(Tab.Ai.route, Tab.Ai)
             put(Tab.Library.route, Tab.Library)
             if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
         }
@@ -408,7 +405,6 @@ fun StreamCloudApp() {
                         onPlay = {  },
                     )
                 }
-                composable(Tab.Ai.route)       { AiScreen() }
                 composable(Tab.Library.route)  {
                     LibraryScreen(
                         onOpenPlaylist = { id, title ->
