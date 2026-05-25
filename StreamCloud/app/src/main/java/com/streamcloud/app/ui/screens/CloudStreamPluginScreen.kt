@@ -60,15 +60,30 @@ fun CloudStreamPluginScreen(
     internalName: String,
     onBack: () -> Unit,
     onOpenItem: (pluginInternalName: String, url: String, name: String, posterUrl: String?) -> Unit = { _, _, _, _ -> },
+    initialSearch: String? = null,
 ) {
     val context = LocalContext.current
     val repo = remember { PluginRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(PluginPageState(loading = true)) }
-    var query by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf(initialSearch ?: "") }
     var viewAllSection by remember { mutableStateOf<ViewAllState?>(null) }
 
+    LaunchedEffect(internalName, initialSearch) {
+        if (!initialSearch.isNullOrBlank()) {
+            val p = repo.installed.first().firstOrNull { it.internalName == internalName }
+            if (p != null) {
+                state = state.copy(pluginName = p.name, pluginFilePath = p.filePath, loading = false)
+                runCatching { PluginRuntime.search(context, p.filePath, initialSearch) }
+                    .onSuccess { state = state.copy(searchResults = it) }
+                    .onFailure { state = state.copy(error = it.message) }
+            }
+            return@LaunchedEffect
+        }
+    }
+
     LaunchedEffect(internalName) {
+        if (!initialSearch.isNullOrBlank()) return@LaunchedEffect
         val plugin = repo.installed.first().firstOrNull { it.internalName == internalName }
         if (plugin == null) {
             state = state.copy(loading = false, error = "Plugin not installed.")

@@ -290,6 +290,28 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(
+                    "cloudstream-movie/{name}/{title}",
+                    arguments = listOf(
+                        navArgument("name")  { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val name  = URLDecoder.decode(entry.arguments!!.getString("name")!!,  "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    com.streamcloud.app.ui.screens.CloudStreamPluginScreen(
+                        internalName = name,
+                        initialSearch = title,
+                        onBack = { nav.popBackStack() },
+                        onOpenItem = { plugin, itemUrl, itemName, poster ->
+                            val p  = URLEncoder.encode(plugin,  "UTF-8")
+                            val u  = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n  = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                    )
+                }
+                composable(
                     "cs-detail/{plugin}/{url}/{name}/{poster}",
                     arguments = listOf(
                         navArgument("plugin") { type = NavType.StringType },
@@ -338,6 +360,11 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("player/movie/$u/$t")
                         },
+                        onOpenCsPluginForMovie = { name, title ->
+                            val n = URLEncoder.encode(name,  "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("cloudstream-movie/$n/$t")
+                        },
                     )
                 }
                 composable(
@@ -357,6 +384,11 @@ fun StreamCloudApp() {
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("player/movie/$u/$t")
+                        },
+                        onOpenCsPluginForMovie = { name, title ->
+                            val n = URLEncoder.encode(name,  "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("cloudstream-movie/$n/$t")
                         },
                     )
                 }
