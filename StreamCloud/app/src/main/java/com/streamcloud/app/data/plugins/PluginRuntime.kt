@@ -147,30 +147,24 @@ object PluginRuntime {
         } catch (_: Throwable) { null }
     }
 
-    suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> {
+    suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> = withContext(Dispatchers.IO) {
         val apis = load(context, filePath)
-        return apis.flatMap { api ->
+        apis.flatMap { api ->
             try { api.search(query).orEmpty() } catch (_: Throwable) { emptyList() }
         }
     }
 
-    suspend fun home(context: Context, filePath: String): List<Pair<String, List<SearchResponse>>> {
+    suspend fun home(context: Context, filePath: String): List<Pair<String, List<SearchResponse>>> = withContext(Dispatchers.IO) {
         val apis = load(context, filePath)
         if (apis.isEmpty()) {
-
-
             if (lastErrors[filePath] == null) {
                 lastErrors[filePath] = "Plugin loaded but registered 0 MainAPIs."
             }
-            return emptyList()
+            return@withContext emptyList()
         }
         val out = mutableListOf<Pair<String, List<SearchResponse>>>()
         val perApiErrors = mutableListOf<String>()
         apis.forEach { api ->
-
-
-
-
             val requests = if (api.mainPage.isNotEmpty()) api.mainPage
             else listOf(MainPageRequest(name = api.name, data = "", horizontalImages = false))
             var apiSectionsAdded = 0
@@ -198,12 +192,12 @@ object PluginRuntime {
         } else {
             lastErrors.remove(filePath)
         }
-        return out
+        out
     }
 
-    suspend fun loadDetail(context: Context, filePath: String, url: String): LoadResponse? {
+    suspend fun loadDetail(context: Context, filePath: String, url: String): LoadResponse? = withContext(Dispatchers.IO) {
         val apis = load(context, filePath)
-        return apis.firstNotNullOfOrNull { api ->
+        apis.firstNotNullOfOrNull { api ->
             try { api.load(url) } catch (_: Throwable) { null }
         }
     }
