@@ -1,7 +1,7 @@
 package com.streamcloud.app.data.plugins
 
 import android.content.Context
-import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.ExtractorLink
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
@@ -11,6 +11,7 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.installPrefs
 import com.lagradost.cloudstream3.plugins.Plugin
 import dalvik.system.DexClassLoader
+import dalvik.system.DexFile
 import dalvik.system.PathClassLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -63,9 +64,6 @@ object PluginRuntime {
             val klass = loader.loadClass(pluginClassName)
             val instance = klass.getDeclaredConstructor().newInstance() as? Plugin
                 ?: error("Class `$pluginClassName` is not a subclass of `Plugin`")
-            // Set filename before any lifecycle calls so plugins can use it for
-            // cache keys, preferences namespacing, etc.
-            instance.filename = filePath
             instance.beforeLoad()
             instance.load(context)
             instance.afterLoad()
@@ -118,102 +116,34 @@ object PluginRuntime {
     }
 
 
-    /**
-     * Scan the plugin DEX for a concrete subclass of [Plugin].
-     *
-     * DexFile.loadDex() was deprecated in API 26 and REMOVED in API 31 (Android 12) —
-     * calling it on modern devices throws RuntimeException: "No DexFile".
-     * We parse class names directly from the DEX binary instead, which works on
-     * all API levels without reflection into internal JVM structures.
-     */
+    @Suppress("DEPRECATION")
     private fun scanDexForPluginClass(
         readOnlyFile: File,
         optimizedDir: File,
         parent: ClassLoader,
     ): String? {
-        val classNames = extractClassNamesFromDex(readOnlyFile) ?: return null
-        val loader = DexClassLoader(
-            readOnlyFile.absolutePath,
-            optimizedDir.absolutePath,
-            null,
-            parent,
-        )
-        val pluginBase = Plugin::class.java
-        return classNames.firstOrNull { className ->
-            // Skip framework classes that are definitely not Plugin subclasses
-            if (className.startsWith("com.lagradost.cloudstream3.") &&
-                !className.contains("plugin", ignoreCase = true) &&
-                !className.contains("Plugin", ignoreCase = false)) return@firstOrNull false
-            if (className.startsWith("kotlin.") || className.startsWith("kotlinx.") ||
-                className.startsWith("androidx.") || className.startsWith("android.")) return@firstOrNull false
-            runCatching {
-                val c = loader.loadClass(className)
-                pluginBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
-            }.getOrDefault(false)
-        }
-    }
-
-    /**
-     * Extract all class names from the classes.dex inside a plugin .cs3 file by
-     * parsing the DEX binary format directly — no deprecated APIs needed.
-     *
-     * DEX format reference: https://source.android.com/docs/core/runtime/dex-format
-     *   Header offsets:
-     *     56: string_ids_size (u4)   60: string_ids_off (u4)
-     *     64: type_ids_size   (u4)   68: type_ids_off   (u4)
-     *
-     * Each type_id is an index into string_ids; each string is a ULEB128 length
-     * followed by MUTF-8 bytes. Class descriptors look like "Lcom/example/Foo;".
-     */
-    private fun extractClassNamesFromDex(file: File): List<String>? {
         return try {
-            // Extract classes.dex from the plugin zip
-            val dexBytes: ByteArray = ZipFile(file).use { zip ->
-                val entry = zip.getEntry("classes.dex") ?: return null
-                zip.getInputStream(entry).readBytes()
+            val loader = DexClassLoader(
+                readOnlyFile.absolutePath,
+                optimizedDir.absolutePath,
+                null,
+                parent,
+            )
+            val dexFile = DexFile.loadDex(
+                readOnlyFile.absolutePath,
+                File(optimizedDir, readOnlyFile.name + ".odex").absolutePath,
+                0,
+            )
+            val pluginBase = Plugin::class.java
+            dexFile.entries().toList().firstOrNull { className ->
+
+                if (className.startsWith("com.lagradost.cloudstream3.") &&
+                    !className.contains("plugin", ignoreCase = true)) return@firstOrNull false
+                runCatching {
+                    val c = loader.loadClass(className)
+                    pluginBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
+                }.getOrDefault(false)
             }
-            if (dexBytes.size < 112) return null
-
-            val bb = java.nio.ByteBuffer.wrap(dexBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-            bb.position(56)
-            val stringIdsSize = bb.int
-            val stringIdsOff  = bb.int
-            val typeIdsSize   = bb.int
-            val typeIdsOff    = bb.int
-
-            if (typeIdsSize <= 0 || typeIdsOff <= 0 || stringIdsOff <= 0) return null
-
-            // Read the type_id_list: each entry is a u4 index into string_ids
-            val typeStringIndices = IntArray(typeIdsSize)
-            bb.position(typeIdsOff)
-            for (i in 0 until typeIdsSize) typeStringIndices[i] = bb.int
-
-            // Resolve each type → string → class name
-            val results = mutableListOf<String>()
-            for (strIdx in typeStringIndices) {
-                try {
-                    bb.position(stringIdsOff + strIdx * 4)
-                    val strDataOff = bb.int
-                    bb.position(strDataOff)
-                    // ULEB128-encoded UTF-16 length, then MUTF-8 bytes
-                    var b = bb.get().toInt() and 0xFF
-                    var charLen = b and 0x7F
-                    var shift = 7
-                    while (b and 0x80 != 0) {
-                        b = bb.get().toInt() and 0xFF
-                        charLen = charLen or ((b and 0x7F) shl shift)
-                        shift += 7
-                    }
-                    val bytes = ByteArray(charLen)
-                    bb.get(bytes)
-                    val raw = String(bytes, Charsets.UTF_8)
-                    // Convert DEX descriptor "Lcom/example/Foo;" → "com.example.Foo"
-                    if (raw.startsWith("L") && raw.endsWith(";")) {
-                        results += raw.substring(1, raw.length - 1).replace('/', '.')
-                    }
-                } catch (_: Throwable) { /* skip malformed entry */ }
-            }
-            results
         } catch (_: Throwable) { null }
     }
 
@@ -246,7 +176,7 @@ object PluginRuntime {
             var apiSectionsAdded = 0
             requests.forEach { req: MainPageRequest ->
                 try {
-                    val page = withContext(Dispatchers.IO) { api.getMainPage(1, req) }
+                    val page = api.getMainPage(1, req)
                     page?.items?.forEach { hpl ->
                         if (hpl.list.isNotEmpty()) {
                             out += hpl.name to hpl.list
@@ -271,27 +201,12 @@ object PluginRuntime {
         return out
     }
 
-    suspend fun loadDetail(context: Context, filePath: String, url: String): LoadResponse? =
-        withContext(Dispatchers.IO) {
-            val apis = load(context, filePath)
-            var lastEx: Throwable? = null
-            val result = apis.firstNotNullOfOrNull { api ->
-                try {
-                    api.load(url)
-                } catch (e: Throwable) {
-                    lastEx = e
-                    null
-                }
-            }
-            if (result == null) {
-                val errMsg = lastEx?.let { "${it::class.simpleName}: ${it.message}" }
-                    ?: "Plugin returned no detail page for this URL."
-                lastErrors[filePath] = errMsg
-            } else {
-                lastErrors.remove(filePath)
-            }
-            result
+    suspend fun loadDetail(context: Context, filePath: String, url: String): LoadResponse? {
+        val apis = load(context, filePath)
+        return apis.firstNotNullOfOrNull { api ->
+            try { api.load(url) } catch (_: Throwable) { null }
         }
+    }
 
 
     suspend fun loadLinks(
@@ -311,8 +226,8 @@ object PluginRuntime {
                     subtitleCallback = { sub -> subs.add(sub) },
                     callback = { link -> links.add(link) },
                 )
-            } catch (_: Throwable) {
-
+            } catch (e: Throwable) {
+                lastErrors[filePath] = "${api.name}: ${e::class.simpleName}: ${e.message}"
             }
         }
         links.toList() to subs.toList()
