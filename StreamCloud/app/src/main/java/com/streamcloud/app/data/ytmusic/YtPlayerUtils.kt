@@ -56,8 +56,7 @@ object YtPlayerUtils {
                 "deviceModel"       to "Quest 3",
                 "androidSdkVersion" to "32",
             ),
-            supportsAuth    = false,
-            useWebPoTokens  = true,
+            supportsAuth = false,
         ),
 
         ClientConfig(
@@ -103,7 +102,6 @@ object YtPlayerUtils {
                 "osVersion"         to "14",
                 "androidSdkVersion" to "34",
             ),
-            supportsAuth  = false,
         ),
 
         ClientConfig(
@@ -118,7 +116,6 @@ object YtPlayerUtils {
                 "osVersion"         to "11",
                 "androidSdkVersion" to "30",
             ),
-            supportsAuth  = false,
         ),
 
         ClientConfig(
@@ -145,7 +142,6 @@ object YtPlayerUtils {
                 "osName"      to "iPhone",
                 "osVersion"   to "18.2.22C152",
             ),
-            supportsAuth  = false,
         ),
 
         ClientConfig(
@@ -161,7 +157,6 @@ object YtPlayerUtils {
                 "osName"      to "iPadOS",
                 "osVersion"   to "17.7.10.21H450",
             ),
-            supportsAuth  = false,
         ),
 
         ClientConfig(
@@ -223,15 +218,14 @@ object YtPlayerUtils {
             http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return
                 val text = resp.body?.string() ?: return
-                val vd = json.parseToJsonElement(text).jsonObject["responseContext"]
-                    ?.jsonObject?.get("visitorData")
+                val vd = json.parseToJsonElement(text).jsonObject["visitorData"]
                     ?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: return
                 cachedVisitorData = vd
                 visitorDataFetchedAt = now
                 Log.d(TAG, "visitorData refreshed: ${vd.take(24)}…")
             }
         } catch (e: Exception) {
-            AppLogger.w(TAG, "visitorData fetch failed: ${e.message}")
+            Log.d(TAG, "visitorData fetch failed: ${e.message}")
         }
     }
 
@@ -258,7 +252,6 @@ object YtPlayerUtils {
         videoId: String,
         preferItag: Int? = null,
         preferHighQuality: Boolean = true,
-        excludeWebM: Boolean = false,
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
         ensureVisitorData()
         val isLoggedIn = ytMusicCookie.isNotBlank()
@@ -271,21 +264,19 @@ object YtPlayerUtils {
             }
 
             var poToken: String? = null
-            if (client.useWebPoTokens && sessionId == null) {
-                AppLogger.w(TAG, "[${client.label}] PoToken skipped — visitorData is null")
-            } else if (client.useWebPoTokens && sessionId != null) {
+            if (client.useWebPoTokens && sessionId != null) {
                 val ctx = appContext
                 if (ctx != null) {
                     try {
                         poToken = poTokenGenerator.getWebClientPoToken(ctx, videoId, sessionId)
                             ?.playerRequestPoToken
                     } catch (e: Exception) {
-                        AppLogger.w(TAG, "[${client.label}] PoToken generation failed: ${e.message}")
+                        Log.d(TAG, "[${client.label}] PoToken generation failed: ${e.message}")
                     }
                 }
             }
 
-            val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken, excludeWebM)
+            val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken)
             when (result) {
                 is ClientResult.Success -> {
                     AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag}")
@@ -332,7 +323,6 @@ object YtPlayerUtils {
         preferItag: Int?,
         preferHighQuality: Boolean,
         poToken: String?,
-        excludeWebM: Boolean = false,
     ): ClientResult {
         return try {
             val root = fetchPlayerResponse(client, videoId, poToken)
@@ -351,9 +341,6 @@ object YtPlayerUtils {
             val audioOnly = adaptiveFormats
                 .mapNotNull { it as? JsonObject }
                 .filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/") }
-                .filter { fmt ->
-                    !excludeWebM || !fmt["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
-                }
 
             if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason, playabilityStatus)
 
@@ -377,10 +364,10 @@ object YtPlayerUtils {
             val rawUrl = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                 ?: return ClientResult.CipheredOnly
             val contentLength = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull()
-            val url = buildString {
-                append(rawUrl)
-                append("&cpn=").append(cpn)
-            }
+            // Do NOT append &range= to the URL — YouTube CDN will lock the response to that byte range
+            // and ignore ExoPlayer's HTTP Range headers, causing ERROR_CODE_IO_UNSPECIFIED when seeking.
+            // ExoPlayer handles range requests via standard Range: bytes=X-Y headers automatically.
+            val url = "$rawUrl&cpn=$cpn"
 
             val loudnessDb = root["playerConfig"]
                 ?.jsonObject?.get("audioConfig")
@@ -502,24 +489,4 @@ object YtPlayerUtils {
         val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         return (1..16).map { alphabet[Random.nextInt(alphabet.length)] }.joinToString("")
     }
-    /**
-     * Resolve audio stream for Sonos casting.
-     * Explicitly excludes WebM/Opus (audio/webm) because Sonos speakers do not
-     * support the WebM container or the Opus codec, even though those formats have
-     * higher bitrate scores in the general resolver.  M4A/AAC (audio/mp4) is the
-     * most broadly supported format across all Sonos hardware generations.
-     *
-     * Returns the resolved URL and its MIME type (e.g. "audio/mp4").
-     */
-    suspend fun resolveAudioStreamForSonos(videoId: String): Pair<String, String>? =
-        withContext(Dispatchers.IO) {
-            val info = resolveAudioFormatInfo(
-                videoId          = videoId,
-                preferHighQuality = true,
-                excludeWebM      = true,
-            ) ?: return@withContext null
-            val mimeType = info.mimeType.substringBefore(";").trim().ifBlank { "audio/mp4" }
-            Pair(info.url, mimeType)
-        }
-
 }
