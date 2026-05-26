@@ -72,11 +72,13 @@ object StreamUrlCache {
                 async(Dispatchers.IO) {
                     runCatching {
                         val now = System.currentTimeMillis()
-                        val watchUrl = "https://music.youtube.com/watch?v=$videoId"
+                        // MUST use youtube.com — NewPipe's extractor rejects music.youtube.com URLs
+                        // with ExtractionException, causing silent fallback to Innertube every time.
+                        val ytWatchUrl = "https://www.youtube.com/watch?v=$videoId"
 
                         // NewPipe first — descrambles the 'n' parameter so the CDN won't 403.
                         val npUrl = runCatching {
-                            NewPipeRepository.resolveAudioStream(watchUrl)
+                            NewPipeRepository.resolveAudioStream(ytWatchUrl)
                         }.getOrNull()
 
                         if (npUrl != null) {

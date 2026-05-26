@@ -244,8 +244,11 @@ class MusicPlaybackService : MediaLibraryService() {
         // descramble the 'n' parameter, which all current Innertube clients require but we
         // cannot compute ourselves.  Without descrambling, YouTube CDN returns HTTP 403.
         val npUserAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip"
+        // NewPipe's YouTube extractor only accepts youtube.com / youtu.be URLs.
+        // music.youtube.com URLs throw ExtractionException and silently fall through to Innertube.
+        val ytWatchUrl = "https://www.youtube.com/watch?v=$videoId"
         val npResult = runBlocking(Dispatchers.IO) {
-            runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }
+            runCatching { NewPipeRepository.resolveAudioStream(ytWatchUrl) }
         }
         val npUrl = npResult.getOrNull()
         if (npUrl != null) {
