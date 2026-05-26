@@ -293,32 +293,48 @@ object YtPlayerUtils {
 
             if (audioOnly.isEmpty()) return ClientResult.NoStreams(playabilityReason, playabilityStatus)
 
-            val plainUrl = run {
-                val withUrl = audioOnly.filter {
+            // Prefer formats with a direct url field; fall back to signatureCipher extraction.
+            // As of May 2026 (player hash 57f5d44f) YouTube no longer verifies the cipher
+            // signature — the base url= inside signatureCipher is valid without decryption.
+            val candidateFormats = run {
+                val withDirectUrl = audioOnly.filter {
                     it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
                 }
+                val pool = withDirectUrl.ifEmpty {
+                    audioOnly.filter { fmt ->
+                        val cipher = fmt["signatureCipher"]?.jsonPrimitive?.content
+                            ?: fmt["cipher"]?.jsonPrimitive?.content
+                        cipher != null && parseCipherUrl(cipher) != null
+                    }
+                }
                 if (sonosSafe) {
-                    val mp4Only = withUrl.filter {
+                    val mp4Only = pool.filter {
                         !it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
                     }
-                    mp4Only.takeIf { it.isNotEmpty() } ?: withUrl
-                } else withUrl
+                    mp4Only.takeIf { it.isNotEmpty() } ?: pool
+                } else pool
             }
-            if (plainUrl.isEmpty()) return ClientResult.CipheredOnly
+            if (candidateFormats.isEmpty()) return ClientResult.CipheredOnly
 
             val expiresInSeconds =
                 streamingData["expiresInSeconds"]?.jsonPrimitive?.content?.toLongOrNull() ?: 21_600L
 
             val best = if (preferItag != null) {
-                plainUrl.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == preferItag }
-                    ?: selectHighQuality(plainUrl)
-                    ?: selectByQuality(plainUrl, preferHighQuality)
+                candidateFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == preferItag }
+                    ?: selectHighQuality(candidateFormats)
+                    ?: selectByQuality(candidateFormats, preferHighQuality)
             } else {
-                selectHighQuality(plainUrl) ?: selectByQuality(plainUrl, preferHighQuality)
+                selectHighQuality(candidateFormats) ?: selectByQuality(candidateFormats, preferHighQuality)
             }
 
             val cpn = generateCpn()
+            // Get the URL — direct field first, then extract from signatureCipher
             val rawUrl = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                ?: run {
+                    val cipher = best["signatureCipher"]?.jsonPrimitive?.content
+                        ?: best["cipher"]?.jsonPrimitive?.content
+                    cipher?.let { parseCipherUrl(it) }
+                }
                 ?: return ClientResult.CipheredOnly
             val contentLength = best["contentLength"]?.jsonPrimitive?.content?.toLongOrNull()
             // Do NOT append &range= to the URL — YouTube CDN will lock the response to that byte range
@@ -438,12 +454,29 @@ object YtPlayerUtils {
     private fun selectHighQuality(audioFormats: List<JsonObject>): JsonObject? {
         val high = audioFormats.filter {
             it["audioQuality"]?.jsonPrimitive?.content == "AUDIO_QUALITY_HIGH"
-                && it["url"]?.jsonPrimitive?.content?.isNotBlank() == true
         }
         if (high.isEmpty()) return null
         return high.firstOrNull { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 774 }
             ?: high.firstOrNull { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 141 }
             ?: high.first()
+    }
+
+    /**
+     * Extract the base url= value from a YouTube signatureCipher / cipher param string.
+     * The cipher is URL-encoded: s=...&sp=sig&url=https%3A%2F%2F...
+     * As of May 2026 (player hash 57f5d44f) YouTube stopped enforcing cipher signatures,
+     * so using this base URL directly (without decrypting or appending 's') works fine.
+     */
+    private fun parseCipherUrl(cipher: String): String? {
+        for (part in cipher.split("&")) {
+            val eqIdx = part.indexOf('=')
+            if (eqIdx < 0) continue
+            if (part.substring(0, eqIdx) == "url") {
+                return java.net.URLDecoder.decode(part.substring(eqIdx + 1), "UTF-8")
+                    .takeIf { it.isNotBlank() }
+            }
+        }
+        return null
     }
 
     private fun generateCpn(): String {
