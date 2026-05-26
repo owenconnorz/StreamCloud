@@ -103,7 +103,9 @@ object YtPlayerUtils {
             supportsAuth = false,
         ),
 
-        // iOS — bypasses some region blocks
+        // iOS — bypasses some region blocks.
+        // supportsAuth=false: hits youtube.com, not music.youtube.com;
+        // sending YTM cookies to youtube.com causes HTTP 400.
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -117,6 +119,7 @@ object YtPlayerUtils {
                 "osName"      to "iPhone",
                 "osVersion"   to "18.2.22C152",
             ),
+            supportsAuth = false,
         ),
 
         ClientConfig(
@@ -132,6 +135,7 @@ object YtPlayerUtils {
                 "osName"      to "iPadOS",
                 "osVersion"   to "17.7.10.21H450",
             ),
+            supportsAuth = false,
         ),
 
         // Android testsuite — skips some playability checks.
@@ -169,7 +173,11 @@ object YtPlayerUtils {
             supportsAuth = false,
         ),
 
-        // Standard TV HTML5 — good general fallback on Smart TV UA
+        // Standard TV HTML5 — good general fallback on Smart TV UA.
+        // NOTE: TVHTML5_SIMPLY_EMBEDDED_PLAYER (clientId=85) removed — YouTube has
+        // deprecated that entire client type server-side; it always returns
+        // "YouTube is no longer supported in this application or device" regardless
+        // of the user-agent, so keeping it only adds noise to every failed track.
         ClientConfig(
             label         = "TVHTML5",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -178,20 +186,6 @@ object YtPlayerUtils {
             clientVersion = "7.20250101.14.00",
             userAgent     = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/538.1 (KHTML, like Gecko) Version/3.0 TV Safari/538.1",
             supportsAuth  = false,
-        ),
-
-        // TV embedded — bypasses age-gates via embed URL.
-        // Updated from deprecated PS4 12.02 UA (caused "no longer supported" error)
-        // to a current Tizen Smart TV UA.
-        ClientConfig(
-            label            = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            playerUrl        = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName       = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientId         = "85",
-            clientVersion    = "2.0",
-            userAgent        = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/538.1 (KHTML, like Gecko) Version/3.0 TV Safari/538.1",
-            embedUrlTemplate = "https://www.youtube.com/embed/%VIDEO_ID%",
-            supportsAuth     = false,
         ),
     )
 
