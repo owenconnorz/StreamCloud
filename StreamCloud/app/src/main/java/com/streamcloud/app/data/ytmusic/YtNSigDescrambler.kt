@@ -111,32 +111,38 @@ object YtNSigDescrambler {
     }
 
     private suspend fun fetchPlayerJs(): String? = withContext(Dispatchers.IO) {
-        // Fetch a YouTube watch page to discover the current player JS URL.
-        val watchHtml = runCatching {
+        // Step 1: Fetch YouTube's iframe_api to get the current player hash.
+        // This is the same approach Metrolist uses — more reliable than scraping a watch page
+        // because iframe_api is a stable, small endpoint that always contains the player URL.
+        val iframeApi = runCatching {
             http.newCall(
                 Request.Builder()
-                    .url("https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=en")
+                    .url("https://www.youtube.com/iframe_api")
                     .header("User-Agent", DESKTOP_UA)
-                    .header("Accept-Language", "en-US,en;q=0.9")
                     .build()
             ).execute().use { it.body?.string() ?: "" }
         }.getOrElse { e ->
-            Log.w(TAG, "Watch page fetch failed: ${e.message}")
+            Log.w(TAG, "iframe_api fetch failed: ${e.message}")
             return@withContext null
         }
 
-        // Player path:  /s/player/<hash>/player_ias.vflset/<locale>/base.js
-        val playerPath = Regex("""/s/player/[a-f0-9]+/player_ias\.vflset/[^"' ]+/base\.js""")
-            .find(watchHtml)?.value ?: run {
-            Log.w(TAG, "Player JS URL not found in watch page")
+        // The iframe_api response contains a line like:
+        //   ytcfg.set({"PLAYER_JS_URL":"/s/player/HASH/player_ias.vflset/..."});
+        // or simply references /player/HASH/ somewhere in the script.
+        val playerHash = Regex("""/player/([a-f0-9]{8})/""")
+            .find(iframeApi)?.groupValues?.get(1) ?: run {
+            Log.w(TAG, "Player hash not found in iframe_api (body length=${iframeApi.length})")
             return@withContext null
         }
 
-        Log.d(TAG, "Player JS: $playerPath")
+        // Step 2: Download the player JS directly by hash.
+        val playerUrl = "https://www.youtube.com/s/player/$playerHash/player_ias.vflset/en_US/base.js"
+        Log.d(TAG, "Player JS: $playerUrl")
+
         runCatching {
             http.newCall(
                 Request.Builder()
-                    .url("https://www.youtube.com$playerPath")
+                    .url(playerUrl)
                     .header("User-Agent", DESKTOP_UA)
                     .build()
             ).execute().use { it.body?.string() }
