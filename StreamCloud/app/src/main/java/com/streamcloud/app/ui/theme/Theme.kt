@@ -210,9 +210,9 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
         SideEffect {
             val window = (view.context as? android.app.Activity)?.window
             if (window != null) {
-                window.statusBarColor     = colors.background.toArgbInt()
-                window.navigationBarColor = colors.background.toArgbInt()
-                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !useDark
+                val controller = WindowCompat.getInsetsController(window, view)
+                controller.isAppearanceLightStatusBars     = !useDark
+                controller.isAppearanceLightNavigationBars = !useDark
             }
         }
     }
@@ -221,6 +221,3 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     }
 }
 
-private fun Color.toArgbInt(): Int = android.graphics.Color.argb(
-    (alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt()
-)
