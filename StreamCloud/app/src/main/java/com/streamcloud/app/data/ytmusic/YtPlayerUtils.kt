@@ -47,14 +47,38 @@ object YtPlayerUtils {
 
     private val CLIENTS = listOf(
 
-        // NOTE: ANDROID_MUSIC removed — music.youtube.com now returns LOGIN_REQUIRED
-        // ("Please sign in") for all unauthenticated ANDROID_MUSIC client requests regardless
-        // of track availability (server-side policy change). Browser cookies are also rejected
-        // because the endpoint expects OAuth2, not session cookies. WEB_REMIX covers the
-        // music.youtube.com role for logged-in access; IOS/ANDROID cover public youtube.com.
+        // ── REMOVAL NOTES ────────────────────────────────────────────────────────
+        // ANDROID_MUSIC:  music.youtube.com returns LOGIN_REQUIRED for all unauthenticated
+        //                 requests; browser cookies are also rejected (endpoint needs OAuth2).
+        // ANDROID_VR:     Returns "Sign in to confirm you're not a bot" on every unauthenticated
+        //                 request — bot-detection triggered before IOS even gets a chance.
+        // IOS / IPADOS:   Resolve successfully but the CDN returns HTTP 403. YouTube now
+        //                 enforces the 'n' parameter for iOS clients; without descrambling
+        //                 the obfuscated 'n' value the CDN rejects the byte-fetch entirely.
+        //                 ANDROID (id=3) has the same problem.
+        // ─────────────────────────────────────────────────────────────────────────
 
-        // Primary: YouTube Music web client — handles logged-in tracks via SAPISIDHASH + PoToken.
-        // useWebAuth=true: only web clients should send the SAPISIDHASH Authorization header.
+        // #1 ANDROID_TESTSUITE — the only current client whose stream URLs bypass 'n'-parameter
+        // enforcement.  YouTube's CDN does not validate 'n' for this internal test client,
+        // so the URL is usable directly without JS-based descrambling.
+        ClientConfig(
+            label         = "ANDROID_TESTSUITE",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_TESTSUITE",
+            clientId      = "30",
+            clientVersion = "1.9",
+            userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "11",
+                "androidSdkVersion" to "30",
+            ),
+            supportsAuth = false,
+        ),
+
+        // #2 WEB_REMIX — YouTube Music web client with SAPISIDHASH + PoToken.
+        // Returns ciphered-only streams when PoToken generation fails, but succeeds
+        // for logged-in content when PoToken is available.
         ClientConfig(
             label          = "WEB_REMIX",
             playerUrl      = "https://music.youtube.com/youtubei/v1/player?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false",
@@ -66,15 +90,8 @@ object YtPlayerUtils {
             useWebPoTokens = true,
         ),
 
-        // NOTE: ANDROID_VR_1_61_48 and ANDROID_VR_1_43_32 removed — YouTube now
-        // returns "Sign in to confirm you're not a bot" for all unauthenticated VR
-        // client requests, adding two wasted round-trips before every successful IOS
-        // resolution. IOS/IPADOS cover the same auth-free fallback role without
-        // triggering bot detection.
-
-        // iOS — bypasses some region blocks.
-        // supportsAuth=false: hits youtube.com, not music.youtube.com;
-        // sending YTM cookies to youtube.com causes HTTP 400.
+        // #3 IOS — kept as fallback for region-specific content; CDN URLs give 403 when
+        // YouTube enforces 'n' descrambling, but YouTube may relax enforcement per-track.
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -91,62 +108,7 @@ object YtPlayerUtils {
             supportsAuth = false,
         ),
 
-        ClientConfig(
-            label         = "IPADOS",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "IOS",
-            clientId      = "5",
-            clientVersion = "21.03.3",
-            userAgent     = "com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)",
-            extraClientFields = mapOf(
-                "deviceMake"  to "Apple",
-                "deviceModel" to "iPad7,6",
-                "osName"      to "iPadOS",
-                "osVersion"   to "17.7.10.21H450",
-            ),
-            supportsAuth = false,
-        ),
-
-        // Android testsuite — skips some playability checks.
-        // supportsAuth=false: this hits youtube.com, not music.youtube.com;
-        // sending a YTM cookie there causes HTTP 400.
-        ClientConfig(
-            label         = "ANDROID_TESTSUITE",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_TESTSUITE",
-            clientId      = "30",
-            clientVersion = "1.9",
-            userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "11",
-                "androidSdkVersion" to "30",
-            ),
-            supportsAuth = false,
-        ),
-
-        // Regular Android YouTube — broad fallback.
-        // supportsAuth=false: youtube.com endpoint rejects YTM cookies → HTTP 400.
-        ClientConfig(
-            label         = "ANDROID",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID",
-            clientId      = "3",
-            clientVersion = "21.03.38",
-            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "14",
-                "androidSdkVersion" to "34",
-            ),
-            supportsAuth = false,
-        ),
-
-        // Standard TV HTML5 — good general fallback on Smart TV UA.
-        // NOTE: TVHTML5_SIMPLY_EMBEDDED_PLAYER (clientId=85) removed — YouTube has
-        // deprecated that entire client type server-side; it always returns
-        // "YouTube is no longer supported in this application or device" regardless
-        // of the user-agent, so keeping it only adds noise to every failed track.
+        // #4 TVHTML5 — Smart TV UA; 'n' enforcement status differs for this client type.
         ClientConfig(
             label         = "TVHTML5",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
