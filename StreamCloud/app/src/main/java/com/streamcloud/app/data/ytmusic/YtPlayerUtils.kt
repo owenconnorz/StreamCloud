@@ -42,23 +42,33 @@ object YtPlayerUtils {
 
     private val CLIENTS = listOf(
 
+        // Primary: YouTube Music Android app — best for YTM-exclusive tracks
         ClientConfig(
-            label         = "ANDROID_VR_1_43_32",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_VR",
-            clientId      = "28",
-            clientVersion = "1.43.32",
-            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
+            label         = "ANDROID_MUSIC",
+            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_MUSIC",
+            clientId      = "21",
+            clientVersion = "7.27.52",
+            userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
             extraClientFields = mapOf(
                 "osName"            to "Android",
-                "osVersion"         to "12",
-                "deviceMake"        to "Oculus",
-                "deviceModel"       to "Quest 3",
-                "androidSdkVersion" to "32",
+                "osVersion"         to "11",
+                "androidSdkVersion" to "30",
             ),
-            supportsAuth = false,
         ),
 
+        // Secondary: YouTube Music web client — handles logged-in tracks that reject Android clients
+        ClientConfig(
+            label         = "WEB_REMIX",
+            playerUrl     = "https://music.youtube.com/youtubei/v1/player?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false",
+            clientName    = "WEB_REMIX",
+            clientId      = "67",
+            clientVersion = "1.20260501.01.00",
+            userAgent     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            useWebPoTokens = true,
+        ),
+
+        // Android VR — auth-free fallback, works for most non-restricted content
         ClientConfig(
             label         = "ANDROID_VR_1_61_48",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -77,58 +87,23 @@ object YtPlayerUtils {
         ),
 
         ClientConfig(
-            label         = "ANDROID_MUSIC",
-            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_MUSIC",
-            clientId      = "21",
-            clientVersion = "7.27.52",
-            userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "11",
-                "androidSdkVersion" to "30",
-            ),
-        ),
-
-        ClientConfig(
-            label         = "ANDROID",
+            label         = "ANDROID_VR_1_43_32",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID",
-            clientId      = "3",
-            clientVersion = "21.03.38",
-            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
+            clientName    = "ANDROID_VR",
+            clientId      = "28",
+            clientVersion = "1.43.32",
+            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
             extraClientFields = mapOf(
                 "osName"            to "Android",
-                "osVersion"         to "14",
-                "androidSdkVersion" to "34",
+                "osVersion"         to "12",
+                "deviceMake"        to "Oculus",
+                "deviceModel"       to "Quest 3",
+                "androidSdkVersion" to "32",
             ),
+            supportsAuth = false,
         ),
 
-        ClientConfig(
-            label         = "ANDROID_TESTSUITE",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_TESTSUITE",
-            clientId      = "30",
-            clientVersion = "1.9",
-            userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "11",
-                "androidSdkVersion" to "30",
-            ),
-        ),
-
-        ClientConfig(
-            label            = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            playerUrl        = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName       = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientId         = "85",
-            clientVersion    = "2.0",
-            userAgent        = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
-            embedUrlTemplate = "https://www.youtube.com/embed/%VIDEO_ID%",
-            supportsAuth     = false,
-        ),
-
+        // iOS — bypasses some region blocks
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -159,51 +134,51 @@ object YtPlayerUtils {
             ),
         ),
 
+        // Android testsuite — skips some playability checks
         ClientConfig(
-            label         = "ANDROID_CREATOR",
+            label         = "ANDROID_TESTSUITE",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_CREATOR",
-            clientId      = "14",
-            clientVersion = "25.03.101",
-            userAgent     = "com.google.android.apps.youtube.creator/25.03.101 (Linux; U; Android 15; en_US; Pixel 9 Pro Fold; Build/AP3A.241005.015.A2; Cronet/132.0.6779.0)",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "15",
-                "deviceMake"        to "Google",
-                "deviceModel"       to "Pixel 9 Pro Fold",
-                "androidSdkVersion" to "35",
-            ),
-        ),
-
-        ClientConfig(
-            label         = "ANDROID_EMBEDDED_PLAYER",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_EMBEDDED_PLAYER",
-            clientId      = "55",
-            clientVersion = "17.31.35",
-            userAgent     = "com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip",
-            embedUrlTemplate = "https://www.youtube.com/embed/%VIDEO_ID%",
+            clientName    = "ANDROID_TESTSUITE",
+            clientId      = "30",
+            clientVersion = "1.9",
+            userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
             extraClientFields = mapOf(
                 "osName"            to "Android",
                 "osVersion"         to "11",
                 "androidSdkVersion" to "30",
             ),
-            supportsAuth = false,
         ),
 
+        // Regular Android YouTube — broad fallback
         ClientConfig(
-            label         = "ANDROID_MUSIC_6",
-            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_MUSIC",
-            clientId      = "21",
-            clientVersion = "6.42.52",
-            userAgent     = "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 12) gzip",
+            label         = "ANDROID",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID",
+            clientId      = "3",
+            clientVersion = "21.03.38",
+            userAgent     = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
             extraClientFields = mapOf(
                 "osName"            to "Android",
-                "osVersion"         to "12",
-                "androidSdkVersion" to "31",
+                "osVersion"         to "14",
+                "androidSdkVersion" to "34",
             ),
         ),
+
+        // TV embedded — bypasses age-gates via embed URL
+        ClientConfig(
+            label            = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            playerUrl        = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName       = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientId         = "85",
+            clientVersion    = "2.0",
+            userAgent        = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+            embedUrlTemplate = "https://www.youtube.com/embed/%VIDEO_ID%",
+            supportsAuth     = false,
+        ),
+
+        // NOTE: ANDROID_MUSIC_6 (6.42.52), ANDROID_EMBEDDED_PLAYER (17.31.35),
+        // and ANDROID_CREATOR (25.03.101) removed — all return HTTP 400/404.
+        // YouTube has stopped accepting those outdated client versions.
     )
 
     private val http = OkHttpClient.Builder()
