@@ -68,40 +68,11 @@ object YtPlayerUtils {
             useWebPoTokens = true,
         ),
 
-        // Android VR — auth-free fallback, works for most non-restricted content
-        ClientConfig(
-            label         = "ANDROID_VR_1_61_48",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_VR",
-            clientId      = "28",
-            clientVersion = "1.61.48",
-            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "12",
-                "deviceMake"        to "Oculus",
-                "deviceModel"       to "Quest 3",
-                "androidSdkVersion" to "32",
-            ),
-            supportsAuth = false,
-        ),
-
-        ClientConfig(
-            label         = "ANDROID_VR_1_43_32",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_VR",
-            clientId      = "28",
-            clientVersion = "1.43.32",
-            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "12",
-                "deviceMake"        to "Oculus",
-                "deviceModel"       to "Quest 3",
-                "androidSdkVersion" to "32",
-            ),
-            supportsAuth = false,
-        ),
+        // NOTE: ANDROID_VR_1_61_48 and ANDROID_VR_1_43_32 removed — YouTube now
+        // returns "Sign in to confirm you're not a bot" for all unauthenticated VR
+        // client requests, adding two wasted round-trips before every successful IOS
+        // resolution. IOS/IPADOS cover the same auth-free fallback role without
+        // triggering bot detection.
 
         // iOS — bypasses some region blocks.
         // supportsAuth=false: hits youtube.com, not music.youtube.com;
