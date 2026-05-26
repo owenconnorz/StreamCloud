@@ -85,14 +85,26 @@ class MusicPlaybackService : MediaLibraryService() {
             .build()
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
-
-
-            .setAudioAttributes(musicAudioAttrs,  true)
-
+            .setAudioAttributes(musicAudioAttrs, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
             .apply {
                 playWhenReady = false
+                addListener(object : androidx.media3.common.Player.Listener {
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        AppLogger.e(TAG, "ExoPlayer error code=${error.errorCode} msg=${error.message}", error.cause)
+                    }
+                    override fun onPlaybackStateChanged(state: Int) {
+                        val label = when (state) {
+                            androidx.media3.common.Player.STATE_IDLE -> "IDLE"
+                            androidx.media3.common.Player.STATE_BUFFERING -> "BUFFERING"
+                            androidx.media3.common.Player.STATE_READY -> "READY"
+                            androidx.media3.common.Player.STATE_ENDED -> "ENDED"
+                            else -> "UNKNOWN($state)"
+                        }
+                        AppLogger.i(TAG, "playback state → $label")
+                    }
+                })
             }
 
         val sessionActivityIntent = PendingIntent.getActivity(
@@ -153,12 +165,13 @@ class MusicPlaybackService : MediaLibraryService() {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .addNetworkInterceptor { chain ->
-
-
-
-
+                // Only attach the YTM browser cookie to music.youtube.com API requests.
+                // CDN requests (googlevideo.com, rr*.googlevideo.com, etc.) are pre-signed
+                // via URL parameters — sending a logged-in cookie there can cause 403s
+                // because the URL signature was generated for an unauthenticated session.
                 val cookie = ytMusicCookieForStream
-                val req = if (cookie.isNotBlank())
+                val host = chain.request().url.host
+                val req = if (cookie.isNotBlank() && host.endsWith("music.youtube.com"))
                     chain.request().newBuilder().header("Cookie", cookie).build()
                 else chain.request()
                 chain.proceed(req)
@@ -239,7 +252,8 @@ class MusicPlaybackService : MediaLibraryService() {
         if (info != null) {
             val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
             StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs)
-            AppLogger.i(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
+            val streamHost = runCatching { java.net.URI(info.url).host }.getOrElse { "?" }
+            AppLogger.i(TAG, "stream resolved $videoId itag=${info.itag} host=$streamHost expires=${info.expiresInSeconds}s")
             Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} ua=${info.userAgent.take(40)}")
             return Pair(info.url, info.userAgent)
         }
