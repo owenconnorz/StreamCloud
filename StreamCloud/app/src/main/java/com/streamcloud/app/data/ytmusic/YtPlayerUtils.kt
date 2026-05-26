@@ -152,7 +152,40 @@ object YtPlayerUtils {
             supportsAuth  = false,
         ),
 
-        // #7 IOS — last resort; 'n' enforcement applies but descramble may succeed.
+        // #7 ANDROID_VR_NO_AUTH — bare ANDROID_VR without any extra context fields.
+        // Metrolist uses this as an additional fallback after the extended VR configs.
+        // Note: UA uses "Oculus Quest 3" (with "Oculus " prefix) unlike the extended configs.
+        // Returns plain CDN URLs — no n-transform required.
+        ClientConfig(
+            label         = "ANDROID_VR_NO_AUTH",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_VR",
+            clientId      = "28",
+            clientVersion = "1.61.48",
+            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Oculus Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
+            supportsAuth  = false,
+        ),
+
+        // #8 IPADOS — iOS family client with a different version and device model.
+        // useSignatureTimestamp is not set (no sig cipher lock), no n-transform required.
+        // Metrolist includes this after ANDROID_VR_NO_AUTH in the fallback chain.
+        ClientConfig(
+            label         = "IPADOS",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "IOS",
+            clientId      = "5",
+            clientVersion = "21.03.3",
+            userAgent     = "com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)",
+            extraClientFields = mapOf(
+                "osName"      to "iPadOS",
+                "osVersion"   to "17.7.10.21H450",
+                "deviceMake"  to "Apple",
+                "deviceModel" to "iPad7,6",
+            ),
+            supportsAuth  = false,
+        ),
+
+        // #9 IOS — last resort; 'n' enforcement applies but descramble may succeed.
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
