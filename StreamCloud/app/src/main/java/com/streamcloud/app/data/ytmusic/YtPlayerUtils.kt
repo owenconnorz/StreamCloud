@@ -216,7 +216,7 @@ object YtPlayerUtils {
                         poToken = poTokenGenerator.getWebClientPoToken(ctx, videoId, sessionId)
                             ?.playerRequestPoToken
                     } catch (e: Exception) {
-                        Log.d(TAG, "[${client.label}] PoToken generation failed: ${e.message}")
+                        AppLogger.w(TAG, "[${client.label}] PoToken failed: ${e.message}")
                     }
                 }
             }
@@ -224,8 +224,11 @@ object YtPlayerUtils {
             val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken, sonosSafe)
             when (result) {
                 is ClientResult.Success -> {
-                    AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag}")
-                    return@withContext result.info
+                    // Descramble the 'n' query parameter — YouTube CDN rejects stream URLs whose
+                    // n-value hasn't been transformed via the player JS nsig function (HTTP 403).
+                    val descrambledUrl = YtNSigDescrambler.descrambleUrl(result.info.url)
+                    AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=${descrambledUrl != result.info.url}")
+                    return@withContext result.info.copy(url = descrambledUrl)
                 }
                 is ClientResult.CipheredOnly ->
                     AppLogger.w(TAG, "[${client.label}] $videoId — ciphered only, trying next")

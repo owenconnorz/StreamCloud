@@ -1,6 +1,7 @@
 package com.streamcloud.app.data.ytmusic
 
 import android.util.Log
+import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -95,7 +96,7 @@ object StreamUrlCache {
                         put(videoId, info.url, info.userAgent, expiryMs)
                         Log.d(TAG, "warmup: Innertube fallback cached $videoId itag=${info.itag}")
                     }.onFailure {
-                        Log.d(TAG, "warmup: skipped $videoId — ${it.message}")
+                        AppLogger.w(TAG, "warmup: skipped $videoId — ${it.message}")
                     }
                 }
             }.awaitAll()

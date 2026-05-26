@@ -61,6 +61,12 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
             com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloadManager(this@StreamCloudApplication)
         }
 
+        // Pre-fetch YouTube player JS + extract nsig function so n-param descrambling
+        // is ready before the first track plays (avoids extra latency on first playback).
+        scope.launch {
+            com.streamcloud.app.data.ytmusic.YtNSigDescrambler.warmUp()
+        }
+
 
 
 
