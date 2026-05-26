@@ -90,8 +90,69 @@ object YtPlayerUtils {
             useWebPoTokens = true,
         ),
 
-        // #3 IOS — kept as fallback for region-specific content; CDN URLs give 403 when
-        // YouTube enforces 'n' descrambling, but YouTube may relax enforcement per-track.
+        // #3 TVHTML5_SIMPLY_EMBEDDED_PLAYER — embedded PS4 UA; bypasses age-restriction without
+        // auth.  useSignatureTimestamp is not set so YouTube returns plain stream URLs.
+        // Metrolist uses this as the first fallback after WEB_REMIX.
+        ClientConfig(
+            label         = "TVHTML5_SIMPLY_EMBEDDED",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientId      = "85",
+            clientVersion = "2.0",
+            userAgent     = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+            supportsAuth  = false,
+        ),
+
+        // #4 TVHTML5 — Smart TV UA; n-transform IS required for this client.
+        ClientConfig(
+            label         = "TVHTML5",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "TVHTML5",
+            clientId      = "7",
+            clientVersion = "7.20260213.00.00",
+            userAgent     = "Mozilla/5.0(SMART-TV; Linux; Tizen 4.0.0.2) AppleWebkit/605.1.15 (KHTML, like Gecko) SamsungBrowser/9.2 TV Safari/605.1.15",
+            supportsAuth  = false,
+        ),
+
+        // #5 ANDROID_VR (Oculus Quest 3, v1.43.32) — returns plain stream URLs with no
+        // signature cipher and no 'n' enforcement.  Comment in Metrolist: "uses non-adaptive
+        // bitrate, which fixes audio stuttering with YT Music; does not use AV1."
+        ClientConfig(
+            label         = "ANDROID_VR_1_43",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_VR",
+            clientId      = "28",
+            clientVersion = "1.43.32",
+            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "12",
+                "deviceMake"        to "Oculus",
+                "deviceModel"       to "Quest 3",
+                "androidSdkVersion" to "32",
+            ),
+            supportsAuth  = false,
+        ),
+
+        // #6 ANDROID_VR (Oculus Quest 3, v1.61.48) — same as above, newer version.
+        ClientConfig(
+            label         = "ANDROID_VR_1_61",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_VR",
+            clientId      = "28",
+            clientVersion = "1.61.48",
+            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "12",
+                "deviceMake"        to "Oculus",
+                "deviceModel"       to "Quest 3",
+                "androidSdkVersion" to "32",
+            ),
+            supportsAuth  = false,
+        ),
+
+        // #7 IOS — last resort; 'n' enforcement applies but descramble may succeed.
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -106,17 +167,6 @@ object YtPlayerUtils {
                 "osVersion"   to "18.2.22C152",
             ),
             supportsAuth = false,
-        ),
-
-        // #4 TVHTML5 — Smart TV UA; 'n' enforcement status differs for this client type.
-        ClientConfig(
-            label         = "TVHTML5",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "TVHTML5",
-            clientId      = "7",
-            clientVersion = "7.20250101.14.00",
-            userAgent     = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/538.1 (KHTML, like Gecko) Version/3.0 TV Safari/538.1",
-            supportsAuth  = false,
         ),
     )
 
@@ -224,11 +274,26 @@ object YtPlayerUtils {
             val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken, sonosSafe)
             when (result) {
                 is ClientResult.Success -> {
-                    // Descramble the 'n' query parameter — YouTube CDN rejects stream URLs whose
-                    // n-value hasn't been transformed via the player JS nsig function (HTTP 403).
-                    val descrambledUrl = YtNSigDescrambler.descrambleUrl(result.info.url)
-                    AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=${descrambledUrl != result.info.url}")
-                    return@withContext result.info.copy(url = descrambledUrl)
+                    // Only web-family clients require n-parameter descrambling.
+                    // ANDROID_VR, IOS, TVHTML5_SIMPLY_EMBEDDED_PLAYER return plain CDN URLs
+                    // where the n-param is already valid — matches Metrolist's needsNTransform logic.
+                    val needsNDescramble = client.useWebPoTokens ||
+                        client.clientName in setOf("WEB", "WEB_REMIX", "WEB_CREATOR", "TVHTML5")
+                    val candidateUrl = if (needsNDescramble) {
+                        YtNSigDescrambler.descrambleUrl(result.info.url)
+                    } else {
+                        result.info.url
+                    }
+                    AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=${candidateUrl != result.info.url}")
+
+                    // Validate the URL with a HEAD request before committing — same as Metrolist's
+                    // validateStatus().  If it 403s, skip to the next client instead of handing a
+                    // broken URL to ExoPlayer (which takes 5-10 s to surface the error to the UI).
+                    if (validateStreamUrl(candidateUrl)) {
+                        return@withContext result.info.copy(url = candidateUrl)
+                    } else {
+                        AppLogger.w(TAG, "[${client.label}] $videoId — URL failed validation (403?), trying next")
+                    }
                 }
                 is ClientResult.CipheredOnly ->
                     AppLogger.w(TAG, "[${client.label}] $videoId — ciphered only, trying next")
@@ -459,6 +524,22 @@ object YtPlayerUtils {
         return high.firstOrNull { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 774 }
             ?: high.firstOrNull { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 141 }
             ?: high.first()
+    }
+
+    /**
+     * Validate a stream URL by making a HEAD request — identical to Metrolist's validateStatus().
+     * Returns true if the server responds 2xx, false for 403/404/etc.
+     * Skips validation (returns true) if the network call itself fails so we don't block playback
+     * on transient connectivity issues.
+     */
+    private fun validateStreamUrl(url: String): Boolean {
+        return try {
+            val req = Request.Builder().url(url).head().build()
+            http.newCall(req).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            Log.d(TAG, "validateStreamUrl exception (assuming ok): ${e.message}")
+            true   // network error ≠ 403 — don't skip a potentially good URL
+        }
     }
 
     /**
