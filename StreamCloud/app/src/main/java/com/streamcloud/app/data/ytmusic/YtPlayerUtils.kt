@@ -134,7 +134,9 @@ object YtPlayerUtils {
             ),
         ),
 
-        // Android testsuite — skips some playability checks
+        // Android testsuite — skips some playability checks.
+        // supportsAuth=false: this hits youtube.com, not music.youtube.com;
+        // sending a YTM cookie there causes HTTP 400.
         ClientConfig(
             label         = "ANDROID_TESTSUITE",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -147,9 +149,11 @@ object YtPlayerUtils {
                 "osVersion"         to "11",
                 "androidSdkVersion" to "30",
             ),
+            supportsAuth = false,
         ),
 
-        // Regular Android YouTube — broad fallback
+        // Regular Android YouTube — broad fallback.
+        // supportsAuth=false: youtube.com endpoint rejects YTM cookies → HTTP 400.
         ClientConfig(
             label         = "ANDROID",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -162,23 +166,33 @@ object YtPlayerUtils {
                 "osVersion"         to "14",
                 "androidSdkVersion" to "34",
             ),
+            supportsAuth = false,
         ),
 
-        // TV embedded — bypasses age-gates via embed URL
+        // Standard TV HTML5 — good general fallback on Smart TV UA
+        ClientConfig(
+            label         = "TVHTML5",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "TVHTML5",
+            clientId      = "7",
+            clientVersion = "7.20250101.14.00",
+            userAgent     = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/538.1 (KHTML, like Gecko) Version/3.0 TV Safari/538.1",
+            supportsAuth  = false,
+        ),
+
+        // TV embedded — bypasses age-gates via embed URL.
+        // Updated from deprecated PS4 12.02 UA (caused "no longer supported" error)
+        // to a current Tizen Smart TV UA.
         ClientConfig(
             label            = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
             playerUrl        = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName       = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
             clientId         = "85",
             clientVersion    = "2.0",
-            userAgent        = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+            userAgent        = "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/538.1 (KHTML, like Gecko) Version/3.0 TV Safari/538.1",
             embedUrlTemplate = "https://www.youtube.com/embed/%VIDEO_ID%",
             supportsAuth     = false,
         ),
-
-        // NOTE: ANDROID_MUSIC_6 (6.42.52), ANDROID_EMBEDDED_PLAYER (17.31.35),
-        // and ANDROID_CREATOR (25.03.101) removed — all return HTTP 400/404.
-        // YouTube has stopped accepting those outdated client versions.
     )
 
     private val http = OkHttpClient.Builder()
