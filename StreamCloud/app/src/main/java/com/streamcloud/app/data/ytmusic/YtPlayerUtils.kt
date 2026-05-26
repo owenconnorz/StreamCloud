@@ -47,26 +47,13 @@ object YtPlayerUtils {
 
     private val CLIENTS = listOf(
 
-        // Primary: YouTube Music Android app — best for YTM-exclusive tracks.
-        // supportsAuth=false: the music.youtube.com Android endpoint expects OAuth2 Bearer
-        // tokens, NOT browser cookies. Sending browser cookies causes LOGIN_REQUIRED
-        // ("Please sign in") responses. Unauthenticated requests work for public tracks.
-        ClientConfig(
-            label         = "ANDROID_MUSIC",
-            playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_MUSIC",
-            clientId      = "21",
-            clientVersion = "7.27.52",
-            userAgent     = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "11",
-                "androidSdkVersion" to "30",
-            ),
-            supportsAuth = false,
-        ),
+        // NOTE: ANDROID_MUSIC removed — music.youtube.com now returns LOGIN_REQUIRED
+        // ("Please sign in") for all unauthenticated ANDROID_MUSIC client requests regardless
+        // of track availability (server-side policy change). Browser cookies are also rejected
+        // because the endpoint expects OAuth2, not session cookies. WEB_REMIX covers the
+        // music.youtube.com role for logged-in access; IOS/ANDROID cover public youtube.com.
 
-        // Secondary: YouTube Music web client — handles logged-in tracks that reject Android clients.
+        // Primary: YouTube Music web client — handles logged-in tracks via SAPISIDHASH + PoToken.
         // useWebAuth=true: only web clients should send the SAPISIDHASH Authorization header.
         ClientConfig(
             label          = "WEB_REMIX",
