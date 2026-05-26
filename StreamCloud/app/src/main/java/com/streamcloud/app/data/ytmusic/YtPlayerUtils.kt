@@ -47,7 +47,10 @@ object YtPlayerUtils {
 
     private val CLIENTS = listOf(
 
-        // Primary: YouTube Music Android app — best for YTM-exclusive tracks
+        // Primary: YouTube Music Android app — best for YTM-exclusive tracks.
+        // supportsAuth=false: the music.youtube.com Android endpoint expects OAuth2 Bearer
+        // tokens, NOT browser cookies. Sending browser cookies causes LOGIN_REQUIRED
+        // ("Please sign in") responses. Unauthenticated requests work for public tracks.
         ClientConfig(
             label         = "ANDROID_MUSIC",
             playerUrl     = "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -60,6 +63,7 @@ object YtPlayerUtils {
                 "osVersion"         to "11",
                 "androidSdkVersion" to "30",
             ),
+            supportsAuth = false,
         ),
 
         // Secondary: YouTube Music web client — handles logged-in tracks that reject Android clients.
