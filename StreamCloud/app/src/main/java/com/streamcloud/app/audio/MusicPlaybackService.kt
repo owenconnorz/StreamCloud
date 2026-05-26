@@ -234,14 +234,29 @@ class MusicPlaybackService : MediaLibraryService() {
     private fun resolveStreamUrl(videoId: String, watchUrl: String): Pair<String, String> {
         val now = System.currentTimeMillis()
 
-
         StreamUrlCache.getEntry(videoId)?.let { entry ->
             val ttl = StreamUrlCache.ttlSeconds(videoId) ?: 0
             Log.d(TAG, "StreamUrlCache hit for $videoId (ttl=${ttl}s)")
             return Pair(entry.url, entry.userAgent)
         }
 
+        // NewPipe is the primary resolver: it fetches + evaluates YouTube's player JS to
+        // descramble the 'n' parameter, which all current Innertube clients require but we
+        // cannot compute ourselves.  Without descrambling, YouTube CDN returns HTTP 403.
+        val npUserAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip"
+        val npResult = runBlocking(Dispatchers.IO) {
+            runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }
+        }
+        val npUrl = npResult.getOrNull()
+        if (npUrl != null) {
+            StreamUrlCache.put(videoId, npUrl, npUserAgent, now + 3_600_000L)
+            AppLogger.i(TAG, "NewPipe resolved $videoId (cached 1h)")
+            return Pair(npUrl, npUserAgent)
+        }
+        AppLogger.w(TAG, "NewPipe failed for $videoId: ${npResult.exceptionOrNull()?.message}")
 
+        // Innertube fallback — URLs may still 403 due to n-enforcement, but attempt anyway
+        // in case NewPipe is unavailable or this specific track bypasses n-validation.
         val innertubeResult = runBlocking(Dispatchers.IO) {
             runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }
         }
@@ -253,30 +268,13 @@ class MusicPlaybackService : MediaLibraryService() {
             val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
             StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs)
             val streamHost = runCatching { java.net.URI(info.url).host }.getOrElse { "?" }
-            AppLogger.i(TAG, "stream resolved $videoId itag=${info.itag} host=$streamHost expires=${info.expiresInSeconds}s")
-            Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} ua=${info.userAgent.take(40)}")
+            AppLogger.w(TAG, "Innertube fallback $videoId itag=${info.itag} host=$streamHost (may 403 without n-descramble)")
             return Pair(info.url, info.userAgent)
         }
 
-
-
-        val npUserAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip"
-        AppLogger.w(TAG, "Innertube returned no result for $videoId — falling back to NewPipe")
-        Log.d(TAG, "Innertube failed for $videoId — falling back to NewPipe")
-        val npResult = runBlocking(Dispatchers.IO) {
-            runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }
-        }
-        val npUrl = npResult.getOrNull()
-            ?: run {
-                val err = "Both Innertube and NewPipe failed to resolve stream for $videoId"
-                AppLogger.e(TAG, err, npResult.exceptionOrNull())
-                error(err)
-            }
-
-
-        StreamUrlCache.put(videoId, npUrl, npUserAgent, now + 3_600_000L)
-        Log.d(TAG, "NewPipe resolved $videoId (cached 1 h)")
-        return Pair(npUrl, npUserAgent)
+        val err = "NewPipe and Innertube both failed to resolve stream for $videoId"
+        AppLogger.e(TAG, err, innertubeResult.exceptionOrNull())
+        error(err)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
