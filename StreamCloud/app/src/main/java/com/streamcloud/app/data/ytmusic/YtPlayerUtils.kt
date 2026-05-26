@@ -36,7 +36,12 @@ object YtPlayerUtils {
         val extraClientFields: Map<String, Any> = emptyMap(),
         val embedUrlTemplate: String? = null,
         val requiresAuth: Boolean = false,
+        // supportsAuth: send the YTM cookie (correct for Android/iOS music clients).
         val supportsAuth: Boolean = true,
+        // useWebAuth: also send the SAPISIDHASH Authorization header. This is a
+        // browser/web mechanism — Android and iOS app clients reject it with HTTP 400.
+        // Only WEB_REMIX (and similar web clients) should set this to true.
+        val useWebAuth: Boolean = false,
         val useWebPoTokens: Boolean = false,
     )
 
@@ -57,14 +62,16 @@ object YtPlayerUtils {
             ),
         ),
 
-        // Secondary: YouTube Music web client — handles logged-in tracks that reject Android clients
+        // Secondary: YouTube Music web client — handles logged-in tracks that reject Android clients.
+        // useWebAuth=true: only web clients should send the SAPISIDHASH Authorization header.
         ClientConfig(
-            label         = "WEB_REMIX",
-            playerUrl     = "https://music.youtube.com/youtubei/v1/player?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false",
-            clientName    = "WEB_REMIX",
-            clientId      = "67",
-            clientVersion = "1.20260501.01.00",
-            userAgent     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            label          = "WEB_REMIX",
+            playerUrl      = "https://music.youtube.com/youtubei/v1/player?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false",
+            clientName     = "WEB_REMIX",
+            clientId       = "67",
+            clientVersion  = "1.20260501.01.00",
+            userAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            useWebAuth     = true,
             useWebPoTokens = true,
         ),
 
@@ -446,8 +453,12 @@ object YtPlayerUtils {
         if (cookie.isNotBlank() && client.supportsAuth) {
             reqBuilder.header("Cookie", cookie)
             reqBuilder.header("Origin", requestOrigin)
-            val auth = YtMusicAuth.sapisidHashHeader(cookie, requestOrigin)
-            if (auth != null) reqBuilder.header("Authorization", auth)
+            // SAPISIDHASH is a browser/web auth mechanism. Android and iOS app clients
+            // return HTTP 400 when it is present — only send it for web clients (useWebAuth).
+            if (client.useWebAuth) {
+                val auth = YtMusicAuth.sapisidHashHeader(cookie, requestOrigin)
+                if (auth != null) reqBuilder.header("Authorization", auth)
+            }
         }
 
         return http.newCall(reqBuilder.build()).execute().use { resp ->
