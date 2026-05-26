@@ -284,7 +284,16 @@ object YtPlayerUtils {
                     } else {
                         result.info.url
                     }
-                    AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=${candidateUrl != result.info.url}")
+                    val nDescrambled = candidateUrl != result.info.url
+                    AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=$nDescrambled")
+
+                    // If this client needed n-descrambling but the nsig function couldn't be
+                    // extracted from the player JS (URL is unchanged), the CDN will 403 on the
+                    // actual byte stream even though HEAD returns 200.  Skip immediately.
+                    if (needsNDescramble && !nDescrambled) {
+                        AppLogger.w(TAG, "[${client.label}] $videoId — n-descramble failed (player JS unsupported), trying next client")
+                        continue
+                    }
 
                     // Validate the URL with a HEAD request before committing — same as Metrolist's
                     // validateStatus().  If it 403s, skip to the next client instead of handing a
@@ -292,7 +301,7 @@ object YtPlayerUtils {
                     if (validateStreamUrl(candidateUrl)) {
                         return@withContext result.info.copy(url = candidateUrl)
                     } else {
-                        AppLogger.w(TAG, "[${client.label}] $videoId — URL failed validation (403?), trying next")
+                        AppLogger.w(TAG, "[${client.label}] $videoId — URL failed HEAD validation (403), trying next client")
                     }
                 }
                 is ClientResult.CipheredOnly ->
