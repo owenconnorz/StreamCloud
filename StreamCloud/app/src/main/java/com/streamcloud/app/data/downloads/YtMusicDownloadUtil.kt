@@ -137,15 +137,17 @@ object YtMusicDownloadUtil {
                                 codecs        = codecsRaw,
                                 bitrate       = info.bitrate,
                                 sampleRate    = info.sampleRate,
-                                contentLength = info.contentLength ?: 10_000_000L,
+                                contentLength = info.contentLength ?: 0L,
                                 loudnessDb    = info.loudnessDb,
                             ),
                         )
 
-
-
-                        val len = info.contentLength ?: 10_000_000L
-                        Pair("${info.url}&range=0-$len", info.expiresInSeconds * 1_000L)
+                        // Do NOT append &range= — using a hard-coded fallback would truncate
+                        // songs longer than that limit. The moov atom in an mp4 stream sits at
+                        // the very end of the file, so a truncated download causes
+                        // ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED on playback. Let the
+                        // download manager fetch the full file via a plain GET instead.
+                        Pair(info.url, info.expiresInSeconds * 1_000L)
                     } else {
 
                         Pair(NewPipeRepository.resolveAudioStream(watchUrl), 3L * 60 * 60 * 1000)

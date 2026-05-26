@@ -23,8 +23,6 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.streamcloud.app.MainActivity
 import com.streamcloud.app.data.AppLogger
-import com.streamcloud.app.widget.MusicWidgetProvider
-import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.downloads.DownloadCaches
 import com.streamcloud.app.data.library.LibraryDb
@@ -35,9 +33,6 @@ import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import com.streamcloud.app.data.ytmusic.StreamUrlCache
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
-import com.streamcloud.app.data.ytmusic.YtMusicHomeRepository
-import com.streamcloud.app.data.ytmusic.YtMusicHomeFeed
-import com.streamcloud.app.data.ytmusic.HomeSection
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.google.common.collect.ImmutableList
@@ -52,10 +47,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
-import java.util.Collections
-import java.util.concurrent.ConcurrentHashMap
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
 
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaLibraryService() {
@@ -69,11 +60,9 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
-    @Volatile private var ytHomeFeed: YtMusicHomeFeed = YtMusicHomeFeed()
 
 
     @Volatile private var ytMusicCookieForStream: String = ""
-    private val nThrottledVideoIds = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
 
 
@@ -106,54 +95,6 @@ class MusicPlaybackService : MediaLibraryService() {
                 playWhenReady = false
             }
 
-        // When casting to Sonos, ExoPlayer must stay paused so audio only plays from the
-        // Sonos speaker (not the phone). If something triggers player.play() (e.g. the
-        // media notification Play button), immediately re-pause and resume Sonos instead.
-        player.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying && SonosRepository.castState.value is SonosRepository.CastState.Casting) {
-                    player.pause()
-                    SonosRepository.resume()
-                }
-            }
-        })
-
-        // Update the home-screen widget whenever the current track changes.
-        player.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                val title      = mediaItem?.mediaMetadata?.title?.toString()  ?: return
-                val artist     = mediaItem?.mediaMetadata?.artist?.toString() ?: ""
-                val artworkUrl = mediaItem?.mediaMetadata?.artworkUri?.toString() ?: ""
-                ioScope.launch {
-                    val recentUrls = runCatching {
-                        com.streamcloud.app.data.library.LibraryDb
-                            .get(this@MusicPlaybackService).tracks().recent().first()
-                            .take(5).mapNotNull { it.thumbnail }
-                    }.getOrElse { emptyList() }
-                    MusicWidgetProvider.updateNowPlaying(
-                        applicationContext, title, artist, artworkUrl, recentUrls,
-                    )
-                }
-            }
-        })
-
-        player.addListener(object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                val is403 = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS &&
-                    generateSequence<Throwable>(error) { it.cause }
-                        .any { "403" in (it.message ?: "") }
-                if (!is403) return
-                val videoId = player.currentMediaItem?.mediaId
-                    ?.substringAfter("v=", "")?.substringBefore("&")?.ifBlank { null } ?: return
-                if (nThrottledVideoIds.add(videoId)) {
-                    StreamUrlCache.remove(videoId)
-                    AppLogger.w(TAG, "403 for $videoId — n-throttled, retrying via NewPipe")
-                    player.prepare()
-                    player.play()
-                }
-            }
-        })
-
         val sessionActivityIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java)
@@ -180,8 +121,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 ytMusicCookieForStream = cookie
                 YtPlayerUtils.ytMusicCookie = cookie
                 if (cookie.isNotBlank()) {
-                    ytLibrary  = YtMusicLibraryRepository.sync(cookie)
-                    ytHomeFeed = YtMusicHomeRepository.load(cookie)
+                    ytLibrary = YtMusicLibraryRepository.sync(cookie)
                 }
             }
         }
@@ -213,14 +153,15 @@ class MusicPlaybackService : MediaLibraryService() {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .addNetworkInterceptor { chain ->
-                val host = chain.request().url.host
-                val reqBuilder = chain.request().newBuilder()
+
+
+
+
                 val cookie = ytMusicCookieForStream
-                if (cookie.isNotBlank() && !host.endsWith("googlevideo.com"))
-                    reqBuilder.header("Cookie", cookie)
-                if (host.endsWith("googlevideo.com") && chain.request().header("Range") == null)
-                    reqBuilder.header("Range", "bytes=0-")
-                chain.proceed(reqBuilder.build())
+                val req = if (cookie.isNotBlank())
+                    chain.request().newBuilder().header("Cookie", cookie).build()
+                else chain.request()
+                chain.proceed(req)
             }
             .build()
 
@@ -238,25 +179,29 @@ class MusicPlaybackService : MediaLibraryService() {
 
         return ResolvingDataSource.Factory(chainedCacheFactory) { dataSpec ->
             val cacheKey = dataSpec.key ?: dataSpec.uri.toString()
-
-
-            val probeLen = if (dataSpec.length >= 0) dataSpec.length else 1L
-
-
-            if (downloadCache.isCached(cacheKey, dataSpec.position, probeLen) ||
-                playerCache.isCached(cacheKey, dataSpec.position, probeLen)
-            ) return@Factory dataSpec
-
             val watchUrl = if (cacheKey.startsWith("http")) cacheKey
                            else "https://music.youtube.com/watch?v=$cacheKey"
 
+            // Only skip resolution for fully-completed ExoPlayer downloads.
+            // The download cache is guaranteed to contain the full file in that case,
+            // so ExoPlayer can seek anywhere (including to the moov atom at the end of
+            // an mp4 file) without needing a live stream URL.
+            if (com.streamcloud.app.data.downloads.YtMusicDownloadUtil.isDownloaded(watchUrl)) {
+                return@Factory dataSpec
+            }
 
+            // Legacy MusicDownloader files stored as real paths in the library DB.
             val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
             val localPath = runBlocking(Dispatchers.IO) { dao.byUrl(watchUrl)?.localPath }
-            if (localPath != null && File(localPath).exists()) {
+            if (localPath != null && !localPath.startsWith("cache:") && File(localPath).exists()) {
                 return@Factory dataSpec.withUri(localPath.toUri())
             }
 
+            // Always resolve to the real stream URL for everything else.
+            // CacheDataSource handles player-cache hits transparently — there is no need
+            // for an early-return here, and doing so would leave the raw watch URL as the
+            // HTTP fallback, causing ExoPlayer to receive an HTML page when it seeks to an
+            // uncached range (e.g. the moov atom at the end of a mp4 stream).
             val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
             val (streamUrl, userAgent) = resolveStreamUrl(videoId, watchUrl)
 
@@ -284,27 +229,25 @@ class MusicPlaybackService : MediaLibraryService() {
         }
 
 
-        if (videoId !in nThrottledVideoIds) {
-            val innertubeResult = runBlocking(Dispatchers.IO) {
-                runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }
-            }
-            val info = innertubeResult.getOrNull()
-            if (innertubeResult.isFailure) {
-                AppLogger.w(TAG, "Innertube failed for $videoId", innertubeResult.exceptionOrNull())
-            }
-            if (info != null) {
-                val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
-                StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs)
-                AppLogger.i(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
-                Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} ua=${info.userAgent.take(40)}")
-                return Pair(info.url, info.userAgent)
-            }
-        } else {
-            AppLogger.w(TAG, "Skipping Innertube for n-throttled $videoId — going straight to NewPipe")
+        val innertubeResult = runBlocking(Dispatchers.IO) {
+            runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }
+        }
+        val info = innertubeResult.getOrNull()
+        if (innertubeResult.isFailure) {
+            AppLogger.w(TAG, "Innertube failed for $videoId", innertubeResult.exceptionOrNull())
+        }
+        if (info != null) {
+            val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
+            StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs)
+            AppLogger.i(TAG, "Innertube resolved $videoId itag=${info.itag} expires=${info.expiresInSeconds}s")
+            Log.d(TAG, "Innertube resolved $videoId itag=${info.itag} ua=${info.userAgent.take(40)}")
+            return Pair(info.url, info.userAgent)
         }
 
+
+
         val npUserAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip"
-        AppLogger.w(TAG, "$videoId — falling back to NewPipe")
+        AppLogger.w(TAG, "Innertube returned no result for $videoId — falling back to NewPipe")
         Log.d(TAG, "Innertube failed for $videoId — falling back to NewPipe")
         val npResult = runBlocking(Dispatchers.IO) {
             runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }
@@ -320,14 +263,6 @@ class MusicPlaybackService : MediaLibraryService() {
         StreamUrlCache.put(videoId, npUrl, npUserAgent, now + 3_600_000L)
         Log.d(TAG, "NewPipe resolved $videoId (cached 1 h)")
         return Pair(npUrl, npUserAgent)
-    }
-
-    // Keep the media notification (and foreground service) alive while casting to Sonos.
-    // By default Media3 stops the foreground service when player.isPlaying == false,
-    // which is exactly the state ExoPlayer is in during casting.
-    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        val casting = SonosRepository.castState.value is SonosRepository.CastState.Casting
-        super.onUpdateNotification(session, startInForegroundRequired || casting)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
@@ -348,35 +283,12 @@ class MusicPlaybackService : MediaLibraryService() {
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
 
-        // Explicitly allow all controllers (Android Auto, Google Assistant, widgets).
-        override fun onConnect(
-            session: MediaSession,
-            controller: MediaSession.ControllerInfo,
-        ): MediaSession.ConnectionResult {
-            val result = super.onConnect(session, controller)
-            // Ensure search commands are available so voice/Gemini queries reach onSearch()
-            val commands = result.availableSessionCommands.buildUpon()
-                .add(androidx.media3.session.SessionCommand(
-                    androidx.media3.session.SessionCommand.COMMAND_CODE_LIBRARY_SEARCH))
-                .build()
-            return MediaSession.ConnectionResult.accept(commands, result.availablePlayerCommands)
-        }
-
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?,
-        ): ListenableFuture<LibraryResult<MediaItem>> {
-            // Android Auto sends isRecent=true when the car starts, expecting a root
-            // whose children are immediately playable (recently played tracks).
-            // Returning the full browse tree here causes AA to show "cannot connect".
-            val root = if (params?.isRecent == true) {
-                playlist(RECENT_ID, "Recently played")
-            } else {
-                buildRoot()
-            }
-            return Futures.immediateFuture(LibraryResult.ofItem(root, params))
-        }
+        ): ListenableFuture<LibraryResult<MediaItem>> =
+            Futures.immediateFuture(LibraryResult.ofItem(buildRoot(), params))
 
         override fun onGetItem(
             session: MediaLibrarySession,
@@ -408,11 +320,6 @@ class MusicPlaybackService : MediaLibraryService() {
                     parentId == ON_REPEAT_ID -> roomTracks { it.mostPlayed().first() }
                     parentId == LIKED_ID    -> likedChildren()
                     parentId == DOWNLOADED_ID -> roomTracks { it.downloaded().first() }
-                    parentId == ARTISTS_ID -> artistsChildren()
-                    parentId.startsWith(ARTIST_PREFIX) ->
-                        artistTracks(parentId.removePrefix(ARTIST_PREFIX))
-                    parentId.startsWith(YT_HOME_SECTION_PREFIX) ->
-                        ytHomeSectionItems(parentId.removePrefix(YT_HOME_SECTION_PREFIX))
                     parentId.startsWith(YT_PLAYLIST_PREFIX) -> ytPlaylistTracks(
                         parentId.removePrefix(YT_PLAYLIST_PREFIX),
                     )
@@ -502,118 +409,23 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
 
-    private fun buildRoot(): MediaItem = MediaItem.Builder()
-        .setMediaId(ROOT_ID)
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle("StreamCloud")
-                .setIsBrowsable(true)
-                .setIsPlayable(false)
-                .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
-                .setExtras(android.os.Bundle().apply {
-                    // Content style: grid for browsable items (playlists), list for songs
-                    putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", 2)
-                    putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT", 1)
-                    // Advertise voice/Gemini search support to Android Auto
-                    putBoolean("android.media.browse.SEARCH_SUPPORTED", true)
-                })
-                .build(),
-        )
-        .build()
+    private fun buildRoot(): MediaItem = folder(ROOT_ID, "StreamCloud")
 
     private fun rootChildren(): List<MediaItem> = listOf(
-        tab(HOME_ID,    "Home",         browsableHint = 2), // grid — section tiles have artwork
-        tab(RECENT_ID,  "Recents",      browsableHint = 1), // list — track rows
-        tab(LIBRARY_ID, "Your Library", browsableHint = 1), // list — sub-folders have no artwork
+        folder(HOME_ID, "Home"),
+        folder(LIBRARY_ID, "Your Library"),
     )
 
-    /**
-     * Home tab content: up to 20 recently played tracks with artwork so Android Auto
-     * shows them immediately as a grid — no sub-folder drilling required.
-     * Falls back to folder links when there is no listen history yet.
-     */
-    /**
-     * Home tab — mirrors the in-app Music home page.
-     *
-     * Priority 1: YT Music home feed sections (Listen again, Forgotten favorites, etc.)
-     *   shown as browsable grid tiles with the first item's artwork.
-     * Priority 2: YT library (liked songs + playlists) when the home feed is unavailable.
-     * Priority 3: Local Room DB recent tracks as a last-resort offline fallback.
-     */
-    private suspend fun homeChildren(): List<MediaItem> {
-
-        // ── 1. YT Music home feed sections ──────────────────────────────────
-        val feedSections = ytHomeFeed.sections.filter { section ->
-            when (section) {
-                is HomeSection.PlaylistRail -> section.items.isNotEmpty()
-                is HomeSection.SongRail     -> section.items.isNotEmpty()
-                else                        -> false
-            }
-        }
-        if (feedSections.isNotEmpty()) {
-            return feedSections.map { section ->
-                val thumb = when (section) {
-                    is HomeSection.PlaylistRail -> section.items.firstOrNull()?.thumbnail
-                    is HomeSection.SongRail     -> section.items.firstOrNull()?.thumbnail
-                    else                        -> null
-                }
-                sectionFolder("$YT_HOME_SECTION_PREFIX${section.title}", section.title, thumb)
-            }
-        }
-
-        // ── 2. YT library fallback (cookie set but home feed failed) ────────
-        val ytSongs  = ytLibrary.likedSongs.take(10)
-        val ytPlists = ytLibrary.playlists.filter { !it.isAlbum }.take(8)
-        if (ytSongs.isNotEmpty() || ytPlists.isNotEmpty()) {
-            return ytSongs.map(::ytmSongItem) +
-                ytPlists.map { pl -> ytPlaylistBrowsable("$YT_PLAYLIST_PREFIX${pl.id}", pl) }
-        }
-
-        // ── 3. Local recent tracks fallback ─────────────────────────────────
-        val recent = runCatching {
-            LibraryDb.get(this@MusicPlaybackService).tracks().recent().first()
-        }.getOrElse { emptyList() }.take(20)
-
-        if (recent.isEmpty()) return listOf(
-            playlist(RECENT_ID,    "Recently played"),
-            playlist(ON_REPEAT_ID, "On repeat"),
-        )
-        return recent.map(::trackEntityItem)
-    }
-
-    /** Expands a YT Music home-feed section into its playable/browsable children. */
-    private fun ytHomeSectionItems(sectionTitle: String): List<MediaItem> {
-        val section = ytHomeFeed.sections.find { it.title == sectionTitle }
-        return when (section) {
-            is HomeSection.PlaylistRail ->
-                section.items.map { pl -> ytPlaylistBrowsable("$YT_PLAYLIST_PREFIX${pl.id}", pl) }
-            is HomeSection.SongRail -> section.items.map(::ytmSongItem)
-            else                    -> emptyList()
-        }
-    }
-
-    /** Browsable grid tile for a home-feed section (e.g. "Listen again"). */
-    private fun sectionFolder(id: String, title: String, thumbnail: String? = null): MediaItem =
-        MediaItem.Builder()
-            .setMediaId(id)
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(title)
-                    .setArtworkUri(thumbnail?.let(Uri::parse))
-                    .setIsBrowsable(true)
-                    .setIsPlayable(false)
-                    .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
-                    .build(),
-            )
-            .build()
+    private fun homeChildren(): List<MediaItem> = listOf(
+        playlist(RECENT_ID, "Recently played"),
+        playlist(ON_REPEAT_ID, "On repeat"),
+    )
 
 
     private fun libraryChildren(): List<MediaItem> {
         val fixed = listOf(
-            playlist(LIKED_ID,      "Liked Music"),
+            playlist(LIKED_ID, "Liked Music"),
             playlist(DOWNLOADED_ID, "Downloads"),
-            playlist(ON_REPEAT_ID,  "On repeat"),
-            folder(ARTISTS_ID,      "Artists"),
         )
         val ytPlaylists = ytLibrary.playlists
             .filter { !it.isAlbum }
@@ -654,39 +466,6 @@ class MusicPlaybackService : MediaLibraryService() {
         } catch (e: Throwable) {
             emptyList()
         }
-    }
-
-    /** Deduplicated artist list built from recent playback history. */
-    private suspend fun artistsChildren(): List<MediaItem> {
-        val recent = runCatching {
-            LibraryDb.get(this@MusicPlaybackService).tracks().recent().first()
-        }.getOrElse { emptyList() }
-        val seen = mutableSetOf<String>()
-        return recent
-            .filter { it.artist.isNotBlank() && seen.add(it.artist) }
-            .take(30)
-            .map { track ->
-                MediaItem.Builder()
-                    .setMediaId("$ARTIST_PREFIX\${track.artist}")
-                    .setMediaMetadata(
-                        MediaMetadata.Builder()
-                            .setTitle(track.artist)
-                            .setArtworkUri(track.thumbnail?.let(Uri::parse))
-                            .setIsBrowsable(true)
-                            .setIsPlayable(false)
-                            .setMediaType(MediaMetadata.MEDIA_TYPE_ARTIST)
-                            .build(),
-                    )
-                    .build()
-            }
-    }
-
-    /** All recent tracks by a specific artist name. */
-    private suspend fun artistTracks(artistName: String): List<MediaItem> {
-        val recent = runCatching {
-            LibraryDb.get(this@MusicPlaybackService).tracks().recent().first()
-        }.getOrElse { emptyList() }
-        return recent.filter { it.artist == artistName }.map(::trackEntityItem)
     }
 
     private suspend fun roomTracks(query: suspend (dao: com.streamcloud.app.data.library.TrackDao) -> List<TrackEntity>): List<MediaItem> =
@@ -746,31 +525,6 @@ class MusicPlaybackService : MediaLibraryService() {
         )
         .build()
 
-    /**
-     * Root-level tab item. Sets per-item content style hints so Android Auto
-     * renders children as a grid (browsable) or list (playable) automatically.
-     */
-    private fun tab(
-        id: String,
-        title: String,
-        browsableHint: Int = 2,
-        playableHint: Int  = 1,
-    ): MediaItem = MediaItem.Builder()
-        .setMediaId(id)
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(title)
-                .setIsBrowsable(true)
-                .setIsPlayable(false)
-                .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
-                .setExtras(Bundle().apply {
-                    putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", browsableHint)
-                    putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT",  playableHint)
-                })
-                .build(),
-        )
-        .build()
-
     private fun folder(id: String, title: String): MediaItem = MediaItem.Builder()
         .setMediaId(id)
         .setMediaMetadata(
@@ -803,24 +557,6 @@ class MusicPlaybackService : MediaLibraryService() {
         id == ON_REPEAT_ID -> playlist(ON_REPEAT_ID, "On repeat")
         id == LIKED_ID     -> playlist(LIKED_ID, "Liked Music")
         id == DOWNLOADED_ID -> playlist(DOWNLOADED_ID, "Downloads")
-        id == ARTISTS_ID    -> folder(ARTISTS_ID, "Artists")
-        id.startsWith(YT_HOME_SECTION_PREFIX) -> {
-            val ttl = id.removePrefix(YT_HOME_SECTION_PREFIX)
-            val thb = ytHomeFeed.sections.find { it.title == ttl }
-                ?.let { s -> when (s) {
-                    is HomeSection.PlaylistRail -> s.items.firstOrNull()?.thumbnail
-                    is HomeSection.SongRail     -> s.items.firstOrNull()?.thumbnail
-                    else                        -> null
-                }}
-            sectionFolder(id, ttl, thb)
-        }
-        id.startsWith(ARTIST_PREFIX) ->
-            MediaItem.Builder().setMediaId(id).setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(id.removePrefix(ARTIST_PREFIX))
-                    .setIsBrowsable(true).setIsPlayable(false)
-                    .setMediaType(MediaMetadata.MEDIA_TYPE_ARTIST).build()
-            ).build()
         id.startsWith(YT_PLAYLIST_PREFIX) -> {
             val plId = id.removePrefix(YT_PLAYLIST_PREFIX)
             val pl = ytLibrary.playlists.find { it.id == plId }
@@ -861,9 +597,6 @@ class MusicPlaybackService : MediaLibraryService() {
         const val DOWNLOADED_ID  = "streamcloud_downloaded"
 
 
-        const val YT_PLAYLIST_PREFIX    = "ytpl_"
-        const val YT_HOME_SECTION_PREFIX = "yths_"
-        const val ARTISTS_ID     = "streamcloud_artists"
-        const val ARTIST_PREFIX  = "sc_artist_"
+        const val YT_PLAYLIST_PREFIX = "ytpl_"
     }
 }
