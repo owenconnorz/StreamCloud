@@ -129,7 +129,8 @@ object YtNSigDescrambler {
         // The iframe_api response contains a line like:
         //   ytcfg.set({"PLAYER_JS_URL":"/s/player/HASH/player_ias.vflset/..."});
         // or simply references /player/HASH/ somewhere in the script.
-        val playerHash = Regex("""/player/([a-f0-9]{8})/""")
+        // Metrolist-identical pattern: \\?/ matches both '/' and '\/' (JS-escaped slashes)
+        val playerHash = Regex("""\\?/s\\?/player\\?/([a-zA-Z0-9_-]+)\\?/""")
             .find(iframeApi)?.groupValues?.get(1) ?: run {
             Log.w(TAG, "Player hash not found in iframe_api (body length=${iframeApi.length})")
             return@withContext null
