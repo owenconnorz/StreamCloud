@@ -170,6 +170,8 @@ class MusicPlaybackService : MediaLibraryService() {
                 val host = req.url.host
                 val builder = req.newBuilder()
 
+                val hasPot = req.url.queryParameter("pot") != null
+
                 if (cookie.isNotBlank()) {
                     when {
                         // music.youtube.com API requests — always send cookie + browser headers.
@@ -178,17 +180,26 @@ class MusicPlaybackService : MediaLibraryService() {
                                    .header("Origin", "https://music.youtube.com")
                                    .header("Referer", "https://music.youtube.com/")
                         }
-                        // googlevideo.com CDN — only send cookie for WEB_REMIX / PoToken URLs
-                        // (identified by the presence of a pot= query parameter).
-                        // WEB_REMIX generates session-authenticated CDN URLs: the user's cookie
-                        // must accompany the request, otherwise the CDN returns 403 even when
-                        // pot= is present.  Unauthenticated client URLs (ANDROID_VR etc.) must
-                        // NOT receive cookies as their URLs were signed for anonymous access.
-                        host.contains("googlevideo.com") &&
-                            req.url.queryParameter("pot") != null -> {
+                        // googlevideo.com CDN — send Cookie for ALL requests, not just pot= ones.
+                        //
+                        // Previously we checked `pot != null`, but CDN redirects (alr=yes) produce
+                        // a redirect-target URL that no longer contains pot=, so the old condition
+                        // silently dropped Cookie on the final hop — causing a 403.
+                        //
+                        // Sending Cookie to unauthenticated (ANDROID_VR/TESTSUITE) CDN URLs is
+                        // harmless: the CDN ignores extra cookies for anonymous-signed URLs.
+                        //
+                        // Additionally, WEB_REMIX is a browser web client.  Chrome always sends
+                        // Sec-Fetch-* headers; YouTube CDN may validate them for web-client URLs.
+                        host.contains("googlevideo.com") -> {
                             builder.header("Cookie", cookie)
                                    .header("Origin", "https://music.youtube.com")
                                    .header("Referer", "https://music.youtube.com/")
+                            if (hasPot) {
+                                builder.header("Sec-Fetch-Dest", "audio")
+                                       .header("Sec-Fetch-Mode", "cors")
+                                       .header("Sec-Fetch-Site", "cross-site")
+                            }
                         }
                     }
                 }
@@ -201,7 +212,18 @@ class MusicPlaybackService : MediaLibraryService() {
                     builder.header("X-Goog-Visitor-Id", vd)
                 }
 
-                chain.proceed(builder.build())
+                val response = chain.proceed(builder.build())
+
+                // Log 403 CDN response bodies — the body often contains the exact failure reason
+                // (e.g. "Video unavailable", IP mismatch, missing auth) which is invisible from
+                // the ExoPlayer error alone.
+                if (response.code == 403 && host.contains("googlevideo.com")) {
+                    val body = response.peekBody(400).string().take(300)
+                    AppLogger.e(TAG, "CDN 403 body: $body")
+                    AppLogger.e(TAG, "CDN 403 url: ${req.url.toString().take(120)}")
+                }
+
+                response
             }
             .build()
 
