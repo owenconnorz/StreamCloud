@@ -82,6 +82,34 @@ object YtPlayerUtils {
             supportsAuth = false,
         ),
 
+        // #1b ANDROID_VR_MUSIC — ANDROID_VR (Oculus Quest 3) parameters sent to the
+        // music.youtube.com player endpoint.  This reaches the YouTube Music catalog
+        // (including music-exclusive tracks that ANDROID_TESTSUITE cannot access) while
+        // returning Android-style CDN URLs that do NOT require PoToken/web-client IP binding.
+        //
+        // CDN URL access is validated with a HEAD request (skipHeadValidation=false) before
+        // the URL is committed — the HEAD probe uses the same OkHttpClient (and therefore the
+        // same IPv4 source IP) as the player API call, so the ip= parameter in the URL always
+        // matches what the CDN sees.  This is the crucial difference from WEB_REMIX whose CDN
+        // URLs are also IP-bound but validated via PoToken (not HEAD), making them sensitive to
+        // CGNAT / multi-path IP inconsistencies.
+        ClientConfig(
+            label         = "ANDROID_VR_MUSIC",
+            playerUrl     = "https://music.youtube.com/youtubei/v1/player?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false",
+            clientName    = "ANDROID_VR",
+            clientId      = "28",
+            clientVersion = "1.61.48",
+            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "12",
+                "deviceMake"        to "Oculus",
+                "deviceModel"       to "Quest 3",
+                "androidSdkVersion" to "32",
+            ),
+            supportsAuth  = false,
+        ),
+
         // #2 WEB_REMIX — YouTube Music web client with SAPISIDHASH + PoToken.
         // useSignatureTimestamp=true matches Metrolist's YouTubeClient.WEB_REMIX config.
         ClientConfig(
