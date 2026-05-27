@@ -252,14 +252,17 @@ object YtPlayerUtils {
         // #12 WEB — standard YouTube web client.  Placed at the end of the fallback chain,
         // matching Metrolist's STREAM_FALLBACK_CLIENTS ordering.
         // n-transform required; useWebAuth sends the SAPISIDHASH Authorization header.
+        // useSignatureTimestamp=true: without sts YouTube now returns cipher-only stream
+        // formats for WEB (same requirement as MOBILE/WEB_CREATOR).
         ClientConfig(
-            label      = "WEB",
-            playerUrl  = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName = "WEB",
-            clientId   = "1",
-            clientVersion = "2.20260213.00.00",
-            userAgent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
-            useWebAuth = true,
+            label                 = "WEB",
+            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName            = "WEB",
+            clientId              = "1",
+            clientVersion         = "2.20260213.00.00",
+            userAgent             = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+            useWebAuth            = true,
+            useSignatureTimestamp = true,
         ),
 
         // #13 WEB_CREATOR — YouTube Studio web client.  Last resort, matching Metrolist order.
@@ -299,34 +302,92 @@ object YtPlayerUtils {
         val now = System.currentTimeMillis()
         if (cachedVisitorData != null && now - visitorDataFetchedAt < 6 * 3_600_000L) return
         try {
+            // Use the current web client version and include an API key — the visitor_id
+            // endpoint returns HTTP 4xx without a key on newer YouTube server versions.
             val body = buildJsonObject {
                 putJsonObject("context") {
                     putJsonObject("client") {
                         put("clientName", "WEB")
-                        put("clientVersion", "2.20240101.00.00")
+                        put("clientVersion", "2.20260213.00.00")
                         put("hl", contentLanguage)
                         put("gl", contentCountry)
                     }
                 }
             }
             val req = Request.Builder()
-                .url("https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false&alt=json")
+                .url("https://www.youtube.com/youtubei/v1/visitor_id?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false")
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
                 .header("Content-Type", "application/json")
                 .header("Origin", "https://www.youtube.com")
+                .header("X-YouTube-Client-Name", "1")
+                .header("X-YouTube-Client-Version", "2.20260213.00.00")
                 .build()
             http.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return
+                if (!resp.isSuccessful) {
+                    AppLogger.w(TAG, "visitorData: visitor_id HTTP ${resp.code} — trying browse fallback")
+                    fetchVisitorDataFromBrowse(now)
+                    return
+                }
                 val text = resp.body?.string() ?: return
-                val vd = json.parseToJsonElement(text).jsonObject["visitorData"]
+                val obj = json.parseToJsonElement(text).jsonObject
+                // Top-level visitorData first, then responseContext.visitorData
+                val vd = obj["visitorData"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                    ?: obj["responseContext"]?.jsonObject?.get("visitorData")
+                        ?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                if (vd != null) {
+                    cachedVisitorData = vd
+                    visitorDataFetchedAt = now
+                    AppLogger.i(TAG, "visitorData ready (visitor_id endpoint): ${vd.take(20)}…")
+                } else {
+                    AppLogger.w(TAG, "visitorData: field missing from visitor_id response — trying browse fallback")
+                    fetchVisitorDataFromBrowse(now)
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "visitorData fetch failed: ${e.message} — trying browse fallback")
+            fetchVisitorDataFromBrowse(System.currentTimeMillis())
+        }
+    }
+
+    /** Fallback: extract visitorData from a simple YTM browse response. */
+    private fun fetchVisitorDataFromBrowse(now: Long) {
+        try {
+            val body = buildJsonObject {
+                putJsonObject("context") {
+                    putJsonObject("client") {
+                        put("clientName", "WEB_REMIX")
+                        put("clientVersion", "1.20260501.01.00")
+                        put("hl", contentLanguage)
+                        put("gl", contentCountry)
+                    }
+                }
+                put("browseId", "FEmusic_home")
+            }
+            val req = Request.Builder()
+                .url("https://music.youtube.com/youtubei/v1/browse?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+                .header("Content-Type", "application/json")
+                .header("Origin", "https://music.youtube.com")
+                .header("X-YouTube-Client-Name", "67")
+                .header("X-YouTube-Client-Version", "1.20260501.01.00")
+                .build()
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    AppLogger.w(TAG, "visitorData: browse fallback HTTP ${resp.code} — WEB_REMIX will be skipped")
+                    return
+                }
+                val text = resp.body?.string() ?: return
+                val obj = json.parseToJsonElement(text).jsonObject
+                val vd = obj["responseContext"]?.jsonObject?.get("visitorData")
                     ?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: return
                 cachedVisitorData = vd
                 visitorDataFetchedAt = now
-                Log.d(TAG, "visitorData refreshed: ${vd.take(24)}…")
+                AppLogger.i(TAG, "visitorData ready (browse fallback): ${vd.take(20)}…")
             }
         } catch (e: Exception) {
-            Log.d(TAG, "visitorData fetch failed: ${e.message}")
+            AppLogger.w(TAG, "visitorData browse fallback failed: ${e.message} — WEB_REMIX will be skipped")
         }
     }
 
@@ -357,7 +418,6 @@ object YtPlayerUtils {
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
         ensureVisitorData()
         val isLoggedIn = ytMusicCookie.isNotBlank()
-        val sessionId = cachedVisitorData
 
         for (client in CLIENTS) {
             if (client.requiresAuth && !isLoggedIn) {
@@ -369,8 +429,14 @@ object YtPlayerUtils {
             // We keep the full PoTokenResult so we can later append streamingDataPoToken to
             // the CDN URL — this is REQUIRED: without pot= the CDN always returns 403 for
             // WEB_REMIX streams (mirrors Metrolist YTPlayerUtils.kt line 294–302).
+            //
+            // sessionId is read INSIDE the loop so it benefits from visitorData captured
+            // opportunistically from earlier clients' API responses (e.g. ANDROID_TESTSUITE
+            // returns "no streams" for music-exclusive tracks but its API response still
+            // carries responseContext.visitorData which we cache in fetchPlayerResponse).
             var poTokenResult: com.streamcloud.app.data.ytmusic.potoken.PoTokenResult? = null
             if (client.useWebPoTokens) {
+                val sessionId = cachedVisitorData
                 if (sessionId == null) {
                     AppLogger.w(TAG, "[${client.label}] skipped — visitorData unavailable (PoToken needs session)")
                     continue
@@ -690,7 +756,22 @@ object YtPlayerUtils {
                 return null
             }
             val text = resp.body?.string() ?: return null
-            json.parseToJsonElement(text).jsonObject
+            val parsed = json.parseToJsonElement(text).jsonObject
+            // Opportunistically cache visitorData from any API response — even "no streams"
+            // responses include responseContext.visitorData.  This bootstraps WEB_REMIX in
+            // the SAME resolveAudioFormatInfo() call without needing a separate fetch
+            // (e.g. ANDROID_TESTSUITE returns "no streams" for music-exclusive tracks but
+            // its response carries visitorData we can use for WEB_REMIX next).
+            if (cachedVisitorData == null) {
+                val vd = parsed["responseContext"]?.jsonObject
+                    ?.get("visitorData")?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                if (vd != null) {
+                    cachedVisitorData = vd
+                    visitorDataFetchedAt = System.currentTimeMillis()
+                    AppLogger.i(TAG, "[${client.label}] visitorData captured from player response")
+                }
+            }
+            parsed
         }
     }
 
