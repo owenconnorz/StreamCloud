@@ -502,8 +502,12 @@ object YtPlayerUtils {
                     // Mirrors Metrolist YTPlayerUtils.kt lines 293–302.
                     val candidateUrl = if (client.useWebPoTokens && poTokenResult?.streamingDataPoToken != null) {
                         val sep = if ("?" in afterNDescramble) "&" else "?"
-                        "${afterNDescramble}${sep}pot=${java.net.URLEncoder.encode(poTokenResult.streamingDataPoToken, "UTF-8")}"
-                            .also { AppLogger.i(TAG, "[${client.label}] $videoId — pot= appended to stream URL") }
+                        // YouTube player JS appends BOTH potc=1 AND pot=<token> together:
+                        //   var Q={potc:"1",pot:D}; E.url&&(E.url=jk(E.url,Q))
+                        // The CDN validates that potc= is present alongside pot= — omitting
+                        // potc causes a 403 even when the PoToken itself is cryptographically valid.
+                        "${afterNDescramble}${sep}potc=1&pot=${java.net.URLEncoder.encode(poTokenResult.streamingDataPoToken, "UTF-8")}"
+                            .also { AppLogger.i(TAG, "[${client.label}] $videoId — potc=1&pot= appended to stream URL") }
                     } else {
                         afterNDescramble
                     }
