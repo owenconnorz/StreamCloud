@@ -55,6 +55,12 @@
             android:label="YouTube Music Sign-In"
             android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
 
+        <activity
+            android:name=".ui.account.SpotifyLoginActivity"
+            android:exported="false"
+            android:label="Spotify Sign-In"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
         <service
             android:name=".audio.MusicPlaybackService"
             android:foregroundServiceType="mediaPlayback"
@@ -63,8 +69,6 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
                 <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="android.media.browse.MediaBrowserService" />
-                <!-- Required for steering-wheel / Bluetooth / wired headset media buttons -->
-                <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </service>
 
@@ -123,17 +127,6 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_music_info" />
-        </receiver>
-
-        <!-- Routes hardware media-button broadcasts (steering wheel, BT headset,
-             wired headphones) to MusicPlaybackService.onStartCommand so Media3
-             can forward them to the active MediaSession. -->
-        <receiver
-            android:name=".audio.MediaButtonReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MEDIA_BUTTON" />
-            </intent-filter>
         </receiver>
 
     </application>

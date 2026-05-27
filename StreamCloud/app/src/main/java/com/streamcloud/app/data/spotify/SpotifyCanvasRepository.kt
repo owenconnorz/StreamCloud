@@ -32,6 +32,19 @@ object SpotifyCanvasRepository {
     @Volatile private var cachedToken: String? = null
     @Volatile private var tokenExpiryMs: Long = 0L
 
+    @Volatile private var storedCookie: String? = null
+
+    fun setSpotifyCookie(cookie: String?) {
+        storedCookie = cookie?.takeIf { it.isNotBlank() }
+        cachedToken = null
+        tokenExpiryMs = 0L
+    }
+
+    fun invalidateToken() {
+        cachedToken = null
+        tokenExpiryMs = 0L
+    }
+
 
     private val cache = LinkedHashMap<String, String?>(64, 0.75f, true)
     private val cacheLock = Any()
@@ -67,6 +80,7 @@ object SpotifyCanvasRepository {
         val now = System.currentTimeMillis()
         cachedToken?.takeIf { now < tokenExpiryMs - 60_000L }?.let { return it }
         return runCatching {
+            val cookieHeader = storedCookie ?: "sp_t=$spT; sp_new=1"
             val req = Request.Builder()
                 .url("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
                 .header(
@@ -75,10 +89,9 @@ object SpotifyCanvasRepository {
                         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 )
                 .header("Accept", "application/json")
-                .header("Cookie", "sp_t=$spT; sp_new=1")
+                .header("Cookie", cookieHeader)
                 .header("Referer", "https://open.spotify.com/")
                 .get().build()
-
 
             val body = http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) { Log.d(TAG, "Token HTTP ${resp.code}"); null }
@@ -88,6 +101,10 @@ object SpotifyCanvasRepository {
             val t   = obj["accessToken"]?.jsonPrimitive?.content ?: return@runCatching null
             val exp = obj["accessTokenExpirationTimestampMs"]
                 ?.jsonPrimitive?.content?.toLongOrNull() ?: (now + 3_600_000L)
+            val isAnon = obj["isAnonymous"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: true
+            if (isAnon && storedCookie != null) {
+                Log.d(TAG, "Stored cookie yielded anonymous token — cookie may have expired")
+            }
             cachedToken   = t
             tokenExpiryMs = exp
             t
