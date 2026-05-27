@@ -161,7 +161,25 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
 
+        // Force IPv4-only DNS for CDN requests.
+        //
+        // YouTube's player API embeds the source IP of the player request into the CDN URL
+        // as `ip=<address>`.  If the player API goes via IPv4 (e.g. 82.132.x.x) but the
+        // ExoPlayer OkHttp client connects to googlevideo.com via IPv6 (OkHttp's default
+        // "Happy Eyeballs" prefers IPv6 when available), the CDN sees a different source IP
+        // and returns HTTP 403 with an *empty body* — the exact symptom we observed.
+        //
+        // Fix: filter DNS results to IPv4 addresses only so the CDN request IP always
+        // matches the `ip=` embedded in the URL.  Fall back to any address if no IPv4
+        // record is available (shouldn't happen for googlevideo.com, but safe fallback).
+        val ipv4OnlyDns = okhttp3.Dns { hostname ->
+            okhttp3.Dns.SYSTEM.lookup(hostname)
+                .filter { it is java.net.Inet4Address }
+                .ifEmpty { okhttp3.Dns.SYSTEM.lookup(hostname) }
+        }
+
         val streamOkHttp = OkHttpClient.Builder()
+            .dns(ipv4OnlyDns)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .addNetworkInterceptor { chain ->
