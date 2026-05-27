@@ -172,10 +172,11 @@ class MusicPlaybackService : MediaLibraryService() {
         // Fix: filter DNS results to IPv4 addresses only so the CDN request IP always
         // matches the `ip=` embedded in the URL.  Fall back to any address if no IPv4
         // record is available (shouldn't happen for googlevideo.com, but safe fallback).
-        val ipv4OnlyDns = okhttp3.Dns { hostname: String ->
-            okhttp3.Dns.SYSTEM.lookup(hostname)
-                .filter { it is java.net.Inet4Address }
-                .ifEmpty { okhttp3.Dns.SYSTEM.lookup(hostname) }
+        val ipv4OnlyDns = object : okhttp3.Dns {
+            override fun lookup(hostname: String): List<java.net.InetAddress> =
+                okhttp3.Dns.SYSTEM.lookup(hostname)
+                    .filter { it is java.net.Inet4Address }
+                    .ifEmpty { okhttp3.Dns.SYSTEM.lookup(hostname) }
         }
 
         val streamOkHttp = OkHttpClient.Builder()
