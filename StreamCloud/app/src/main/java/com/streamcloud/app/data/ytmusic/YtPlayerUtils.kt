@@ -345,14 +345,26 @@ object YtPlayerUtils {
                 }
             }
 
+            // MOBILE (useSignatureTimestamp=true) needs the sts integer from the player JS.
+            // Ensure the descrambler has fetched the JS before we build the request body —
+            // if we don't wait here, getSignatureTimestamp() returns null and the response
+            // contains only cipher-format streams which we cannot play.
+            if (client.useSignatureTimestamp) {
+                YtNSigDescrambler.warmUp()
+            }
+
             val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken, sonosSafe)
             when (result) {
                 is ClientResult.Success -> {
-                    // Only web-family clients require n-parameter descrambling.
-                    // ANDROID_VR, IOS, TVHTML5_SIMPLY_EMBEDDED_PLAYER return plain CDN URLs
-                    // where the n-param is already valid — matches Metrolist's needsNTransform logic.
+                    // Which clients need n-parameter descrambling?
+                    // Web-family and TVHTML5 are the obvious ones.
+                    // IOS and IPADOS also have n-param enforcement on the CDN — their resolved
+                    // URLs consistently 403 when n-descrambled=false (confirmed in device logs).
+                    // Skipping them when descramble fails avoids a guaranteed HEAD-403 round-trip.
+                    // ANDROID_VR variants return plain CDN URLs with a valid n-param — no descramble.
                     val needsNDescramble = client.useWebPoTokens ||
-                        client.clientName in setOf("WEB", "WEB_REMIX", "WEB_CREATOR", "TVHTML5")
+                        client.clientName in setOf("WEB", "WEB_REMIX", "WEB_CREATOR", "TVHTML5",
+                                                   "IOS", "IPADOS")
                     val candidateUrl = if (needsNDescramble) {
                         YtNSigDescrambler.descrambleUrl(result.info.url)
                     } else {
