@@ -5,6 +5,11 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import androidx.media3.common.Player
+import androidx.media3.session.CommandButton
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import com.streamcloud.app.R
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
@@ -63,6 +68,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
     @Volatile private var ytMusicCookieForStream: String = ""
+    @Volatile private var isCurrentLiked: Boolean = false
 
 
 
@@ -72,6 +78,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        setMediaNotificationProvider(MusicNotificationProvider(this))
 
         playerCache = DownloadCaches.playerCache(this)
         downloadCache = DownloadCaches.downloadCache(this)
@@ -103,6 +110,12 @@ class MusicPlaybackService : MediaLibraryService() {
                             else -> "UNKNOWN($state)"
                         }
                         AppLogger.i(TAG, "playback state → $label")
+                    }
+                    override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                        refreshLikedState()
+                    }
+                    override fun onRepeatModeChanged(repeatMode: Int) {
+                        session?.setCustomLayout(buildCustomLayout())
                     }
                 })
             }
@@ -359,6 +372,61 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
 
+    private fun buildCustomLayout(): List<CommandButton> {
+        val repeatMode = session?.player?.repeatMode ?: Player.REPEAT_MODE_OFF
+        val likeIcon = if (isCurrentLiked) R.drawable.ic_notif_fav_filled else R.drawable.ic_notif_fav
+        val repeatIcon = if (repeatMode == Player.REPEAT_MODE_ONE) R.drawable.ic_notif_repeat_one else R.drawable.ic_notif_repeat
+        val likeBtn = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+            .setIconResId(likeIcon)
+            .setSessionCommand(LIKE_COMMAND)
+            .setDisplayName(if (isCurrentLiked) "Unlike" else "Like")
+            .build()
+        val repeatBtn = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+            .setIconResId(repeatIcon)
+            .setSessionCommand(REPEAT_COMMAND)
+            .setDisplayName("Repeat")
+            .build()
+        return listOf(likeBtn, repeatBtn)
+    }
+
+    private fun refreshLikedState() {
+        ioScope.launch {
+            val url = session?.player?.currentMediaItem?.mediaId ?: return@launch
+            val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
+            isCurrentLiked = dao.isLiked(url).first() ?: false
+            session?.setCustomLayout(buildCustomLayout())
+        }
+    }
+
+    private suspend fun toggleLike() {
+        val s = session ?: return
+        val url = s.player.currentMediaItem?.mediaId ?: return
+        val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
+        val currentlyLiked = dao.isLiked(url).first() ?: false
+        if (currentlyLiked) {
+            dao.setLikedAt(url, null)
+        } else {
+            val existing = dao.byUrl(url)
+            if (existing != null) {
+                dao.setLikedAt(url, System.currentTimeMillis())
+            } else {
+                val meta = s.player.currentMediaItem?.mediaMetadata
+                dao.upsert(
+                    TrackEntity(
+                        url = url,
+                        title = meta?.title?.toString() ?: "",
+                        artist = meta?.artist?.toString() ?: "",
+                        durationSec = 0L,
+                        thumbnail = meta?.artworkUri?.toString(),
+                        likedAt = System.currentTimeMillis(),
+                    ),
+                )
+            }
+        }
+        isCurrentLiked = !currentlyLiked
+        s.setCustomLayout(buildCustomLayout())
+    }
+
     private inner class LibraryCallback : MediaLibrarySession.Callback {
 
         override fun onGetLibraryRoot(
@@ -482,6 +550,42 @@ class MusicPlaybackService : MediaLibraryService() {
                 fut.set(MediaSession.MediaItemsWithStartPosition(items, 0, 0))
             }
             return fut
+        }
+
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+                .buildUpon()
+                .add(LIKE_COMMAND)
+                .add(REPEAT_COMMAND)
+                .build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(sessionCommands)
+                .setCustomLayout(buildCustomLayout())
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            when (customCommand.customAction) {
+                ACTION_LIKE -> ioScope.launch { toggleLike() }
+                ACTION_REPEAT -> {
+                    val player = session.player
+                    player.repeatMode = when (player.repeatMode) {
+                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                        else -> Player.REPEAT_MODE_OFF
+                    }
+                    session.setCustomLayout(buildCustomLayout())
+                }
+            }
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
     }
 
@@ -673,8 +777,11 @@ class MusicPlaybackService : MediaLibraryService() {
         const val ON_REPEAT_ID   = "streamcloud_on_repeat"
         const val LIKED_ID       = "streamcloud_liked"
         const val DOWNLOADED_ID  = "streamcloud_downloaded"
-
-
         const val YT_PLAYLIST_PREFIX = "ytpl_"
+
+        const val ACTION_LIKE   = "com.streamcloud.app.action.like"
+        const val ACTION_REPEAT = "com.streamcloud.app.action.repeat"
+        val LIKE_COMMAND   = SessionCommand(ACTION_LIKE,   Bundle.EMPTY)
+        val REPEAT_COMMAND = SessionCommand(ACTION_REPEAT, Bundle.EMPTY)
     }
 }
