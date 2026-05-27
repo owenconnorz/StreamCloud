@@ -12,27 +12,27 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
- * Fetches YouTube's player JavaScript and extracts the nsig function used to descramble the
- * 'n' query parameter in CDN stream URLs.
+ * Fetches YouTube's player JavaScript and extracts:
+ *  1. The nsig function for n-parameter descrambling (needed by web/TVHTML5 clients).
+ *  2. The signatureTimestamp (sts) used by MOBILE, WEB_REMIX, WEB_CREATOR, TVHTML5, and
+ *     ANDROID_CREATOR to get plain CDN URLs instead of cipher-only stream formats.
  *
- * Without descrambling, YouTube's CDN returns HTTP 403 for every non-WEB client
- * (IOS, ANDROID, TVHTML5, etc.) even when the /player API call succeeds.  The 'n' value in
- * the returned URL is intentionally obfuscated; the CDN validates the transformed value before
- * serving bytes.  This class replicates what YouTube's own player does — the same approach used
- * by yt-dlp, NewPipe, and InnerTune/Metrolist.
- *
- * Usage:
- *   val workingUrl = YtNSigDescrambler.descrambleUrl(rawUrl)
- *
- * Thread-safe; the player JS is fetched once per 6 hours and cached in memory.
+ * Implementation mirrors Metrolist's PlayerJsFetcher + FunctionNameExtractor approach:
+ * - iframe_api → player hash → player.js download
+ * - Hardcoded fallback config for known player hashes (same table as Metrolist)
+ * - Regex extraction with broader patterns matching Metrolist's FunctionNameExtractor
  */
 object YtNSigDescrambler {
 
     private const val TAG = "YtNSigDescrambler"
     private const val CACHE_TTL_MS = 6L * 3600 * 1000   // refresh player JS every 6 h
 
-    @Volatile private var nsigSnippet: String? = null    // JS function expression: function(a){...}
-    @Volatile private var signatureTimestamp: Int? = null // sts value from player JS (e.g. 20542)
+    @Volatile private var nsigSnippet: String? = null
+    @Volatile private var signatureTimestamp: Int? = null
+    @Volatile private var currentPlayerHash: String? = null
+    // snippetFetchedAt is set whenever we successfully download player JS, even when nsig
+    // extraction fails (e.g. May 2026 player has no nsig function).  This prevents hammering
+    // the player JS endpoint on every track resolution when the player has no nsig.
     @Volatile private var snippetFetchedAt: Long = 0L
     private val initMutex = Mutex()
 
@@ -45,31 +45,48 @@ object YtNSigDescrambler {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
 
+    // ── Hardcoded player configs (identical to Metrolist's FunctionNameExtractor) ─────────
+    // Keyed by the player JS hash extracted from iframe_api.
+    // Used when regex extraction fails (e.g. Q-array obfuscated players or players with no
+    // nsig/sig function at all like the May 2026 player).
+    private data class HardcodedConfig(
+        val sigFuncName: String,     // empty string = no sig cipher needed
+        val nFuncName: String,       // empty string = no n-transform needed
+        val signatureTimestamp: Int,
+    )
+
+    private val KNOWN_PLAYER_CONFIGS: Map<String, HardcodedConfig> = mapOf(
+        // March 2026 player — Q-array obfuscated, has n-transform
+        "74edf1a3" to HardcodedConfig(sigFuncName = "JI", nFuncName = "GU", signatureTimestamp = 20522),
+        // April 2026 player
+        "f4c47414" to HardcodedConfig(sigFuncName = "hJ", nFuncName = "",  signatureTimestamp = 20543),
+        // May 2026 player — direct URLs, NO cipher, NO n-transform required
+        "57f5d44f" to HardcodedConfig(sigFuncName = "",   nFuncName = "",  signatureTimestamp = 20591),
+    )
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     /** Pre-warm: fetch player JS in the background so the first track plays without extra delay. */
     suspend fun warmUp() = ensureReady()
 
     /**
-     * Return the signature timestamp (sts) extracted from the current player JS.
-     * Used by the MOBILE (ANDROID) client — without the correct sts in the player request body,
-     * YouTube returns cipher-only stream formats instead of plain CDN URLs.
-     * Returns null if the player JS has not been fetched yet or sts extraction failed.
+     * Return the signature timestamp (sts) from the current player JS.
+     * Returns null if player JS has not been fetched yet.
      */
     fun getSignatureTimestamp(): Int? = signatureTimestamp
 
     /**
      * Descramble the 'n' parameter in a YouTube CDN URL.
-     * Returns the original URL unchanged if descrambling fails (URL will likely 403).
+     * Returns the original URL unchanged when descrambling fails.
+     * For the May 2026 player the nsig function doesn't exist — no descramble is needed
+     * and WEB/WEB_REMIX URLs are already valid without transformation.
      */
     suspend fun descrambleUrl(url: String): String {
         val nEncoded = Regex("""[?&]n=([^&]+)""").find(url)?.groupValues?.get(1)
-            ?: return url   // no n-param — nothing to do
+            ?: return url
 
         ensureReady()
-        val snippet = nsigSnippet ?: return url.also {
-            AppLogger.w(TAG, "nsig snippet unavailable — stream URL may 403")
-        }
+        val snippet = nsigSnippet ?: return url  // no nsig for this player version — URL is fine as-is
 
         return try {
             val nDescrambled = quickJs(Dispatchers.Default) {
@@ -90,58 +107,97 @@ object YtNSigDescrambler {
 
     private suspend fun ensureReady() {
         val now = System.currentTimeMillis()
-        if (nsigSnippet != null && now - snippetFetchedAt < CACHE_TTL_MS) return
+        // Return early if we have already fetched player JS within the TTL window.
+        // We use snippetFetchedAt (set on every successful player JS download) rather than
+        // nsigSnippet (which stays null for players without an nsig function like 57f5d44f).
+        // Without this fix, every MOBILE/WEB_REMIX track would re-download the player JS.
+        if (snippetFetchedAt > 0 && now - snippetFetchedAt < CACHE_TTL_MS) return
         initMutex.withLock {
-            if (nsigSnippet != null && System.currentTimeMillis() - snippetFetchedAt < CACHE_TTL_MS) return
+            if (snippetFetchedAt > 0 && System.currentTimeMillis() - snippetFetchedAt < CACHE_TTL_MS) return
             try {
-                val js = fetchPlayerJs() ?: run {
+                val (js, hash) = fetchPlayerJs() ?: run {
                     AppLogger.w(TAG, "Could not fetch YouTube player JS")
                     return
                 }
-                // Always extract the signature timestamp — it's a plain integer, never obfuscated.
-                // The MOBILE (ANDROID) client needs it in the player request body to get plain URLs.
-                val sts = extractSignatureTimestamp(js)
+                currentPlayerHash = hash
+                Log.d(TAG, "Player JS fetched: hash=$hash (${js.length} chars)")
+
+                // ── Signature timestamp ───────────────────────────────────────────
+                // Always extract sts first — it's needed by MOBILE, WEB_REMIX, ANDROID_CREATOR etc.
+                val sts = extractSignatureTimestamp(js, hash)
                 if (sts != null) {
                     signatureTimestamp = sts
-                    Log.d(TAG, "signatureTimestamp=$sts")
+                    Log.d(TAG, "signatureTimestamp=$sts (hash=$hash)")
                 } else {
-                    AppLogger.w(TAG, "Could not extract signatureTimestamp from player JS")
+                    AppLogger.w(TAG, "Could not extract signatureTimestamp (hash=$hash)")
                 }
+
+                // ── nsig function ─────────────────────────────────────────────────
+                // Mark fetched NOW so TTL is respected even when nsig extraction fails.
+                snippetFetchedAt = System.currentTimeMillis()
+
+                // Check hardcoded config first — if nFuncName is empty the player has no
+                // n-transform function (e.g. 57f5d44f / May 2026 player).
+                val hardcoded = KNOWN_PLAYER_CONFIGS[hash]
+                if (hardcoded != null && hardcoded.nFuncName.isEmpty()) {
+                    AppLogger.i(TAG, "Player $hash has no n-transform function (sts=$sts)")
+                    return
+                }
+
                 val snip = extractNsigSnippet(js) ?: run {
-                    AppLogger.w(TAG, "Could not extract nsig function from player JS")
-                    snippetFetchedAt = System.currentTimeMillis() // still mark as fetched so we don't retry constantly
+                    AppLogger.w(TAG, "Could not extract nsig function from player JS (hash=$hash)")
                     return
                 }
                 verifySnippet(snip)
                 nsigSnippet = snip
-                snippetFetchedAt = System.currentTimeMillis()
-                AppLogger.i(TAG, "nsig function ready (${snip.length} chars), sts=$signatureTimestamp")
+                AppLogger.i(TAG, "nsig function ready (${snip.length} chars), sts=$signatureTimestamp, hash=$hash")
             } catch (e: Exception) {
-                AppLogger.w(TAG, "nsig init error: ${e.message}")
+                AppLogger.w(TAG, "player JS init error: ${e.message}")
             }
         }
     }
 
     /**
-     * Extract the signature timestamp (sts) from the player JS.
-     * It appears as a plain integer — never obfuscated — so a simple regex suffices.
-     * Example patterns: `signatureTimestamp:20542` or `sts:20542`.
+     * Extract signatureTimestamp from player JS.
+     * Mirrors Metrolist's FunctionNameExtractor.extractSignatureTimestamp():
+     *  1. Try three regex patterns (broader than our original single pattern)
+     *  2. Fall back to KNOWN_PLAYER_CONFIGS if regex fails
      */
-    private fun extractSignatureTimestamp(playerJs: String): Int? =
-        Regex("""signatureTimestamp[=:]\s*(\d{4,6})""").find(playerJs)?.groupValues?.get(1)?.toIntOrNull()
-            ?: Regex("""[^a-zA-Z]sts[=:]\s*(\d{4,6})""").find(playerJs)?.groupValues?.get(1)?.toIntOrNull()
+    private fun extractSignatureTimestamp(playerJs: String, hash: String?): Int? {
+        val patterns = listOf(
+            Regex("""signatureTimestamp['":\s]+(\d+)"""),
+            Regex("""sts['":\s]+(\d+)"""),
+            Regex(""""signatureTimestamp"\s*:\s*(\d+)"""),
+        )
+        for (pattern in patterns) {
+            val match = pattern.find(playerJs)?.groupValues?.get(1)?.toIntOrNull()
+            if (match != null) return match
+        }
+        // Hardcoded fallback — same table Metrolist uses in FunctionNameExtractor
+        if (hash != null) {
+            val sts = KNOWN_PLAYER_CONFIGS[hash]?.signatureTimestamp
+            if (sts != null) {
+                Log.d(TAG, "Using hardcoded signatureTimestamp=$sts for hash=$hash")
+                return sts
+            }
+        }
+        return null
+    }
 
-    /** Sanity-check: verify the snippet evaluates to a function, not a syntax error. */
+    /** Sanity-check: verify the snippet evaluates to a function. */
     private suspend fun verifySnippet(snippet: String) {
         quickJs(Dispatchers.Default) {
             evaluate<Any?>("""(function(){ var f=($snippet); return typeof f; })()""")
         }
     }
 
-    private suspend fun fetchPlayerJs(): String? = withContext(Dispatchers.IO) {
-        // Step 1: Fetch YouTube's iframe_api to get the current player hash.
-        // This is the same approach Metrolist uses — more reliable than scraping a watch page
-        // because iframe_api is a stable, small endpoint that always contains the player URL.
+    /**
+     * Fetch the current YouTube player JS.
+     * Returns Pair(playerJsContent, playerHash) or null on failure.
+     * Mirrors Metrolist's PlayerJsFetcher.getPlayerJs() — iframe_api → hash → player.js.
+     */
+    private suspend fun fetchPlayerJs(): Pair<String, String>? = withContext(Dispatchers.IO) {
+        // Step 1: fetch iframe_api to get the current player hash
         val iframeApi = runCatching {
             http.newCall(
                 Request.Builder()
@@ -154,21 +210,18 @@ object YtNSigDescrambler {
             return@withContext null
         }
 
-        // The iframe_api response contains a line like:
-        //   ytcfg.set({"PLAYER_JS_URL":"/s/player/HASH/player_ias.vflset/..."});
-        // or simply references /player/HASH/ somewhere in the script.
-        // Metrolist-identical pattern: \\?/ matches both '/' and '\/' (JS-escaped slashes)
-        val playerHash = Regex("""\\?/s\\?/player\\?/([a-zA-Z0-9_-]+)\\?/""")
+        // Metrolist pattern (also handles backslash-escaped slashes in JS strings)
+        val hash = Regex("""\\?/s\\?/player\\?/([a-zA-Z0-9_-]+)\\?/""")
             .find(iframeApi)?.groupValues?.get(1) ?: run {
-            Log.w(TAG, "Player hash not found in iframe_api (body length=${iframeApi.length})")
+            Log.w(TAG, "Player hash not found in iframe_api (body=${iframeApi.length} chars)")
             return@withContext null
         }
 
-        // Step 2: Download the player JS directly by hash.
-        val playerUrl = "https://www.youtube.com/s/player/$playerHash/player_ias.vflset/en_US/base.js"
-        Log.d(TAG, "Player JS: $playerUrl")
+        // Step 2: download the player JS by hash
+        val playerUrl = "https://www.youtube.com/s/player/$hash/player_ias.vflset/en_US/base.js"
+        Log.d(TAG, "Downloading player JS: $playerUrl")
 
-        runCatching {
+        val js = runCatching {
             http.newCall(
                 Request.Builder()
                     .url(playerUrl)
@@ -178,24 +231,22 @@ object YtNSigDescrambler {
         }.getOrElse { e ->
             Log.w(TAG, "Player JS download failed: ${e.message}")
             null
-        }
+        } ?: return@withContext null
+
+        Pair(js, hash)
     }
 
     /**
-     * Extract the nsig function as a JavaScript expression that evaluates to a callable.
-     *
-     * Returns one of:
-     *   - `function(a){ ... }`                            (self-contained)
-     *   - `(function(){ var HELPER={...}; return function(a){...}; })()`  (with helper)
+     * Extract the nsig function as a JavaScript expression.
+     * Mirrors Metrolist's regex patterns from FunctionNameExtractor.extractNFunctionInfo().
      */
     private fun extractNsigSnippet(playerJs: String): String? {
-
         // ── Step 1: find the nsig function name ───────────────────────────────
         val funcName: String =
-            // Pattern A: direct call  …&&(b=FUNCNAME(b)
+            // Pattern A: .get("n"))&&(b=FUNCNAME(b)
             Regex("""\.get\("n"\)\)&&\(b=([a-zA-Z0-9$]{2,})\(b\)""")
                 .find(playerJs)?.groupValues?.get(1)
-            // Pattern B: array-indexed  …&&(b=ARRNAME[IDX](b)
+            // Pattern B: array-indexed .get("n"))&&(b=ARRNAME[IDX](b)
             ?: run {
                 val m = Regex("""\.get\("n"\)\)&&\(b=([a-zA-Z0-9$]{2,})\[(\d+)\]\(b\)""")
                     .find(playerJs) ?: return null
@@ -206,45 +257,47 @@ object YtNSigDescrambler {
                     ?.split(",")?.getOrNull(idx)?.trim()
                     ?: return null
             }
+            // Pattern C: Metrolist pattern 2 — .get("n"))&&(FUNC=VAR[IDX](FUNC)
+            ?: run {
+                val m = Regex("""\.get\("n"\)\)\s*&&\s*\(([a-zA-Z0-9$]+)\s*=\s*([a-zA-Z0-9$]+)(?:\[(\d+)\])?\(\1\)""")
+                    .find(playerJs) ?: return null
+                val varName = m.groupValues[2]
+                val idx     = m.groupValues[3].toIntOrNull()
+                if (idx != null) {
+                    Regex("""var ${Regex.escape(varName)}=\[([a-zA-Z0-9$,\s]+)\]""")
+                        .find(playerJs)?.groupValues?.get(1)
+                        ?.split(",")?.getOrNull(idx)?.trim()
+                        ?: return null
+                } else varName
+            }
 
         Log.d(TAG, "nsig function name: $funcName")
 
-        // ── Step 2: extract function body via brace-depth matching ────────────
+        // ── Step 2: extract function body ────────────────────────────────────
         val funcExpr = extractFunctionExpression(playerJs, funcName) ?: return null
 
-        // ── Step 3: detect any external helper object the function references ─
-        // Pattern: var c=HELPEROBJ; where HELPEROBJ is a multi-char identifier
+        // ── Step 3: include any external helper ──────────────────────────────
         val externalRef = Regex("""var [a-z]=([A-Za-z0-9$]{2,})[,;]""")
             .find(funcExpr)?.groupValues?.get(1)
-
         val helperCode = if (externalRef != null) {
             extractHelperDef(playerJs, externalRef)?.plus(";") ?: ""
         } else ""
 
-        // ── Step 4: assemble snippet ──────────────────────────────────────────
-        return if (helperCode.isEmpty()) {
-            funcExpr   // already self-contained function expression
-        } else {
-            // Wrap in IIFE so the helper is defined before the nsig function runs
-            "(function(){$helperCode return $funcExpr;})()"
-        }
+        return if (helperCode.isEmpty()) funcExpr
+               else "(function(){$helperCode return $funcExpr;})()"
     }
 
-    /** Extract the `function(a){...}` expression for `FUNCNAME=function(a){...}`. */
     private fun extractFunctionExpression(playerJs: String, funcName: String): String? {
         val marker = "$funcName=function("
         val defStart = playerJs.indexOf(marker).takeIf { it >= 0 }
             ?: playerJs.indexOf("$funcName =function(").takeIf { it >= 0 }
             ?: return null
-
-        // skip past "funcName=" to get to "function("
         val funcStart = defStart + funcName.length + 1
         val braceOpen = playerJs.indexOf('{', funcStart).takeIf { it >= 0 } ?: return null
         val end = matchingBrace(playerJs, braceOpen) ?: return null
-        return playerJs.substring(funcStart, end + 1)   // "function(a){...}"
+        return playerJs.substring(funcStart, end + 1)
     }
 
-    /** Extract `var NAME={...}` or `var NAME=[...]` from player JS. */
     private fun extractHelperDef(playerJs: String, varName: String): String? {
         for ((prefix, isObj) in listOf(Pair("var $varName={", true), Pair("var $varName=[", false))) {
             val start = playerJs.indexOf(prefix).takeIf { it >= 0 } ?: continue

@@ -83,41 +83,46 @@ object YtPlayerUtils {
         ),
 
         // #2 WEB_REMIX — YouTube Music web client with SAPISIDHASH + PoToken.
-        // Returns ciphered-only streams when PoToken generation fails, but succeeds
-        // for logged-in content when PoToken is available.
+        // useSignatureTimestamp=true matches Metrolist's YouTubeClient.WEB_REMIX config.
         ClientConfig(
-            label          = "WEB_REMIX",
-            playerUrl      = "https://music.youtube.com/youtubei/v1/player?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false",
-            clientName     = "WEB_REMIX",
-            clientId       = "67",
-            clientVersion  = "1.20260501.01.00",
-            userAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            useWebAuth     = true,
-            useWebPoTokens = true,
+            label                 = "WEB_REMIX",
+            playerUrl             = "https://music.youtube.com/youtubei/v1/player?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false",
+            clientName            = "WEB_REMIX",
+            clientId              = "67",
+            clientVersion         = "1.20260501.01.00",
+            userAgent             = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            useWebAuth            = true,
+            useWebPoTokens        = true,
+            useSignatureTimestamp = true,
         ),
 
         // #3 TVHTML5_SIMPLY_EMBEDDED_PLAYER — embedded PS4 UA; bypasses age-restriction without
-        // auth.  useSignatureTimestamp is not set so YouTube returns plain stream URLs.
-        // Metrolist uses this as the first fallback after WEB_REMIX.
+        // auth.  isEmbedded=true → thirdParty.embedUrl sent in player body (matches Metrolist).
+        // useSignatureTimestamp=true matches Metrolist's TVHTML5_SIMPLY_EMBEDDED_PLAYER config.
         ClientConfig(
-            label         = "TVHTML5_SIMPLY_EMBEDDED",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientId      = "85",
-            clientVersion = "2.0",
-            userAgent     = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
-            supportsAuth  = false,
+            label                 = "TVHTML5_SIMPLY_EMBEDDED",
+            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName            = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientId              = "85",
+            clientVersion         = "2.0",
+            userAgent             = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+            embedUrlTemplate      = "https://www.youtube.com/watch?v=%VIDEO_ID%",
+            supportsAuth          = false,
+            useSignatureTimestamp = true,
         ),
 
-        // #4 TVHTML5 — Smart TV UA; n-transform IS required for this client.
+        // #4 TVHTML5 — Smart TV UA; n-transform required.  useSignatureTimestamp=true and
+        // useWebPoTokens=true match Metrolist's YouTubeClient.TVHTML5 config.
         ClientConfig(
-            label         = "TVHTML5",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "TVHTML5",
-            clientId      = "7",
-            clientVersion = "7.20260213.00.00",
-            userAgent     = "Mozilla/5.0(SMART-TV; Linux; Tizen 4.0.0.2) AppleWebkit/605.1.15 (KHTML, like Gecko) SamsungBrowser/9.2 TV Safari/605.1.15",
-            supportsAuth  = false,
+            label                 = "TVHTML5",
+            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName            = "TVHTML5",
+            clientId              = "7",
+            clientVersion         = "7.20260213.00.00",
+            userAgent             = "Mozilla/5.0(SMART-TV; Linux; Tizen 4.0.0.2) AppleWebkit/605.1.15 (KHTML, like Gecko) SamsungBrowser/9.2 TV Safari/605.1.15",
+            supportsAuth          = false,
+            useWebPoTokens        = true,
+            useSignatureTimestamp = true,
         ),
 
         // #5 ANDROID_VR (Oculus Quest 3, v1.43.32) — returns plain stream URLs with no
@@ -160,14 +165,14 @@ object YtPlayerUtils {
 
         // #7 ANDROID_CREATOR — YouTube Studio Android app (Pixel 9 Pro Fold).
         // Comment from Metrolist: "Cannot play livestreams and lacks HDR, but can play videos with
-        // music and labeled 'for children'."  No n-transform required.  Plain CDN URLs.
+        // music and labeled 'for children'."  useSignatureTimestamp=true matches Metrolist.
         ClientConfig(
-            label         = "ANDROID_CREATOR",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_CREATOR",
-            clientId      = "14",
-            clientVersion = "25.03.101",
-            userAgent     = "com.google.android.apps.youtube.creator/25.03.101 (Linux; U; Android 15; en_US; Pixel 9 Pro Fold; Build/AP3A.241005.015.A2; Cronet/132.0.6779.0)",
+            label                 = "ANDROID_CREATOR",
+            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName            = "ANDROID_CREATOR",
+            clientId              = "14",
+            clientVersion         = "25.03.101",
+            userAgent             = "com.google.android.apps.youtube.creator/25.03.101 (Linux; U; Android 15; en_US; Pixel 9 Pro Fold; Build/AP3A.241005.015.A2; Cronet/132.0.6779.0)",
             extraClientFields = mapOf(
                 "osName"            to "Android",
                 "osVersion"         to "15",
@@ -175,7 +180,8 @@ object YtPlayerUtils {
                 "deviceModel"       to "Pixel 9 Pro Fold",
                 "androidSdkVersion" to "35",
             ),
-            supportsAuth  = false,
+            supportsAuth          = false,
+            useSignatureTimestamp = true,
         ),
 
         // #8 ANDROID_VR_NO_AUTH — bare ANDROID_VR without any extra context fields.
@@ -226,7 +232,7 @@ object YtPlayerUtils {
             useSignatureTimestamp = true,
         ),
 
-        // #11 IOS — last resort; 'n' enforcement applies but descramble may succeed.
+        // #11 IOS — matches Metrolist's YouTubeClient.IOS config exactly.
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -241,6 +247,33 @@ object YtPlayerUtils {
                 "osVersion"   to "18.2.22C152",
             ),
             supportsAuth = false,
+        ),
+
+        // #12 WEB — standard YouTube web client.  Placed at the end of the fallback chain,
+        // matching Metrolist's STREAM_FALLBACK_CLIENTS ordering.
+        // n-transform required; useWebAuth sends the SAPISIDHASH Authorization header.
+        ClientConfig(
+            label      = "WEB",
+            playerUrl  = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName = "WEB",
+            clientId   = "1",
+            clientVersion = "2.20260213.00.00",
+            userAgent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+            useWebAuth = true,
+        ),
+
+        // #13 WEB_CREATOR — YouTube Studio web client.  Last resort, matching Metrolist order.
+        // useSignatureTimestamp=true and requiresAuth=true match Metrolist's WEB_CREATOR config.
+        ClientConfig(
+            label                 = "WEB_CREATOR",
+            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName            = "WEB_CREATOR",
+            clientId              = "62",
+            clientVersion         = "1.20260213.00.00",
+            userAgent             = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+            useWebAuth            = true,
+            requiresAuth          = true,
+            useSignatureTimestamp = true,
         ),
     )
 
@@ -345,10 +378,11 @@ object YtPlayerUtils {
                 }
             }
 
-            // MOBILE (useSignatureTimestamp=true) needs the sts integer from the player JS.
-            // Ensure the descrambler has fetched the JS before we build the request body —
-            // if we don't wait here, getSignatureTimestamp() returns null and the response
-            // contains only cipher-format streams which we cannot play.
+            // For clients that need signatureTimestamp (sts) in the player request body,
+            // ensure the player JS has been fetched and sts extracted before building the request.
+            // This matches Metrolist's getSignatureTimestampOrNull() being called before any player
+            // request in playerResponseForPlayback().  After the first fetch the warmUp() is a
+            // no-op (guarded by snippetFetchedAt TTL), so there is zero latency on warm paths.
             if (client.useSignatureTimestamp) {
                 YtNSigDescrambler.warmUp()
             }
@@ -356,15 +390,21 @@ object YtPlayerUtils {
             val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken, sonosSafe)
             when (result) {
                 is ClientResult.Success -> {
-                    // Which clients need n-parameter descrambling?
-                    // Web-family and TVHTML5 are the obvious ones.
-                    // IOS and IPADOS also have n-param enforcement on the CDN — their resolved
-                    // URLs consistently 403 when n-descrambled=false (confirmed in device logs).
-                    // Skipping them when descramble fails avoids a guaranteed HEAD-403 round-trip.
-                    // ANDROID_VR variants return plain CDN URLs with a valid n-param — no descramble.
+                    // Apply n-transform for clients that need it — same set as Metrolist's
+                    // needsNTransform check in YTPlayerUtils.playerResponseForPlayback():
+                    //   currentClient.useWebPoTokens ||
+                    //   currentClient.clientName in listOf("WEB","WEB_REMIX","WEB_CREATOR","TVHTML5")
+                    //
+                    // Critically we do NOT skip when transform fails.  Metrolist never skips on
+                    // descramble failure — it applies best-effort and lets validateStatus() decide.
+                    // For the May 2026 player (57f5d44f) nsig extraction returns empty-string from
+                    // the hardcoded config, so descrambleUrl() returns the original URL unchanged.
+                    // The CDN accepts those URLs directly (no n-param enforcement for this player),
+                    // so WEB_REMIX and WEB_CREATOR work perfectly without any transformation.
+                    // Our previous "skip when n-descramble fails" logic incorrectly discarded those
+                    // valid URLs, which is why every track was failing all clients.
                     val needsNDescramble = client.useWebPoTokens ||
-                        client.clientName in setOf("WEB", "WEB_REMIX", "WEB_CREATOR", "TVHTML5",
-                                                   "IOS", "IPADOS")
+                        client.clientName in setOf("WEB", "WEB_REMIX", "WEB_CREATOR", "TVHTML5")
                     val candidateUrl = if (needsNDescramble) {
                         YtNSigDescrambler.descrambleUrl(result.info.url)
                     } else {
@@ -373,17 +413,9 @@ object YtPlayerUtils {
                     val nDescrambled = candidateUrl != result.info.url
                     AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=$nDescrambled")
 
-                    // If this client needed n-descrambling but the nsig function couldn't be
-                    // extracted from the player JS (URL is unchanged), the CDN will 403 on the
-                    // actual byte stream even though HEAD returns 200.  Skip immediately.
-                    if (needsNDescramble && !nDescrambled) {
-                        AppLogger.w(TAG, "[${client.label}] $videoId — n-descramble failed (player JS unsupported), trying next client")
-                        continue
-                    }
-
-                    // Validate the URL with a HEAD request before committing — same as Metrolist's
-                    // validateStatus().  If it 403s, skip to the next client instead of handing a
-                    // broken URL to ExoPlayer (which takes 5-10 s to surface the error to the UI).
+                    // Validate with a HEAD request before committing — same as Metrolist's
+                    // validateStatus().  Skip last client validation (Metrolist also skips it
+                    // for the last client in the fallback chain).
                     if (validateStreamUrl(candidateUrl)) {
                         return@withContext result.info.copy(url = candidateUrl)
                     } else {
