@@ -62,9 +62,10 @@ object YtNSigDescrambler {
         "f4c47414" to HardcodedConfig(sigFuncName = "hJ", nFuncName = "",  signatureTimestamp = 20543),
         // May 2026 player — direct URLs, NO cipher, NO n-transform required
         "57f5d44f" to HardcodedConfig(sigFuncName = "",   nFuncName = "",  signatureTimestamp = 20591),
-        // May/Jun 2026 player (c2f7551f) — same as 57f5d44f: direct URLs, no cipher, no n-transform
-        // sts confirmed 20592 via regex; Etr() is a HLS path normalizer, not an n-descrambler.
-        "c2f7551f" to HardcodedConfig(sigFuncName = "",   nFuncName = "",  signatureTimestamp = 20592),
+        // c2f7551f intentionally NOT listed here — CDN evidence (IOS/WEB_CREATOR 403 with
+        // n-descrambled=false) shows this player DOES enforce the n-parameter despite earlier
+        // assumptions.  Omitting it forces live regex extraction of the nsig function from
+        // the downloaded player JS so the n-param is correctly descrambled.
     )
 
     // ── Public API ────────────────────────────────────────────────────────────
