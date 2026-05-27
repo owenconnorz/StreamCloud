@@ -139,11 +139,6 @@ fun YtPlaylistScreen(
 
 
 
-                scope.launch {
-                    com.streamcloud.app.data.ytmusic.StreamUrlCache.warmup(
-                        fresh.map { it.videoId },
-                    )
-                }
             }
         } else if (cached == null) {
             tracks = emptyList()
