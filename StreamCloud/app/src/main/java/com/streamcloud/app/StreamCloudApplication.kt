@@ -52,6 +52,7 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
 
         com.lagradost.cloudstream3.installPrefs(this)
         com.lagradost.cloudstream3.extractors.registerAllExtractors()
+        com.lagradost.cloudstream3.extractors.registerExtraExtractors()
 
 
 
