@@ -370,20 +370,29 @@ object YtPlayerUtils {
             // the CDN URL — this is REQUIRED: without pot= the CDN always returns 403 for
             // WEB_REMIX streams (mirrors Metrolist YTPlayerUtils.kt line 294–302).
             var poTokenResult: com.streamcloud.app.data.ytmusic.potoken.PoTokenResult? = null
-            if (client.useWebPoTokens && sessionId != null) {
-                val ctx = appContext
-                if (ctx != null) {
-                    try {
-                        poTokenResult = poTokenGenerator.getWebClientPoToken(ctx, videoId, sessionId)
-                        if (poTokenResult == null) {
-                            AppLogger.w(TAG, "[${client.label}] PoToken returned null (WebView unavailable?)")
-                        } else {
-                            Log.d(TAG, "[${client.label}] PoToken generated ok")
-                        }
-                    } catch (e: Exception) {
-                        AppLogger.w(TAG, "[${client.label}] PoToken failed: ${e.message}")
-                    }
+            if (client.useWebPoTokens) {
+                if (sessionId == null) {
+                    AppLogger.w(TAG, "[${client.label}] skipped — visitorData unavailable (PoToken needs session)")
+                    continue
                 }
+                val ctx = appContext
+                if (ctx == null) {
+                    AppLogger.w(TAG, "[${client.label}] skipped — app context unavailable for PoToken")
+                    continue
+                }
+                try {
+                    poTokenResult = poTokenGenerator.getWebClientPoToken(ctx, videoId, sessionId)
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "[${client.label}] PoToken failed: ${e.message}")
+                }
+                if (poTokenResult == null) {
+                    // Without PoToken, WEB_REMIX/TVHTML5 stream URLs always 403 at CDN level
+                    // even if the player API returns a valid response.  Skip rather than
+                    // caching a URL that ExoPlayer will reject.
+                    AppLogger.w(TAG, "[${client.label}] skipped — PoToken unavailable (CDN would 403 without pot=)")
+                    continue
+                }
+                Log.d(TAG, "[${client.label}] PoToken generated ok")
             }
 
             // For clients that need signatureTimestamp (sts) in the player request body,
