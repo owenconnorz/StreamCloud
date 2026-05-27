@@ -413,10 +413,24 @@ object YtPlayerUtils {
                     val nDescrambled = candidateUrl != result.info.url
                     AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=$nDescrambled")
 
-                    // Validate with a HEAD request before committing — same as Metrolist's
-                    // validateStatus().  Skip last client validation (Metrolist also skips it
-                    // for the last client in the fallback chain).
-                    if (validateStreamUrl(candidateUrl)) {
+                    // Validate with a HEAD request before committing to this URL.
+                    //
+                    // SKIP for authenticated web clients (WEB, WEB_CREATOR, WEB_REMIX):
+                    // These clients generate session-signed CDN URLs.  The URL is perfectly
+                    // valid for ExoPlayer (which sends proper User-Agent + Range headers) but
+                    // our bare unauthenticated HEAD probe often 403s because the CDN rejects
+                    // headless/bot-like requests for premium/login-required content.
+                    // Skipping HEAD validation for these clients lets ExoPlayer attempt the
+                    // URL directly — if it genuinely fails, ExoPlayer reports the error anyway.
+                    //
+                    // KEEP for unauthenticated clients (ANDROID_VR, ANDROID_TESTSUITE, etc.)
+                    // where the CDN URL should be freely accessible and HEAD validation
+                    // filters out bad URLs early without bothering ExoPlayer.
+                    val skipHeadValidation = client.useWebAuth || client.requiresAuth
+                    if (skipHeadValidation || validateStreamUrl(candidateUrl)) {
+                        if (skipHeadValidation) {
+                            AppLogger.i(TAG, "[${client.label}] $videoId — skipping HEAD validation (auth client), passing to ExoPlayer")
+                        }
                         return@withContext result.info.copy(url = candidateUrl)
                     } else {
                         AppLogger.w(TAG, "[${client.label}] $videoId — URL failed HEAD validation (403), trying next client")
