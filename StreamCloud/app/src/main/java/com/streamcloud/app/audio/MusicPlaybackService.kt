@@ -165,16 +165,43 @@ class MusicPlaybackService : MediaLibraryService() {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .addNetworkInterceptor { chain ->
-                // Only attach the YTM browser cookie to music.youtube.com API requests.
-                // CDN requests (googlevideo.com, rr*.googlevideo.com, etc.) are pre-signed
-                // via URL parameters — sending a logged-in cookie there can cause 403s
-                // because the URL signature was generated for an unauthenticated session.
+                val req = chain.request()
                 val cookie = ytMusicCookieForStream
-                val host = chain.request().url.host
-                val req = if (cookie.isNotBlank() && host.endsWith("music.youtube.com"))
-                    chain.request().newBuilder().header("Cookie", cookie).build()
-                else chain.request()
-                chain.proceed(req)
+                val host = req.url.host
+                val builder = req.newBuilder()
+
+                if (cookie.isNotBlank()) {
+                    when {
+                        // music.youtube.com API requests — always send cookie + browser headers.
+                        host.endsWith("music.youtube.com") -> {
+                            builder.header("Cookie", cookie)
+                                   .header("Origin", "https://music.youtube.com")
+                                   .header("Referer", "https://music.youtube.com/")
+                        }
+                        // googlevideo.com CDN — only send cookie for WEB_REMIX / PoToken URLs
+                        // (identified by the presence of a pot= query parameter).
+                        // WEB_REMIX generates session-authenticated CDN URLs: the user's cookie
+                        // must accompany the request, otherwise the CDN returns 403 even when
+                        // pot= is present.  Unauthenticated client URLs (ANDROID_VR etc.) must
+                        // NOT receive cookies as their URLs were signed for anonymous access.
+                        host.contains("googlevideo.com") &&
+                            req.url.queryParameter("pot") != null -> {
+                            builder.header("Cookie", cookie)
+                                   .header("Origin", "https://music.youtube.com")
+                                   .header("Referer", "https://music.youtube.com/")
+                        }
+                    }
+                }
+
+                // X-Goog-Visitor-Id ties the CDN request to the visitor session that the
+                // PoToken was generated for — without it the CDN cannot correlate pot= to a
+                // valid session and returns 403.
+                val vd = YtPlayerUtils.cachedVisitorData
+                if (vd != null) {
+                    builder.header("X-Goog-Visitor-Id", vd)
+                }
+
+                chain.proceed(builder.build())
             }
             .build()
 
