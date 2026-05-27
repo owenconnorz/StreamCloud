@@ -117,6 +117,9 @@ object YtNSigDescrambler {
             try {
                 val (js, hash) = fetchPlayerJs() ?: run {
                     AppLogger.w(TAG, "Could not fetch YouTube player JS")
+                    // Still update snippetFetchedAt so we don't hammer the network on every
+                    // subsequent warmUp() call when the fetch consistently fails.
+                    snippetFetchedAt = System.currentTimeMillis()
                     return
                 }
                 currentPlayerHash = hash
@@ -134,23 +137,31 @@ object YtNSigDescrambler {
 
                 // ── nsig function ─────────────────────────────────────────────────
                 // Mark fetched NOW so TTL is respected even when nsig extraction fails.
+                // Without this, repeated warmUp() calls hammer the player JS endpoint when
+                // the player has no nsig function or when regex extraction fails.
                 snippetFetchedAt = System.currentTimeMillis()
 
-                // Check hardcoded config first — if nFuncName is empty the player has no
-                // n-transform function (e.g. 57f5d44f / May 2026 player).
+                // Check hardcoded config to see if this player TRULY has no n-transform.
+                // A player TRULY has no n-transform only when BOTH sigFuncName AND nFuncName
+                // are empty (like 57f5d44f / May 2026 player — direct URLs, no cipher at all).
+                // f4c47414 has nFuncName="" meaning "extract via regex", NOT "no n-func".
+                // Only skip extraction when we're certain this is a "direct URL" player.
                 val hardcoded = KNOWN_PLAYER_CONFIGS[hash]
-                if (hardcoded != null && hardcoded.nFuncName.isEmpty()) {
-                    AppLogger.i(TAG, "Player $hash has no n-transform function (sts=$sts)")
+                val isDirectUrlPlayer = hardcoded != null
+                    && hardcoded.sigFuncName.isEmpty()
+                    && hardcoded.nFuncName.isEmpty()
+                if (isDirectUrlPlayer) {
+                    AppLogger.i(TAG, "Player $hash is a direct-URL player (no cipher, no n-transform)")
                     return
                 }
 
                 val snip = extractNsigSnippet(js) ?: run {
-                    AppLogger.w(TAG, "Could not extract nsig function from player JS (hash=$hash)")
+                    AppLogger.w(TAG, "nsig extraction failed for hash=$hash (n-transform unavailable)")
                     return
                 }
                 verifySnippet(snip)
                 nsigSnippet = snip
-                AppLogger.i(TAG, "nsig function ready (${snip.length} chars), sts=$signatureTimestamp, hash=$hash")
+                AppLogger.i(TAG, "nsig ready (${snip.length} chars), sts=$signatureTimestamp, hash=$hash")
             } catch (e: Exception) {
                 AppLogger.w(TAG, "player JS init error: ${e.message}")
             }
@@ -242,34 +253,45 @@ object YtNSigDescrambler {
      */
     private fun extractNsigSnippet(playerJs: String): String? {
         // ── Step 1: find the nsig function name ───────────────────────────────
+        // All 5 n-function patterns from Metrolist's FunctionNameExtractor (in order).
+        // Pattern 1: .get("n"))&&(b=FUNC[IDX](VAR)  — canonical 2024 pattern
+        // Pattern 2: .get("n"))&&(FUNC=VAR[IDX](FUNC)  — 2025+ variant
+        // Pattern 3: .get("n");if(m){var M=n.match...  — April 2026 variant (no func capture)
+        //            → falls through to pattern 4/5 for the actual function name
+        // Pattern 4: String.fromCharCode(110) = 'n'  — obfuscated 'n' key
+        // Pattern 5: enhanced_except_ sentinel  — function body marker
         val funcName: String =
-            // Pattern A: .get("n"))&&(b=FUNCNAME(b)
-            Regex("""\.get\("n"\)\)&&\(b=([a-zA-Z0-9$]{2,})\(b\)""")
-                .find(playerJs)?.groupValues?.get(1)
-            // Pattern B: array-indexed .get("n"))&&(b=ARRNAME[IDX](b)
-            ?: run {
-                val m = Regex("""\.get\("n"\)\)&&\(b=([a-zA-Z0-9$]{2,})\[(\d+)\]\(b\)""")
-                    .find(playerJs) ?: return null
-                val arrName = m.groupValues[1]
-                val idx     = m.groupValues[2].toIntOrNull() ?: 0
-                Regex("""var ${Regex.escape(arrName)}=\[([a-zA-Z0-9$,\s]+)\]""")
-                    .find(playerJs)?.groupValues?.get(1)
-                    ?.split(",")?.getOrNull(idx)?.trim()
-                    ?: return null
+            // Pattern 1 (canonical): .get("n"))&&(b=FUNC[IDX](b)
+            run {
+                val m = Regex("""\.get\("n"\)\)&&\(b=([a-zA-Z0-9$]+)(?:\[(\d+)\])?\(([a-zA-Z0-9])\)""")
+                    .find(playerJs) ?: return@run null
+                val name = m.groupValues[1]
+                val idx  = m.groupValues[2].toIntOrNull()
+                if (idx != null) {
+                    Regex("""var ${Regex.escape(name)}=\[([a-zA-Z0-9$,\s]+)\]""")
+                        .find(playerJs)?.groupValues?.get(1)
+                        ?.split(",")?.getOrNull(idx)?.trim() ?: name
+                } else name
             }
-            // Pattern C: Metrolist pattern 2 — .get("n"))&&(FUNC=VAR[IDX](FUNC)
+            // Pattern 2 (2025+): .get("n"))&&(FUNC=VAR[IDX](FUNC)
             ?: run {
                 val m = Regex("""\.get\("n"\)\)\s*&&\s*\(([a-zA-Z0-9$]+)\s*=\s*([a-zA-Z0-9$]+)(?:\[(\d+)\])?\(\1\)""")
-                    .find(playerJs) ?: return null
+                    .find(playerJs) ?: return@run null
                 val varName = m.groupValues[2]
                 val idx     = m.groupValues[3].toIntOrNull()
                 if (idx != null) {
                     Regex("""var ${Regex.escape(varName)}=\[([a-zA-Z0-9$,\s]+)\]""")
                         .find(playerJs)?.groupValues?.get(1)
-                        ?.split(",")?.getOrNull(idx)?.trim()
-                        ?: return null
+                        ?.split(",")?.getOrNull(idx)?.trim() ?: return@run null
                 } else varName
             }
+            // Pattern 4 (obfuscated): String.fromCharCode(110) === 'n'
+            ?: Regex("""\(\s*([a-zA-Z0-9$]+)\s*=\s*String\.fromCharCode\(110\)""")
+                .find(playerJs)?.groupValues?.get(1)
+            // Pattern 5 (sentinel): enhanced_except_ inside function body
+            ?: Regex("""([a-zA-Z0-9$]+)\s*=\s*function\([a-zA-Z0-9]\)\s*\{[^}]*?enhanced_except_""")
+                .find(playerJs)?.groupValues?.get(1)
+            ?: return null.also { AppLogger.w(TAG, "No n-func pattern matched player JS") }
 
         Log.d(TAG, "nsig function name: $funcName")
 
