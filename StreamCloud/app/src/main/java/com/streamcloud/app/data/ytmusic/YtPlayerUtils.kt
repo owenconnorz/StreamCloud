@@ -280,7 +280,19 @@ object YtPlayerUtils {
         ),
     )
 
+    // Force IPv4-only DNS so that YouTube's player API sees an IPv4 source IP and embeds
+    // an IPv4 address in the CDN URL `ip=` parameter.  The ExoPlayer CDN client
+    // (streamOkHttp in MusicPlaybackService) also uses IPv4-only DNS, so the two IPs
+    // always match — preventing the empty HTTP 403 caused by an IPv4/IPv6 mismatch.
+    private val ipv4OnlyDns = object : okhttp3.Dns {
+        override fun lookup(hostname: String): List<java.net.InetAddress> =
+            okhttp3.Dns.SYSTEM.lookup(hostname)
+                .filter { it is java.net.Inet4Address }
+                .ifEmpty { okhttp3.Dns.SYSTEM.lookup(hostname) }
+    }
+
     private val http = OkHttpClient.Builder()
+        .dns(ipv4OnlyDns)
         .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
