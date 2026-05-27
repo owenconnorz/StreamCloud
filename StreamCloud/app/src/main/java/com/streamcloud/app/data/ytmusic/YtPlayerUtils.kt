@@ -43,6 +43,12 @@ object YtPlayerUtils {
         // Only WEB_REMIX (and similar web clients) should set this to true.
         val useWebAuth: Boolean = false,
         val useWebPoTokens: Boolean = false,
+        // useSignatureTimestamp: include the signatureTimestamp (sts) from the player JS in the
+        // player request body under playbackContext.contentPlaybackContext.signatureTimestamp.
+        // Required by MOBILE (ANDROID clientId=3) — without it YouTube returns cipher-only stream
+        // formats instead of plain CDN URLs.  The sts value is extracted by YtNSigDescrambler
+        // alongside the nsig function.
+        val useSignatureTimestamp: Boolean = false,
     )
 
     private val CLIENTS = listOf(
@@ -152,7 +158,27 @@ object YtPlayerUtils {
             supportsAuth  = false,
         ),
 
-        // #7 ANDROID_VR_NO_AUTH — bare ANDROID_VR without any extra context fields.
+        // #7 ANDROID_CREATOR — YouTube Studio Android app (Pixel 9 Pro Fold).
+        // Comment from Metrolist: "Cannot play livestreams and lacks HDR, but can play videos with
+        // music and labeled 'for children'."  No n-transform required.  Plain CDN URLs.
+        ClientConfig(
+            label         = "ANDROID_CREATOR",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_CREATOR",
+            clientId      = "14",
+            clientVersion = "25.03.101",
+            userAgent     = "com.google.android.apps.youtube.creator/25.03.101 (Linux; U; Android 15; en_US; Pixel 9 Pro Fold; Build/AP3A.241005.015.A2; Cronet/132.0.6779.0)",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "15",
+                "deviceMake"        to "Google",
+                "deviceModel"       to "Pixel 9 Pro Fold",
+                "androidSdkVersion" to "35",
+            ),
+            supportsAuth  = false,
+        ),
+
+        // #8 ANDROID_VR_NO_AUTH — bare ANDROID_VR without any extra context fields.
         // Metrolist uses this as an additional fallback after the extended VR configs.
         // Note: UA uses "Oculus Quest 3" (with "Oculus " prefix) unlike the extended configs.
         // Returns plain CDN URLs — no n-transform required.
@@ -185,7 +211,22 @@ object YtPlayerUtils {
             supportsAuth  = false,
         ),
 
-        // #9 IOS — last resort; 'n' enforcement applies but descramble may succeed.
+        // #10 MOBILE (ANDROID clientId=3) — the standard YouTube Android client.
+        // Requires useSignatureTimestamp=true: without the sts value in the player body YouTube
+        // returns cipher-only stream formats.  With it, YouTube returns plain CDN URLs that
+        // require no n-transform.  The sts is extracted from the same player JS as the nsig func.
+        ClientConfig(
+            label                 = "MOBILE",
+            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName            = "ANDROID",
+            clientId              = "3",
+            clientVersion         = "21.03.38",
+            userAgent             = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
+            supportsAuth          = false,
+            useSignatureTimestamp = true,
+        ),
+
+        // #11 IOS — last resort; 'n' enforcement applies but descramble may succeed.
         ClientConfig(
             label         = "IOS",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -512,6 +553,21 @@ object YtPlayerUtils {
             if (poToken != null) {
                 putJsonObject("serviceIntegrityDimensions") {
                     put("poToken", poToken)
+                }
+            }
+            // MOBILE (ANDROID clientId=3) needs signatureTimestamp in the player request body.
+            // Without it, YouTube returns cipher-only stream formats instead of plain CDN URLs.
+            // The sts value is extracted from the same player JS as the nsig function.
+            if (client.useSignatureTimestamp) {
+                val sts = YtNSigDescrambler.getSignatureTimestamp()
+                if (sts != null) {
+                    putJsonObject("playbackContext") {
+                        putJsonObject("contentPlaybackContext") {
+                            put("signatureTimestamp", sts)
+                        }
+                    }
+                } else {
+                    AppLogger.w(TAG, "[${client.label}] signatureTimestamp not available — MOBILE may return cipher-only formats")
                 }
             }
         }
