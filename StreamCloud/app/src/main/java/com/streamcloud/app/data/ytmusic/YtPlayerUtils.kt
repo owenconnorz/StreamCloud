@@ -457,7 +457,7 @@ object YtPlayerUtils {
                     // where the CDN URL should be freely accessible and HEAD validation
                     // filters out bad URLs early without bothering ExoPlayer.
                     val skipHeadValidation = client.useWebAuth || client.requiresAuth
-                    if (skipHeadValidation || validateStreamUrl(candidateUrl)) {
+                    if (skipHeadValidation || validateStreamUrl(candidateUrl, client.userAgent)) {
                         if (skipHeadValidation) {
                             AppLogger.i(TAG, "[${client.label}] $videoId — skipping HEAD validation (auth client), passing to ExoPlayer")
                         }
@@ -717,10 +717,19 @@ object YtPlayerUtils {
      * Returns true if the server responds 2xx, false for 403/404/etc.
      * Skips validation (returns true) if the network call itself fails so we don't block playback
      * on transient connectivity issues.
+     *
+     * userAgent must match the client that generated the URL.  Without the correct UA the
+     * CDN rejects the HEAD probe with 403 even when the URL is perfectly valid for that
+     * client's ExoPlayer requests — previously this caused ANDROID_TESTSUITE and Android VR
+     * URLs to be discarded before they ever reached the player.
      */
-    private fun validateStreamUrl(url: String): Boolean {
+    private fun validateStreamUrl(url: String, userAgent: String): Boolean {
         return try {
-            val req = Request.Builder().url(url).head().build()
+            val req = Request.Builder()
+                .url(url)
+                .head()
+                .header("User-Agent", userAgent)
+                .build()
             http.newCall(req).execute().use { it.isSuccessful }
         } catch (e: Exception) {
             Log.d(TAG, "validateStreamUrl exception (assuming ok): ${e.message}")
