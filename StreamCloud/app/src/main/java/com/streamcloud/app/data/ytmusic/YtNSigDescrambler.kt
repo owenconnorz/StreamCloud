@@ -32,6 +32,7 @@ object YtNSigDescrambler {
     private const val CACHE_TTL_MS = 6L * 3600 * 1000   // refresh player JS every 6 h
 
     @Volatile private var nsigSnippet: String? = null    // JS function expression: function(a){...}
+    @Volatile private var signatureTimestamp: Int? = null // sts value from player JS (e.g. 20542)
     @Volatile private var snippetFetchedAt: Long = 0L
     private val initMutex = Mutex()
 
@@ -48,6 +49,14 @@ object YtNSigDescrambler {
 
     /** Pre-warm: fetch player JS in the background so the first track plays without extra delay. */
     suspend fun warmUp() = ensureReady()
+
+    /**
+     * Return the signature timestamp (sts) extracted from the current player JS.
+     * Used by the MOBILE (ANDROID) client — without the correct sts in the player request body,
+     * YouTube returns cipher-only stream formats instead of plain CDN URLs.
+     * Returns null if the player JS has not been fetched yet or sts extraction failed.
+     */
+    fun getSignatureTimestamp(): Int? = signatureTimestamp
 
     /**
      * Descramble the 'n' parameter in a YouTube CDN URL.
@@ -89,19 +98,38 @@ object YtNSigDescrambler {
                     AppLogger.w(TAG, "Could not fetch YouTube player JS")
                     return
                 }
+                // Always extract the signature timestamp — it's a plain integer, never obfuscated.
+                // The MOBILE (ANDROID) client needs it in the player request body to get plain URLs.
+                val sts = extractSignatureTimestamp(js)
+                if (sts != null) {
+                    signatureTimestamp = sts
+                    Log.d(TAG, "signatureTimestamp=$sts")
+                } else {
+                    AppLogger.w(TAG, "Could not extract signatureTimestamp from player JS")
+                }
                 val snip = extractNsigSnippet(js) ?: run {
                     AppLogger.w(TAG, "Could not extract nsig function from player JS")
+                    snippetFetchedAt = System.currentTimeMillis() // still mark as fetched so we don't retry constantly
                     return
                 }
                 verifySnippet(snip)
                 nsigSnippet = snip
                 snippetFetchedAt = System.currentTimeMillis()
-                AppLogger.i(TAG, "nsig function ready (${snip.length} chars)")
+                AppLogger.i(TAG, "nsig function ready (${snip.length} chars), sts=$signatureTimestamp")
             } catch (e: Exception) {
                 AppLogger.w(TAG, "nsig init error: ${e.message}")
             }
         }
     }
+
+    /**
+     * Extract the signature timestamp (sts) from the player JS.
+     * It appears as a plain integer — never obfuscated — so a simple regex suffices.
+     * Example patterns: `signatureTimestamp:20542` or `sts:20542`.
+     */
+    private fun extractSignatureTimestamp(playerJs: String): Int? =
+        Regex("""signatureTimestamp[=:]\s*(\d{4,6})""").find(playerJs)?.groupValues?.get(1)?.toIntOrNull()
+            ?: Regex("""[^a-zA-Z]sts[=:]\s*(\d{4,6})""").find(playerJs)?.groupValues?.get(1)?.toIntOrNull()
 
     /** Sanity-check: verify the snippet evaluates to a function, not a syntax error. */
     private suspend fun verifySnippet(snippet: String) {
