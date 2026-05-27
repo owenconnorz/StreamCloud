@@ -295,7 +295,8 @@ object YtPlayerUtils {
     @Volatile var contentLanguage: String = "en"
     @Volatile var contentCountry:  String = "US"
 
-    @Volatile private var cachedVisitorData: String? = null
+    // Public so MusicPlaybackService can include X-Goog-Visitor-Id in CDN requests for PoToken validation.
+    @Volatile var cachedVisitorData: String? = null
     @Volatile private var visitorDataFetchedAt: Long = 0L
 
     private fun ensureVisitorData() {
