@@ -54,6 +54,13 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         com.lagradost.cloudstream3.extractors.registerAllExtractors()
         com.lagradost.cloudstream3.extractors.registerExtraExtractors()
 
+        scope.launch {
+            val cookie = ServiceLocator.get(this@StreamCloudApplication).settings.spotifyCookie.first()
+            if (cookie.isNotBlank()) {
+                com.streamcloud.app.data.spotify.SpotifyCanvasRepository.setSpotifyCookie(cookie)
+            }
+        }
+
 
 
 
