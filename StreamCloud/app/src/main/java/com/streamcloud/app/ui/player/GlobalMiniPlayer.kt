@@ -1,13 +1,16 @@
 package com.streamcloud.app.ui.player
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -24,7 +27,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -37,10 +44,10 @@ import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.audio.PlaybackBus
-import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -58,19 +65,59 @@ fun GlobalMiniPlayer(
     val scope = rememberCoroutineScope()
     val sl = remember(context) { ServiceLocator.get(context) }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
+    val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
 
     var controller by remember { mutableStateOf<Player?>(null) }
     var title by remember { mutableStateOf<String?>(null) }
     var artist by remember { mutableStateOf<String?>(null) }
     var artworkUri by remember { mutableStateOf<String?>(null) }
 
-    val isPlaying      by PlaybackBus.isPlaying.collectAsState()
-    val nowMediaId     by PlaybackBus.nowPlayingMediaId.collectAsState()
-    val castState      by SonosRepository.castState.collectAsState()
-    val isCasting       = castState is SonosRepository.CastState.Casting
-    val isSonosPlaying by SonosRepository.isSonosPlaying.collectAsState()
+    val isPlaying by PlaybackBus.isPlaying.collectAsState()
+    val nowMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
 
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
+
+    val accent by AlbumArtThemeBus.accent.collectAsState()
+    val accentSecondary by AlbumArtThemeBus.accentSecondary.collectAsState()
+
+    val bgColor by animateColorAsState(
+        targetValue = if (dynamicMiniTheme) {
+            Color(
+                red = accentSecondary.red * 0.38f,
+                green = accentSecondary.green * 0.38f,
+                blue = accentSecondary.blue * 0.38f,
+            )
+        } else {
+            Color(0xFF1C1C1E)
+        },
+        animationSpec = tween(600),
+        label = "miniPlayerBg",
+    )
+
+    val ringColor by animateColorAsState(
+        targetValue = if (dynamicMiniTheme) accent else Color.White,
+        animationSpec = tween(600),
+        label = "miniRingColor",
+    )
+
+    var playbackProgress by remember(nowMediaId) { mutableStateOf(0f) }
+    LaunchedEffect(controller) {
+        while (true) {
+            val c = controller
+            if (c != null) {
+                val dur = c.duration
+                if (dur > 0L) {
+                    playbackProgress = (c.currentPosition.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+                }
+            }
+            delay(500L)
+        }
+    }
+    val animatedProgress by animateFloatAsState(
+        targetValue = playbackProgress,
+        animationSpec = tween(500),
+        label = "miniProgress",
+    )
 
     LaunchedEffect(Unit) {
         runCatching { MusicController.get(context.applicationContext) }
@@ -113,7 +160,7 @@ fun GlobalMiniPlayer(
                 .padding(horizontal = 12.dp, vertical = 6.dp)
                 .offset { IntOffset((swipeOffsetX.value + liveDragX).roundToInt(), 0) }
                 .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFF1C1C1E))
+                .background(bgColor)
                 .clickable(onClick = onExpand)
                 .pointerInput(controller) {
                     while (true) {
@@ -146,14 +193,12 @@ fun GlobalMiniPlayer(
                             dirLocked && isHorizontal && totalX < -80f -> {
                                 swipeOffsetX.animateTo(-90f, tween(100))
                                 controller?.seekToNextMediaItem()
-                                controller?.play()
                                 swipeOffsetX.snapTo(90f)
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
                             dirLocked && isHorizontal && totalX > 80f -> {
                                 swipeOffsetX.animateTo(90f, tween(100))
                                 controller?.seekToPreviousMediaItem()
-                                if (!isCasting) controller?.play()
                                 swipeOffsetX.snapTo(-90f)
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
@@ -167,27 +212,53 @@ fun GlobalMiniPlayer(
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable {
-                        if (isCasting) {
-                            if (isSonosPlaying) SonosRepository.pause()
-                            else SonosRepository.resume()
-                        } else {
-                            controller?.let { if (it.isPlaying) it.pause() else it.play() }
-                        }
-                    },
+                modifier = Modifier.size(56.dp),
             ) {
-                AsyncImage(
-                    model = artworkUri,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokePx = 3.dp.toPx()
+                    val halfStroke = strokePx / 2f
+                    val arcSize = Size(size.width - strokePx, size.height - strokePx)
+                    val arcOffset = Offset(halfStroke, halfStroke)
+                    drawArc(
+                        color = Color.White.copy(alpha = 0.15f),
+                        startAngle = -90f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        topLeft = arcOffset,
+                        size = arcSize,
+                        style = Stroke(width = strokePx, cap = StrokeCap.Round),
+                    )
+                    if (animatedProgress > 0f) {
+                        drawArc(
+                            color = ringColor,
+                            startAngle = -90f,
+                            sweepAngle = 360f * animatedProgress,
+                            useCenter = false,
+                            topLeft = arcOffset,
+                            size = arcSize,
+                            style = Stroke(width = strokePx, cap = StrokeCap.Round),
+                        )
+                    }
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape),
-                )
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable {
+                            controller?.let { if (it.isPlaying) it.pause() else it.play() }
+                        },
+                ) {
+                    AsyncImage(
+                        model = artworkUri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
+                    )
+                }
             }
 
             Spacer(Modifier.width(14.dp))

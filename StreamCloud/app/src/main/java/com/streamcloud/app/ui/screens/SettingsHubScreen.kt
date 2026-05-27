@@ -138,6 +138,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var highRefreshRate     by remember { mutableStateOf(true) }
     var newMiniPlayer       by remember { mutableStateOf(true) }
     var pureBlackMiniPlayer by remember { mutableStateOf(false) }
+    var dynamicMiniTheme    by remember { mutableStateOf(true) }
     var newPlayerDesign     by remember { mutableStateOf(true) }
     var skipSilence         by remember { mutableStateOf(false) }
     var keepScreenOn        by remember { mutableStateOf(false) }
@@ -193,6 +194,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         highRefreshRate     = sl.settings.highRefreshRate.first()
         newMiniPlayer       = sl.settings.newMiniPlayerDesign.first()
         pureBlackMiniPlayer = sl.settings.pureBlackMiniPlayer.first()
+        dynamicMiniTheme    = sl.settings.dynamicMiniPlayerTheme.first()
         newPlayerDesign     = sl.settings.newPlayerDesign.first()
         skipSilence         = sl.settings.skipSilence.first()
         keepScreenOn        = sl.settings.keepScreenOn.first()
@@ -430,6 +432,14 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                         title = "Pure black mini-player",
                         checked = pureBlackMiniPlayer,
                         onChange = { pureBlackMiniPlayer = it; scope.launch { sl.settings.setPureBlackMiniPlayer(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Palette, tint = ColourAppearance,
+                        title = "Dynamic theme",
+                        subtitle = "Tint the mini-player background and progress ring with album art colours",
+                        checked = dynamicMiniTheme,
+                        onChange = { dynamicMiniTheme = it; scope.launch { sl.settings.setDynamicMiniPlayerTheme(it) } },
                     )
                 }
                 Spacer(Modifier.height(16.dp))
