@@ -365,13 +365,21 @@ object YtPlayerUtils {
                 continue
             }
 
-            var poToken: String? = null
+            // Generate PoToken for web clients that require it (WEB_REMIX, TVHTML5).
+            // We keep the full PoTokenResult so we can later append streamingDataPoToken to
+            // the CDN URL — this is REQUIRED: without pot= the CDN always returns 403 for
+            // WEB_REMIX streams (mirrors Metrolist YTPlayerUtils.kt line 294–302).
+            var poTokenResult: com.streamcloud.app.data.ytmusic.potoken.PoTokenResult? = null
             if (client.useWebPoTokens && sessionId != null) {
                 val ctx = appContext
                 if (ctx != null) {
                     try {
-                        poToken = poTokenGenerator.getWebClientPoToken(ctx, videoId, sessionId)
-                            ?.playerRequestPoToken
+                        poTokenResult = poTokenGenerator.getWebClientPoToken(ctx, videoId, sessionId)
+                        if (poTokenResult == null) {
+                            AppLogger.w(TAG, "[${client.label}] PoToken returned null (WebView unavailable?)")
+                        } else {
+                            Log.d(TAG, "[${client.label}] PoToken generated ok")
+                        }
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "[${client.label}] PoToken failed: ${e.message}")
                     }
@@ -387,7 +395,7 @@ object YtPlayerUtils {
                 YtNSigDescrambler.warmUp()
             }
 
-            val result = tryClient(client, videoId, preferItag, preferHighQuality, poToken, sonosSafe)
+            val result = tryClient(client, videoId, preferItag, preferHighQuality, poTokenResult?.playerRequestPoToken, sonosSafe)
             when (result) {
                 is ClientResult.Success -> {
                     // Apply n-transform for clients that need it — same set as Metrolist's
@@ -405,12 +413,25 @@ object YtPlayerUtils {
                     // valid URLs, which is why every track was failing all clients.
                     val needsNDescramble = client.useWebPoTokens ||
                         client.clientName in setOf("WEB", "WEB_REMIX", "WEB_CREATOR", "TVHTML5")
-                    val candidateUrl = if (needsNDescramble) {
+                    val afterNDescramble = if (needsNDescramble) {
                         YtNSigDescrambler.descrambleUrl(result.info.url)
                     } else {
                         result.info.url
                     }
-                    val nDescrambled = candidateUrl != result.info.url
+                    val nDescrambled = afterNDescramble != result.info.url
+
+                    // Append streaming PoToken (pot=) to CDN URL — CRITICAL for WEB_REMIX/TVHTML5.
+                    // Without pot= the CDN always returns 403, even when playerRequestPoToken was
+                    // included in the player API request body.
+                    // Mirrors Metrolist YTPlayerUtils.kt lines 293–302.
+                    val candidateUrl = if (client.useWebPoTokens && poTokenResult?.streamingDataPoToken != null) {
+                        val sep = if ("?" in afterNDescramble) "&" else "?"
+                        "${afterNDescramble}${sep}pot=${java.net.URLEncoder.encode(poTokenResult.streamingDataPoToken, "UTF-8")}"
+                            .also { AppLogger.i(TAG, "[${client.label}] $videoId — pot= appended to stream URL") }
+                    } else {
+                        afterNDescramble
+                    }
+
                     AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=$nDescrambled")
 
                     // Validate with a HEAD request before committing to this URL.
