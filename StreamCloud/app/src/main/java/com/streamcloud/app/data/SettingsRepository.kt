@@ -71,6 +71,8 @@ object SettingsKeys {
 
     val CANVAS_ENABLED = booleanPreferencesKey("canvas_enabled")
     val POSTER_STYLE = stringPreferencesKey("poster_style")
+
+    val DYNAMIC_MINI_PLAYER_THEME = booleanPreferencesKey("dynamic_mini_player_theme")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -247,4 +249,8 @@ class SettingsRepository(private val context: Context) {
     val posterStyle: Flow<String> = context.dataStore.data.map { it[SettingsKeys.POSTER_STYLE] ?: "portrait" }
 
     suspend fun setPosterStyle(s: String) = context.dataStore.edit { it[SettingsKeys.POSTER_STYLE] = s }
+
+    val dynamicMiniPlayerTheme: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.DYNAMIC_MINI_PLAYER_THEME] ?: true }
+
+    suspend fun setDynamicMiniPlayerTheme(b: Boolean) = context.dataStore.edit { it[SettingsKeys.DYNAMIC_MINI_PLAYER_THEME] = b }
 }
