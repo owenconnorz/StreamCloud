@@ -58,10 +58,13 @@ object YtNSigDescrambler {
     private val KNOWN_PLAYER_CONFIGS: Map<String, HardcodedConfig> = mapOf(
         // March 2026 player — Q-array obfuscated, has n-transform
         "74edf1a3" to HardcodedConfig(sigFuncName = "JI", nFuncName = "GU", signatureTimestamp = 20522),
-        // April 2026 player
+        // April 2026 player — sig cipher present, n-func extracted via regex
         "f4c47414" to HardcodedConfig(sigFuncName = "hJ", nFuncName = "",  signatureTimestamp = 20543),
         // May 2026 player — direct URLs, NO cipher, NO n-transform required
         "57f5d44f" to HardcodedConfig(sigFuncName = "",   nFuncName = "",  signatureTimestamp = 20591),
+        // May/Jun 2026 player (c2f7551f) — same as 57f5d44f: direct URLs, no cipher, no n-transform
+        // sts confirmed 20592 via regex; Etr() is a HLS path normalizer, not an n-descrambler.
+        "c2f7551f" to HardcodedConfig(sigFuncName = "",   nFuncName = "",  signatureTimestamp = 20592),
     )
 
     // ── Public API ────────────────────────────────────────────────────────────
