@@ -106,7 +106,46 @@ object PluginRuntime {
                         registerMainAPI(rawInstance)
                     }
                 }
-                else -> error("Class `$pluginClassName` is not a subclass of `Plugin` or `MainAPI`")
+                else -> {
+                    // instanceof failed — may be a classloader mismatch where the plugin's
+                    // Plugin/MainAPI was loaded by a different classloader than ours.
+                    // Walk the superclass chain by name as a last resort.
+                    val hierarchy = generateSequence(rawInstance::class.java as Class<*>?) { it.superclass }
+                        .map { it.name }
+                        .toList()
+                    when {
+                        "com.lagradost.cloudstream3.plugins.Plugin" in hierarchy -> {
+                            // Plugin by name — reload via fallbackParent so our Plugin resolves
+                            val fallback = DexClassLoader(
+                                readOnlyFile.absolutePath, optimizedDir.absolutePath,
+                                null, fallbackParent
+                            )
+                            runCatching {
+                                fallback.loadClass(pluginClassName)
+                                    .getDeclaredConstructor().newInstance() as? Plugin
+                            }.getOrNull()
+                                ?: error("Class `$pluginClassName` detected as Plugin by name but cast failed")
+                        }
+                        "com.lagradost.cloudstream3.MainAPI" in hierarchy -> {
+                            // MainAPI by name — reload via fallbackParent so our MainAPI resolves
+                            val fallback = DexClassLoader(
+                                readOnlyFile.absolutePath, optimizedDir.absolutePath,
+                                null, fallbackParent
+                            )
+                            val inst = runCatching {
+                                fallback.loadClass(pluginClassName).getDeclaredConstructor().newInstance()
+                            }.getOrElse { e ->
+                                error("Class `$pluginClassName` reload via fallback failed: ${e::class.simpleName}: ${e.message}")
+                            }
+                            (inst as? MainAPI)?.let { api ->
+                                object : Plugin() {
+                                    override fun load(ctx: android.content.Context) { registerMainAPI(api) }
+                                }
+                            } ?: error("Class `$pluginClassName` detected as MainAPI by name but cast failed via fallback")
+                        }
+                        else -> error("Class `$pluginClassName` is not a subclass of `Plugin` or `MainAPI`")
+                    }
+                }
             }
             instance.beforeLoad()
             instance.load(context)
