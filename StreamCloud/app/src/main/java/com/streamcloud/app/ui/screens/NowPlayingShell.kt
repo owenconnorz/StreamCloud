@@ -214,18 +214,13 @@ fun NowPlayingShell(
         SpotifyCanvasRepository.setSpotifyCookie(spotifyCookie.takeIf { it.isNotBlank() })
     }
 
-    // canvas: IDLE → LOADING → DONE (url or null)
-    var canvasLoading by remember(mediaId) { mutableStateOf(false) }
-    var canvasUrl     by remember(mediaId) { mutableStateOf<String?>(null) }
+    var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
     LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie) {
-        canvasUrl     = null
-        canvasLoading = false
+        canvasUrl = null
         if (!canvasEnabled || title.isBlank() || videoId.isBlank() || spotifyCookie.isBlank()) return@LaunchedEffect
-        canvasLoading = true
         canvasUrl = runCatching {
             SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
         }.getOrNull()
-        canvasLoading = false
     }
     val activeCanvas = if (canvasEnabled) canvasUrl else null
 
@@ -269,22 +264,6 @@ fun NowPlayingShell(
             )
         }
 
-        // Canvas loading indicator — shows while the Spotify lookup is in progress
-        if (canvasEnabled && spotifyCookie.isNotBlank() && canvasLoading) {
-            Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.TopEnd,
-            ) {
-                Text(
-                    "● Canvas",
-                    color = Color.Yellow.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .padding(12.dp),
-                )
-            }
-        }
         Column(
             Modifier
                 .fillMaxSize()
