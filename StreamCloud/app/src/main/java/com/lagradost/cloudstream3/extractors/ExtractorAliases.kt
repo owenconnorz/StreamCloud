@@ -566,7 +566,7 @@ private fun inferLinkType(url: String): ExtractorLinkType =
     else ExtractorLinkType.VIDEO
 
 // Generic base used by most JWPlayer/JsUnpacker-style hosts
-private open class GenericJwExtractor(
+open class GenericJwExtractor(
     override val name: String,
     override val mainUrl: String,
     override val requiresReferer: Boolean = false,
