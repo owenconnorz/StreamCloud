@@ -250,7 +250,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setLoudnessNormalization(b: Boolean) = context.dataStore.edit { it[SettingsKeys.LOUDNESS_NORMALIZATION] = b }
 
 
-    val canvasEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.CANVAS_ENABLED] ?: false }
+    val canvasEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.CANVAS_ENABLED] ?: true }
 
     suspend fun setCanvasEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.CANVAS_ENABLED] = b }
 
