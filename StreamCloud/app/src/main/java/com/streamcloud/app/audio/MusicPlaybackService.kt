@@ -391,17 +391,24 @@ class MusicPlaybackService : MediaLibraryService() {
     }
 
     private fun refreshLikedState() {
+        val url = session?.player?.currentMediaItem?.mediaId ?: return
         ioScope.launch {
-            val url = session?.player?.currentMediaItem?.mediaId ?: return@launch
             val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
             isCurrentLiked = dao.isLiked(url).first() ?: false
-            session?.setCustomLayout(buildCustomLayout())
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                session?.setCustomLayout(buildCustomLayout())
+            }
         }
     }
 
     private suspend fun toggleLike() {
         val s = session ?: return
-        val url = s.player.currentMediaItem?.mediaId ?: return
+        // Capture player state on the main thread before switching to IO.
+        val (url, meta) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            val item = s.player.currentMediaItem
+            Pair(item?.mediaId, item?.mediaMetadata)
+        }
+        if (url == null) return
         val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
         val currentlyLiked = dao.isLiked(url).first() ?: false
         if (currentlyLiked) {
@@ -411,7 +418,6 @@ class MusicPlaybackService : MediaLibraryService() {
             if (existing != null) {
                 dao.setLikedAt(url, System.currentTimeMillis())
             } else {
-                val meta = s.player.currentMediaItem?.mediaMetadata
                 dao.upsert(
                     TrackEntity(
                         url = url,
@@ -425,7 +431,9 @@ class MusicPlaybackService : MediaLibraryService() {
             }
         }
         isCurrentLiked = !currentlyLiked
-        s.setCustomLayout(buildCustomLayout())
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            s.setCustomLayout(buildCustomLayout())
+        }
     }
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
