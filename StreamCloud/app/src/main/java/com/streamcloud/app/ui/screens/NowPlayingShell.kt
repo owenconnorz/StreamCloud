@@ -37,6 +37,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -287,10 +288,13 @@ fun NowPlayingShell(
             Spacer(Modifier.height(12.dp))
 
 
+            // When canvas is active: keep layout space but make artwork invisible (mirrors SimpMusic .alpha(if (pageHasCanvas) 0f else 1f))
             Box(
                 Modifier
                     .fillMaxWidth()
+                    .alpha(if (activeCanvas != null) 0f else 1f)
                     .pointerInput(controller) {
+                        // Only handle swipe gestures when not showing canvas
                         while (true) {
                             var totalX = 0f
                             val widthPx = size.width.toFloat()
