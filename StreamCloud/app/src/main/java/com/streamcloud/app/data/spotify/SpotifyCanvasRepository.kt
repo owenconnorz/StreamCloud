@@ -85,6 +85,8 @@ object SpotifyCanvasRepository {
         if (extracted == storedSpDc) return
         storedSpDc = extracted
         cachedToken = null; tokenExpiryMs = 0L
+        // Clear URL cache so stale null-results from before login don't block new fetches
+        synchronized(cacheLock) { urlCache.clear() }
         Log.i(TAG, if (extracted != null) "sp_dc updated (${extracted.take(6)}…)" else "sp_dc cleared")
     }
 
@@ -95,7 +97,8 @@ object SpotifyCanvasRepository {
             }
             val url = try { fetchCanvas(title, artist) }
             catch (e: Exception) { Log.e(TAG, "[$title] ${e.javaClass.simpleName}: ${e.message}"); null }
-            synchronized(cacheLock) { urlCache[videoId] = url }
+            // Only cache successes — null stays uncached so the next play retries the network
+            if (url != null) synchronized(cacheLock) { urlCache[videoId] = url }
             Log.i(TAG, "[$title] canvasUrl=${url?.take(60) ?: "null"}")
             url
         }
@@ -271,10 +274,12 @@ object SpotifyCanvasRepository {
                 r.body?.string()
             } ?: return@runCatching null
             val obj = JSONObject(text)
-            val at  = obj.optString("accessToken", "")
-            // SimpMusic validates: accessToken.length == 374
-            if (at.length != 374) {
-                Log.d(TAG, "Token len=${at.length}≠374 ($reason/$ver) anon=${obj.optBoolean("isAnonymous")}")
+            val at       = obj.optString("accessToken", "")
+            val isAnon   = obj.optBoolean("isAnonymous", true)
+            // Accept any non-anonymous token with a plausible JWT length (not the strict 374 from
+            // SimpMusic — Spotify JWT payload length varies by account/region/claims)
+            if (isAnon || at.length < 100) {
+                Log.d(TAG, "Token rejected: isAnonymous=$isAnon len=${at.length} ($reason/$ver)")
                 return@runCatching null
             }
             val exp = obj.optLong("accessTokenExpirationTimestampMs", 0L)
