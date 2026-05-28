@@ -157,8 +157,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
     var loudnessNorm        by remember { mutableStateOf(false) }
     var canvasEnabled       by remember { mutableStateOf(false) }
     var posterStyle         by remember { mutableStateOf("portrait") }
-    var spotifyCookie       by remember { mutableStateOf("") }
-    var spotifyUserName     by remember { mutableStateOf("") }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
 
 
@@ -211,8 +209,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
         loudnessNorm        = sl.settings.loudnessNormalization.first()
         canvasEnabled       = sl.settings.canvasEnabled.first()
         posterStyle         = sl.settings.posterStyle.first()
-        spotifyCookie       = sl.settings.spotifyCookie.first()
-        spotifyUserName     = sl.settings.spotifyUserName.first()
         safeSearch          = sl.settings.safeSearch.first()
         explicitContent     = sl.settings.explicitContent.first()
         contentLanguage     = sl.settings.contentLanguage.first()
@@ -458,25 +454,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
                         onChange = { newPlayerDesign = it; scope.launch { sl.settings.setNewPlayerDesign(it) } },
                     )
                     SettingDivider()
-                    SpotifyAccountRow(
-                        cookie = spotifyCookie,
-                        userName = spotifyUserName,
-                        onLogin = {
-                            context.startActivity(
-                                Intent(context, com.streamcloud.app.ui.account.SpotifyLoginActivity::class.java),
-                            )
-                        },
-                        onLogout = {
-                            scope.launch {
-                                sl.settings.clearSpotifyAccount()
-                                spotifyCookie = ""
-                                spotifyUserName = ""
-                                com.streamcloud.app.data.spotify.SpotifyCanvasRepository.setSpotifyCookie(null)
-                                runCatching { android.webkit.CookieManager.getInstance().removeAllCookies(null) }
-                            }
-                        },
-                    )
-                    SettingDivider()
                     SettingToggle(
                         icon = Icons.Default.PlayCircle, tint = Color(0xFF1ED760),
                         title = "Spotify Canvas",
@@ -629,6 +606,8 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
             ) {
                 SettingsGroup {
                     YtMusicAccountRow()
+                    SettingDivider()
+                    SpotifyAccountRow()
                 }
             }
 
@@ -1486,17 +1465,22 @@ private fun SettingToggle(
 }
 
 @Composable
-private fun SpotifyAccountRow(
-    cookie: String,
-    userName: String,
-    onLogin: () -> Unit,
-    onLogout: () -> Unit,
-) {
+private fun SpotifyAccountRow() {
+    val context  = LocalContext.current
+    val sl       = remember(context) { ServiceLocator.get(context) }
+    val cookie   by sl.settings.spotifyCookie.collectAsState(initial = "")
+    val userName by sl.settings.spotifyUserName.collectAsState(initial = "")
     val signedIn = cookie.isNotBlank()
+    val scope    = rememberCoroutineScope()
+
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(enabled = !signedIn, onClick = onLogin)
+            .clickable(enabled = !signedIn) {
+                context.startActivity(
+                    Intent(context, com.streamcloud.app.ui.account.SpotifyLoginActivity::class.java),
+                )
+            }
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1510,14 +1494,20 @@ private fun SpotifyAccountRow(
             )
             Text(
                 if (signedIn) userName.ifBlank { "Logged in" }
-                else "Improves Canvas matching with your account",
+                else "Required for Spotify Canvas looping videos",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
         }
         if (signedIn) {
-            TextButton(onClick = onLogout) { Text("Log out") }
+            TextButton(onClick = {
+                scope.launch {
+                    sl.settings.clearSpotifyAccount()
+                    com.streamcloud.app.data.spotify.SpotifyCanvasRepository.setSpotifyCookie(null)
+                    runCatching { android.webkit.CookieManager.getInstance().removeAllCookies(null) }
+                }
+            }) { Text("Log out") }
         } else {
             Icon(
                 Icons.Default.ChevronRight,
