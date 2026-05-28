@@ -558,8 +558,8 @@ class MusicPlaybackService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
-            val superResult = super.onConnect(session, controller)
-            val sessionCommands = superResult.availableSessionCommands.buildUpon()
+            val defaultResult = MediaSession.ConnectionResult.AcceptedResultBuilder(session).build()
+            val sessionCommands = defaultResult.availableSessionCommands.buildUpon()
                 .add(LIKE_COMMAND)
                 .add(REPEAT_COMMAND)
                 .build()
@@ -783,7 +783,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
         const val ACTION_LIKE   = "com.streamcloud.app.action.like"
         const val ACTION_REPEAT = "com.streamcloud.app.action.repeat"
-        val LIKE_COMMAND   = SessionCommand(ACTION_LIKE,   Bundle.EMPTY)
-        val REPEAT_COMMAND = SessionCommand(ACTION_REPEAT, Bundle.EMPTY)
+        val LIKE_COMMAND   = SessionCommand(ACTION_LIKE,   Bundle())
+        val REPEAT_COMMAND = SessionCommand(ACTION_REPEAT, Bundle())
     }
 }
