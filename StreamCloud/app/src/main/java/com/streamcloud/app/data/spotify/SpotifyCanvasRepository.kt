@@ -111,11 +111,26 @@ object SpotifyCanvasRepository {
         if (extracted == storedSpDc) return
         storedSpDc = extracted
         cachedToken = null; tokenExpiryMs = 0L
-        // Clear URL cache so stale null-results from before login don't block new fetches
         synchronized(cacheLock) { urlCache.clear() }
-        // Clear cookie jar so session cookies from old sp_dc don't poison new token requests
+
+        // Seed the cookie jar with the sp_dc value.
+        // CRITICAL: OkHttp's BridgeInterceptor REPLACES a manually-set "Cookie" header with
+        // whatever is in the CookieJar. If we used .header("Cookie","sp_dc=VALUE") AND the jar
+        // accumulated session cookies from server-time (e.g. sp_t), those jar cookies would
+        // overwrite our manual header — sp_dc would be dropped from every token request.
+        // Fix: never set Cookie manually; instead seed the jar with sp_dc so OkHttp always
+        // sends it automatically alongside any session cookies the jar accumulates.
         cookieStore.clear()
-        Log.i(TAG, if (extracted != null) "sp_dc updated (${extracted.take(6)}…)" else "sp_dc cleared")
+        if (extracted != null) {
+            val spDcCookie = Cookie.Builder()
+                .name("sp_dc").value(extracted)
+                .domain("open.spotify.com").path("/")
+                .secure()
+                .expiresAt(System.currentTimeMillis() + 365L * 24 * 3600 * 1000)
+                .build()
+            cookieStore["open.spotify.com"] = mutableListOf(spDcCookie)
+        }
+        Log.i(TAG, if (extracted != null) "sp_dc seeded in jar (${extracted.take(6)}…)" else "sp_dc cleared")
     }
 
     suspend fun getCanvasUrl(videoId: String, title: String, artist: String): String? =
@@ -245,7 +260,6 @@ object SpotifyCanvasRepository {
             val req = Request.Builder()
                 .url("https://open.spotify.com/api/server-time")
                 .header("User-Agent", UA_WEB)
-                .header("Cookie", "sp_dc=$spDc")
                 .header("App-platform", "WebPlayer")
                 .header("Spotify-App-Version", APP_VER)
                 .header("Accept", "application/json")
@@ -304,7 +318,6 @@ object SpotifyCanvasRepository {
         return runCatching {
             val req = Request.Builder().url(url)
                 .header("User-Agent", UA_WEB)
-                .header("Cookie", "sp_dc=$spDc")
                 .header("Accept", "application/json")
                 .header("Origin", "https://open.spotify.com")
                 .header("Referer", "https://open.spotify.com/")
@@ -337,7 +350,6 @@ object SpotifyCanvasRepository {
         return runCatching {
             val req = Request.Builder().url(url)
                 .header("User-Agent", UA_WEB)
-                .header("Cookie", "sp_dc=$spDc")
                 .header("Accept", "application/json")
                 .header("Origin", "https://open.spotify.com")
                 .header("Referer", "https://open.spotify.com/")
