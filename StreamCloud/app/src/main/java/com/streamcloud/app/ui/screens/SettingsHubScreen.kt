@@ -1499,6 +1499,18 @@ private fun SpotifyAccountRow() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
+            if (signedIn) {
+                val status = com.streamcloud.app.data.spotify.SpotifyCanvasRepository.lastStatus
+                if (status != "—") {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (status.contains("OK")) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                        maxLines = 2,
+                    )
+                }
+            }
         }
         if (signedIn) {
             TextButton(onClick = {
