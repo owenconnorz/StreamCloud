@@ -24,7 +24,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AspectRatio
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.BugReport
@@ -1778,10 +1777,9 @@ private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
 
     val all = remember(nsfw) {
         buildList {
-            add(NavItem("movies",  "Movies",  Icons.Default.PlayArrow))
             add(NavItem("music",   "Music",   Icons.Default.MusicNote))
-            add(NavItem("ai",      "AI",      Icons.Default.AutoAwesome))
             add(NavItem("library", "Library", Icons.Default.FormatListBulleted))
+            add(NavItem("movies",  "Movies",  Icons.Default.PlayArrow))
             if (nsfw) add(NavItem("adult", "Adult", Icons.Default.Visibility))
         }
     }
