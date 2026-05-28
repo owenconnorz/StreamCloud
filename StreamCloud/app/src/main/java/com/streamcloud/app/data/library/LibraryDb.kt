@@ -11,6 +11,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "tracks")
@@ -101,6 +103,8 @@ data class WatchlistEntity(
     @ColumnInfo(name = "poster_url") val posterUrl: String?,
     @ColumnInfo(name = "media_type") val mediaType: String,
     @ColumnInfo(name = "added_at") val addedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "cs_plugin", defaultValue = "") val csPlugin: String = "",
+    @ColumnInfo(name = "cs_url", defaultValue = "") val csUrl: String = "",
 )
 
 @Dao
@@ -195,7 +199,7 @@ interface FormatDao {
         PlaylistTrackEntity::class,
         FormatEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -206,11 +210,18 @@ abstract class LibraryDb : RoomDatabase() {
     abstract fun formats(): FormatDao
 
     companion object {
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE watchlist ADD COLUMN cs_plugin TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE watchlist ADD COLUMN cs_url TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile private var INSTANCE: LibraryDb? = null
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_5_6).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
 }

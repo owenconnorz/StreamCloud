@@ -197,6 +197,8 @@ fun CloudStreamDetailScreen(
                                     title     = s.response.name.ifBlank { initialTitle },
                                     posterUrl = s.response.posterUrl ?: initialPoster,
                                     mediaType = "cloudstream",
+                                    csPlugin  = pluginInternalName,
+                                    csUrl     = url,
                                 )
                             )
                         }

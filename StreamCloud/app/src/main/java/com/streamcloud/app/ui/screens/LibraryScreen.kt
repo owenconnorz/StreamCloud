@@ -69,6 +69,8 @@ fun LibraryScreen(
     onOpenArtist: (channelUrl: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
     onMovieClick: (Long) -> Unit = {},
+    onTvClick: (Long) -> Unit = {},
+    onCsClick: (plugin: String, url: String, title: String, poster: String?) -> Unit = { _, _, _, _ -> },
 ) {
     val context = LocalContext.current
     val dao = remember { LibraryDb.get(context).tracks() }
@@ -223,7 +225,13 @@ fun LibraryScreen(
                         Column(
                             Modifier
                                 .clip(RoundedCornerShape(10.dp))
-                                .clickable { if (entry.tmdbId > 0L) onMovieClick(entry.tmdbId) }
+                                .clickable {
+                                    when (entry.mediaType) {
+                                        "tv" -> onTvClick(entry.tmdbId)
+                                        "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
+                                        else -> onMovieClick(entry.tmdbId)
+                                    }
+                                }
                         ) {
                             AsyncImage(
                                 model = entry.posterUrl,
