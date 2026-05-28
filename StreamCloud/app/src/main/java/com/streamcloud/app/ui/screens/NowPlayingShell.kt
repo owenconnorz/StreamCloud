@@ -103,17 +103,6 @@ fun NowPlayingShell(
 
     DisposableEffect(controller) {
         val listener = object : Player.Listener {
-            // Fire immediately when ExoPlayer moves to next/prev item in the queue.
-            // This is crucial when casting: we need mediaId to update right away so
-            // the LaunchedEffect(mediaId) can push the new track to Sonos.
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                mediaId = mediaItem?.mediaId
-                mediaItem?.mediaMetadata?.let { md ->
-                    if (md.title != null) title = md.title.toString()
-                    if (md.artist != null) artist = md.artist.toString()
-                    artwork = md.artworkUri?.toString()
-                }
-            }
             override fun onMediaMetadataChanged(md: MediaMetadata) {
                 title = md.title?.toString().orEmpty()
                 artist = md.artist?.toString().orEmpty()
@@ -189,10 +178,8 @@ fun NowPlayingShell(
 
     var showSonos by remember { mutableStateOf(false) }
     val castState by SonosRepository.castState.collectAsState()
-    val isCasting       = castState is SonosRepository.CastState.Casting
-    val isSonosPlaying  by SonosRepository.isSonosPlaying.collectAsState()
-    val sonosPosMs       by SonosRepository.sonosPositionMs.collectAsState()
-    val sonosDurMs       by SonosRepository.sonosDurationMs.collectAsState()
+    val isCasting = castState is SonosRepository.CastState.Casting
+
 
 
     val videoId = remember(mediaId) {
@@ -213,29 +200,22 @@ fun NowPlayingShell(
         }
     }
 
-    // When casting and the queue track changes (user skipped), push the new track
-    // to Sonos. sonosAckedId tracks the last mediaId we sent so we don't
-    // resend the initial track (connect() already handled that).
-    var sonosAckedId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, isCasting) {
-        if (!isCasting) { sonosAckedId = null; return@LaunchedEffect }
-        val id = mediaId ?: return@LaunchedEffect
-        if (sonosAckedId == null) { sonosAckedId = id; return@LaunchedEffect } // initial cast
-        if (id == sonosAckedId) return@LaunchedEffect
-        sonosAckedId = id
-        delay(400) // let onMediaMetadataChanged update title / videoId / sonosCastWatchUrl
-        SonosRepository.updateTrack(context, videoId, title, sonosCastWatchUrl)
-    }
-
 
     var showActions by remember { mutableStateOf(false) }
 
 
-    val canvasEnabled by sl.settings.canvasEnabled.collectAsState(initial = false)
+    val canvasEnabled   by sl.settings.canvasEnabled.collectAsState(initial = false)
+    val spotifyCookie   by sl.settings.spotifyCookie.collectAsState(initial = "")
+
+    // Keep the in-memory repository cookie in sync with DataStore (survives app restarts)
+    LaunchedEffect(spotifyCookie) {
+        SpotifyCanvasRepository.setSpotifyCookie(spotifyCookie.takeIf { it.isNotBlank() })
+    }
+
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, title, artist, canvasEnabled) {
+    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie) {
         canvasUrl = null
-        if (!canvasEnabled || title.isBlank() || videoId.isBlank()) return@LaunchedEffect
+        if (!canvasEnabled || title.isBlank() || videoId.isBlank() || spotifyCookie.isBlank()) return@LaunchedEffect
         canvasUrl = runCatching {
             SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
         }.getOrNull()
@@ -245,19 +225,17 @@ fun NowPlayingShell(
     Box(
         Modifier
             .fillMaxSize()
+            .background(Color(0xFF0E0E0E))
             .then(
-                if (activeCanvas == null) Modifier
-                    .background(Color(0xFF0E0E0E))
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                animDominant,
-                                animDominant.copy(alpha = 0.55f).compositeOver(Color(0xFF161616)),
-                                Color(0xFF0E0E0E),
-                            )
+                if (activeCanvas == null) Modifier.background(
+                    Brush.verticalGradient(
+                        listOf(
+                            animDominant,
+                            animDominant.copy(alpha = 0.55f).compositeOver(Color(0xFF161616)),
+                            Color(0xFF0E0E0E),
                         )
                     )
-                else Modifier
+                ) else Modifier
             )
     ) {
 
@@ -335,14 +313,12 @@ fun NowPlayingShell(
                                 totalX < -threshold -> {
                                     artworkSwipeX.animateTo(-widthPx, tween(220))
                                     controller.seekToNextMediaItem()
-                                    if (!isCasting) controller.play()
                                     artworkSwipeX.snapTo(widthPx)
                                     artworkSwipeX.animateTo(0f, tween(300))
                                 }
                                 totalX > threshold -> {
                                     artworkSwipeX.animateTo(widthPx, tween(220))
                                     controller.seekToPreviousMediaItem()
-                                    if (!isCasting) controller.play()
                                     artworkSwipeX.snapTo(-widthPx)
                                     artworkSwipeX.animateTo(0f, tween(300))
                                 }
@@ -448,15 +424,11 @@ fun NowPlayingShell(
 
             Spacer(Modifier.height(16.dp))
 
-            // When casting, use position/duration polled from Sonos; ExoPlayer is paused.
-            val effectivePosMs = if (isCasting && sonosDurMs > 0) sonosPosMs else positionMs
-            val effectiveDurMs = if (isCasting && sonosDurMs > 0) sonosDurMs else durationMs
-
 
             Slider(
-                value = if (effectiveDurMs > 0) effectivePosMs / effectiveDurMs.toFloat() else 0f,
+                value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
                 onValueChange = { v ->
-                    if (!isCasting && effectiveDurMs > 0) controller.seekTo((v * effectiveDurMs).toLong())
+                    if (durationMs > 0) controller.seekTo((v * durationMs).toLong())
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = SliderDefaults.colors(
@@ -467,11 +439,11 @@ fun NowPlayingShell(
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
-                    formatTime(effectivePosMs), color = onBg.copy(alpha = 0.85f),
+                    formatTime(positionMs), color = onBg.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 )
                 Text(
-                    formatTime(effectiveDurMs), color = onBg.copy(alpha = 0.85f),
+                    formatTime(durationMs), color = onBg.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 )
             }
@@ -486,29 +458,16 @@ fun NowPlayingShell(
             ) {
                 DarkCapsule(
                     icon = Icons.Default.SkipPrevious, contentDescription = "Previous",
-                    onClick = {
-                        controller.seekToPreviousMediaItem()
-                        if (!isCasting) controller.play()
-                    },
+                    onClick = { controller.seekToPreviousMediaItem() },
                 )
                 PlayPill(
-                    playing = if (isCasting) isSonosPlaying else isPlaying,
-                    onClick = {
-                        if (isCasting) {
-                            if (isSonosPlaying) SonosRepository.pause()
-                            else SonosRepository.resume()
-                        } else {
-                            if (isPlaying) controller.pause() else controller.play()
-                        }
-                    },
+                    playing = isPlaying,
+                    onClick = { if (isPlaying) controller.pause() else controller.play() },
                     modifier = Modifier.weight(1f),
                 )
                 DarkCapsule(
                     icon = Icons.Default.SkipNext, contentDescription = "Next",
-                    onClick = {
-                        controller.seekToNextMediaItem()
-                        if (!isCasting) controller.play()
-                    },
+                    onClick = { controller.seekToNextMediaItem() },
                 )
             }
 
@@ -844,13 +803,6 @@ private fun CanvasVideoLayer(url: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val player = remember(url) {
         ExoPlayer.Builder(context).build().apply {
-            setAudioAttributes(
-                androidx.media3.common.AudioAttributes.Builder()
-                    .setUsage(androidx.media3.common.C.USAGE_MEDIA)
-                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                false,
-            )
             setMediaItem(MediaItem.fromUri(url))
             repeatMode = Player.REPEAT_MODE_ONE
             volume = 0f
@@ -864,13 +816,11 @@ private fun CanvasVideoLayer(url: String, modifier: Modifier = Modifier) {
     AndroidView(
         factory = { ctx ->
             PlayerView(ctx).apply {
+                this.player = player
                 useController = false
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                this.player = player
             }
         },
-        update = { view -> view.player = player },
         modifier = modifier,
     )
 }
