@@ -4,12 +4,16 @@ package com.lagradost.nicehttp
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import okhttp3.Headers
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.util.concurrent.TimeUnit
@@ -134,6 +138,47 @@ object Requests {
         timeUnit: TimeUnit = TimeUnit.SECONDS,
     ): NiceResponse = execute("HEAD", url, headers, referer, params, cookies, body = null)
 
+    suspend fun delete(
+        url: String,
+        headers: Map<String, String>? = null,
+        referer: String? = null,
+        params: Map<String, String>? = null,
+        cookies: Map<String, String>? = null,
+        json: Any? = null,
+        timeout: Int = 10,
+        timeUnit: TimeUnit = TimeUnit.SECONDS,
+        responseParser: ResponseParser? = null,
+    ): NiceResponse {
+        val body: RequestBody? = if (json != null)
+            json.toString().toByteArray(Charsets.UTF_8).toRequestBody("application/json".toMediaType())
+        else null
+        return execute("DELETE", url, headers, referer, params, cookies, body)
+    }
+
+    suspend fun patch(
+        url: String,
+        headers: Map<String, String>? = null,
+        referer: String? = null,
+        params: Map<String, String>? = null,
+        cookies: Map<String, String>? = null,
+        data: Map<String, String>? = null,
+        json: Any? = null,
+        requestBody: RequestBody? = null,
+        timeout: Int = 10,
+        timeUnit: TimeUnit = TimeUnit.SECONDS,
+        responseParser: ResponseParser? = null,
+    ): NiceResponse {
+        val body: RequestBody? = when {
+            requestBody != null -> requestBody
+            json != null -> json.toString().toByteArray(Charsets.UTF_8)
+                .toRequestBody("application/json".toMediaType())
+            data != null -> data.entries.joinToString("&") { "${it.key}=${it.value}" }
+                .toByteArray().toRequestBody("application/x-www-form-urlencoded".toMediaType())
+            else -> null
+        }
+        return execute("PATCH", url, headers, referer, params, cookies, body)
+    }
+
     private fun execute(
         method: String,
         url: String,
@@ -223,6 +268,24 @@ class NiceResponse(
     inline fun <reified T> parsedSafe(): T? = try {
         jacksonMapper.readValue<T>(text)
     } catch (_: Exception) { null }
+
+    // Kotlin generates getOkhttpResponse() as the JVM getter for this property.
+    // Plugins compiled against the real nicehttp library call getOkhttpResponse() to get
+    // the raw okhttp3.Response. We reconstruct a minimal one from our stored data.
+    val okhttpResponse: Response by lazy {
+        val okhttpHeaders = Headers.Builder().apply {
+            headers.forEach { (name, values) -> values.forEach { add(name, it) } }
+        }.build()
+        val safeUrl = url.ifBlank { "https://stub" }
+        Response.Builder()
+            .code(if (code == -1) 500 else code)
+            .message("")
+            .protocol(Protocol.HTTP_1_1)
+            .request(Request.Builder().url(safeUrl).build())
+            .headers(okhttpHeaders)
+            .body(text.toResponseBody("text/plain; charset=utf-8".toMediaType()))
+            .build()
+    }
 
     override fun toString(): String = "NiceResponse(code=$code, url=$url)"
 }
