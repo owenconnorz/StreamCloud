@@ -29,7 +29,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
 @OptIn(UnstableApi::class)
@@ -51,7 +51,7 @@ object YtMusicDownloadUtil {
         OkHttpClient.Builder()
             .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .build()
     }
 
@@ -66,9 +66,14 @@ object YtMusicDownloadUtil {
             ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val settings = SettingsRepository(ctx)
 
+        // Use playerCache (not downloadCache) in the upstream chain.
+        // DownloadManager already writes directly to downloadCache; having downloadCache
+        // in the factory too causes simultaneous read/write lock contention that
+        // serialises every download segment — the main reason downloads were slow.
+        // playerCache lets us reuse data already buffered from streaming, harmlessly.
         val dataSourceFactory = ResolvingDataSource.Factory(
             CacheDataSource.Factory()
-                .setCache(downloadCache)
+                .setCache(playerCache)
                 .setUpstreamDataSourceFactory(
                     OkHttpDataSource.Factory(downloadHttpClient)
                         .setUserAgent(
@@ -142,15 +147,13 @@ object YtMusicDownloadUtil {
                             ),
                         )
 
-                        // Append &range=0-{contentLength} to defeat YouTube CDN throttling.
-                        // Without this parameter the CDN serves at "streaming speed" (~100 KB/s).
-                        // Using the actual contentLength (not a hardcoded cap) avoids truncation.
-                        // Fall back to a plain URL if contentLength is unavailable.
-                        val downloadUrl = if (info.contentLength != null && info.contentLength > 0) {
-                            "${info.url}&range=0-${info.contentLength}"
-                        } else {
-                            info.url
-                        }
+                        // &range=0-N signals a one-shot download to YouTube's CDN;
+                        // without it the CDN throttles to streaming speed (~100 KB/s).
+                        // Use actual contentLength when available; fall back to 50 MB
+                        // which safely covers any audio track at any quality.
+                        val rangeEnd = if (info.contentLength != null && info.contentLength > 0)
+                            info.contentLength else 50_000_000L
+                        val downloadUrl = "${info.url}&range=0-$rangeEnd"
                         Pair(downloadUrl, info.expiresInSeconds * 1_000L)
                     } else {
 
@@ -171,11 +174,13 @@ object YtMusicDownloadUtil {
             DownloadCaches.databaseProvider(ctx),
             downloadCache,
             dataSourceFactory,
-
-            Executors.newFixedThreadPool(MAX_PARALLEL_DOWNLOADS),
+            // Inline executor: tasks run on DownloadManager's own thread.
+            // A thread pool here adds queuing overhead and can stall when
+            // runBlocking URL-resolution holds pool threads — matching Metrolist.
+            Executor(Runnable::run),
         ).apply {
-            maxParallelDownloads = MAX_PARALLEL_DOWNLOADS
-            minRetryCount = 3
+            maxParallelDownloads = 3
+            minRetryCount = 5
             addListener(object : DownloadManager.Listener {
                 override fun onDownloadChanged(
                     downloadManager: DownloadManager,
