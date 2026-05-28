@@ -26,11 +26,13 @@ object SpotifyCanvasRepository {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-
     private val spT: String = UUID.randomUUID().toString().replace("-", "")
 
     @Volatile private var cachedToken: String? = null
     @Volatile private var tokenExpiryMs: Long = 0L
+
+    @Volatile private var cachedClientToken: String? = null
+    @Volatile private var clientTokenExpiryMs: Long = 0L
 
     @Volatile private var storedCookie: String? = null
 
@@ -38,19 +40,19 @@ object SpotifyCanvasRepository {
         storedCookie = cookie?.takeIf { it.isNotBlank() }
         cachedToken = null
         tokenExpiryMs = 0L
+        cachedClientToken = null
+        clientTokenExpiryMs = 0L
     }
 
     fun invalidateToken() {
         cachedToken = null
         tokenExpiryMs = 0L
+        cachedClientToken = null
+        clientTokenExpiryMs = 0L
     }
-
 
     private val cache = LinkedHashMap<String, String?>(64, 0.75f, true)
     private val cacheLock = Any()
-
-
-
 
     suspend fun getCanvasUrl(videoId: String, title: String, artist: String): String? =
         withContext(Dispatchers.IO) {
@@ -58,12 +60,13 @@ object SpotifyCanvasRepository {
                 if (cache.containsKey(videoId)) return@withContext cache[videoId]
             }
             val url = runCatching {
-                val token = ensureToken() ?: return@runCatching null
-                val uri   = searchTrack(token, title, artist) ?: run {
+                val token       = ensureToken()       ?: return@runCatching null
+                val clientToken = ensureClientToken() ?: return@runCatching null
+                val uri = searchTrack(token, title, artist) ?: run {
                     Log.d(TAG, "Not found on Spotify: \"$title\" – $artist")
                     return@runCatching null
                 }
-                fetchCanvas(token, uri).also { u ->
+                fetchCanvas(token, clientToken, uri).also { u ->
                     if (u != null) Log.i(TAG, "Canvas [$title]: ${u.take(60)}…")
                 }
             }.getOrElse { e ->
@@ -74,7 +77,7 @@ object SpotifyCanvasRepository {
             url
         }
 
-
+    // ── Access token (from sp_dc cookie or anonymous) ─────────────────────────
 
     private fun ensureToken(): String? {
         val now = System.currentTimeMillis()
@@ -83,11 +86,9 @@ object SpotifyCanvasRepository {
             val cookieHeader = storedCookie ?: "sp_t=$spT; sp_new=1"
             val req = Request.Builder()
                 .url("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
-                .header(
-                    "User-Agent",
+                .header("User-Agent",
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                )
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                 .header("Accept", "application/json")
                 .header("Cookie", cookieHeader)
                 .header("Referer", "https://open.spotify.com/")
@@ -97,9 +98,10 @@ object SpotifyCanvasRepository {
                 if (!resp.isSuccessful) { Log.d(TAG, "Token HTTP ${resp.code}"); null }
                 else resp.body?.string()
             } ?: return@runCatching null
-            val obj = json.parseToJsonElement(body).jsonObject
-            val t   = obj["accessToken"]?.jsonPrimitive?.content ?: return@runCatching null
-            val exp = obj["accessTokenExpirationTimestampMs"]
+
+            val obj  = json.parseToJsonElement(body).jsonObject
+            val t    = obj["accessToken"]?.jsonPrimitive?.content ?: return@runCatching null
+            val exp  = obj["accessTokenExpirationTimestampMs"]
                 ?.jsonPrimitive?.content?.toLongOrNull() ?: (now + 3_600_000L)
             val isAnon = obj["isAnonymous"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: true
             if (isAnon && storedCookie != null) {
@@ -111,17 +113,62 @@ object SpotifyCanvasRepository {
         }.getOrElse { Log.d(TAG, "Token error: ${it.message}"); null }
     }
 
+    // ── Client token (required by spclient endpoints since ~2023) ─────────────
+    // SimpMusic and other open-source players use this exact endpoint + payload.
 
+    private fun ensureClientToken(): String? {
+        val now = System.currentTimeMillis()
+        cachedClientToken?.takeIf { now < clientTokenExpiryMs - 60_000L }?.let { return it }
+        return runCatching {
+            val payload = """
+                {
+                  "client_data": {
+                    "client_version": "1.2.52.442",
+                    "client_id": "d8a5ed958d274c2e8ee717e6a4b0971d",
+                    "js_sdk_data": {
+                      "device_brand": "unknown",
+                      "device_model": "unknown",
+                      "os": "android",
+                      "os_version": "unknown"
+                    }
+                  }
+                }
+            """.trimIndent()
+            val req = Request.Builder()
+                .url("https://clienttoken.spotify.com/v1/clienttoken")
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .header("Accept", "application/json")
+                .header("User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                .header("Origin", "https://open.spotify.com")
+                .build()
+
+            val body = http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) { Log.d(TAG, "ClientToken HTTP ${resp.code}"); null }
+                else resp.body?.string()
+            } ?: return@runCatching null
+
+            val obj          = json.parseToJsonElement(body).jsonObject
+            val grantedToken = obj["granted_token"]?.jsonObject ?: return@runCatching null
+            val ct           = grantedToken["token"]?.jsonPrimitive?.content ?: return@runCatching null
+            val expiresIn    = grantedToken["expires_after_seconds"]?.jsonPrimitive
+                ?.content?.toLongOrNull() ?: 1800L
+            cachedClientToken   = ct
+            clientTokenExpiryMs = now + expiresIn * 1000L
+            ct
+        }.getOrElse { Log.d(TAG, "ClientToken error: ${it.message}"); null }
+    }
+
+    // ── Track search ──────────────────────────────────────────────────────────
 
     private fun searchTrack(token: String, title: String, artist: String): String? {
-        val q   = URLEncoder.encode("${title.take(50)} ${artist.take(30)}", "UTF-8")
+        val q = URLEncoder.encode("${title.take(50)} ${artist.take(30)}", "UTF-8")
         val req = Request.Builder()
             .url("https://api.spotify.com/v1/search?q=$q&type=track&limit=3")
             .header("Authorization", "Bearer $token")
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            )
+            .header("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .get().build()
         return runCatching {
             val body = http.newCall(req).execute().use { resp ->
@@ -135,13 +182,14 @@ object SpotifyCanvasRepository {
         }.getOrNull()
     }
 
+    // ── Canvas fetch ──────────────────────────────────────────────────────────
 
-
-    private fun fetchCanvas(token: String, spotifyUri: String): String? {
+    private fun fetchCanvas(token: String, clientToken: String, spotifyUri: String): String? {
         val req = Request.Builder()
             .url("https://spclient.wg.spotify.com/canvaz-cache/v0/canvases")
             .post(buildCanvasRequest(spotifyUri).toRequestBody("application/x-protobuf".toMediaType()))
             .header("Authorization", "Bearer $token")
+            .header("client-token", clientToken)
             .header("Accept", "application/x-protobuf")
             .header("User-Agent", "Spotify/8.6.72 Android/29 (Pixel 4)")
             .build()
@@ -154,15 +202,13 @@ object SpotifyCanvasRepository {
         }.getOrNull()
     }
 
-
-
+    // ── Protobuf helpers ──────────────────────────────────────────────────────
 
     private fun buildCanvasRequest(spotifyUri: String): ByteArray {
         val uriBytes = spotifyUri.toByteArray(Charsets.UTF_8)
         val inner    = byteArrayOf(0x0A) + varint(uriBytes.size) + uriBytes
         return          byteArrayOf(0x0A) + varint(inner.size)    + inner
     }
-
 
     private fun parseCanvasResponse(bytes: ByteArray): String? {
         var i = 0
@@ -203,8 +249,6 @@ object SpotifyCanvasRepository {
         }
         return null
     }
-
-
 
     private fun varint(value: Int): ByteArray {
         val out = mutableListOf<Byte>()
