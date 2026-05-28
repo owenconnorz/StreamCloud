@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.streamcloud.app.ui.util.verticalScrollbar
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -286,7 +288,11 @@ fun LibraryScreen(
             }
             BackButton(label = openTile.orEmpty().replaceFirstChar { it.uppercase() }) { openTile = null }
             Spacer(Modifier.height(8.dp))
-            LazyColumn(Modifier.fillMaxSize()) {
+            val openTileListState = rememberLazyListState()
+            LazyColumn(
+                state = openTileListState,
+                modifier = Modifier.fillMaxSize().verticalScrollbar(openTileListState),
+            ) {
                 items(list, key = { it.url }) { e -> LibTrackRow(e) }
             }
         } else {

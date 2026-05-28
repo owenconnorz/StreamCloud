@@ -42,6 +42,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import android.net.Uri
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
@@ -361,7 +362,13 @@ fun MusicScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(sections.albums, key = { "alb_${it.url}" }) { album ->
-                                AlbumCard(album = album)
+                                AlbumCard(album = album, onClick = {
+                                    val uri = Uri.parse(album.url)
+                                    val id = uri.getQueryParameter("list")
+                                        ?: uri.lastPathSegment?.takeIf { it.isNotBlank() }
+                                        ?: album.url
+                                    onOpenPlaylist(id, album.title)
+                                })
                             }
                         }
                     }
@@ -687,8 +694,8 @@ private fun TopResultCard(track: YtTrack, isPlaying: Boolean, onClick: () -> Uni
 }
 
 @Composable
-private fun AlbumCard(album: com.streamcloud.app.data.newpipe.YtAlbum) {
-    Column(Modifier.width(160.dp)) {
+private fun AlbumCard(album: com.streamcloud.app.data.newpipe.YtAlbum, onClick: () -> Unit = {}) {
+    Column(Modifier.width(160.dp).clickable(onClick = onClick)) {
         AsyncImage(
             model = album.thumbnail,
             contentDescription = album.title,
