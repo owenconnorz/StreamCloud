@@ -44,6 +44,7 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
+import com.streamcloud.app.ui.viewmodel.CsPluginRow
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 
 private data class PosterSheetItem(
@@ -63,6 +64,8 @@ fun MoviesScreen(
     onOpenCatalog: (source: String, title: String, subtitle: String) -> Unit = { _, _, _ -> },
     onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit =
         { _, _, _, _, _ -> },
+    onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit =
+        { _, _, _, _ -> },
 ) {
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
@@ -235,6 +238,67 @@ fun MoviesScreen(
                                             meta.name, meta.poster,
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+                state.csPluginRows.forEach { row ->
+                    item(key = "cshome_t_${row.pluginInternalName}_${row.sectionName}") {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    row.sectionName,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                )
+                                Text(
+                                    row.pluginDisplayName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                    item(key = "cshome_${row.pluginInternalName}_${row.sectionName}") {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(
+                                row.items,
+                                key = { "${row.pluginInternalName}_${row.sectionName}_${it.url}" },
+                            ) { sr ->
+                                Column(
+                                    Modifier
+                                        .width(120.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            onOpenCsItem(row.pluginInternalName, sr.url, sr.name, sr.posterUrl)
+                                        },
+                                ) {
+                                    AsyncImage(
+                                        model = sr.posterUrl,
+                                        contentDescription = sr.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxWidth().aspectRatio(2f / 3f)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(MaterialTheme.colorScheme.surface),
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        sr.name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
                             }
                         }

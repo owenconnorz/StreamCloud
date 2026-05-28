@@ -250,6 +250,13 @@ fun StreamCloudApp() {
                             val p = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
                         },
+                        onOpenCsItem = { plugin, itemUrl, itemName, poster ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val u = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
                     )
                 }
                 composable(

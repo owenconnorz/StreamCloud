@@ -6,8 +6,11 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.streamcloud.app.BuildConfig
+import com.streamcloud.app.data.plugins.PinnedCsSection
+import com.streamcloud.app.data.plugins.csHomeSectionsJson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.encodeToString
 
 private val Context.dataStore by preferencesDataStore("streamcloud_settings")
 
@@ -76,6 +79,8 @@ object SettingsKeys {
 
     val SPOTIFY_COOKIE    = stringPreferencesKey("spotify_cookie")
     val SPOTIFY_USER_NAME = stringPreferencesKey("spotify_user_name")
+
+    val CS_HOME_SECTIONS  = stringPreferencesKey("cs_home_sections")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -267,4 +272,12 @@ class SettingsRepository(private val context: Context) {
         it.remove(SettingsKeys.SPOTIFY_COOKIE)
         it.remove(SettingsKeys.SPOTIFY_USER_NAME)
     }
+
+    val csHomeSections: Flow<List<PinnedCsSection>> = context.dataStore.data.map { prefs ->
+        val json = prefs[SettingsKeys.CS_HOME_SECTIONS] ?: return@map emptyList()
+        try { csHomeSectionsJson.decodeFromString(json) } catch (_: Throwable) { emptyList() }
+    }
+
+    suspend fun setCsHomeSections(sections: List<PinnedCsSection>) =
+        context.dataStore.edit { it[SettingsKeys.CS_HOME_SECTIONS] = csHomeSectionsJson.encodeToString(sections) }
 }

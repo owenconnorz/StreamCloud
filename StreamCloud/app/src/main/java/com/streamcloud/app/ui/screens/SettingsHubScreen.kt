@@ -81,7 +81,10 @@ import com.streamcloud.app.BuildConfig
 import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.collections.HomeCollections
+import com.streamcloud.app.data.plugins.InstalledPlugin
+import com.streamcloud.app.data.plugins.PinnedCsSection
 import com.streamcloud.app.data.plugins.PluginRepository
+import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.updater.UpdateChecker
 import com.streamcloud.app.data.updater.UpdateInfo
 import kotlinx.coroutines.flow.first
@@ -103,7 +106,7 @@ private val ColourSonos      = Color(0xFF56C8D8)
 private enum class SettingsPage {
     SystemUpdate, Appearance, PlayerAudio, Account,
     ListenTogether, Content, Privacy,
-    Storage, BackupRestore, About, Logs
+    Storage, BackupRestore, About, Logs, CsHomeSettings
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -890,6 +893,13 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
 
 
             SettingsPage.Logs -> LogsPage(onBack = { currentPage = null })
+
+            SettingsPage.CsHomeSettings -> SubPageScaffold(
+                title = "Movies home plugins",
+                onBack = { currentPage = null },
+            ) {
+                CsHomeSettingsPage(sl = sl, pluginRepo = pluginRepo)
+            }
         }
     }
 
@@ -1069,6 +1079,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         HubItem(SettingsPage.Content,       Icons.Default.Public,       "Content"),
         HubItem(SettingsPage.Privacy,       Icons.Default.Shield,       "Privacy"),
         HubItem(SettingsPage.Storage,       Icons.Default.Storage,      "Storage"),
+        HubItem(SettingsPage.CsHomeSettings,Icons.Default.PlayCircle,   "Movies home plugins"),
         HubItem(SettingsPage.BackupRestore, Icons.Default.CloudUpload,  "Backup and restore"),
         HubItem(SettingsPage.About,         Icons.Default.Info,         "About"),
         HubItem(
@@ -2071,4 +2082,142 @@ private fun formatBytes(bytes: Long): String = when {
     bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / 1048576.0)
     bytes >= 1024        -> String.format("%.0f KB", bytes / 1024.0)
     else                 -> "$bytes B"
+}
+
+@Composable
+private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val installedPlugins by pluginRepo.installed.collectAsState(initial = emptyList())
+    var pinnedSections by remember { mutableStateOf<List<PinnedCsSection>>(emptyList()) }
+    var sectionsMap by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+    var loadingSet by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    LaunchedEffect(Unit) {
+        pinnedSections = sl.settings.csHomeSections.first()
+    }
+
+    LaunchedEffect(installedPlugins) {
+        installedPlugins.forEach { plugin ->
+            if (sectionsMap.containsKey(plugin.internalName)) return@forEach
+            loadingSet = loadingSet + plugin.internalName
+            scope.launch {
+                val names = runCatching {
+                    PluginRuntime.home(context, plugin.filePath)
+                }.getOrDefault(emptyList()).map { it.first }
+                sectionsMap = sectionsMap + (plugin.internalName to names)
+                loadingSet = loadingSet - plugin.internalName
+            }
+        }
+    }
+
+    fun toggleSection(plugin: InstalledPlugin, sectionName: String, enabled: Boolean) {
+        val updated = if (enabled) {
+            pinnedSections + PinnedCsSection(plugin.internalName, plugin.name, sectionName)
+        } else {
+            pinnedSections.filterNot {
+                it.pluginInternalName == plugin.internalName && it.sectionName == sectionName
+            }
+        }
+        pinnedSections = updated
+        scope.launch { sl.settings.setCsHomeSections(updated) }
+    }
+
+    if (installedPlugins.isEmpty()) {
+        Text(
+            "No CloudStream plugins installed. Install plugins from the Plugins & Addons page.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        return
+    }
+
+    Text(
+        "Choose which plugin sections appear as rows on the Movies home page.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 16.dp),
+    )
+
+    installedPlugins.forEach { plugin ->
+        SettingsGroup {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Extension,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    plugin.name,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            val sections = sectionsMap[plugin.internalName]
+            val loading = plugin.internalName in loadingSet
+            when {
+                loading -> {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            "Loading sections…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                sections == null -> {
+                    Text(
+                        "Sections not yet loaded.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+                    )
+                }
+                sections.isEmpty() -> {
+                    Text(
+                        "No sections found for this plugin.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+                    )
+                }
+                else -> {
+                    sections.forEachIndexed { idx, sectionName ->
+                        if (idx > 0) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
+                            )
+                        }
+                        val isPinned = pinnedSections.any {
+                            it.pluginInternalName == plugin.internalName && it.sectionName == sectionName
+                        }
+                        SettingToggle(
+                            icon = Icons.Default.PlayCircle,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            title = sectionName,
+                            checked = isPinned,
+                            onChange = { toggleSection(plugin, sectionName, it) },
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
 }
