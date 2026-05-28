@@ -2,10 +2,14 @@ package com.streamcloud.app.ui.screens
 
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -224,6 +228,14 @@ fun NowPlayingShell(
     }
     val activeCanvas = if (canvasEnabled) canvasUrl else null
 
+    // Controls visibility — auto-hides after 3.5 s, tap screen to reveal
+    var controlsVisible by remember { mutableStateOf(true) }
+    var hideKey by remember { mutableStateOf(0) }
+    LaunchedEffect(hideKey) {
+        delay(3_500L)
+        controlsVisible = false
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -249,276 +261,308 @@ fun NowPlayingShell(
             // CanvasVideoLayer uses TextureView (renders inline with Compose, not below it)
             CanvasVideoLayer(url = activeCanvas, modifier = Modifier.fillMaxSize())
 
-            // Semi-transparent gradient so controls are readable over the video
+            // Gradient: darker at top (top bar) and bottom (controls), transparent in middle
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(
-                                Color.Black.copy(alpha = 0.15f),
-                                Color.Black.copy(alpha = 0.55f),
-                            )
+                            0f   to Color.Black.copy(alpha = 0.50f),
+                            0.25f to Color.Black.copy(alpha = 0.10f),
+                            0.65f to Color.Black.copy(alpha = 0.10f),
+                            1f   to Color.Black.copy(alpha = 0.80f),
                         )
                     )
             )
         }
 
-        Column(
+        // Full-screen tap zone — tap to reveal controls when hidden
+        Box(
             Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                NpIconButton(onClick = onClose, tint = onBg) {
-                    Icon(Icons.Default.KeyboardArrowDown, "Minimize")
+                .pointerInput(Unit) {
+                    detectTapGestures {
+                        controlsVisible = true
+                        hideKey++
+                    }
                 }
-                Spacer(Modifier.weight(1f))
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "Now Playing",
-                        color = onBg,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    )
-                    Text(
-                        title.ifBlank { "—" }.take(40),
-                        color = onBg,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                Spacer(Modifier.size(40.dp))
-            }
+        )
 
-            Spacer(Modifier.height(12.dp))
-
-
-            // When canvas is active: keep layout space but make artwork invisible (mirrors SimpMusic .alpha(if (pageHasCanvas) 0f else 1f))
+        // Album artwork — shown centred when no canvas is active
+        if (activeCanvas == null) {
             Box(
                 Modifier
-                    .fillMaxWidth()
-                    .alpha(if (activeCanvas != null) 0f else 1f)
-                    .pointerInput(controller) {
-                        // Only handle swipe gestures when not showing canvas
-                        while (true) {
-                            var totalX = 0f
-                            val widthPx = size.width.toFloat()
-                            awaitPointerEventScope {
-                                awaitFirstDown(requireUnconsumed = false)
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull() ?: break
-                                    if (!change.pressed) break
-                                    totalX += (change.position - change.previousPosition).x
-                                    artworkDragX = totalX
-                                    change.consume()
-                                }
-                            }
-
-                            artworkSwipeX.snapTo(artworkDragX)
-                            artworkDragX = 0f
-                            val threshold = widthPx * 0.28f
-                            when {
-                                totalX < -threshold -> {
-                                    artworkSwipeX.animateTo(-widthPx, tween(220))
-                                    controller.seekToNextMediaItem()
-                                    artworkSwipeX.snapTo(widthPx)
-                                    artworkSwipeX.animateTo(0f, tween(300))
-                                }
-                                totalX > threshold -> {
-                                    artworkSwipeX.animateTo(widthPx, tween(220))
-                                    controller.seekToPreviousMediaItem()
-                                    artworkSwipeX.snapTo(-widthPx)
-                                    artworkSwipeX.animateTo(0f, tween(300))
-                                }
-                                else -> artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
-                            }
-                        }
-                    },
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(top = 72.dp, bottom = 280.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
                     Modifier
-                        .fillMaxWidth(0.92f)
-                        .aspectRatio(1f)
-                        .offset { IntOffset((artworkSwipeX.value + artworkDragX).roundToInt(), 0) }
-                        .shadow(20.dp, RoundedCornerShape(20.dp))
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Black.copy(alpha = 0.25f)),
+                        .fillMaxWidth()
+                        .pointerInput(controller) {
+                            while (true) {
+                                var totalX = 0f
+                                val widthPx = size.width.toFloat()
+                                awaitPointerEventScope {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull() ?: break
+                                        if (!change.pressed) break
+                                        totalX += (change.position - change.previousPosition).x
+                                        artworkDragX = totalX
+                                        change.consume()
+                                    }
+                                }
+                                artworkSwipeX.snapTo(artworkDragX)
+                                artworkDragX = 0f
+                                val threshold = widthPx * 0.28f
+                                when {
+                                    totalX < -threshold -> {
+                                        artworkSwipeX.animateTo(-widthPx, tween(220))
+                                        controller.seekToNextMediaItem()
+                                        artworkSwipeX.snapTo(widthPx)
+                                        artworkSwipeX.animateTo(0f, tween(300))
+                                    }
+                                    totalX > threshold -> {
+                                        artworkSwipeX.animateTo(widthPx, tween(220))
+                                        controller.seekToPreviousMediaItem()
+                                        artworkSwipeX.snapTo(-widthPx)
+                                        artworkSwipeX.animateTo(0f, tween(300))
+                                    }
+                                    else -> artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
                 ) {
-                    AsyncImage(
-                        model = artwork,
-                        contentDescription = title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        title.ifBlank { "—" },
-                        color = onBg,
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        artist.ifBlank { "Unknown artist" },
-                        color = onBg.copy(alpha = 0.8f),
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                PillButton(
-                    icon = if (isDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
-                    contentDescription = if (isDownloaded) "Downloaded" else "Download",
-                    loading = downloadProgress != null,
-                    onClick = {
-                        val mid = mediaId ?: return@PillButton
-                        if (isDownloaded || downloadProgress != null) return@PillButton
-                        val videoId = mid
-                            .substringAfter("v=", missingDelimiterValue = "")
-                            .substringBefore('&')
-                            .takeIf { it.isNotBlank() }
-                        if (videoId != null) {
-                            com.streamcloud.app.data.ytmusic.YtPlayback.downloadSong(
-                                context,
-                                com.streamcloud.app.data.ytmusic.YtmSong(
-                                    videoId = videoId,
-                                    title = title,
-                                    artist = "",
-                                    album = null,
-                                    thumbnail = null,
-                                    durationSeconds = null,
-                                ),
-                            )
-                        } else {
-                            val req = androidx.media3.exoplayer.offline.DownloadRequest
-                                .Builder(mid, android.net.Uri.parse(mid))
-                                .setData(title.toByteArray(Charsets.UTF_8))
-                                .setCustomCacheKey(mid)
-                                .build()
-                            androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
-                                context,
-                                com.streamcloud.app.data.downloads.MusicExoDownloadService::class.java,
-                                req,
-                                false,
-                            )
-                        }
-                    },
-                )
-                Spacer(Modifier.width(8.dp))
-                PillButton(
-                    icon = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (isLiked) "Unlike" else "Like",
-                    onClick = {
-                        val mid = mediaId ?: return@PillButton
-                        val nowLiked = isLiked
-                        scope.launch {
-                            val dao = LibraryDb.get(context.applicationContext).tracks()
-                            dao.setLikedAt(mid, if (nowLiked) null else System.currentTimeMillis())
-                            val videoId = mid.substringAfter("v=").substringBefore("&")
-                                .takeIf { it.isNotBlank() } ?: return@launch
-                            if (nowLiked) YtMusicLibraryRepository.unlikeSong(ytCookie, videoId)
-                            else YtMusicLibraryRepository.likeSong(ytCookie, videoId)
-                        }
-                    },
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-
-            Slider(
-                value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
-                onValueChange = { v ->
-                    if (durationMs > 0) controller.seekTo((v * durationMs).toLong())
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = SliderDefaults.colors(
-                    thumbColor = onBg,
-                    activeTrackColor = onBg,
-                    inactiveTrackColor = onBg.copy(alpha = 0.3f),
-                ),
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    formatTime(positionMs), color = onBg.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                )
-                Text(
-                    formatTime(durationMs), color = onBg.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                DarkCapsule(
-                    icon = Icons.Default.SkipPrevious, contentDescription = "Previous",
-                    onClick = { controller.seekToPreviousMediaItem() },
-                )
-                PlayPill(
-                    playing = isPlaying,
-                    onClick = { if (isPlaying) controller.pause() else controller.play() },
-                    modifier = Modifier.weight(1f),
-                )
-                DarkCapsule(
-                    icon = Icons.Default.SkipNext, contentDescription = "Next",
-                    onClick = { controller.seekToNextMediaItem() },
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-
-            BottomToolbar(
-                shuffleOn = shuffleOn,
-                repeatMode = repeatMode,
-                sleepActive = sleepEndTs != null,
-                lyricsActive = showLyrics,
-                onQueue = { showQueueSheet = true },
-                onSleep = {
-                    if (sleepEndTs != null) sleepEndTs = null
-                    else showSleepDialog = true
-                },
-                onLyrics = { showLyrics = !showLyrics },
-                onCast = { showSonos = true },
-                isCasting = isCasting,
-                onShuffle = { controller.shuffleModeEnabled = !controller.shuffleModeEnabled },
-                onRepeat = {
-                    val next = when (controller.repeatMode) {
-                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                        else -> Player.REPEAT_MODE_OFF
+                    Box(
+                        Modifier
+                            .fillMaxWidth(0.85f)
+                            .aspectRatio(1f)
+                            .offset { IntOffset((artworkSwipeX.value + artworkDragX).roundToInt(), 0) }
+                            .shadow(20.dp, RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color.Black.copy(alpha = 0.25f)),
+                    ) {
+                        AsyncImage(
+                            model = artwork,
+                            contentDescription = title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
-                    controller.repeatMode = next
-                },
-                onMore = { showActions = true },
-            )
+                }
+            }
+        }
 
-            if (showLyrics) {
-                Spacer(Modifier.height(12.dp))
-                LyricsView(
-                    lyrics = lyrics,
-                    loading = lyricsLoading,
-                    positionMs = positionMs,
-                    onTextColor = onBg,
-                )
+        // Controls overlay — fades out after inactivity, tap anywhere to restore
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(600)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars),
+            ) {
+                // ── Top bar ──
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopStart)
+                        .padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    NpIconButton(onClick = onClose, tint = onBg) {
+                        Icon(Icons.Default.KeyboardArrowDown, "Minimize")
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Now Playing",
+                            color = onBg,
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        )
+                        Text(
+                            title.ifBlank { "—" }.take(40),
+                            color = onBg,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.size(40.dp))
+                }
+
+                // ── Bottom controls ──
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                title.ifBlank { "—" },
+                                color = onBg,
+                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                artist.ifBlank { "Unknown artist" },
+                                color = onBg.copy(alpha = 0.8f),
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        PillButton(
+                            icon = if (isDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                            contentDescription = if (isDownloaded) "Downloaded" else "Download",
+                            loading = downloadProgress != null,
+                            onClick = {
+                                val mid = mediaId ?: return@PillButton
+                                if (isDownloaded || downloadProgress != null) return@PillButton
+                                val videoId = mid
+                                    .substringAfter("v=", missingDelimiterValue = "")
+                                    .substringBefore('&')
+                                    .takeIf { it.isNotBlank() }
+                                if (videoId != null) {
+                                    com.streamcloud.app.data.ytmusic.YtPlayback.downloadSong(
+                                        context,
+                                        com.streamcloud.app.data.ytmusic.YtmSong(
+                                            videoId = videoId,
+                                            title = title,
+                                            artist = "",
+                                            album = null,
+                                            thumbnail = null,
+                                            durationSeconds = null,
+                                        ),
+                                    )
+                                } else {
+                                    val req = androidx.media3.exoplayer.offline.DownloadRequest
+                                        .Builder(mid, android.net.Uri.parse(mid))
+                                        .setData(title.toByteArray(Charsets.UTF_8))
+                                        .setCustomCacheKey(mid)
+                                        .build()
+                                    androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                                        context,
+                                        com.streamcloud.app.data.downloads.MusicExoDownloadService::class.java,
+                                        req,
+                                        false,
+                                    )
+                                }
+                            },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        PillButton(
+                            icon = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (isLiked) "Unlike" else "Like",
+                            onClick = {
+                                val mid = mediaId ?: return@PillButton
+                                val nowLiked = isLiked
+                                scope.launch {
+                                    val dao = LibraryDb.get(context.applicationContext).tracks()
+                                    dao.setLikedAt(mid, if (nowLiked) null else System.currentTimeMillis())
+                                    val videoId = mid.substringAfter("v=").substringBefore("&")
+                                        .takeIf { it.isNotBlank() } ?: return@launch
+                                    if (nowLiked) YtMusicLibraryRepository.unlikeSong(ytCookie, videoId)
+                                    else YtMusicLibraryRepository.likeSong(ytCookie, videoId)
+                                }
+                            },
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    Slider(
+                        value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
+                        onValueChange = { v ->
+                            if (durationMs > 0) controller.seekTo((v * durationMs).toLong())
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = SliderDefaults.colors(
+                            thumbColor = onBg,
+                            activeTrackColor = onBg,
+                            inactiveTrackColor = onBg.copy(alpha = 0.3f),
+                        ),
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(
+                            formatTime(positionMs), color = onBg.copy(alpha = 0.85f),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        )
+                        Text(
+                            formatTime(durationMs), color = onBg.copy(alpha = 0.85f),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DarkCapsule(
+                            icon = Icons.Default.SkipPrevious, contentDescription = "Previous",
+                            onClick = { controller.seekToPreviousMediaItem() },
+                        )
+                        PlayPill(
+                            playing = isPlaying,
+                            onClick = { if (isPlaying) controller.pause() else controller.play() },
+                            modifier = Modifier.weight(1f),
+                        )
+                        DarkCapsule(
+                            icon = Icons.Default.SkipNext, contentDescription = "Next",
+                            onClick = { controller.seekToNextMediaItem() },
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    BottomToolbar(
+                        shuffleOn = shuffleOn,
+                        repeatMode = repeatMode,
+                        sleepActive = sleepEndTs != null,
+                        lyricsActive = showLyrics,
+                        onQueue = { showQueueSheet = true },
+                        onSleep = {
+                            if (sleepEndTs != null) sleepEndTs = null
+                            else showSleepDialog = true
+                        },
+                        onLyrics = { showLyrics = !showLyrics },
+                        onCast = { showSonos = true },
+                        isCasting = isCasting,
+                        onShuffle = { controller.shuffleModeEnabled = !controller.shuffleModeEnabled },
+                        onRepeat = {
+                            val next = when (controller.repeatMode) {
+                                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                                Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                                else -> Player.REPEAT_MODE_OFF
+                            }
+                            controller.repeatMode = next
+                        },
+                        onMore = { showActions = true },
+                    )
+
+                    if (showLyrics) {
+                        Spacer(Modifier.height(12.dp))
+                        LyricsView(
+                            lyrics = lyrics,
+                            loading = lyricsLoading,
+                            positionMs = positionMs,
+                            onTextColor = onBg,
+                        )
+                    }
+                }
             }
         }
     }
