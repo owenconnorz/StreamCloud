@@ -78,7 +78,6 @@ class MusicPlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
-        setMediaNotificationProvider(MusicNotificationProvider(this))
 
         playerCache = DownloadCaches.playerCache(this)
         downloadCache = DownloadCaches.downloadCache(this)
@@ -130,6 +129,7 @@ class MusicPlaybackService : MediaLibraryService() {
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(sessionActivityIntent)
             .build()
+        session?.setCustomLayout(buildCustomLayout())
 
         audioFx = AudioFx(applicationContext, player.audioSessionId).also { it.start() }
 
@@ -376,14 +376,12 @@ class MusicPlaybackService : MediaLibraryService() {
         val repeatMode = session?.player?.repeatMode ?: Player.REPEAT_MODE_OFF
         val likeIcon = if (isCurrentLiked) R.drawable.ic_notif_fav_filled else R.drawable.ic_notif_fav
         val repeatIcon = if (repeatMode == Player.REPEAT_MODE_ONE) R.drawable.ic_notif_repeat_one else R.drawable.ic_notif_repeat
-        @Suppress("DEPRECATION")
-        val likeBtn = CommandButton.Builder()
+        val likeBtn = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setIconResId(likeIcon)
             .setSessionCommand(LIKE_COMMAND)
             .setDisplayName(if (isCurrentLiked) "Unlike" else "Like")
             .build()
-        @Suppress("DEPRECATION")
-        val repeatBtn = CommandButton.Builder()
+        val repeatBtn = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setIconResId(repeatIcon)
             .setSessionCommand(REPEAT_COMMAND)
             .setDisplayName("Repeat")
@@ -565,7 +563,6 @@ class MusicPlaybackService : MediaLibraryService() {
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
-                .setCustomLayout(buildCustomLayout())
                 .build()
         }
 
