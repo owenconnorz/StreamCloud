@@ -9,7 +9,9 @@ import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.nio.ByteBuffer
@@ -393,26 +395,50 @@ object SpotifyCanvasRepository {
     private fun ensureClientToken(): String? {
         val now = System.currentTimeMillis()
         cachedCt?.takeIf { now < ctExpiryMs - 60_000L }?.let { return it }
-        // ← NO Accept-Encoding: OkHttp handles gzip → body?.string() is plain JSON
         return runCatching {
+            // Use a plain bytes RequestBody so OkHttp does NOT append "; charset=utf-8"
+            val bodyBytes = CLIENT_BODY.toByteArray(Charsets.UTF_8)
+            val body = object : RequestBody() {
+                override fun contentType() = "application/json".toMediaType()
+                override fun contentLength() = bodyBytes.size.toLong()
+                override fun writeTo(sink: BufferedSink) { sink.write(bodyBytes) }
+            }
             val req = Request.Builder()
                 .url("https://clienttoken.spotify.com/v1/clienttoken")
-                .post(CLIENT_BODY.toRequestBody("application/json".toMediaType()))
+                .post(body)
                 .header("User-Agent", UA_CT)
                 .header("Accept", "application/json")
                 .build()
             val text = http.newCall(req).execute().use { r ->
-                if (!r.isSuccessful) { Log.e(TAG, "ClientToken HTTP ${r.code}"); return@runCatching null }
+                if (!r.isSuccessful) {
+                    Log.e(TAG, "ClientToken HTTP ${r.code}: ${r.body?.string()?.take(200)}")
+                    lastStatus = "Client-token HTTP ${r.code}"
+                    return@runCatching null
+                }
                 r.body?.string()
             } ?: return@runCatching null
-            val gt = JSONObject(text).optJSONObject("granted_token") ?: return@runCatching null
-            val ct  = gt.optString("token", "").takeIf { it.isNotBlank() } ?: return@runCatching null
+            Log.d(TAG, "ClientToken body: ${text.take(120)}")
+            val obj = JSONObject(text)
+            val responseType = obj.optString("response_type", "")
+            val gt = obj.optJSONObject("granted_token")
+            if (gt == null) {
+                Log.e(TAG, "ClientToken no granted_token (response_type=$responseType)")
+                lastStatus = "Client-token: $responseType (no token)"
+                return@runCatching null
+            }
+            val ct  = gt.optString("token", "").takeIf { it.isNotBlank() } ?: run {
+                Log.e(TAG, "ClientToken token blank"); return@runCatching null
+            }
             val exp = gt.optLong("expires_after_seconds", 1800L)
             cachedCt    = ct
             ctExpiryMs  = now + exp * 1000L
-            Log.d(TAG, "ClientToken OK (exp=${exp}s)")
+            Log.i(TAG, "ClientToken OK (len=${ct.length} exp=${exp}s)")
             ct
-        }.getOrElse { Log.e(TAG, "ClientToken exception: ${it.message}"); null }
+        }.getOrElse {
+            Log.e(TAG, "ClientToken exception: ${it.javaClass.simpleName}: ${it.message}")
+            lastStatus = "Client-token: ${it.javaClass.simpleName}: ${it.message?.take(80)}"
+            null
+        }
     }
 
     // ── Track search (SimpMusic SpotifyClient.searchSpotifyTrack — api-partner GraphQL) ─────────
