@@ -90,6 +90,7 @@ fun StreamCloudApp() {
         currentRoute == Tab.Movies.route ||
         currentRoute.startsWith("cloudstream") ||
         currentRoute.startsWith("cs-detail/") ||
+        currentRoute.startsWith("cs-section/") ||
         currentRoute.startsWith("movie/") ||
         currentRoute.startsWith("tv/")
     )
@@ -257,6 +258,12 @@ fun StreamCloudApp() {
                             val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("cs-detail/$p/$u/$n/$po")
                         },
+                        onViewAllCsSection = { plugin, section, displayName ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val s = URLEncoder.encode(section, "UTF-8")
+                            val d = URLEncoder.encode(displayName, "UTF-8")
+                            nav.navigate("cs-section/$p/$s/$d")
+                        },
                     )
                 }
                 composable(
@@ -322,6 +329,31 @@ fun StreamCloudApp() {
                             val n  = URLEncoder.encode(itemName, "UTF-8")
                             val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                    )
+                }
+                composable(
+                    "cs-section/{plugin}/{section}/{display}",
+                    arguments = listOf(
+                        navArgument("plugin")  { type = NavType.StringType },
+                        navArgument("section") { type = NavType.StringType },
+                        navArgument("display") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val plugin  = URLDecoder.decode(entry.arguments!!.getString("plugin")!!,  "UTF-8")
+                    val section = URLDecoder.decode(entry.arguments!!.getString("section")!!, "UTF-8")
+                    val display = URLDecoder.decode(entry.arguments!!.getString("display")!!, "UTF-8")
+                    com.streamcloud.app.ui.screens.CsSectionListScreen(
+                        pluginInternalName = plugin,
+                        sectionName = section,
+                        pluginDisplayName = display,
+                        onBack = { nav.popBackStack() },
+                        onOpenItem = { p, u, n, po ->
+                            val ep = URLEncoder.encode(p, "UTF-8")
+                            val eu = URLEncoder.encode(u, "UTF-8")
+                            val en = URLEncoder.encode(n, "UTF-8")
+                            val epo = URLEncoder.encode(po.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$ep/$eu/$en/$epo")
                         },
                     )
                 }
