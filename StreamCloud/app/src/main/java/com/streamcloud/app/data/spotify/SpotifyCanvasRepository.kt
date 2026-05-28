@@ -94,6 +94,9 @@ object SpotifyCanvasRepository {
     private val urlCache  = LinkedHashMap<String, String?>(64, 0.75f, true)
     private val cacheLock = Any()
 
+    /** Human-readable result of the last canvas fetch attempt. Read from Settings UI. */
+    @Volatile var lastStatus: String = "—"
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     fun setSpotifyCookie(cookie: String?) {
@@ -132,19 +135,30 @@ object SpotifyCanvasRepository {
 
     private fun fetchCanvas(title: String, artist: String): String? {
         val spDc = storedSpDc
-        if (spDc.isNullOrBlank()) { Log.w(TAG, "[$title] no sp_dc"); return null }
+        if (spDc.isNullOrBlank()) {
+            lastStatus = "No sp_dc — tap Spotify row to log in"
+            Log.w(TAG, "[$title] no sp_dc"); return null
+        }
 
-        val token = ensureToken(spDc)
-            ?: run { Log.e(TAG, "[$title] token=null"); return null }
-        val ct = ensureClientToken()
-            ?: run { Log.e(TAG, "[$title] clientToken=null"); return null }
+        val token = ensureToken(spDc) ?: run {
+            lastStatus = "Token failed — sp_dc may be expired. Try logging out and back in"
+            Log.e(TAG, "[$title] token=null"); return null
+        }
+        val ct = ensureClientToken() ?: run {
+            lastStatus = "Client-token failed (network?)"
+            Log.e(TAG, "[$title] clientToken=null"); return null
+        }
 
         val q = buildQuery(title, artist)
-        val trackId = searchTrackId(token, ct, q)
-            ?: run { Log.w(TAG, "[$title] track not found (q=\"$q\")"); return null }
+        val trackId = searchTrackId(token, ct, q) ?: run {
+            lastStatus = "Track not found on Spotify (q=\"$q\")"
+            Log.w(TAG, "[$title] track not found (q=\"$q\")"); return null
+        }
         Log.d(TAG, "[$title] trackId=$trackId")
 
-        return fetchCanvasUrl(token, ct, trackId)
+        val url = fetchCanvasUrl(token, ct, trackId)
+        lastStatus = if (url != null) "Canvas OK ✓  ($title)" else "No canvas for this track ($title)"
+        return url
     }
 
     // ── TOTP — exact port of SimpMusic SpotifyTotp.generateSecret ────────────
