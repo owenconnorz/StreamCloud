@@ -52,25 +52,62 @@ object PluginRuntime {
             readOnlyFile.setReadOnly()
 
             val optimizedDir = context.getDir("plugins-opt", android.content.Context.MODE_PRIVATE)
-            val appClassLoader = Plugin::class.java.classLoader ?: context.classLoader
+            // Primary parent: the classloader that loaded our Plugin class.
+            // Fallback: the app's full PathClassLoader (helps with NoClassDefFoundError on some
+            // plugins that reference classes not visible through the narrower Plugin classloader).
+            val primaryParent = Plugin::class.java.classLoader ?: context.classLoader
+            val fallbackParent = context.classLoader
             val loader = DexClassLoader(
                 readOnlyFile.absolutePath,
                 optimizedDir.absolutePath,
                 null,
-                appClassLoader,
+                primaryParent,
             )
             // Read manifest from the original file first (avoids codeCacheDir SELinux issues)
             val pluginClassName = readPluginClassName(src)
                 ?: readPluginClassName(readOnlyFile)
-                ?: scanDexForPluginClass(readOnlyFile, optimizedDir, appClassLoader)
+                ?: scanDexForPluginClass(readOnlyFile, optimizedDir, primaryParent)
                 ?: error("Could not find plugin class in `$filePath` (no `manifest.json`, " +
                     "no `Plugin-Class` in MANIFEST.MF, and no `Plugin` subclass found in dex).")
-            val klass = runCatching { loader.loadClass(pluginClassName) }.getOrElse { e ->
-                error("Found plugin class `$pluginClassName` but failed to load it: " +
-                    "${e::class.simpleName}: ${e.message}")
+
+            // Load the class. If it fails with a linkage/class-not-found error, retry with the
+            // fallback classloader so plugins that reference additional app classes can still load.
+            val klass = run {
+                val primary = runCatching { loader.loadClass(pluginClassName) }
+                if (primary.isSuccess) {
+                    primary.getOrThrow()
+                } else {
+                    val fallbackLoader = DexClassLoader(
+                        readOnlyFile.absolutePath,
+                        optimizedDir.absolutePath,
+                        null,
+                        fallbackParent,
+                    )
+                    runCatching { fallbackLoader.loadClass(pluginClassName) }.getOrElse { e ->
+                        error("Found plugin class `$pluginClassName` but failed to load it " +
+                            "(tried primary + fallback classloaders): " +
+                            "${e::class.simpleName}: ${e.message}")
+                    }
+                }
             }
-            val instance = klass.getDeclaredConstructor().newInstance() as? Plugin
-                ?: error("Class `$pluginClassName` is not a subclass of `Plugin`")
+
+            // Instantiate and normalise. Some plugins extend Plugin (standard), others extend
+            // MainAPI directly without a Plugin wrapper (bare-provider format). Wrap the latter
+            // automatically so both formats work.
+            val rawInstance = runCatching { klass.getDeclaredConstructor().newInstance() }
+                .getOrElse { e ->
+                    error("Failed to instantiate `$pluginClassName`: " +
+                        "${e::class.simpleName}: ${e.message}")
+                }
+            val instance: Plugin = when (rawInstance) {
+                is Plugin -> rawInstance
+                is MainAPI -> object : Plugin() {
+                    override fun load(ctx: android.content.Context) {
+                        registerMainAPI(rawInstance)
+                    }
+                }
+                else -> error("Class `$pluginClassName` is not a subclass of `Plugin` or `MainAPI`")
+            }
             instance.beforeLoad()
             instance.load(context)
             instance.afterLoad()
@@ -155,19 +192,30 @@ object PluginRuntime {
             "com.lagradost.cloudstream3.metaproviders.",
         )
 
+        val mainApiBase = MainAPI::class.java
+
         // Primary: read DEX string table directly from the ZIP (no deprecated APIs)
         val candidates = readDexClassNamesFromZip(readOnlyFile)
             .filterNot { name -> skipPrefixes.any { name.startsWith(it) } }
 
         if (candidates.isNotEmpty()) {
             val loader = DexClassLoader(readOnlyFile.absolutePath, optimizedDir.absolutePath, null, parent)
-            val found = candidates.firstOrNull { className ->
+            // First pass: look for proper Plugin subclass (preferred)
+            val foundPlugin = candidates.firstOrNull { className ->
                 runCatching {
                     val c = loader.loadClass(className)
                     pluginBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
                 }.getOrDefault(false)
             }
-            if (found != null) return found
+            if (foundPlugin != null) return foundPlugin
+            // Second pass: bare MainAPI subclass — the load() function will wrap it automatically
+            val foundApi = candidates.firstOrNull { className ->
+                runCatching {
+                    val c = loader.loadClass(className)
+                    mainApiBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
+                }.getOrDefault(false)
+            }
+            if (foundApi != null) return foundApi
         }
 
         // Fallback: deprecated DexFile.loadDex for older Android versions
@@ -178,11 +226,17 @@ object PluginRuntime {
                 readOnlyFile.absolutePath,
                 File(optimizedDir, readOnlyFile.name + ".odex").absolutePath, 0,
             )
-            dexFile.entries().toList().firstOrNull { className ->
-                if (skipPrefixes.any { className.startsWith(it) }) return@firstOrNull false
+            val allNames = dexFile.entries().toList()
+                .filterNot { name -> skipPrefixes.any { name.startsWith(it) } }
+            allNames.firstOrNull { className ->
                 runCatching {
                     val c = loader.loadClass(className)
                     pluginBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
+                }.getOrDefault(false)
+            } ?: allNames.firstOrNull { className ->
+                runCatching {
+                    val c = loader.loadClass(className)
+                    mainApiBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
                 }.getOrDefault(false)
             }
         } catch (_: Throwable) { null }
