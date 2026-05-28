@@ -3,6 +3,9 @@ package com.streamcloud.app.data.spotify
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -10,6 +13,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.nio.ByteBuffer
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -49,12 +53,31 @@ object SpotifyCanvasRepository {
     // Client body matches SimpMusic SpotifyClientBody exactly
     private const val CLIENT_BODY = """{"client_data":{"client_version":"1.2.62.476.g2ad6e7f3","client_id":"d8a5ed958d274c2e8ee717e6a4b0971d","js_sdk_data":{"device_brand":"Apple","device_model":"unknown","os":"macos","os_version":"10.15.7","device_id":"4fd0c748-b282-4927-9658-6d51a24e58b7","device_type":"computer"}}}"""
 
-    // OkHttp with default settings — DO NOT override Accept-Encoding on JSON calls.
+    // In-memory cookie jar — mirrors Ktor's AcceptAllCookiesStorage used by SimpMusic.
+    // Critical: open.spotify.com/api/server-time sets session cookies (e.g. sp_t) that
+    // MUST be forwarded to open.spotify.com/api/token or the token endpoint rejects the request.
+    private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+    private val cookieJar = object : CookieJar {
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+            val host = url.host
+            cookieStore.getOrPut(host) { mutableListOf() }.also { list ->
+                cookies.forEach { new ->
+                    list.removeAll { it.name == new.name }
+                    list.add(new)
+                }
+            }
+        }
+        override fun loadForRequest(url: HttpUrl): List<Cookie> =
+            cookieStore[url.host] ?: emptyList()
+    }
+
+    // OkHttp with an AcceptAll cookie jar — DO NOT override Accept-Encoding on JSON calls.
     // OkHttp automatically adds "Accept-Encoding: gzip" and decompresses gzip transparently.
     // Setting it manually disables that and we'd get compressed bytes instead of text.
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .cookieJar(cookieJar)
         .build()
 
     // ── Cached state ──────────────────────────────────────────────────────────
@@ -87,6 +110,8 @@ object SpotifyCanvasRepository {
         cachedToken = null; tokenExpiryMs = 0L
         // Clear URL cache so stale null-results from before login don't block new fetches
         synchronized(cacheLock) { urlCache.clear() }
+        // Clear cookie jar so session cookies from old sp_dc don't poison new token requests
+        cookieStore.clear()
         Log.i(TAG, if (extracted != null) "sp_dc updated (${extracted.take(6)}…)" else "sp_dc cleared")
     }
 
@@ -229,6 +254,10 @@ object SpotifyCanvasRepository {
         val now = System.currentTimeMillis()
         cachedToken?.takeIf { now < tokenExpiryMs - 60_000L }?.let { return it }
 
+        // Attempt 0: old non-TOTP endpoint (SimpMusic's getSpotifyLyricsToken path).
+        // Faster and simpler — works for many accounts. Falls through if anonymous.
+        tryTokenLegacy(spDc)?.let { return it }
+
         refreshSecrets()
 
         val serverTimeSec = fetchServerTime(spDc)
@@ -255,6 +284,36 @@ object SpotifyCanvasRepository {
         return token
     }
 
+    /** Old non-TOTP endpoint — SimpMusic's getSpotifyLyricsToken. Works on many accounts. */
+    private fun tryTokenLegacy(spDc: String): String? {
+        val url = "https://open.spotify.com/get_access_token?reason=transport&productType=web_player"
+        return runCatching {
+            val req = Request.Builder().url(url)
+                .header("User-Agent", UA_WEB)
+                .header("Cookie", "sp_dc=$spDc")
+                .header("Accept", "application/json")
+                .header("Origin", "https://open.spotify.com")
+                .header("Referer", "https://open.spotify.com/")
+                .get().build()
+            val text = http.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) { Log.d(TAG, "LegacyToken HTTP ${r.code}"); return@runCatching null }
+                r.body?.string()
+            } ?: return@runCatching null
+            val obj    = JSONObject(text)
+            val at     = obj.optString("accessToken", "")
+            val isAnon = obj.optBoolean("isAnonymous", false)
+            if (isAnon || at.length < 100) {
+                Log.d(TAG, "LegacyToken anonymous/short (len=${at.length}) — trying TOTP")
+                return@runCatching null
+            }
+            val exp = obj.optLong("accessTokenExpirationTimestampMs", 0L)
+            cachedToken   = at
+            tokenExpiryMs = if (exp > 0L) exp else System.currentTimeMillis() + 50L * 60L * 1000L
+            Log.i(TAG, "LegacyToken OK (len=${at.length})")
+            at
+        }.getOrElse { Log.d(TAG, "LegacyToken exception: ${it.message}"); null }
+    }
+
     private fun tryToken(spDc: String, otp: String, reason: String, ver: Int): String? {
         // Matches SimpMusic SpotifyClient.getSpotifyAccessToken — productType=mobile-web-player
         // ← NO Accept-Encoding header here either
@@ -275,9 +334,8 @@ object SpotifyCanvasRepository {
             } ?: return@runCatching null
             val obj = JSONObject(text)
             val at       = obj.optString("accessToken", "")
-            val isAnon   = obj.optBoolean("isAnonymous", true)
-            // Accept any non-anonymous token with a plausible JWT length (not the strict 374 from
-            // SimpMusic — Spotify JWT payload length varies by account/region/claims)
+            // Default false matches SimpMusic PersonalTokenResponse(isAnonymous: Boolean = false)
+            val isAnon   = obj.optBoolean("isAnonymous", false)
             if (isAnon || at.length < 100) {
                 Log.d(TAG, "Token rejected: isAnonymous=$isAnon len=${at.length} ($reason/$ver)")
                 return@runCatching null
