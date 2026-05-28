@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -68,6 +69,10 @@ fun CloudStreamPluginScreen(
     var state by remember { mutableStateOf(PluginPageState(loading = true)) }
     var query by remember { mutableStateOf(initialSearch ?: "") }
     var viewAllSection by remember { mutableStateOf<ViewAllState?>(null) }
+    var homePageNum by remember { mutableStateOf(1) }
+    var homeLoadingMore by remember { mutableStateOf(false) }
+    var homeNoMore by remember { mutableStateOf(false) }
+    val mainListState = rememberLazyListState()
 
     LaunchedEffect(internalName, initialSearch) {
         if (!initialSearch.isNullOrBlank()) {
@@ -90,6 +95,8 @@ fun CloudStreamPluginScreen(
             return@LaunchedEffect
         }
         state = state.copy(pluginName = plugin.name, pluginFilePath = plugin.filePath, loading = true, error = null)
+        homePageNum = 1
+        homeNoMore = false
         try {
             val sections = PluginRuntime.home(context, plugin.filePath)
             if (sections.isEmpty()) {
@@ -104,6 +111,42 @@ fun CloudStreamPluginScreen(
                 loading = false,
                 error = "Plugin failed: ${e::class.simpleName}: ${e.message}",
             )
+        }
+    }
+
+    // Endless scroll: load next page of each section when near bottom of main home list
+    LaunchedEffect(mainListState) {
+        snapshotFlow {
+            val last = mainListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val total = mainListState.layoutInfo.totalItemsCount
+            last to total
+        }.collect { (last, total) ->
+            if (query.isBlank() && total > 0 && last >= total - 4
+                && !homeLoadingMore && !homeNoMore && state.sections.isNotEmpty()
+            ) {
+                homeLoadingMore = true
+                val nextPage = homePageNum + 1
+                val filePath = state.pluginFilePath
+                val anyNewItems = mutableListOf<Pair<String, List<SearchResponse>>>()
+                state.sections.forEach { (title, _) ->
+                    val more = runCatching {
+                        PluginRuntime.homePage(context, filePath, title, nextPage)
+                    }.getOrDefault(emptyList())
+                    if (more.isNotEmpty()) anyNewItems += title to more
+                }
+                if (anyNewItems.isEmpty()) {
+                    homeNoMore = true
+                } else {
+                    val moreMap = anyNewItems.toMap()
+                    state = state.copy(
+                        sections = state.sections.map { (title, items) ->
+                            title to (items + (moreMap[title] ?: emptyList()))
+                        }
+                    )
+                    homePageNum = nextPage
+                }
+                homeLoadingMore = false
+            }
         }
     }
 
@@ -270,7 +313,7 @@ fun CloudStreamPluginScreen(
             }
         }
 
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), state = mainListState, contentPadding = PaddingValues(bottom = 16.dp)) {
             if (query.isNotBlank()) {
                 item {
                     Text(
@@ -324,6 +367,32 @@ fun CloudStreamPluginScreen(
                                     onOpenItem(internalName, sr.url, sr.name, sr.posterUrl)
                                 })
                             }
+                        }
+                    }
+                }
+            }
+            // Endless-scroll loading indicator at the bottom of the home feed
+            if (!query.isNotBlank()) {
+                if (homeLoadingMore) {
+                    item(key = "home_loading_more") {
+                        Box(
+                            Modifier.fillMaxWidth().padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                } else if (homeNoMore && state.sections.isNotEmpty()) {
+                    item(key = "home_no_more") {
+                        Box(
+                            Modifier.fillMaxWidth().padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "All content loaded",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

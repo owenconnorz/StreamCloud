@@ -86,6 +86,13 @@ fun StreamCloudApp() {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+    val isMediaRoute = currentRoute != null && (
+        currentRoute == Tab.Movies.route ||
+        currentRoute.startsWith("cloudstream") ||
+        currentRoute.startsWith("cs-detail/") ||
+        currentRoute.startsWith("movie/") ||
+        currentRoute.startsWith("tv/")
+    )
 
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
@@ -142,7 +149,7 @@ fun StreamCloudApp() {
 
 
 
-                    if (currentRoute != Tab.Music.route) {
+                    if (currentRoute != Tab.Music.route && !isMediaRoute) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             onExpand = {
 
@@ -637,7 +644,7 @@ fun StreamCloudApp() {
 
 
 
-                    if (showRail && currentRoute != Tab.Music.route) {
+                    if (showRail && currentRoute != Tab.Music.route && !isMediaRoute) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()

@@ -93,7 +93,14 @@ fun CloudStreamDetailScreen(
     LaunchedEffect(pluginInternalName, url) {
         val installed = repo.installed.first().firstOrNull { it.internalName == pluginInternalName }
         if (installed == null) {
-            state = CsDetailState.Error("Plugin '$pluginInternalName' is no longer installed.")
+            state = if (pluginInternalName.isBlank()) {
+                CsDetailState.Error(
+                    "Plugin information was not saved for this item. " +
+                    "Please open the item again from the plugin screen and re-save it."
+                )
+            } else {
+                CsDetailState.Error("Plugin '$pluginInternalName' is no longer installed.")
+            }
             return@LaunchedEffect
         }
         pluginFilePath = installed.filePath
