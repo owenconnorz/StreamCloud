@@ -16,6 +16,9 @@ import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioRepository
+import com.lagradost.cloudstream3.SearchResponse
+import com.streamcloud.app.data.plugins.PinnedCsSection
+import com.streamcloud.app.data.plugins.PluginRuntime
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -24,11 +27,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 const val SOURCE_BUILTIN = "builtin"
+
+data class CsPluginRow(
+    val pluginInternalName: String,
+    val pluginDisplayName: String,
+    val sectionName: String,
+    val items: List<SearchResponse>,
+)
 
 data class CollectionRow(
     val id: String,
@@ -50,6 +61,7 @@ data class MoviesState(
     val installedStremioAddons: List<InstalledStremioAddon> = emptyList(),
     val stremioRows: List<StremioHomeRow> = emptyList(),
     val watchlist: List<WatchlistEntity> = emptyList(),
+    val csPluginRows: List<CsPluginRow> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
@@ -90,6 +102,38 @@ class MoviesViewModel(
             LibraryDb.get(appContext).watchlist().all().collect { rows ->
                 _state.update { it.copy(watchlist = rows) }
             }
+        }
+        viewModelScope.launch {
+            combine(sl.settings.csHomeSections, pluginRepo.installed) { _, _ -> Unit }
+                .collectLatest { loadCsPluginRows() }
+        }
+    }
+
+    private fun loadCsPluginRows() {
+        viewModelScope.launch {
+            try {
+                val pinned = sl.settings.csHomeSections.first()
+                if (pinned.isEmpty()) {
+                    _state.update { it.copy(csPluginRows = emptyList()) }
+                    return@launch
+                }
+                val installed = pluginRepo.installed.first()
+                val rows = pinned.mapNotNull { pin ->
+                    val plugin = installed.firstOrNull { it.internalName == pin.pluginInternalName }
+                        ?: return@mapNotNull null
+                    val items = runCatching {
+                        PluginRuntime.homePage(appContext, plugin.filePath, pin.sectionName, 1)
+                    }.getOrDefault(emptyList())
+                    if (items.isEmpty()) null
+                    else CsPluginRow(
+                        pluginInternalName = pin.pluginInternalName,
+                        pluginDisplayName = pin.pluginDisplayName,
+                        sectionName = pin.sectionName,
+                        items = items,
+                    )
+                }
+                _state.update { it.copy(csPluginRows = rows) }
+            } catch (_: Throwable) {}
         }
     }
 
