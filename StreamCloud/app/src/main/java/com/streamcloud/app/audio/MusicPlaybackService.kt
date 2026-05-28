@@ -376,12 +376,14 @@ class MusicPlaybackService : MediaLibraryService() {
         val repeatMode = session?.player?.repeatMode ?: Player.REPEAT_MODE_OFF
         val likeIcon = if (isCurrentLiked) R.drawable.ic_notif_fav_filled else R.drawable.ic_notif_fav
         val repeatIcon = if (repeatMode == Player.REPEAT_MODE_ONE) R.drawable.ic_notif_repeat_one else R.drawable.ic_notif_repeat
-        val likeBtn = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+        @Suppress("DEPRECATION")
+        val likeBtn = CommandButton.Builder()
             .setIconResId(likeIcon)
             .setSessionCommand(LIKE_COMMAND)
             .setDisplayName(if (isCurrentLiked) "Unlike" else "Like")
             .build()
-        val repeatBtn = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+        @Suppress("DEPRECATION")
+        val repeatBtn = CommandButton.Builder()
             .setIconResId(repeatIcon)
             .setSessionCommand(REPEAT_COMMAND)
             .setDisplayName("Repeat")
@@ -556,8 +558,8 @@ class MusicPlaybackService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
-                .buildUpon()
+            val superResult = super.onConnect(session, controller)
+            val sessionCommands = superResult.availableSessionCommands.buildUpon()
                 .add(LIKE_COMMAND)
                 .add(REPEAT_COMMAND)
                 .build()
