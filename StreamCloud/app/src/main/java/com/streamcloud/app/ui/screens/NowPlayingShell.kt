@@ -60,8 +60,9 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
+import android.graphics.SurfaceTexture
+import android.view.TextureView
+import android.view.ViewGroup
 import com.streamcloud.app.data.spotify.SpotifyCanvasRepository
 import androidx.palette.graphics.Palette
 import coil.ImageLoader
@@ -205,7 +206,7 @@ fun NowPlayingShell(
     var showActions by remember { mutableStateOf(false) }
 
 
-    val canvasEnabled   by sl.settings.canvasEnabled.collectAsState(initial = false)
+    val canvasEnabled   by sl.settings.canvasEnabled.collectAsState(initial = true)
     val spotifyCookie   by sl.settings.spotifyCookie.collectAsState(initial = "")
 
     // Keep the in-memory repository cookie in sync with DataStore (survives app restarts)
@@ -213,48 +214,76 @@ fun NowPlayingShell(
         SpotifyCanvasRepository.setSpotifyCookie(spotifyCookie.takeIf { it.isNotBlank() })
     }
 
-    var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
+    // canvas: IDLE → LOADING → DONE (url or null)
+    var canvasLoading by remember(mediaId) { mutableStateOf(false) }
+    var canvasUrl     by remember(mediaId) { mutableStateOf<String?>(null) }
     LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie) {
-        canvasUrl = null
+        canvasUrl     = null
+        canvasLoading = false
         if (!canvasEnabled || title.isBlank() || videoId.isBlank() || spotifyCookie.isBlank()) return@LaunchedEffect
+        canvasLoading = true
         canvasUrl = runCatching {
             SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
         }.getOrNull()
+        canvasLoading = false
     }
     val activeCanvas = if (canvasEnabled) canvasUrl else null
 
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF0E0E0E))
+            // When canvas is active: NO opaque background — SurfaceView / TextureView must show through.
+            // An opaque Compose background drawn on top of a SurfaceView completely hides the video.
             .then(
-                if (activeCanvas == null) Modifier.background(
-                    Brush.verticalGradient(
-                        listOf(
-                            animDominant,
-                            animDominant.copy(alpha = 0.55f).compositeOver(Color(0xFF161616)),
-                            Color(0xFF0E0E0E),
+                if (activeCanvas != null) Modifier.background(Color.Black)  // just a black base for areas outside video
+                else Modifier
+                    .background(Color(0xFF0E0E0E))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                animDominant,
+                                animDominant.copy(alpha = 0.55f).compositeOver(Color(0xFF161616)),
+                                Color(0xFF0E0E0E),
+                            )
                         )
                     )
-                ) else Modifier
             )
     ) {
 
         if (activeCanvas != null) {
+            // CanvasVideoLayer uses TextureView (renders inline with Compose, not below it)
             CanvasVideoLayer(url = activeCanvas, modifier = Modifier.fillMaxSize())
 
+            // Semi-transparent gradient so controls are readable over the video
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color.Black.copy(alpha = 0.30f),
-                                Color.Black.copy(alpha = 0.60f),
+                                Color.Black.copy(alpha = 0.15f),
+                                Color.Black.copy(alpha = 0.55f),
                             )
                         )
                     )
             )
+        }
+
+        // Canvas loading indicator — shows while the Spotify lookup is in progress
+        if (canvasEnabled && spotifyCookie.isNotBlank() && canvasLoading) {
+            Box(
+                Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                Text(
+                    "● Canvas",
+                    color = Color.Yellow.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(12.dp),
+                )
+            }
         }
         Column(
             Modifier
@@ -801,28 +830,56 @@ private fun formatTime(ms: Long): String {
     return "%d:%02d".format(m, s)
 }
 
+// Canvas video player using TextureView so it renders inline with the Compose layer.
+// SurfaceView (used by PlayerView) punches below the Compose window and gets covered
+// by any opaque Compose background. TextureView renders within the Compose hierarchy.
 @OptIn(UnstableApi::class)
 @Composable
 private fun CanvasVideoLayer(url: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val player = remember(url) {
+
+    val player = remember {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(url))
             repeatMode = Player.REPEAT_MODE_ONE
             volume = 0f
-            prepare()
-            playWhenReady = true
         }
     }
-    DisposableEffect(player) {
+
+    LaunchedEffect(url) {
+        player.setMediaItem(MediaItem.fromUri(url))
+        player.prepare()
+        player.playWhenReady = true
+    }
+
+    DisposableEffect(Unit) {
         onDispose { player.release() }
     }
+
     AndroidView(
         factory = { ctx ->
-            PlayerView(ctx).apply {
-                this.player = player
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            TextureView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+                // Scale to fill (zoom/crop) — centre-crop the video to fill the screen
+                scaleX = 1f; scaleY = 1f
+                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                        player.setVideoSurface(android.view.Surface(st))
+                    }
+                    override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
+                    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                        player.setVideoSurface(null); return true
+                    }
+                    override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                }
+            }
+        },
+        update = { tv ->
+            // Re-attach surface if TextureView is already available (recomposition)
+            if (tv.isAvailable) {
+                player.setVideoSurface(android.view.Surface(tv.surfaceTexture!!))
             }
         },
         modifier = modifier,
