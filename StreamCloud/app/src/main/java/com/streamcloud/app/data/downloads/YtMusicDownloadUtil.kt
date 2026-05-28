@@ -142,12 +142,16 @@ object YtMusicDownloadUtil {
                             ),
                         )
 
-                        // Do NOT append &range= — using a hard-coded fallback would truncate
-                        // songs longer than that limit. The moov atom in an mp4 stream sits at
-                        // the very end of the file, so a truncated download causes
-                        // ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED on playback. Let the
-                        // download manager fetch the full file via a plain GET instead.
-                        Pair(info.url, info.expiresInSeconds * 1_000L)
+                        // Append &range=0-{contentLength} to defeat YouTube CDN throttling.
+                        // Without this parameter the CDN serves at "streaming speed" (~100 KB/s).
+                        // Using the actual contentLength (not a hardcoded cap) avoids truncation.
+                        // Fall back to a plain URL if contentLength is unavailable.
+                        val downloadUrl = if (info.contentLength != null && info.contentLength > 0) {
+                            "${info.url}&range=0-${info.contentLength}"
+                        } else {
+                            info.url
+                        }
+                        Pair(downloadUrl, info.expiresInSeconds * 1_000L)
                     } else {
 
                         Pair(NewPipeRepository.resolveAudioStream(watchUrl), 3L * 60 * 60 * 1000)
