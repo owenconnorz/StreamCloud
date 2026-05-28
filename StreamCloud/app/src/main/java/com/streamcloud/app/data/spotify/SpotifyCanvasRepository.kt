@@ -198,9 +198,11 @@ object SpotifyCanvasRepository {
     }
 
     private fun generateTotp(secret: String, timestampMs: Long): String {
-        // secret.toByteArray() = raw ASCII bytes of the base32 string (NOT base32-decoded)
-        // This matches: GoogleAuthenticator(secret.toByteArray()).generate(Date(timestampMs))
-        val key     = secret.toByteArray(Charsets.US_ASCII)
+        // SimpMusic: GoogleAuthenticator(secret.toByteArray()).generate(Date(timestampMs))
+        // The GoogleAuthenticator library (dev.turingcomplete.kotlin.onetimepassword) internally
+        // calls Base32.decode(String(secret)) — so the HMAC key is BASE32-DECODED bytes, NOT
+        // the raw ASCII bytes of the base32 string. Standard TOTP (RFC 6238).
+        val key     = base32Decode(secret)
         val counter = timestampMs / 30_000L
         val msg     = ByteBuffer.allocate(8).putLong(counter).array()
         val mac     = Mac.getInstance("HmacSHA1")
@@ -224,6 +226,18 @@ object SpotifyCanvasRepository {
         if (bits > 0) sb.append(BASE32[(value shl (5 - bits)) and 0x1F])
         while (sb.length % 8 != 0) sb.append('=')
         return sb.toString()
+    }
+
+    private fun base32Decode(encoded: String): ByteArray {
+        var buffer = 0; var bitsLeft = 0
+        val result = mutableListOf<Byte>()
+        for (c in encoded.trimEnd('=').uppercase()) {
+            val idx = BASE32.indexOf(c)
+            if (idx < 0) continue
+            buffer = (buffer shl 5) or idx; bitsLeft += 5
+            if (bitsLeft >= 8) { bitsLeft -= 8; result.add((buffer shr bitsLeft and 0xFF).toByte()) }
+        }
+        return result.toByteArray()
     }
 
     // ── TOTP secret refresh (SimpMusic SpotifyAuth.getTotpSecret) ─────────────
