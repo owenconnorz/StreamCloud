@@ -66,6 +66,8 @@ fun MoviesScreen(
         { _, _, _, _, _ -> },
     onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit =
         { _, _, _, _ -> },
+    onViewAllCsSection: (pluginInternalName: String, sectionName: String, pluginDisplayName: String) -> Unit =
+        { _, _, _ -> },
 ) {
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
@@ -261,6 +263,21 @@ fun MoviesScreen(
                                     row.pluginDisplayName,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    onViewAllCsSection(
+                                        row.pluginInternalName,
+                                        row.sectionName,
+                                        row.pluginDisplayName,
+                                    )
+                                },
+                            ) {
+                                Text(
+                                    "View all",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
                                 )
                             }
                         }
