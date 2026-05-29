@@ -38,10 +38,11 @@ import kotlinx.coroutines.withContext
 @Composable
 fun MusicArtistScreen(
     channelUrl: String,
+    initialAvatar: String? = null,
     onBack: () -> Unit,
     onPlay: (YtTrack) -> Unit,
     onAlbumClick: (id: String, title: String) -> Unit = { _, _ -> },
-    onArtistClick: (String) -> Unit = {},
+    onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
 ) {
     var page by remember(channelUrl) { mutableStateOf<NewPipeRepository.ArtistPage?>(null) }
     var loading by remember(channelUrl) { mutableStateOf(true) }
@@ -104,6 +105,7 @@ fun MusicArtistScreen(
             }
             page != null -> ArtistPageContent(
                 page = page!!,
+                initialAvatar = initialAvatar,
                 onPlay = onPlay,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
@@ -115,9 +117,10 @@ fun MusicArtistScreen(
 @Composable
 private fun ArtistPageContent(
     page: NewPipeRepository.ArtistPage,
+    initialAvatar: String?,
     onPlay: (YtTrack) -> Unit,
     onAlbumClick: (id: String, title: String) -> Unit,
-    onArtistClick: (String) -> Unit,
+    onArtistClick: (url: String, thumbnail: String?) -> Unit,
 ) {
     var descExpanded by remember { mutableStateOf(false) }
 
@@ -134,8 +137,8 @@ private fun ArtistPageContent(
                     .height(360.dp)
             ) {
                 AsyncImage(
-                    // Use avatar (artist logo/photo) as hero; fall back to banner
-                    model = page.avatar ?: page.banner,
+                    // Priority: profile photo passed from search results > avatar from browse > banner
+                    model = initialAvatar ?: page.avatar ?: page.banner,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -287,7 +290,7 @@ private fun ArtistPageContent(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(page.relatedArtists, key = { "rel_${it.url}" }) { artist ->
-                        RelatedArtistCard(artist = artist, onClick = { onArtistClick(artist.url) })
+                        RelatedArtistCard(artist = artist, onClick = { onArtistClick(artist.url, artist.thumbnail) })
                     }
                 }
             }

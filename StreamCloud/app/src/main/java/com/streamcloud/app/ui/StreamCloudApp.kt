@@ -478,9 +478,10 @@ fun StreamCloudApp() {
                 }
                 composable(Tab.Music.route)    {
                     MusicScreen(
-                        onArtistClick = { url ->
+                        onArtistClick = { url, thumb ->
                             val u = URLEncoder.encode(url, "UTF-8")
-                            nav.navigate("artist/$u")
+                            val t = URLEncoder.encode(thumb.orEmpty(), "UTF-8")
+                            nav.navigate("artist/$u?thumb=$t")
                         },
                         onOpenPlaylist = { id, title ->
                             val i = URLEncoder.encode(id, "UTF-8")
@@ -495,10 +496,18 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(
-                    "artist/{url}",
-                    arguments = listOf(navArgument("url") { type = NavType.StringType }),
+                    "artist/{url}?thumb={thumb}",
+                    arguments = listOf(
+                        navArgument("url") { type = NavType.StringType },
+                        navArgument("thumb") {
+                            type = NavType.StringType; nullable = true; defaultValue = null
+                        },
+                    ),
                 ) { entry ->
                     val url = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val thumb = entry.arguments!!.getString("thumb")
+                        ?.let { URLDecoder.decode(it, "UTF-8") }
+                        ?.takeIf { it.isNotBlank() }
                     val artistContext = LocalContext.current
                     val artistVm: com.streamcloud.app.ui.viewmodel.MusicViewModel =
                         androidx.lifecycle.viewmodel.compose.viewModel(
@@ -506,6 +515,7 @@ fun StreamCloudApp() {
                         )
                     com.streamcloud.app.ui.screens.MusicArtistScreen(
                         channelUrl = url,
+                        initialAvatar = thumb,
                         onBack = { nav.popBackStack() },
                         onPlay = { track -> artistVm.play(track) },
                         onAlbumClick = { id, title ->
@@ -513,9 +523,10 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("yt-playlist/$i/$t")
                         },
-                        onArtistClick = { artistUrl ->
+                        onArtistClick = { artistUrl, artistThumb ->
                             val u = URLEncoder.encode(artistUrl, "UTF-8")
-                            nav.navigate("artist/$u")
+                            val t = URLEncoder.encode(artistThumb.orEmpty(), "UTF-8")
+                            nav.navigate("artist/$u?thumb=$t")
                         },
                     )
                 }
