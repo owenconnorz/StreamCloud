@@ -173,13 +173,15 @@ fun MoviesScreen(
                                     CollectionFolderTile(
                                         folder = folder,
                                         onClick = {
-                                            if (folder.linkedCategoryId.isNotBlank()) {
-                                                val cat = HomeCollections.byId(folder.linkedCategoryId)
-                                                onOpenCatalog(
-                                                    "tmdb:${folder.linkedCategoryId}",
-                                                    folder.name,
-                                                    cat?.subtitle.orEmpty(),
-                                                )
+                                            when (folder.providerType) {
+                                                "cloudstream" -> if (folder.linkedCategoryId.isNotBlank())
+                                                    onOpenCloudStreamPlugin(folder.linkedCategoryId)
+                                                "stremio" -> if (folder.linkedCategoryId.isNotBlank())
+                                                    onOpenCatalog("stremio:${folder.linkedCategoryId}", folder.name, "")
+                                                else -> if (folder.linkedCategoryId.isNotBlank()) {
+                                                    val cat = HomeCollections.byId(folder.linkedCategoryId)
+                                                    onOpenCatalog("tmdb:${folder.linkedCategoryId}", folder.name, cat?.subtitle.orEmpty())
+                                                }
                                             }
                                         },
                                     )
@@ -439,13 +441,6 @@ private fun MoviesHeader(onProfileClick: () -> Unit, onOpenCollections: () -> Un
                 "Movies, series, addons — all in one place",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        TextButton(onClick = onOpenCollections) {
-            Text(
-                "Collections",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
             )
         }
         com.streamcloud.app.ui.components.ProfileButton(onClick = onProfileClick)

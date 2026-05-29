@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
@@ -111,7 +112,7 @@ private enum class SettingsPage {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
+fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}) {
     val context = LocalContext.current
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
@@ -242,6 +243,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
             null -> SettingsHubList(
                 onNavigate    = { currentPage = it },
                 onOpenPlugins = onOpenPlugins,
+                onOpenCollections = onOpenCollections,
             )
 
 
@@ -1028,7 +1030,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit) {
 }
 
 @Composable
-private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit) {
+private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}) {
     val context = LocalContext.current
     val checker = remember { UpdateChecker(context.applicationContext) }
     var updateLabel by remember { mutableStateOf<String?>(null) }
@@ -1099,6 +1101,13 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 icon    = Icons.Default.Extension,
                 title   = "Plugins & Addons",
                 onClick = onOpenPlugins,
+            )
+        }
+        item {
+            HubRow(
+                icon    = Icons.Default.Layers,
+                title   = "Collections",
+                onClick = onOpenCollections,
             )
         }
     }

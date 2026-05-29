@@ -268,8 +268,15 @@ fun StreamCloudApp() {
                     )
                 }
                 composable("collections") {
+                    val ctx = LocalContext.current
+                    val pluginRepo = remember { com.streamcloud.app.data.plugins.PluginRepository(ctx.applicationContext) }
+                    val stremioRepo = remember { com.streamcloud.app.data.stremio.StremioRepository(ctx.applicationContext) }
+                    val installedPlugins by pluginRepo.installed.collectAsState(initial = emptyList())
+                    val installedAddons by stremioRepo.addons.collectAsState(initial = emptyList())
                     com.streamcloud.app.ui.screens.CollectionsScreen(
                         onBack = { nav.popBackStack() },
+                        installedCsPlugins = installedPlugins,
+                        installedStremioAddons = installedAddons,
                         onOpenCatalog = { src, t, sub ->
                             val s = URLEncoder.encode(src, "UTF-8")
                             val tt = URLEncoder.encode(t, "UTF-8")
@@ -726,7 +733,10 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(Tab.Settings.route) {
-                    SettingsHubScreen(onOpenPlugins = { nav.navigate("plugins") })
+                    SettingsHubScreen(
+                        onOpenPlugins = { nav.navigate("plugins") },
+                        onOpenCollections = { nav.navigate("collections") },
+                    )
                 }
                 composable("plugins") {
                     PluginsScreen(onBack = { nav.popBackStack() })
