@@ -138,8 +138,6 @@ object YtMusicLibraryRepository {
                     ?.get("thumbnail").bestThumbnail()
                     ?: first.findFirst("musicImmersiveHeaderRenderer")?.jsonObject
                         ?.get("thumbnail").bestThumbnail()
-                    ?: first.findFirst("musicThumbnailRenderer")?.jsonObject
-                        ?.findFirst("thumbnail").bestThumbnail()
             } else null
 
             val collected = mutableListOf<YtmSong>()
