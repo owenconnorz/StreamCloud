@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.ui.graphics.Color
+import androidx.core.graphics.ColorUtils
 import androidx.media3.common.util.UnstableApi
 import androidx.palette.graphics.Palette
 import coil.ImageLoader
@@ -22,7 +23,6 @@ import kotlinx.coroutines.withContext
 
 @UnstableApi
 object AlbumArtThemeBus {
-
 
     val DEFAULT           = Color(0xFF7C5CFF)
     val DEFAULT_SECONDARY = Color(0xFF4A3A99)
@@ -88,21 +88,30 @@ object AlbumArtThemeBus {
                 val res = ImageLoader(context).execute(req) as? SuccessResult ?: return@runCatching null
                 val bitmap: Bitmap = (res.drawable as? BitmapDrawable)?.bitmap ?: return@runCatching null
 
-                val palette = Palette.from(bitmap).generate()
+                val palette = Palette.from(bitmap).maximumColorCount(24).generate()
 
-
-                val vibrant = palette.vibrantSwatch
+                // Pick the most vibrant swatch available
+                val primarySwatch = palette.vibrantSwatch
                     ?: palette.lightVibrantSwatch
+                    ?: palette.darkVibrantSwatch
                     ?: palette.dominantSwatch
                     ?: return@runCatching null
 
+                // Boost the primary: push saturation up to at least 60%,
+                // and lock lightness into the 55–72% range so it's always vivid on dark backgrounds
+                val hslPrimary = primarySwatch.hsl.copyOf()
+                hslPrimary[1] = hslPrimary[1].coerceAtLeast(0.60f)   // Saturation: min 60%
+                hslPrimary[2] = hslPrimary[2].coerceIn(0.55f, 0.72f) // Lightness: 55–72%
+                val accent = Color(ColorUtils.HSLToColor(hslPrimary))
 
-                val muted = palette.mutedSwatch
-                    ?: palette.darkMutedSwatch
-                    ?: palette.darkVibrantSwatch
-                    ?: vibrant
+                // Derive the secondary/container colour from the same hue:
+                // darker (–28 lightness) and less saturated (×65%) for tinted backgrounds
+                val hslSecondary = hslPrimary.copyOf()
+                hslSecondary[1] = (hslPrimary[1] * 0.65f).coerceAtLeast(0.25f)
+                hslSecondary[2] = (hslPrimary[2] - 0.28f).coerceAtLeast(0.18f)
+                val secondary = Color(ColorUtils.HSLToColor(hslSecondary))
 
-                Pair(Color(vibrant.rgb), Color(muted.rgb))
+                Pair(accent, secondary)
             }.getOrNull()
         }
 }

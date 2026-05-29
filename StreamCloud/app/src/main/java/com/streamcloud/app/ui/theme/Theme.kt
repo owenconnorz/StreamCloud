@@ -149,36 +149,36 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
 
     val colors = when {
 
+        // Android 12+ Material You wallpaper-based dynamic colours
         dynamicEnabled && supportsDynamic -> {
             if (useDark) dynamicDarkColorScheme(context)
             else         dynamicLightColorScheme(context)
         }
 
+        // Album-art extracted palette — only when dynamic theme is ON and artwork is available
+        dynamicEnabled && useDark && hasArtwork -> {
+            val accent    = albumArtAccent   // vivid, already HSL-boosted by AlbumArtThemeBus
+            val secondary = albumArtSecond   // same hue, darker/more muted
 
-        useDark && hasArtwork -> {
+            // Subtle tint on backgrounds so the whole UI feels cohesive
+            val tintedBg      = lerp(Color(0xFF0A0A0A), accent, 0.08f)
+            val tintedSurface = lerp(Color(0xFF141414), accent, 0.10f)
+            val tintedVariant = lerp(Color(0xFF1E1E1E), accent, 0.13f)
 
-
-
-
-            val accent   = albumArtAccent
-            val muted    = albumArtSecond
-
-
-            val tintedBg      = lerp(Bg,          accent, 0.06f)
-            val tintedSurface = lerp(BgElevated,  accent, 0.08f)
-            val tintedVariant = lerp(BgSurface,   accent, 0.10f)
+            // onPrimary: use black for light accent, white for dark accent
+            val onPrimary = if (accent.luminance() > 0.4f) Color.Black else Color.White
 
             AioColors.copy(
                 primary              = accent,
-                onPrimary            = Color.White,
-                primaryContainer     = lerp(Color.Black, accent, 0.35f),
-                onPrimaryContainer   = accent.copy(alpha = 0.9f),
-                secondary            = muted,
-                onSecondary          = Color.White,
-                secondaryContainer   = lerp(Color.Black, muted, 0.30f),
-                onSecondaryContainer = muted.copy(alpha = 0.9f),
-                tertiary             = lerp(accent, muted, 0.4f),
-                onTertiary           = Color.White,
+                onPrimary            = onPrimary,
+                primaryContainer     = lerp(Color.Black, accent, 0.30f),
+                onPrimaryContainer   = accent,
+                secondary            = secondary,
+                onSecondary          = onPrimary,
+                secondaryContainer   = lerp(Color.Black, secondary, 0.35f),
+                onSecondaryContainer = secondary,
+                tertiary             = lerp(accent, secondary, 0.45f),
+                onTertiary           = onPrimary,
                 background           = tintedBg,
                 onBackground         = TextPrimary,
                 surface              = tintedSurface,
