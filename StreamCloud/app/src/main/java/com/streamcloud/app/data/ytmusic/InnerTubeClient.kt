@@ -246,6 +246,9 @@ internal fun JsonElement?.bestThumbnail(): String? {
         (thumbObj?.get("thumbnails") as? JsonArray)?.let { return it }
         val musicInner = o["musicThumbnailRenderer"] as? JsonObject
         if (musicInner != null) thumbs(musicInner)?.let { return it }
+        // Album pages use croppedSquareThumbnailRenderer inside the header thumbnail
+        val croppedInner = o["croppedSquareThumbnailRenderer"] as? JsonObject
+        if (croppedInner != null) thumbs(croppedInner)?.let { return it }
         val rendererOuter = o["thumbnailRenderer"] as? JsonObject
         if (rendererOuter != null) thumbs(rendererOuter)?.let { return it }
         return null
