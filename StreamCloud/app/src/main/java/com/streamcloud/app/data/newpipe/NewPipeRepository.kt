@@ -118,8 +118,10 @@ object NewPipeRepository {
         val banner: String?,
         val description: String,
         val subscriberLabel: String?,
+        val viewCount: Long = 0L,
         val topTracks: List<YtTrack>,
         val albums: List<YtAlbum>,
+        val videos: List<YtTrack> = emptyList(),
     )
 
     suspend fun loadArtist(channelUrl: String): ArtistPage? = withContext(Dispatchers.IO) {
@@ -128,19 +130,34 @@ object NewPipeRepository {
             org.schabi.newpipe.extractor.channel.ChannelInfo.getInfo(service, channelUrl)
         }.getOrNull() ?: return@withContext null
 
-
-
-
-        val tracks: List<YtTrack> = runCatching {
-            val tab = info.tabs.firstOrNull() ?: return@runCatching emptyList<YtTrack>()
-            val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, tab)
-            tabInfo.relatedItems.filterIsInstance<StreamInfoItem>()
-                .mapNotNull { it.toTrack(isVideo = true) }
-                .take(20)
-        }.getOrDefault(emptyList())
-
-
-        val albums: List<YtAlbum> = emptyList()
+        // Parallel: tab 0 = popular tracks, tab 1 = playlists/albums
+        val (tracks, albums) = coroutineScope {
+            val tracksJob = async {
+                runCatching {
+                    val tab = info.tabs.firstOrNull() ?: return@runCatching emptyList<YtTrack>()
+                    val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, tab)
+                    tabInfo.relatedItems.filterIsInstance<StreamInfoItem>()
+                        .mapNotNull { it.toTrack(isVideo = false) }
+                        .take(20)
+                }.getOrDefault(emptyList())
+            }
+            val albumsJob = async {
+                runCatching {
+                    val tab = info.tabs.getOrNull(1) ?: return@runCatching emptyList<YtAlbum>()
+                    val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, tab)
+                    tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>().mapNotNull { item ->
+                        val url = item.url ?: return@mapNotNull null
+                        YtAlbum(
+                            title = item.name ?: "Untitled",
+                            artist = item.uploaderName.orEmpty(),
+                            url = url,
+                            thumbnail = item.thumbnails?.lastOrNull()?.url?.hqYtThumb(720),
+                        )
+                    }.take(10)
+                }.getOrDefault(emptyList())
+            }
+            Pair(tracksJob.await(), albumsJob.await())
+        }
 
         ArtistPage(
             name = info.name ?: "",
@@ -149,8 +166,10 @@ object NewPipeRepository {
             description = info.description.orEmpty(),
             subscriberLabel = info.subscriberCount.takeIf { it >= 0 }
                 ?.let { humanCount(it) + " subscribers" },
+            viewCount = runCatching { info.viewCount }.getOrDefault(-1L).let { if (it >= 0) it else 0L },
             topTracks = tracks,
             albums = albums,
+            videos = tracks.take(6),
         )
     }
 

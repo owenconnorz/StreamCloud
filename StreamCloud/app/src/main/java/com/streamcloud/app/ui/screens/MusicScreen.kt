@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.SkipNext
@@ -29,6 +31,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -46,7 +49,6 @@ import android.net.Uri
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
-import com.streamcloud.app.ui.viewmodel.SearchMode
 import kotlinx.coroutines.launch
 
 private val SUGGESTIONS = listOf(
@@ -123,6 +125,7 @@ fun MusicScreen(
                     onQueryChange = { query = it },
                 )
                 LaunchedEffect(query) {
+                    vm.fetchSuggestions(query)
                     if (query.length >= 2) {
                         kotlinx.coroutines.delay(400)
                         vm.search(query)
@@ -292,100 +295,61 @@ fun MusicScreen(
             }
 
 
-            if (query.isNotBlank()) {
-                item {
-                    SearchModeChips(
-                        active = state.searchMode,
-                        onPick = { mode -> vm.setSearchMode(mode) },
-                    )
-                }
-            }
-
-
+            // ── SimpMusic-style: top results + live suggestions ──
             if (query.isNotBlank()) {
                 val sections = state.sections
+                val topArtist = sections.artists.firstOrNull()
+                val topSongs = sections.songs.take(if (topArtist != null) 2 else 3)
 
-                sections.topResult?.takeIf { state.searchMode == SearchMode.All }?.let { top ->
-                    item { SectionTitle("Top result") }
-                    item {
-                        TopResultCard(
-                            track = top,
-                            isPlaying = isPlaying && state.nowPlayingUrl == top.url,
-                            onClick = {
-                                if (state.nowPlayingUrl == top.url && (player?.isPlaying == true)) player?.pause()
-                                else if (state.nowPlayingUrl == top.url) player?.play()
-                                else vm.play(top) { audioUrl -> player?.let { playTrack(it, top, audioUrl) } }
-                            },
+                topArtist?.let { artist ->
+                    item(key = "sr_artist_${artist.url}") {
+                        SearchResultRow(
+                            thumbnail = artist.thumbnail,
+                            title = artist.name,
+                            subtitle = "Artists",
+                            isCircle = true,
+                            onClick = { onArtistClick(artist.url) },
                         )
                     }
                 }
 
-                if (sections.songs.isNotEmpty() && (state.searchMode == SearchMode.All || state.searchMode == SearchMode.Songs)) {
-                    item { SectionTitle(if (state.searchMode == SearchMode.All) "Songs" else "All songs") }
-                    items(sections.songs, key = { "song_${it.url}" }) { track ->
-                        SongRow(
-                            track = track,
-                            nowPlayingUrl = state.nowPlayingUrl,
-                            isPlaying = isPlaying && state.nowPlayingUrl == track.url,
-                            loading = state.resolvingUrl == track.url,
-                            onClick = {
-                                if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                                else if (state.nowPlayingUrl == track.url) player?.play()
-                                else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
-                            },
-                        )
-                    }
+                items(topSongs, key = { "sr_song_${it.url}" }) { track ->
+                    SearchResultRow(
+                        thumbnail = track.thumbnail,
+                        title = track.title,
+                        subtitle = track.uploader,
+                        isCircle = false,
+                        onClick = {
+                            if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
+                            else if (state.nowPlayingUrl == track.url) player?.play()
+                            else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+                        },
+                    )
                 }
 
-                if (sections.videos.isNotEmpty() && (state.searchMode == SearchMode.All || state.searchMode == SearchMode.Videos)) {
-                    item { SectionTitle("Videos") }
-                    items(sections.videos, key = { "vid_${it.url}" }) { track ->
-                        SongRow(
-                            track = track,
-                            nowPlayingUrl = state.nowPlayingUrl,
-                            isPlaying = isPlaying && state.nowPlayingUrl == track.url,
-                            loading = state.resolvingUrl == track.url,
-                            onClick = {
-                                if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                                else if (state.nowPlayingUrl == track.url) player?.play()
-                                else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
-                            },
-                        )
-                    }
-                }
-
-                if (sections.albums.isNotEmpty() && (state.searchMode == SearchMode.All || state.searchMode == SearchMode.Albums)) {
-                    item { SectionTitle("Albums") }
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(sections.albums, key = { "alb_${it.url}" }) { album ->
-                                AlbumCard(album = album, onClick = {
-                                    val uri = Uri.parse(album.url)
-                                    val id = uri.getQueryParameter("list")
-                                        ?: uri.lastPathSegment?.takeIf { it.isNotBlank() }
-                                        ?: album.url
-                                    onOpenPlaylist(id, album.title)
-                                })
-                            }
+                if (topArtist == null && topSongs.isEmpty()) {
+                    sections.albums.firstOrNull()?.let { album ->
+                        item(key = "sr_album_${album.url}") {
+                            val uri = Uri.parse(album.url)
+                            val id = uri.getQueryParameter("list")
+                                ?: uri.lastPathSegment?.takeIf { seg -> seg.isNotBlank() }
+                                ?: album.url
+                            SearchResultRow(
+                                thumbnail = album.thumbnail,
+                                title = album.title,
+                                subtitle = album.artist,
+                                isCircle = false,
+                                onClick = { onOpenPlaylist(id, album.title) },
+                            )
                         }
                     }
                 }
 
-                if (sections.artists.isNotEmpty() && (state.searchMode == SearchMode.All || state.searchMode == SearchMode.Artists)) {
-                    item { SectionTitle("Artists") }
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(sections.artists, key = { "art_${it.url}" }) { artist ->
-                                ArtistCard(artist = artist, onClick = { onArtistClick(artist.url) })
-                            }
-                        }
-                    }
+                items(state.suggestions, key = { "sug_$it" }) { suggestion ->
+                    SuggestionListRow(
+                        text = suggestion,
+                        onClick = { query = suggestion; vm.search(suggestion) },
+                    )
                 }
             }
             state.error?.let {
@@ -558,28 +522,104 @@ private fun HistorySheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MusicSearchField(query: String, loading: Boolean, onQueryChange: (String) -> Unit) {
-    OutlinedTextField(
+    TextField(
         value = query,
         onValueChange = onQueryChange,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         placeholder = { Text("Search songs, artists, albums") },
         singleLine = true,
-        leadingIcon = { Icon(Icons.Default.Search, null) },
-        trailingIcon = {
-            if (loading) CircularProgressIndicator(
-                Modifier.size(20.dp), strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary
-            )
+        leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        trailingIcon = when {
+            loading -> { { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary) } }
+            query.isNotEmpty() -> { { IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Default.Close, "Clear") } } }
+            else -> null
         },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         shape = RoundedCornerShape(28.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-            focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-        )
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+            disabledIndicatorColor = Color.Transparent,
+        ),
     )
+}
+
+@Composable
+private fun SearchResultRow(
+    thumbnail: String?,
+    title: String,
+    subtitle: String,
+    isCircle: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val imgMod = Modifier
+            .size(54.dp)
+            .clip(if (isCircle) CircleShape else RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+        if (thumbnail != null) {
+            AsyncImage(
+                model = thumbnail,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = imgMod,
+            )
+        } else {
+            Box(imgMod, contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SuggestionListRow(text: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp).rotate(-45f),
+        )
+    }
 }
 
 @Composable
