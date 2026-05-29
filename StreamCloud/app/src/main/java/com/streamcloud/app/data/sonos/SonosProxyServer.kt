@@ -69,7 +69,9 @@ object SonosProxyServer {
         val ss = ServerSocket(0)
         serverSocket = ss
         port = ss.localPort
-        val url = "http://$localIp:$port/stream"
+        // Use a .m4a extension so Sonos firmware that validates the URI path by file
+        // extension (common on S1/older S2) accepts it as a known audio format.
+        val url = "http://$localIp:$port/stream.m4a"
         Log.d(TAG, "Proxy started on $url")
         acceptJob = scope.launch { acceptLoop(ss) }
         return url
@@ -139,12 +141,20 @@ object SonosProxyServer {
             }
 
             if (method == "HEAD") {
-                // Use the actual MIME type from the resolved format so Sonos's
-                // protocolInfo check during SetAVTransportURI validation succeeds.
                 val headMime = track.mimeType.ifBlank { "audio/mp4" }
+                // Extract content length from the pre-resolved CDN URL's clen= parameter.
+                // Sonos firmware (especially S1) requires Content-Length in HEAD responses
+                // to accept the URI — without it, some versions return UPnP error 402.
+                val clenStr = track.resolvedUrl
+                    ?.let { Regex("[?&]clen=([0-9]+)").find(it)?.groupValues?.get(1) }
+                    ?: "104857600"  // 100 MB fallback for streams with no declared length
                 client.getOutputStream().write(
-                    "HTTP/1.1 200 OK\r\nContent-Type: $headMime\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
-                        .toByteArray(),
+                    ("HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: $headMime\r\n" +
+                    "Content-Length: $clenStr\r\n" +
+                    "Accept-Ranges: bytes\r\n" +
+                    "Connection: close\r\n" +
+                    "\r\n").toByteArray(),
                 )
                 return
             }
