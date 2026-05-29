@@ -95,7 +95,7 @@ internal class InnerTubeClient(private val cookie: String) {
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
                 .header("User-Agent",
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 )
                 .header("X-Origin", YtMusicAuth.ORIGIN)
                 .header("Origin", YtMusicAuth.ORIGIN)
@@ -105,6 +105,7 @@ internal class InnerTubeClient(private val cookie: String) {
                 .header("Content-Type", "application/json")
                 .header("X-Youtube-Client-Name", "67")
                 .header("X-Youtube-Client-Version", CLIENT_VERSION)
+                .header("X-Goog-AuthUser", "0")
 
             if (cookie.isNotBlank()) reqBuilder.header("Cookie", cookie)
             YtMusicAuth.sapisidHashHeader(cookie)?.let { reqBuilder.header("Authorization", it) }
@@ -142,7 +143,7 @@ internal class InnerTubeClient(private val cookie: String) {
         private const val TAG = "InnerTube"
 
 
-        private const val CLIENT_VERSION = "1.20260501.01.00"
+        private const val CLIENT_VERSION = "1.20260526.04.00"
     }
 }
 
