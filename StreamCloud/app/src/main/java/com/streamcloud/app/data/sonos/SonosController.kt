@@ -269,12 +269,18 @@ object SonosController {
     """.trimIndent()
 
 
+    /**
+     * Build DIDL-Lite metadata in the exact format that Sonos accepts for external HTTP streams.
+     * Modelled after SoCo (the reference Sonos Python library) play_uri() implementation.
+     *
+     * Key points vs naïve DIDL:
+     *  - upnp:class = "object.item" (bare class — musicTrack causes 402 for custom URIs)
+     *  - No <res> element — the URI is carried by SetAVTransportURI's CurrentURI arg
+     *  - <desc id="cdudn" nameSpace="...">SA_RINCON65031_</desc> — MANDATORY Sonos
+     *    RINCON content-type descriptor; without it Sonos returns UPnP 402
+     */
     private fun buildDIDL(title: String, uri: String, mimeType: String = "audio/mp4"): String {
         val safeTitle = title.xmlEscape()
-        val safeUri   = uri.xmlEscape()
-        // Namespaces must use "metadata-1-n" (UPnP standard), NOT "metadata-1-0".
-        // id="-1"/parentID="-1"/restricted="false" = transient item (not in queue).
-        // Wildcard DLNA flags ("*") are maximally permissive across Sonos firmware versions.
         return "<DIDL-Lite " +
             "xmlns=\"urn:schemas-upnp-org:metadata-1-n:DIDL-Lite/\" " +
             "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
@@ -282,8 +288,10 @@ object SonosController {
             "xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\">" +
             "<item id=\"-1\" parentID=\"-1\" restricted=\"false\">" +
             "<dc:title>$safeTitle</dc:title>" +
-            "<upnp:class>object.item.audioItem.musicTrack</upnp:class>" +
-            "<res protocolInfo=\"http-get:*:$mimeType:*\">$safeUri</res>" +
+            "<upnp:class>object.item</upnp:class>" +
+            "<desc id=\"cdudn\" nameSpace=\"urn:schemas-rinconnetworks-com:metadata-1-0/\">" +
+            "SA_RINCON65031_" +
+            "</desc>" +
             "</item>" +
             "</DIDL-Lite>"
     }
