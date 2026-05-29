@@ -1,11 +1,11 @@
 package com.streamcloud.app.data.newpipe
 
 import com.streamcloud.app.data.util.hqYtThumb
+import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.channel.ChannelInfoItem
@@ -50,23 +50,49 @@ data class MusicSearchSections(
 
 object NewPipeRepository {
 
+    // ── Suggestions ───────────────────────────────────────────────────────────────
+    // YouTube Music InnerTube suggestions → NewPipe fallback
 
     suspend fun searchSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        try {
+        val ytm = runCatching { YtMusicSearchRepository.suggestions(query) }.getOrDefault(emptyList())
+        if (ytm.isNotEmpty()) return@withContext ytm
+        runCatching {
             ServiceList.YouTube.suggestionExtractor.suggestionList(query)
-        } catch (_: Exception) {
-            emptyList()
-        }
+        }.getOrDefault(emptyList())
     }
 
+    // ── Search ────────────────────────────────────────────────────────────────────
+    // Primary: YouTube Music InnerTube API (same as SimpMusic)
+    // Fallback: NewPipe YouTube search with music_* filter
 
-    suspend fun searchMusic(query: String): List<YtTrack> = searchSongs(query)
+    suspend fun searchSongs(query: String): List<YtTrack> = withContext(Dispatchers.IO) {
+        val ytm = runCatching { YtMusicSearchRepository.songs(query) }.getOrDefault(emptyList())
+        if (ytm.isNotEmpty()) return@withContext ytm
+        searchTracksNewPipe(query, "music_songs", isVideo = false)
+    }
 
-    suspend fun searchSongs(query: String): List<YtTrack> = searchTracks(query, "music_songs", isVideo = false)
-    suspend fun searchVideos(query: String): List<YtTrack> = searchTracks(query, "music_videos", isVideo = true)
+    suspend fun searchVideos(query: String): List<YtTrack> = withContext(Dispatchers.IO) {
+        val ytm = runCatching { YtMusicSearchRepository.videos(query) }.getOrDefault(emptyList())
+        if (ytm.isNotEmpty()) return@withContext ytm
+        searchTracksNewPipe(query, "music_videos", isVideo = true)
+    }
 
-    private suspend fun searchTracks(query: String, filter: String, isVideo: Boolean): List<YtTrack> =
+    suspend fun searchAlbums(query: String): List<YtAlbum> = withContext(Dispatchers.IO) {
+        val ytm = runCatching { YtMusicSearchRepository.albums(query) }.getOrDefault(emptyList())
+        if (ytm.isNotEmpty()) return@withContext ytm
+        searchAlbumsNewPipe(query)
+    }
+
+    suspend fun searchArtists(query: String): List<YtArtist> = withContext(Dispatchers.IO) {
+        val ytm = runCatching { YtMusicSearchRepository.artists(query) }.getOrDefault(emptyList())
+        if (ytm.isNotEmpty()) return@withContext ytm
+        searchArtistsNewPipe(query)
+    }
+
+    // ── Fallback NewPipe search ───────────────────────────────────────────────────
+
+    private suspend fun searchTracksNewPipe(query: String, filter: String, isVideo: Boolean): List<YtTrack> =
         withContext(Dispatchers.IO) {
             val service = ServiceList.YouTube
             val info = SearchInfo.getInfo(
@@ -76,33 +102,36 @@ object NewPipeRepository {
             info.relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull { it.toTrack(isVideo) }
         }
 
-    suspend fun searchAlbums(query: String): List<YtAlbum> = withContext(Dispatchers.IO) {
-        val service = ServiceList.YouTube
-        val info = SearchInfo.getInfo(
-            service,
-            service.searchQHFactory.fromQuery(query, listOf("music_albums"), ""),
-        )
-        info.relatedItems.filterIsInstance<PlaylistInfoItem>().mapNotNull { it.toAlbum() }
-    }
-
-    suspend fun searchArtists(query: String): List<YtArtist> = withContext(Dispatchers.IO) {
-        val service = ServiceList.YouTube
-        val info = SearchInfo.getInfo(
-            service,
-            service.searchQHFactory.fromQuery(query, listOf("music_artists"), ""),
-        )
-        info.relatedItems.filterIsInstance<ChannelInfoItem>().mapNotNull { item ->
-            val url = item.url ?: return@mapNotNull null
-            YtArtist(
-                name = item.name ?: "Untitled",
-                url = url,
-                thumbnail = item.thumbnails?.lastOrNull()?.url?.hqYtThumb(720),
-                subscriberLabel = item.subscriberCount.takeIf { it >= 0 }
-                    ?.let { humanCount(it) + " subscribers" },
+    private suspend fun searchAlbumsNewPipe(query: String): List<YtAlbum> =
+        withContext(Dispatchers.IO) {
+            val service = ServiceList.YouTube
+            val info = SearchInfo.getInfo(
+                service,
+                service.searchQHFactory.fromQuery(query, listOf("music_albums"), ""),
             )
+            info.relatedItems.filterIsInstance<PlaylistInfoItem>().mapNotNull { it.toAlbum() }
         }
-    }
 
+    private suspend fun searchArtistsNewPipe(query: String): List<YtArtist> =
+        withContext(Dispatchers.IO) {
+            val service = ServiceList.YouTube
+            val info = SearchInfo.getInfo(
+                service,
+                service.searchQHFactory.fromQuery(query, listOf("music_artists"), ""),
+            )
+            info.relatedItems.filterIsInstance<ChannelInfoItem>().mapNotNull { item ->
+                val url = item.url ?: return@mapNotNull null
+                YtArtist(
+                    name = item.name ?: "Untitled",
+                    url = url,
+                    thumbnail = item.thumbnails?.lastOrNull()?.url?.hqYtThumb(720),
+                    subscriberLabel = item.subscriberCount.takeIf { it >= 0 }
+                        ?.let { humanCount(it) + " subscribers" },
+                )
+            }
+        }
+
+    // ── Artist page ───────────────────────────────────────────────────────────────
 
     data class ArtistPage(
         val name: String,
@@ -127,7 +156,6 @@ object NewPipeRepository {
 
         val artistName = (info.name ?: "").removeSuffix(" - Topic").trim()
 
-        // All sections loaded in parallel; tabs gracefully empty when channel has fewer tabs
         var tracks: List<YtTrack> = emptyList()
         var albums: List<YtAlbum> = emptyList()
         var singles: List<YtAlbum> = emptyList()
@@ -135,31 +163,26 @@ object NewPipeRepository {
         var relatedArtists: List<YtArtist> = emptyList()
 
         coroutineScope {
-            // Tab 0 → popular songs; fallback to search
             val tracksJob = async {
-                val tab = runCatching {
+                val tabTracks = runCatching {
                     val t = info.tabs.getOrNull(0) ?: return@runCatching emptyList<YtTrack>()
                     val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
                     tabInfo.relatedItems.filterIsInstance<StreamInfoItem>()
                         .mapNotNull { it.toTrack(isVideo = false) }.take(20)
                 }.getOrDefault(emptyList())
-                if (tab.isNotEmpty()) tab
+                if (tabTracks.isNotEmpty()) tabTracks
                 else runCatching { searchSongs(artistName) }.getOrDefault(emptyList()).take(10)
             }
-
-            // Tab 1 → albums; fallback to search
             val albumsJob = async {
-                val tab = runCatching {
+                val tabAlbums = runCatching {
                     val t = info.tabs.getOrNull(1) ?: return@runCatching emptyList<YtAlbum>()
                     val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
                     tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>()
                         .mapNotNull { it.toAlbum() }.take(10)
                 }.getOrDefault(emptyList())
-                if (tab.isNotEmpty()) tab
+                if (tabAlbums.isNotEmpty()) tabAlbums
                 else runCatching { searchAlbums(artistName) }.getOrDefault(emptyList()).take(8)
             }
-
-            // Tab 2 → singles (no fallback to avoid mixing)
             val singlesJob = async {
                 runCatching {
                     val t = info.tabs.getOrNull(2) ?: return@runCatching emptyList<YtAlbum>()
@@ -168,8 +191,6 @@ object NewPipeRepository {
                         .mapNotNull { it.toAlbum() }.take(10)
                 }.getOrDefault(emptyList())
             }
-
-            // Tab 3 → featured on playlists (no fallback)
             val featuredJob = async {
                 runCatching {
                     val t = info.tabs.getOrNull(3) ?: return@runCatching emptyList<YtAlbum>()
@@ -178,8 +199,6 @@ object NewPipeRepository {
                         .mapNotNull { it.toAlbum() }.take(10)
                 }.getOrDefault(emptyList())
             }
-
-            // Related artists: search and exclude exact name match
             val relatedJob = async {
                 runCatching {
                     searchArtists(artistName)
@@ -187,11 +206,9 @@ object NewPipeRepository {
                         .take(6)
                 }.getOrDefault(emptyList())
             }
-
             tracks = tracksJob.await()
             albums = albumsJob.await()
             singles = singlesJob.await().let { s ->
-                // Drop if identical to albums (some channels reuse the same tab)
                 if (s.map { it.url }.toSet() == albums.map { it.url }.toSet()) emptyList() else s
             }
             featuredOn = featuredJob.await()
@@ -215,6 +232,7 @@ object NewPipeRepository {
         )
     }
 
+    // ── Aggregate search ─────────────────────────────────────────────────────────
 
     suspend fun searchAll(query: String): MusicSearchSections = coroutineScope {
         val songsJob = async { runCatching { searchSongs(query) }.getOrDefault(emptyList()) }
@@ -226,8 +244,6 @@ object NewPipeRepository {
         val videos = videosJob.await()
         val albums = albumsJob.await()
         val artists = artistsJob.await()
-
-
 
         val topArtist = artists.firstOrNull { it.name.equals(query, ignoreCase = true) }
         val top = if (topArtist != null) null else songs.firstOrNull()
@@ -241,6 +257,7 @@ object NewPipeRepository {
         )
     }
 
+    // ── Home feed ─────────────────────────────────────────────────────────────────
 
     suspend fun homeFeed(): List<YtTrack> = withContext(Dispatchers.IO) {
         val service = ServiceList.YouTube
@@ -252,6 +269,7 @@ object NewPipeRepository {
         items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toTrack(isVideo = true) }
     }
 
+    // ── Playback ──────────────────────────────────────────────────────────────────
 
     suspend fun resolveAudioStream(url: String): String = withContext(Dispatchers.IO) {
         try {
@@ -288,6 +306,8 @@ object NewPipeRepository {
             ?: error("Selected audio stream had a blank URL. Try another track.")
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────────
+
     private fun StreamInfoItem.toTrack(isVideo: Boolean): YtTrack? {
         val u = url ?: return null
         return YtTrack(
@@ -317,5 +337,3 @@ object NewPipeRepository {
         else -> n.toString()
     }
 }
-
-
