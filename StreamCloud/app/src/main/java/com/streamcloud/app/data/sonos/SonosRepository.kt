@@ -127,16 +127,41 @@ object SonosRepository {
                 )
                 Log.d(TAG, "Proxy URL: $proxyUrl  resolved=${resolvedUrl != null}  mime=$mimeType")
 
+                // Pre-flight: verify Sonos is reachable before attempting transport commands.
+                // GetTransportInfo uses the same host:port as SetAVTransportURI — if it returns
+                // null the device is unreachable (wrong IP, AP isolation, device offline).
+                val reachable = SonosController.getState(device) != null
+                if (!reachable) {
+                    SonosProxyServer.stop()
+                    _castState.update {
+                        CastState.Error("Cannot reach ${device.name} (${device.host}). Make sure both devices are on the same WiFi network.")
+                    }
+                    return@launch
+                }
+
                 // Retry up to 2 times: some Sonos firmware takes a moment after Stop()
                 // to become ready for a new SetAVTransportURI command.
                 var ok = false
+                var failReason = ""
                 for (attempt in 0 until 2) {
                     if (attempt > 0) delay(2_000L)
                     SonosController.stop(device)
-                    ok = SonosController.setUri(device, proxyUrl, title, mimeType) &&
-                        SonosController.play(device)
-                    if (ok) break
-                    Log.w(TAG, "connect attempt $attempt failed, retrying…")
+
+                    val uriError = SonosController.setUri(device, proxyUrl, title, mimeType)
+                    if (uriError != null) {
+                        failReason = uriError
+                        Log.w(TAG, "attempt $attempt: setUri failed — $uriError")
+                        continue
+                    }
+
+                    if (!SonosController.play(device)) {
+                        failReason = "Play command rejected by Sonos"
+                        Log.w(TAG, "attempt $attempt: play failed")
+                        continue
+                    }
+
+                    ok = true
+                    break
                 }
 
                 if (ok) {
@@ -155,7 +180,7 @@ object SonosRepository {
                 } else {
                     SonosProxyServer.stop()
                     _castState.update {
-                        CastState.Error("Sonos rejected the stream. Check that the device is on the same network.")
+                        CastState.Error("Sonos stream failed: $failReason")
                     }
                 }
             } catch (e: Exception) {
@@ -198,7 +223,7 @@ object SonosRepository {
                 ),
             )
             val proxyUrl = SonosProxyServer.start(localIp)
-            SonosController.setUri(device, proxyUrl, title)
+            SonosController.setUriBoolean(device, proxyUrl, title)
             SonosController.play(device)
             _castState.update { CastState.Casting(device, title) }
         }
