@@ -43,13 +43,10 @@ object SonosController {
         mimeType: String = "audio/mp4",
     ): String? = withContext(Dispatchers.IO) {
         try {
-            // Pass empty CurrentURIMetaData — DIDL-Lite is optional and some Sonos
-            // firmware versions reject SetAVTransportURI when DIDL format is non-standard.
-            // The plain URI alone is sufficient for playback.
             val body = """
                 <InstanceID>0</InstanceID>
                 <CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>
-                <CurrentURIMetaData></CurrentURIMetaData>
+                <CurrentURIMetaData>${buildDIDL(title, streamUrl, mimeType).xmlEscape()}</CurrentURIMetaData>
             """.trimIndent()
             val envelope = soapEnvelope("SetAVTransportURI", body)
             val req = Request.Builder()
@@ -260,17 +257,18 @@ object SonosController {
     private fun buildDIDL(title: String, uri: String, mimeType: String = "audio/mp4"): String {
         val safeTitle = title.xmlEscape()
         val safeUri   = uri.xmlEscape()
-        // Use DLNA.ORG_OP=01 (range-based time seeking supported) and
-        // DLNA.ORG_FLAGS=01700000… (streaming mode, HTTP connection stalling).
-        // This is required by strict Sonos firmware versions to accept the stream.
-        val dlnaInfo  = "http-get:*:$mimeType:DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000"
-        return "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
+        // Namespaces must use "metadata-1-n" (UPnP standard), NOT "metadata-1-0".
+        // id="-1"/parentID="-1"/restricted="false" = transient item (not in queue).
+        // Wildcard DLNA flags ("*") are maximally permissive across Sonos firmware versions.
+        return "<DIDL-Lite " +
+            "xmlns=\"urn:schemas-upnp-org:metadata-1-n:DIDL-Lite/\" " +
             "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
-            "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
-            "<item id=\"1\" parentID=\"-1\" restricted=\"true\">" +
+            "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-n:upnp/\" " +
+            "xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\">" +
+            "<item id=\"-1\" parentID=\"-1\" restricted=\"false\">" +
             "<dc:title>$safeTitle</dc:title>" +
             "<upnp:class>object.item.audioItem.musicTrack</upnp:class>" +
-            "<res protocolInfo=\"$dlnaInfo\">$safeUri</res>" +
+            "<res protocolInfo=\"http-get:*:$mimeType:*\">$safeUri</res>" +
             "</item>" +
             "</DIDL-Lite>"
     }
