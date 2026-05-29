@@ -125,7 +125,7 @@ fun YtPlaylistScreen(
         if (!cached.isNullOrEmpty()) tracks = cached
 
         val fresh = withContext(Dispatchers.IO) {
-            runCatching { YtMusicLibraryRepository.playlistTracks(cookie, playlistId) }
+            runCatching { YtMusicLibraryRepository.playlistTracks(cookie, playlistId, externalThumb = customThumbUri) }
                 .getOrElse {
                     if (cached.isNullOrEmpty()) error = it.message
                     null
