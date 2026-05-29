@@ -30,7 +30,7 @@ object YtMusicArtistRepository {
         val name = headerObj?.get("title").runsText()?.removeSuffix(" - Topic")?.trim()
             ?: return@withContext null
 
-        val banner = headerObj.findFirst("thumbnail").bestThumbnail()
+        val banner = headerObj?.findFirst("thumbnail").bestThumbnail()
             ?: headerObj?.findFirst("foregroundThumbnail").bestThumbnail()
         // Avatar: look for the thumbnail in the cropped/circle variant
         val avatar = resp.findFirst("musicThumbnailRenderer")?.jsonObject
