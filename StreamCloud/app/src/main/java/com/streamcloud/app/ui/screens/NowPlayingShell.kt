@@ -231,7 +231,9 @@ fun NowPlayingShell(
     // Controls visibility — auto-hides after 3.5 s, tap screen to reveal
     var controlsVisible by remember { mutableStateOf(true) }
     var hideKey by remember { mutableStateOf(0) }
-    LaunchedEffect(hideKey) {
+    // Auto-hide only when a canvas video is actually playing
+    LaunchedEffect(hideKey, activeCanvas) {
+        if (activeCanvas == null) { controlsVisible = true; return@LaunchedEffect }
         delay(3_500L)
         controlsVisible = false
     }
@@ -276,17 +278,19 @@ fun NowPlayingShell(
             )
         }
 
-        // Full-screen tap zone — tap to reveal controls when hidden
-        Box(
-            Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures {
-                        controlsVisible = true
-                        hideKey++
+        // Full-screen tap zone — only active when canvas is playing
+        if (activeCanvas != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures {
+                            controlsVisible = true
+                            hideKey++
+                        }
                     }
-                }
-        )
+            )
+        }
 
         // Album artwork — shown centred when no canvas is active
         if (activeCanvas == null) {
@@ -357,9 +361,9 @@ fun NowPlayingShell(
             }
         }
 
-        // Controls overlay — fades out after inactivity, tap anywhere to restore
+        // Controls overlay — fades only when canvas is active; always visible otherwise
         AnimatedVisibility(
-            visible = controlsVisible,
+            visible = controlsVisible || activeCanvas == null,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(600)),
             modifier = Modifier.fillMaxSize(),
