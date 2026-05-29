@@ -518,10 +518,11 @@ fun StreamCloudApp() {
                         initialAvatar = thumb,
                         onBack = { nav.popBackStack() },
                         onPlay = { track -> artistVm.play(track) },
-                        onAlbumClick = { id, title ->
+                        onAlbumClick = { id, title, thumb ->
                             val i = URLEncoder.encode(id, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
-                            nav.navigate("yt-playlist/$i/$t")
+                            val th = URLEncoder.encode(thumb.orEmpty(), "UTF-8")
+                            nav.navigate("yt-playlist/$i/$t?thumb=$th")
                         },
                         onArtistClick = { artistUrl, artistThumb ->
                             val u = URLEncoder.encode(artistUrl, "UTF-8")
@@ -554,19 +555,26 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(
-                    "yt-playlist/{id}/{title}",
+                    "yt-playlist/{id}/{title}?thumb={thumb}",
                     arguments = listOf(
                         navArgument("id") { type = NavType.StringType },
                         navArgument("title") { type = NavType.StringType },
+                        navArgument("thumb") {
+                            type = NavType.StringType; nullable = true; defaultValue = null
+                        },
                     ),
                 ) { entry ->
                     val id = URLDecoder.decode(entry.arguments!!.getString("id")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    val thumb = entry.arguments!!.getString("thumb")
+                        ?.let { URLDecoder.decode(it, "UTF-8") }
+                        ?.takeIf { it.isNotBlank() }
                     val plContext = LocalContext.current
                     val plScope = rememberCoroutineScope()
                     com.streamcloud.app.ui.screens.YtPlaylistScreen(
                         playlistId = id,
                         title = title,
+                        initialThumb = thumb,
                         onBack = { nav.popBackStack() },
                         onPlay = { song ->
                             plScope.launch {
