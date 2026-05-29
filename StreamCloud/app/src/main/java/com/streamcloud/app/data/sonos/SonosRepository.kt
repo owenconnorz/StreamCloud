@@ -125,7 +125,8 @@ object SonosRepository {
                         mimeType    = mimeType,
                     ),
                 )
-                Log.d(TAG, "Proxy URL: $proxyUrl  resolved=${resolvedUrl != null}  mime=$mimeType")
+                val resolvedTag = if (resolvedUrl != null) "pre-resolved" else "lazy"
+                Log.d(TAG, "Proxy URL: $proxyUrl  resolve=$resolvedTag  mime=$mimeType")
 
                 // Pre-flight: verify Sonos is reachable before attempting transport commands.
                 // GetTransportInfo uses the same host:port as SetAVTransportURI — if it returns
