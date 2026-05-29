@@ -101,13 +101,20 @@ object YtMusicLibraryRepository {
 
     private suspend fun fetchLibraryPlaylists(client: InnerTubeClient): List<YtmPlaylist> =
         drainBrowse(client, "FEmusic_liked_playlists") { resp ->
-            resp.collectTwoRowItems().mapNotNull { parseTwoRowAsPlaylist(it) }
+            // YouTube Music returns grid view (musicTwoRowItemRenderer) or list view
+            // (musicResponsiveListItemRenderer) depending on the user's preference /
+            // API version.  Try both so we never come back empty.
+            val twoRow = resp.collectTwoRowItems().mapNotNull { parseTwoRowAsPlaylist(it) }
+            if (twoRow.isNotEmpty()) twoRow
+            else resp.collectResponsiveListItems().mapNotNull { parseResponsiveAsPlaylist(it) }
         }
 
 
     private suspend fun fetchLibraryAlbums(client: InnerTubeClient): List<YtmPlaylist> =
         drainBrowse(client, "FEmusic_liked_albums") { resp ->
-            resp.collectTwoRowItems().mapNotNull { parseTwoRowAsPlaylist(it, forceIsAlbum = true) }
+            val twoRow = resp.collectTwoRowItems().mapNotNull { parseTwoRowAsPlaylist(it, forceIsAlbum = true) }
+            if (twoRow.isNotEmpty()) twoRow
+            else resp.collectResponsiveListItems().mapNotNull { parseResponsiveAsPlaylist(it, forceIsAlbum = true) }
         }
 
     private suspend fun fetchLikedSongs(client: InnerTubeClient): List<YtmSong> =
@@ -388,6 +395,40 @@ object YtMusicLibraryRepository {
             ?: renderer.firstNavigationBrowseId()
             ?: return null
         val isAlbum = forceIsAlbum || subtitle?.contains("Album", ignoreCase = true) == true ||
+            subtitle?.contains("Single", ignoreCase = true) == true ||
+            subtitle?.contains("EP", ignoreCase = true) == true
+        return YtmPlaylist(
+            id = playlistId,
+            title = title,
+            thumbnail = thumb,
+            subtitle = subtitle,
+            isAlbum = isAlbum,
+        )
+    }
+
+    /**
+     * Parse a playlist/album from a musicResponsiveListItemRenderer.
+     * YouTube Music library pages can return list-view renderers instead of
+     * the grid-view musicTwoRowItemRenderer depending on the user's setting.
+     */
+    private fun parseResponsiveAsPlaylist(
+        item: JsonObject,
+        forceIsAlbum: Boolean = false,
+    ): YtmPlaylist? {
+        val flexColumns = (item["flexColumns"] as? JsonArray) ?: return null
+        val titleEl = flexColumns.getOrNull(0)?.jsonObject
+            ?.get("musicResponsiveListItemFlexColumnRenderer")?.jsonObject
+            ?.get("text")
+        val title = titleEl.runsText() ?: return null
+        val playlistId = titleEl.firstNavigationBrowseId()
+            ?: item.firstNavigationBrowseId()
+            ?: return null
+        val subtitle = flexColumns.getOrNull(1)?.jsonObject
+            ?.get("musicResponsiveListItemFlexColumnRenderer")?.jsonObject
+            ?.get("text").runsText()
+        val thumb = item["thumbnail"].bestThumbnail()
+        val isAlbum = forceIsAlbum ||
+            subtitle?.contains("Album", ignoreCase = true) == true ||
             subtitle?.contains("Single", ignoreCase = true) == true ||
             subtitle?.contains("EP", ignoreCase = true) == true
         return YtmPlaylist(
