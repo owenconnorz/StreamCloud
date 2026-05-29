@@ -121,6 +121,13 @@ fun LibraryScreen(
             // (ytLibrary is already showing cached from above, so no reassignment needed.)
         } else {
             ytLibrary = fresh
+            // If the sync returned an auth error, clear the stale empty cache so the
+            // next successful sign-in will be able to populate it fresh.
+            if (fresh.failureReason != null) {
+                withContext(Dispatchers.IO) {
+                    com.streamcloud.app.data.ytmusic.LibraryCache.clear(context)
+                }
+            }
         }
     }
 
@@ -344,6 +351,14 @@ fun LibraryScreen(
                                     }
                                 },
                             )
+                        }
+                        if (ytLibrary.failureReason != null && !ytLoading) {
+                            item(span = { GridItemSpan(2) }) {
+                                EmptyStateRow(
+                                    message = ytLibrary.failureReason!!,
+                                    notSignedIn = ytCookie.isBlank(),
+                                )
+                            }
                         }
                         items(ytLibrary.playlists, key = { "yp_${it.id}" }) { pl ->
                             YtPlaylistTile(pl) { onOpenPlaylist(pl.id, pl.title) }

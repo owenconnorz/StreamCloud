@@ -43,14 +43,34 @@ object YtMusicLibraryRepository {
         try {
             coroutineScope {
                 val playlistsJob = async { fetchLibraryPlaylists(client) }
-                val likedJob = async { fetchLikedSongs(client) }
-                val artistsJob = async { fetchLibraryArtists(client) }
-                val albumsJob = async { fetchLibraryAlbums(client) }
+                val likedJob    = async { fetchLikedSongs(client) }
+                val artistsJob  = async { fetchLibraryArtists(client) }
+                val albumsJob   = async { fetchLibraryAlbums(client) }
+
+                val playlists  = playlistsJob.await()
+                val likedSongs = likedJob.await()
+                val albums     = albumsJob.await()
+                val artists    = artistsJob.await()
+
+                // When YouTube Music receives an expired/invalid cookie it returns HTTP 200
+                // with a sign-in prompt page — the parsers find nothing and every list comes
+                // back empty.  Surface this as a real error so the UI can guide the user.
+                if (playlists.isEmpty() && likedSongs.isEmpty() &&
+                    albums.isEmpty()   && artists.isEmpty()) {
+                    val hasSapisid = YtMusicAuth.sapisidHashHeader(cookie) != null
+                    val reason = if (hasSapisid)
+                        "YouTube Music returned empty — your cookie may have expired.\nRe-enter it in Settings → Account, then tap ↻."
+                    else
+                        "Cookie is missing the auth token (SAPISID).\nRe-enter your YouTube Music cookie in Settings → Account."
+                    Log.w(TAG, "library sync all-empty: hasSapisid=$hasSapisid")
+                    return@coroutineScope YtMusicLibrary(failureReason = reason)
+                }
+
                 YtMusicLibrary(
-                    likedSongs = likedJob.await(),
-                    playlists = playlistsJob.await().filter { !it.isAlbum },
-                    albums = albumsJob.await() + playlistsJob.await().filter { it.isAlbum },
-                    artists = artistsJob.await(),
+                    likedSongs = likedSongs,
+                    playlists  = playlists.filter { !it.isAlbum },
+                    albums     = albums + playlists.filter { it.isAlbum },
+                    artists    = artists,
                 )
             }
         } catch (e: Throwable) {
