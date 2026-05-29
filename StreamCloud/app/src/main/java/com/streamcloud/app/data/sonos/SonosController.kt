@@ -33,8 +33,9 @@ object SonosController {
         .build()
 
     /**
-     * Returns null on success, or a short error description on failure
-     * (used by SonosRepository to surface a specific message to the user).
+     * Returns null on success, or a short error description on failure.
+     * Written as a compact single-line SOAP envelope WITHOUT s:encodingStyle —
+     * UPnP 1.1 (Sonos S2) prohibits that attribute and may return 402 when it is present.
      */
     suspend fun setUri(
         device: SonosDevice,
@@ -43,12 +44,21 @@ object SonosController {
         mimeType: String = "audio/mp4",
     ): String? = withContext(Dispatchers.IO) {
         try {
-            val body = """
-                <InstanceID>0</InstanceID>
-                <CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>
-                <CurrentURIMetaData>${buildDIDL(title, streamUrl, mimeType).xmlEscape()}</CurrentURIMetaData>
-            """.trimIndent()
-            val envelope = soapEnvelope("SetAVTransportURI", body)
+            val didlEscaped  = buildDIDL(title, streamUrl, mimeType).xmlEscape()
+            val streamEscaped = streamUrl.xmlEscape()
+            // Compact, single-line SOAP body — no extra whitespace that might confuse parsers.
+            // No s:encodingStyle on the Envelope (prohibited by UPnP 1.1 / Sonos S2).
+            val envelope =
+                """<?xml version="1.0" encoding="utf-8"?>""" +
+                """<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">""" +
+                """<s:Body>""" +
+                """<u:SetAVTransportURI xmlns:u="$AV_TRANSPORT_SERVICE">""" +
+                """<InstanceID>0</InstanceID>""" +
+                """<CurrentURI>$streamEscaped</CurrentURI>""" +
+                """<CurrentURIMetaData>$didlEscaped</CurrentURIMetaData>""" +
+                """</u:SetAVTransportURI>""" +
+                """</s:Body>""" +
+                """</s:Envelope>"""
             val req = Request.Builder()
                 .url("http://${device.host}:${device.port}$AV_TRANSPORT_PATH")
                 .post(envelope.toRequestBody("text/xml; charset=utf-8".toMediaType()))
@@ -63,12 +73,17 @@ object SonosController {
                 val errBody = runCatching { resp.body?.string() }.getOrNull() ?: ""
                 val faultCode = Regex("<errorCode>([^<]+)</errorCode>")
                     .find(errBody)?.groupValues?.get(1) ?: "?"
-                val msg = "SetAVTransportURI HTTP ${resp.code} (UPnP error $faultCode)"
-                Log.w(TAG, "$msg: ${errBody.take(200)}")
+                val faultDesc = Regex("<errorDescription>([^<]+)</errorDescription>")
+                    .find(errBody)?.groupValues?.get(1) ?: ""
+                // Include Sonos host + stream URL so user can report exact context
+                val msg = "Sonos ${device.host}:${device.port} → HTTP ${resp.code} " +
+                    "(UPnP $faultCode${if (faultDesc.isNotBlank()) ": $faultDesc" else ""}) " +
+                    "stream=${streamUrl.substringAfter("//").take(30)}"
+                Log.w(TAG, "setUri failed: $msg | errBody=${errBody.take(300)}")
                 msg
             }
         } catch (e: Exception) {
-            val msg = "SetAVTransportURI failed: ${e.message?.take(80)}"
+            val msg = "SetAVTransportURI exception: ${e.javaClass.simpleName}: ${e.message?.take(80)}"
             Log.w(TAG, msg)
             msg
         }
