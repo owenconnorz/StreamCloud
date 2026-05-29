@@ -118,7 +118,11 @@ object YtMusicLibraryRepository {
         }
 
 
-    suspend fun playlistTracks(cookie: String, playlistId: String): List<YtmSong> =
+    suspend fun playlistTracks(
+        cookie: String,
+        playlistId: String,
+        externalThumb: String? = null,
+    ): List<YtmSong> =
         withContext(Dispatchers.IO) {
             val client = InnerTubeClient(cookie)
             // MPREb_ = YouTube Music album browse ID → use as-is (no VL prefix)
@@ -131,24 +135,39 @@ object YtMusicLibraryRepository {
             }
             val first = client.browse(browseId) ?: return@withContext emptyList()
 
-            // Extract the page header thumbnail as a fallback for track rows that have no
-            // individual thumbnail (album browse IDs — MPREb_ and OLAK5uy_ — never include
-            // per-track art). Safe for playlists too: parseResponsiveSong uses it only when
-            // the per-track thumbnail is absent (null-coalesce order: per-track ?: fallback).
+            // Extract album cover from page header as thumbnail fallback.
+            // Album pages (MPREb_, OLAK5uy_) never include per-track thumbnails.
+            // externalThumb (passed from the artist-page card) is used as the final fallback.
+            val headerRenderer = first.findFirst("musicDetailHeaderRenderer")?.jsonObject
+                ?: first.findFirst("musicImmersiveHeaderRenderer")?.jsonObject
             val albumCover: String? =
-                first.findFirst("musicDetailHeaderRenderer")?.jsonObject
-                    ?.get("thumbnail").bestThumbnail()
-                    ?: first.findFirst("musicImmersiveHeaderRenderer")?.jsonObject
-                        ?.get("thumbnail").bestThumbnail()
+                headerRenderer?.get("thumbnail").bestThumbnail()
+                    ?: externalThumb
+
+            // Extract album artist from the header subtitle — the artist run is the one
+            // that carries a navigation endpoint (browseEndpoint to their channel).
+            val albumArtist: String? = headerRenderer?.let { hdr ->
+                val runs = hdr["subtitle"]?.jsonObject?.get("runs") as? JsonArray
+                runs?.mapNotNull { it as? JsonObject }
+                    ?.firstOrNull { run ->
+                        run["navigationEndpoint"] != null &&
+                        run["text"]?.jsonPrimitive?.contentOrNull.orEmpty().let { t ->
+                            t.isNotBlank() && t != " · " && t != "•" &&
+                            !t.matches(Regex("\\d{4}")) &&
+                            !t.matches(Regex("(Album|EP|Single|Compilation|Podcast|\\d+\\s+\\w+.*)", RegexOption.IGNORE_CASE))
+                        }
+                    }
+                    ?.get("text")?.jsonPrimitive?.contentOrNull
+            }
+            Log.d(TAG, "playlist[$playlistId] albumArtist=$albumArtist cover=${albumCover?.take(60)}")
 
             val collected = mutableListOf<YtmSong>()
             var pageNum = 0
             var safetyPages = 50
 
-
             var (renderers, token) = extractPlaylistPage(first)
             Log.d(TAG, "playlist[$playlistId] page$pageNum: renderers=${renderers.size} token=${token?.take(40)}")
-            collected += renderers.mapNotNull { parseResponsiveSong(it, albumCover) }
+            collected += renderers.mapNotNull { parseResponsiveSong(it, albumCover, albumArtist) }
 
             while (!token.isNullOrBlank() && safetyPages-- > 0) {
                 pageNum++
@@ -160,7 +179,7 @@ object YtMusicLibraryRepository {
                 val (pageRenderers, nextToken) = extractPlaylistPage(page)
                 Log.d(TAG, "playlist[$playlistId] page$pageNum: renderers=${pageRenderers.size} token=${nextToken?.take(40)}")
                 val before = collected.size
-                collected += pageRenderers.mapNotNull { parseResponsiveSong(it, albumCover) }
+                collected += pageRenderers.mapNotNull { parseResponsiveSong(it, albumCover, albumArtist) }
                 if (collected.size == before) {
                     Log.w(TAG, "playlist[$playlistId] page$pageNum: no progress — stopping")
                     break
@@ -361,7 +380,11 @@ object YtMusicLibraryRepository {
     }
 
 
-    private fun parseResponsiveSong(item: JsonObject, fallbackThumb: String? = null): YtmSong? {
+    private fun parseResponsiveSong(
+        item: JsonObject,
+        fallbackThumb: String? = null,
+        fallbackArtist: String? = null,
+    ): YtmSong? {
         val flexColumns = (item["flexColumns"] as? JsonArray) ?: return null
         val titleText = flexColumns.getOrNull(0)?.jsonObject
             ?.get("musicResponsiveListItemFlexColumnRenderer")?.jsonObject
@@ -394,11 +417,13 @@ object YtMusicLibraryRepository {
             ?.parseDuration()
 
         val thumb = item["thumbnail"].bestThumbnail() ?: fallbackThumb
+        // Use fallbackArtist (album-level artist from header) when the track row is blank
+        val resolvedArtist = artist.ifBlank { fallbackArtist.orEmpty() }
 
         return YtmSong(
             videoId = videoId,
             title = title,
-            artist = artist,
+            artist = resolvedArtist,
             album = album,
             thumbnail = thumb,
             durationSeconds = duration,
