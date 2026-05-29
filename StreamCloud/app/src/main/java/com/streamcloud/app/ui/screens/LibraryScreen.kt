@@ -103,14 +103,24 @@ fun LibraryScreen(
 
 
         val fresh = com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository.sync(ytCookie)
-        ytLibrary = fresh
         ytLoading = false
 
+        val freshHasContent = fresh.playlists.isNotEmpty() || fresh.albums.isNotEmpty() ||
+            fresh.likedSongs.isNotEmpty() || fresh.artists.isNotEmpty()
+        val cachedHasContent = cached != null &&
+            (cached.playlists.isNotEmpty() || cached.albums.isNotEmpty())
 
-        if (fresh.failureReason == null) {
+        if (fresh.failureReason == null && freshHasContent) {
+            ytLibrary = fresh
             withContext(Dispatchers.IO) {
                 com.streamcloud.app.data.ytmusic.LibraryCache.write(context, fresh)
             }
+        } else if (fresh.failureReason == null && !freshHasContent && cachedHasContent) {
+            // Sync succeeded but returned nothing — likely a transient API hiccup.
+            // Keep the cached version on screen rather than blanking everything out.
+            // (ytLibrary is already showing cached from above, so no reassignment needed.)
+        } else {
+            ytLibrary = fresh
         }
     }
 
