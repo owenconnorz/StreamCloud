@@ -552,15 +552,18 @@ fun StreamCloudApp() {
                     val id = URLDecoder.decode(entry.arguments!!.getString("id")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
                     val plContext = LocalContext.current
-                    val plVm: com.streamcloud.app.ui.viewmodel.MusicViewModel =
-                        androidx.lifecycle.viewmodel.compose.viewModel(
-                            factory = com.streamcloud.app.ui.viewmodel.MusicViewModel.factory(plContext)
-                        )
+                    val plScope = rememberCoroutineScope()
                     com.streamcloud.app.ui.screens.YtPlaylistScreen(
                         playlistId = id,
                         title = title,
                         onBack = { nav.popBackStack() },
-                        onPlay = { track -> plVm.play(track) },
+                        onPlay = { song ->
+                            plScope.launch {
+                                com.streamcloud.app.data.ytmusic.YtPlayback.playSong(
+                                    plContext, song, withAutoRadio = false,
+                                )
+                            }
+                        },
                     )
                 }
                 composable(Tab.Adult.route) {
