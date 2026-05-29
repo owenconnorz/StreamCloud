@@ -55,6 +55,19 @@ internal class InnerTubeClient(private val cookie: String) {
         }) != null
 
 
+    suspend fun search(query: String, params: String? = null): JsonObject? =
+        postInnerTube("search", buildJsonObject {
+            putContext()
+            put("query", query)
+            if (params != null) put("params", params)
+        })
+
+    suspend fun searchSuggestions(input: String): JsonObject? =
+        postInnerTube("music/get_search_suggestions", buildJsonObject {
+            putContext()
+            put("input", input)
+        })
+
     suspend fun browseContinuation(token: String): JsonObject? {
 
 
