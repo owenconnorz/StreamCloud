@@ -210,6 +210,7 @@ data class CollectionFolderEntity(
     @ColumnInfo(name = "cover_url") val coverUrl: String = "",
     @ColumnInfo(name = "tile_shape") val tileShape: String = "wide",
     @ColumnInfo(name = "linked_category_id") val linkedCategoryId: String = "",
+    @ColumnInfo(name = "provider_type", defaultValue = "tmdb") val providerType: String = "tmdb",
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
 )
 
@@ -268,7 +269,7 @@ interface CollectionFolderDao {
         UserCollectionEntity::class,
         CollectionFolderEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -285,6 +286,14 @@ abstract class LibraryDb : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE watchlist ADD COLUMN cs_plugin TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE watchlist ADD COLUMN cs_url TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE collection_folders ADD COLUMN provider_type TEXT NOT NULL DEFAULT 'tmdb'"
+                )
             }
         }
 
@@ -322,7 +331,7 @@ abstract class LibraryDb : RoomDatabase() {
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).addMigrations(MIGRATION_5_6, MIGRATION_6_7).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
 }
