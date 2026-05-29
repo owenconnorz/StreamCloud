@@ -47,23 +47,35 @@ object YtMusicLibraryRepository {
                 val artistsJob  = async { fetchLibraryArtists(client) }
                 val albumsJob   = async { fetchLibraryAlbums(client) }
 
-                val playlists  = playlistsJob.await()
+                val (playlists, playlistsDiag) = playlistsJob.await()
                 val likedSongs = likedJob.await()
                 val albums     = albumsJob.await()
                 val artists    = artistsJob.await()
 
-                // When YouTube Music receives an expired/invalid cookie it returns HTTP 200
-                // with a sign-in prompt page — the parsers find nothing and every list comes
-                // back empty.  Surface this as a real error so the UI can guide the user.
+                // Full auth failure: everything empty (expired cookie returns a sign-in page)
                 if (playlists.isEmpty() && likedSongs.isEmpty() &&
                     albums.isEmpty()   && artists.isEmpty()) {
                     val hasSapisid = YtMusicAuth.sapisidHashHeader(cookie) != null
                     val reason = if (hasSapisid)
-                        "YouTube Music returned empty — your cookie may have expired.\nRe-enter it in Settings → Account, then tap ↻."
+                        "YouTube Music returned empty — cookie may have expired.\n" +
+                        "Re-enter it in Settings → Account, then tap ↻.\n" +
+                        (playlistsDiag ?: "")
                     else
                         "Cookie is missing the auth token (SAPISID).\nRe-enter your YouTube Music cookie in Settings → Account."
-                    Log.w(TAG, "library sync all-empty: hasSapisid=$hasSapisid")
+                    Log.w(TAG, "library sync all-empty: hasSapisid=$hasSapisid diag=$playlistsDiag")
                     return@coroutineScope YtMusicLibrary(failureReason = reason)
+                }
+
+                // Partial failure: playlists specifically came back empty
+                if (playlists.isEmpty() && playlistsDiag != null) {
+                    Log.w(TAG, "library sync: playlists empty — $playlistsDiag")
+                    return@coroutineScope YtMusicLibrary(
+                        likedSongs = likedSongs,
+                        playlists  = emptyList(),
+                        albums     = albums,
+                        artists    = artists,
+                        failureReason = "Playlists not loading.\n$playlistsDiag\n\nPlease share this with the developer.",
+                    )
                 }
 
                 YtMusicLibrary(
@@ -99,16 +111,88 @@ object YtMusicLibraryRepository {
         return out
     }
 
-    private suspend fun fetchLibraryPlaylists(client: InnerTubeClient): List<YtmPlaylist> =
-        drainBrowse(client, "FEmusic_liked_playlists") { resp ->
-            // YouTube Music returns grid view (musicTwoRowItemRenderer) or list view
-            // (musicResponsiveListItemRenderer) depending on the user's preference /
-            // API version.  Try both so we never come back empty.
-            val twoRow = resp.collectTwoRowItems().mapNotNull { parseTwoRowAsPlaylist(it) }
-            if (twoRow.isNotEmpty()) twoRow
-            else resp.collectResponsiveListItems().mapNotNull { parseResponsiveAsPlaylist(it) }
+    /**
+     * Fetch library playlists, returning the list AND a diagnostic string.
+     * The diagnostic is null when items were found, or a description of
+     * what renderer types were in the raw response when nothing parsed.
+     * This lets the Playlists tab show exactly why parsing failed.
+     */
+    private suspend fun fetchLibraryPlaylists(
+        client: InnerTubeClient,
+    ): Pair<List<YtmPlaylist>, String?> {
+        val resp = client.browse("FEmusic_liked_playlists")
+            ?: return emptyList<YtmPlaylist>() to "browse() returned null (network error)"
+
+        // Collect every *Renderer key name anywhere in the response for diagnostics.
+        val rendererTypes = linkedSetOf<String>()
+        fun walk(el: JsonElement) {
+            when (el) {
+                is JsonObject -> {
+                    el.keys.forEach { k -> if (k.endsWith("Renderer")) rendererTypes.add(k) }
+                    el.values.forEach(::walk)
+                }
+                is JsonArray  -> el.forEach(::walk)
+                else          -> {}
+            }
+        }
+        walk(resp)
+        Log.d(TAG, "FEmusic_liked_playlists renderers: $rendererTypes")
+
+        // ── Path 1: grid-view (musicTwoRowItemRenderer) deep search ──────────
+        val twoRow = resp.collectTwoRowItems().mapNotNull { parseTwoRowAsPlaylist(it) }
+        if (twoRow.isNotEmpty()) return twoRow to null
+
+        // ── Path 2: list-view (musicResponsiveListItemRenderer) deep search ──
+        val responsive = resp.collectResponsiveListItems().mapNotNull { parseResponsiveAsPlaylist(it) }
+        if (responsive.isNotEmpty()) return responsive to null
+
+        // ── Path 3: ytmusicapi explicit navigation path ───────────────────────
+        // singleColumnBrowseResultsRenderer → tabs[0] → sectionList → itemSectionRenderer
+        //   → musicShelfRenderer → contents  (each item is a renderer wrapper)
+        val sectionListContents = (resp["contents"] as? JsonObject)
+            ?.get("singleColumnBrowseResultsRenderer")?.let { it as? JsonObject }
+            ?.get("tabs")?.let { it as? JsonArray }
+            ?.getOrNull(0)?.let { it as? JsonObject }
+            ?.get("tabRenderer")?.let { it as? JsonObject }
+            ?.get("content")?.let { it as? JsonObject }
+            ?.get("sectionListRenderer")?.let { it as? JsonObject }
+            ?.get("contents")?.let { it as? JsonArray }
+
+        val shelfContents: JsonArray? = sectionListContents?.firstNotNullOfOrNull { entry ->
+            val obj = entry as? JsonObject ?: return@firstNotNullOfOrNull null
+            // itemSectionRenderer → [musicShelfRenderer | direct items]
+            val itemSection = (obj["itemSectionRenderer"] as? JsonObject)
+                ?.get("contents")?.let { it as? JsonArray }
+            itemSection?.firstNotNullOfOrNull { inner ->
+                (inner as? JsonObject)?.get("musicShelfRenderer")?.let { it as? JsonObject }
+                    ?.get("contents")?.let { it as? JsonArray }
+            }
+            // fall back: musicShelfRenderer directly in sectionList
+            ?: (obj["musicShelfRenderer"] as? JsonObject)
+                ?.get("contents")?.let { it as? JsonArray }
+            // or: itemSectionRenderer contents are the items themselves
+            ?: itemSection
         }
 
+        if (shelfContents != null) {
+            val fromShelf = shelfContents.mapNotNull { wrapper ->
+                val obj = wrapper as? JsonObject ?: return@mapNotNull null
+                val twoRowItem = (obj["musicTwoRowItemRenderer"] as? JsonObject)
+                    ?.let { parseTwoRowAsPlaylist(it) }
+                twoRowItem
+                    ?: (obj["musicResponsiveListItemRenderer"] as? JsonObject)
+                        ?.let { parseResponsiveAsPlaylist(it) }
+            }
+            if (fromShelf.isNotEmpty()) return fromShelf to null
+        }
+
+        // ── Nothing found — return diagnostic so the UI can display it ────────
+        val renderers = rendererTypes.take(12).joinToString(", ")
+        val diag = "Renderers found: [$renderers]. " +
+            "topKeys=${resp.keys.take(6).joinToString()}"
+        Log.w(TAG, "fetchLibraryPlaylists: no items. $diag")
+        return emptyList<YtmPlaylist>() to diag
+    }
 
     private suspend fun fetchLibraryAlbums(client: InnerTubeClient): List<YtmPlaylist> =
         drainBrowse(client, "FEmusic_liked_albums") { resp ->
