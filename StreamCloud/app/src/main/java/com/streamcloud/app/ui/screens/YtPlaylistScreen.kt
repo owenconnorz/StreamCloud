@@ -50,6 +50,7 @@ import kotlinx.coroutines.withContext
 fun YtPlaylistScreen(
     playlistId: String,
     title: String,
+    initialThumb: String? = null,
     onBack: () -> Unit,
     onPlay: (YtmSong) -> Unit = {},
 ) {
@@ -90,9 +91,13 @@ fun YtPlaylistScreen(
     }
 
     val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
-    val customThumbUri = remember(playlistThumbsJson, playlistId) {
-        val regex = Regex("\"${Regex.escape(playlistId)}\"\\s*:\\s*\"([^\"]+)\"")
-        regex.find(playlistThumbsJson)?.groupValues?.getOrNull(1)
+    val customThumbUri = remember(playlistThumbsJson, playlistId, initialThumb) {
+        // User-saved custom thumb takes priority, then the album thumbnail passed from the artist page
+        val saved = run {
+            val regex = Regex("\"${Regex.escape(playlistId)}\"\\s*:\\s*\"([^\"]+)\"")
+            regex.find(playlistThumbsJson)?.groupValues?.getOrNull(1)
+        }
+        saved ?: initialThumb
     }
     val pickThumb = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),

@@ -41,7 +41,7 @@ fun MusicArtistScreen(
     initialAvatar: String? = null,
     onBack: () -> Unit,
     onPlay: (YtTrack) -> Unit,
-    onAlbumClick: (id: String, title: String) -> Unit = { _, _ -> },
+    onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
 ) {
     var page by remember(channelUrl) { mutableStateOf<NewPipeRepository.ArtistPage?>(null) }
@@ -111,7 +111,7 @@ private fun ArtistPageContent(
     initialAvatar: String?,
     heroExtraTop: androidx.compose.ui.unit.Dp,
     onPlay: (YtTrack) -> Unit,
-    onAlbumClick: (id: String, title: String) -> Unit,
+    onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
 ) {
     var descExpanded by remember { mutableStateOf(false) }
@@ -233,7 +233,7 @@ private fun ArtistPageContent(
                 ) {
                     items(page.singles, key = { "sin_${it.url}" }) { album ->
                         AlbumCard(album = album, onClick = {
-                            onAlbumClick(albumId(album.url), album.title)
+                            onAlbumClick(albumId(album.url), album.title, album.thumbnail)
                         })
                     }
                 }
@@ -250,7 +250,7 @@ private fun ArtistPageContent(
                 ) {
                     items(page.albums, key = { "alb_${it.url}" }) { album ->
                         AlbumCard(album = album, onClick = {
-                            onAlbumClick(albumId(album.url), album.title)
+                            onAlbumClick(albumId(album.url), album.title, album.thumbnail)
                         })
                     }
                 }
@@ -282,7 +282,7 @@ private fun ArtistPageContent(
                 ) {
                     items(page.featuredOn, key = { "feat_${it.url}" }) { pl ->
                         AlbumCard(album = pl, subtitle = "YouTube Music", onClick = {
-                            onAlbumClick(albumId(pl.url), pl.title)
+                            onAlbumClick(albumId(pl.url), pl.title, pl.thumbnail)
                         })
                     }
                 }
