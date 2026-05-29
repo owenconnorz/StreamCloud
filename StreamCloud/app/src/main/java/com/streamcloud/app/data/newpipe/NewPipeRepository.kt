@@ -21,8 +21,8 @@ data class YtTrack(
     val durationSec: Long,
     val url: String,
     val thumbnail: String?,
-
     val isVideo: Boolean = false,
+    val viewCount: Long = 0L,
 )
 
 data class YtAlbum(
@@ -82,15 +82,7 @@ object NewPipeRepository {
             service,
             service.searchQHFactory.fromQuery(query, listOf("music_albums"), ""),
         )
-        info.relatedItems.filterIsInstance<PlaylistInfoItem>().mapNotNull { item ->
-            val url = item.url ?: return@mapNotNull null
-            YtAlbum(
-                title = item.name ?: "Untitled",
-                artist = item.uploaderName.orEmpty(),
-                url = url,
-                thumbnail = item.thumbnails?.lastOrNull()?.url?.hqYtThumb(720),
-            )
-        }
+        info.relatedItems.filterIsInstance<PlaylistInfoItem>().mapNotNull { it.toAlbum() }
     }
 
     suspend fun searchArtists(query: String): List<YtArtist> = withContext(Dispatchers.IO) {
@@ -121,7 +113,10 @@ object NewPipeRepository {
         val viewCount: Long = 0L,
         val topTracks: List<YtTrack>,
         val albums: List<YtAlbum>,
+        val singles: List<YtAlbum> = emptyList(),
         val videos: List<YtTrack> = emptyList(),
+        val featuredOn: List<YtAlbum> = emptyList(),
+        val relatedArtists: List<YtArtist> = emptyList(),
     )
 
     suspend fun loadArtist(channelUrl: String): ArtistPage? = withContext(Dispatchers.IO) {
@@ -130,41 +125,77 @@ object NewPipeRepository {
             org.schabi.newpipe.extractor.channel.ChannelInfo.getInfo(service, channelUrl)
         }.getOrNull() ?: return@withContext null
 
-        // Strip " - Topic" suffix added by YouTube Music auto-generated channels
         val artistName = (info.name ?: "").removeSuffix(" - Topic").trim()
 
-        // Parallel: tab 0 = popular tracks, tab 1 = playlists/albums
-        // Falls back to search when tabs are empty (common for YouTube Music Topic channels)
-        val (tracks, albums) = coroutineScope {
+        // All sections loaded in parallel; tabs gracefully empty when channel has fewer tabs
+        var tracks: List<YtTrack> = emptyList()
+        var albums: List<YtAlbum> = emptyList()
+        var singles: List<YtAlbum> = emptyList()
+        var featuredOn: List<YtAlbum> = emptyList()
+        var relatedArtists: List<YtArtist> = emptyList()
+
+        coroutineScope {
+            // Tab 0 → popular songs; fallback to search
             val tracksJob = async {
-                val tabTracks = runCatching {
-                    val tab = info.tabs.firstOrNull() ?: return@runCatching emptyList<YtTrack>()
-                    val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, tab)
+                val tab = runCatching {
+                    val t = info.tabs.getOrNull(0) ?: return@runCatching emptyList<YtTrack>()
+                    val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
                     tabInfo.relatedItems.filterIsInstance<StreamInfoItem>()
-                        .mapNotNull { it.toTrack(isVideo = false) }
-                        .take(20)
+                        .mapNotNull { it.toTrack(isVideo = false) }.take(20)
                 }.getOrDefault(emptyList())
-                if (tabTracks.isNotEmpty()) tabTracks
+                if (tab.isNotEmpty()) tab
                 else runCatching { searchSongs(artistName) }.getOrDefault(emptyList()).take(10)
             }
+
+            // Tab 1 → albums; fallback to search
             val albumsJob = async {
-                val tabAlbums = runCatching {
-                    val tab = info.tabs.getOrNull(1) ?: return@runCatching emptyList<YtAlbum>()
-                    val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, tab)
-                    tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>().mapNotNull { item ->
-                        val url = item.url ?: return@mapNotNull null
-                        YtAlbum(
-                            title = item.name ?: "Untitled",
-                            artist = item.uploaderName.orEmpty(),
-                            url = url,
-                            thumbnail = item.thumbnails?.lastOrNull()?.url?.hqYtThumb(720),
-                        )
-                    }.take(10)
+                val tab = runCatching {
+                    val t = info.tabs.getOrNull(1) ?: return@runCatching emptyList<YtAlbum>()
+                    val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
+                    tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>()
+                        .mapNotNull { it.toAlbum() }.take(10)
                 }.getOrDefault(emptyList())
-                if (tabAlbums.isNotEmpty()) tabAlbums
+                if (tab.isNotEmpty()) tab
                 else runCatching { searchAlbums(artistName) }.getOrDefault(emptyList()).take(8)
             }
-            Pair(tracksJob.await(), albumsJob.await())
+
+            // Tab 2 → singles (no fallback to avoid mixing)
+            val singlesJob = async {
+                runCatching {
+                    val t = info.tabs.getOrNull(2) ?: return@runCatching emptyList<YtAlbum>()
+                    val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
+                    tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>()
+                        .mapNotNull { it.toAlbum() }.take(10)
+                }.getOrDefault(emptyList())
+            }
+
+            // Tab 3 → featured on playlists (no fallback)
+            val featuredJob = async {
+                runCatching {
+                    val t = info.tabs.getOrNull(3) ?: return@runCatching emptyList<YtAlbum>()
+                    val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
+                    tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>()
+                        .mapNotNull { it.toAlbum() }.take(10)
+                }.getOrDefault(emptyList())
+            }
+
+            // Related artists: search and exclude exact name match
+            val relatedJob = async {
+                runCatching {
+                    searchArtists(artistName)
+                        .filter { !it.name.equals(artistName, ignoreCase = true) }
+                        .take(6)
+                }.getOrDefault(emptyList())
+            }
+
+            tracks = tracksJob.await()
+            albums = albumsJob.await()
+            singles = singlesJob.await().let { s ->
+                // Drop if identical to albums (some channels reuse the same tab)
+                if (s.map { it.url }.toSet() == albums.map { it.url }.toSet()) emptyList() else s
+            }
+            featuredOn = featuredJob.await()
+            relatedArtists = relatedJob.await()
         }
 
         ArtistPage(
@@ -177,7 +208,10 @@ object NewPipeRepository {
             viewCount = 0L,
             topTracks = tracks,
             albums = albums,
-            videos = tracks.take(6),
+            singles = singles,
+            videos = tracks.filter { it.viewCount > 0 }.ifEmpty { tracks }.take(6),
+            featuredOn = featuredOn,
+            relatedArtists = relatedArtists,
         )
     }
 
@@ -263,6 +297,17 @@ object NewPipeRepository {
             url = u,
             thumbnail = thumbnails?.lastOrNull()?.url?.hqYtThumb(720),
             isVideo = isVideo,
+            viewCount = viewCount.takeIf { it >= 0 } ?: 0L,
+        )
+    }
+
+    private fun PlaylistInfoItem.toAlbum(): YtAlbum? {
+        val u = url ?: return null
+        return YtAlbum(
+            title = name ?: "Untitled",
+            artist = uploaderName.orEmpty(),
+            url = u,
+            thumbnail = thumbnails?.lastOrNull()?.url?.hqYtThumb(720),
         )
     }
 
@@ -272,4 +317,5 @@ object NewPipeRepository {
         else -> n.toString()
     }
 }
+
 
