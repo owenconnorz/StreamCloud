@@ -55,42 +55,15 @@ fun MusicArtistScreen(
         loading = false
     }
 
-    // Root: fixed top bar (no overlap with scroll content) + scrollable content below
-    Column(
+    // Status bar height — used to extend hero behind it and position the back button
+    val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+    Box(
         Modifier
             .fillMaxSize()
             .background(Color(0xFF0A0A0A))
     ) {
-        // ── Fixed top bar ──
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .height(52.dp)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.White,
-                )
-            }
-            if (page != null) {
-                Text(
-                    page!!.name,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-
-        // ── Content ──
+        // ── Main scrollable content (no top inset — goes edge-to-edge behind status bar) ──
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White)
@@ -106,9 +79,27 @@ fun MusicArtistScreen(
             page != null -> ArtistPageContent(
                 page = page!!,
                 initialAvatar = initialAvatar,
+                heroExtraTop = statusBarPadding,
                 onPlay = onPlay,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
+            )
+        }
+
+        // ── Floating back button overlaid at top-left, clear of status bar ──
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .padding(top = statusBarPadding + 6.dp, start = 8.dp)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.45f)),
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = Color.White,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -118,6 +109,7 @@ fun MusicArtistScreen(
 private fun ArtistPageContent(
     page: NewPipeRepository.ArtistPage,
     initialAvatar: String?,
+    heroExtraTop: androidx.compose.ui.unit.Dp,
     onPlay: (YtTrack) -> Unit,
     onAlbumClick: (id: String, title: String) -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
@@ -129,39 +121,55 @@ private fun ArtistPageContent(
         contentPadding = PaddingValues(bottom = 120.dp),
     ) {
 
-        // ── Hero: artist avatar as the main image ──
+        // ── Hero: extends behind status bar ──
         item {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(360.dp)
+                    // Extra top height absorbs the status bar so the image bleeds behind it
+                    .height(320.dp + heroExtraTop)
             ) {
                 AsyncImage(
-                    // Priority: profile photo passed from search results > avatar from browse > banner
+                    // Priority: profile photo from search > avatar from browse > banner
                     model = initialAvatar ?: page.avatar ?: page.banner,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-                // Bottom gradient into page background
+                // Bottom gradient fading into page background
                 Box(
                     Modifier.matchParentSize().background(
                         Brush.verticalGradient(
-                            0.0f to Color.Black.copy(alpha = 0.10f),
-                            0.55f to Color.Black.copy(alpha = 0.20f),
+                            0.0f to Color.Black.copy(alpha = 0.05f),
+                            0.55f to Color.Black.copy(alpha = 0.15f),
                             1.0f to Color(0xFF0A0A0A),
                         )
                     )
                 )
-                // Subscriber label at bottom-left
+            }
+        }
+
+        // ── Artist name + subscriber count below the hero ──
+        item {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    page.name,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 26.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 page.subscriberLabel?.let { sub ->
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         sub,
-                        color = Color.White.copy(alpha = 0.80f),
+                        color = Color.White.copy(alpha = 0.65f),
                         fontSize = 13.sp,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
                     )
                 }
             }
@@ -172,7 +180,7 @@ private fun ArtistPageContent(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -215,7 +223,7 @@ private fun ArtistPageContent(
             }
         }
 
-        // ── Singles ── (horizontal single-line scroll)
+        // ── Singles ── (horizontal scroll)
         if (page.singles.isNotEmpty()) {
             item { SectionHeader("Singles") }
             item {
@@ -232,7 +240,7 @@ private fun ArtistPageContent(
             }
         }
 
-        // ── Albums ── (horizontal single-line scroll)
+        // ── Albums ── (horizontal scroll)
         if (page.albums.isNotEmpty()) {
             item { SectionHeader("Albums") }
             item {
