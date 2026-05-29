@@ -170,6 +170,16 @@ object YtMusicLibraryRepository {
         if (responsive.isNotEmpty()) return responsive to null
         val responsiveDiag = "responsiveCount=${responsiveRaw.size}"
 
+        // ── UI-chrome guard ───────────────────────────────────────────────────
+        // If every twoRow item has a createPlaylistEndpoint (the "New playlist"
+        // button) the library is genuinely empty — not a parse failure.
+        val allChrome = twoRowRaw.isNotEmpty() &&
+            twoRowRaw.all { r -> r.findFirst("createPlaylistEndpoint") != null }
+        if (allChrome && responsiveRaw.isEmpty()) {
+            Log.d(TAG, "fetchLibraryPlaylists: valid empty (only create-playlist button)")
+            return emptyList<YtmPlaylist>() to null
+        }
+
         // ── Path 3: ytmusicapi explicit navigation path ───────────────────────
         // singleColumnBrowseResultsRenderer → tabs[0] → sectionList → itemSectionRenderer
         //   → musicShelfRenderer → contents  (each item is a renderer wrapper)
