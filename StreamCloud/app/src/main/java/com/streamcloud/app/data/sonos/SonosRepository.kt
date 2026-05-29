@@ -64,9 +64,19 @@ object SonosRepository {
                 _castState.update { CastState.Error("No Sonos devices found on this network.") }
                 return@launch
             }
-            val allZones = runCatching {
-                SonosDiscovery.buildGroups(found.first(), found)
-            }.getOrDefault(emptyList())
+            // Try each discovered device in turn until one answers GetZoneGroupState.
+            // Non-Sonos devices (e.g. Vestel) don't support ZoneGroupTopology and
+            // return null/error; a real Sonos speaker will respond correctly.
+            val allZones = run {
+                var zones = emptyList<SonosGroup>()
+                for (device in found) {
+                    zones = runCatching {
+                        SonosDiscovery.buildGroups(device, found)
+                    }.getOrDefault(emptyList())
+                    if (zones.isNotEmpty()) break
+                }
+                zones
+            }
             if (allZones.isNotEmpty()) {
                 val multiRoom     = allZones.filter { it.isMultiRoom }
                 val singleDevices = allZones.filter { !it.isMultiRoom }.map { it.coordinatorDevice }
