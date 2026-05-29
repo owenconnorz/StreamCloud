@@ -111,15 +111,37 @@ object SonosDiscovery {
         }
 
     fun localIp(context: Context): String? {
+        // Prefer NetworkInterface enumeration — works correctly on Android 12+ where
+        // WifiManager.connectionInfo is deprecated and may return 0 for the IP address.
+        try {
+            val ifaces = java.net.NetworkInterface.getNetworkInterfaces()
+            if (ifaces != null) {
+                for (intf in ifaces.asSequence()) {
+                    if (!intf.isUp || intf.isLoopback || intf.isVirtual) continue
+                    // Only consider WiFi or Ethernet — Sonos communicates on the local LAN
+                    val name = intf.name
+                    if (!name.startsWith("wlan") && !name.startsWith("eth")) continue
+                    for (addr in intf.inetAddresses.asSequence()) {
+                        if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                            Log.d(TAG, "localIp via NetworkInterface ($name): ${addr.hostAddress}")
+                            return addr.hostAddress
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Fallback: deprecated WifiManager API (Android < 12 or missing CHANGE_NETWORK_STATE)
         return try {
-            val wm = context.applicationContext
-                .getSystemService(Context.WIFI_SERVICE) as WifiManager
-            val ip = wm.connectionInfo.ipAddress
+            @Suppress("DEPRECATION")
+            val ip = (context.applicationContext
+                .getSystemService(Context.WIFI_SERVICE) as WifiManager)
+                .connectionInfo.ipAddress
             if (ip == 0) null
             else "%d.%d.%d.%d".format(
                 ip and 0xff, (ip shr 8) and 0xff,
                 (ip shr 16) and 0xff, (ip shr 24) and 0xff,
-            )
+            ).also { Log.d(TAG, "localIp via WifiManager: $it") }
         } catch (_: Exception) {
             null
         }

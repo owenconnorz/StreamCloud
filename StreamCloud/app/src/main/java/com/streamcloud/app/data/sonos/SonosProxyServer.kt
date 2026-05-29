@@ -30,6 +30,7 @@ object SonosProxyServer {
         val title: String,
         val watchUrl: String,
         val resolvedUrl: String? = null,
+        val mimeType: String = "audio/mp4",
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -138,8 +139,11 @@ object SonosProxyServer {
             }
 
             if (method == "HEAD") {
+                // Use the actual MIME type from the resolved format so Sonos's
+                // protocolInfo check during SetAVTransportURI validation succeeds.
+                val headMime = track.mimeType.ifBlank { "audio/mp4" }
                 client.getOutputStream().write(
-                    "HTTP/1.1 200 OK\r\nContent-Type: audio/mp4\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
+                    "HTTP/1.1 200 OK\r\nContent-Type: $headMime\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
                         .toByteArray(),
                 )
                 return

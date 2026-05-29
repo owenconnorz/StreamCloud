@@ -24,16 +24,46 @@ object SonosController {
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
-    suspend fun setUri(device: SonosDevice, streamUrl: String, title: String = ""): Boolean =
-        soap(
-            device = device,
-            action = "SetAVTransportURI",
-            body = """
-                <InstanceID>0</InstanceID>
-                <CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>
-                <CurrentURIMetaData>${buildDIDL(title, streamUrl).xmlEscape()}</CurrentURIMetaData>
-            """.trimIndent(),
-        )
+    // SetAVTransportURI causes Sonos to synchronously probe the stream URI (HEAD/GET) before
+    // returning its SOAP response. Proxy resolution can take several seconds, so give this
+    // call a much longer read timeout than the general 8-second client.
+    private val setUriHttp = OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    suspend fun setUri(device: SonosDevice, streamUrl: String, title: String = "", mimeType: String = "audio/mp4"): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val body = """
+                    <InstanceID>0</InstanceID>
+                    <CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>
+                    <CurrentURIMetaData>${buildDIDL(title, streamUrl, mimeType).xmlEscape()}</CurrentURIMetaData>
+                """.trimIndent()
+                val envelope = soapEnvelope("SetAVTransportURI", body)
+                val req = Request.Builder()
+                    .url("http://${device.host}:${device.port}$AV_TRANSPORT_PATH")
+                    .post(envelope.toRequestBody("text/xml; charset=utf-8".toMediaType()))
+                    .header("SOAPACTION", "\"$AV_TRANSPORT_SERVICE#SetAVTransportURI\"")
+                    .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                    .build()
+                val resp = setUriHttp.newCall(req).execute()
+                val ok = resp.isSuccessful
+                if (!ok) {
+                    val errBody = runCatching { resp.body?.string() }.getOrNull() ?: ""
+                    // Extract UPnP fault code for diagnostics: e.g. <errorCode>716</errorCode>
+                    val faultCode = Regex("<errorCode>([^<]+)</errorCode>")
+                        .find(errBody)?.groupValues?.get(1) ?: "?"
+                    Log.w(TAG, "SetAVTransportURI → HTTP ${resp.code} faultCode=$faultCode: ${errBody.take(300)}")
+                } else {
+                    resp.body?.close()
+                }
+                ok
+            } catch (e: Exception) {
+                Log.w(TAG, "SetAVTransportURI failed: ${e.message}")
+                false
+            }
+        }
 
     suspend fun play(device: SonosDevice): Boolean =
         soap(
@@ -208,16 +238,20 @@ object SonosController {
     """.trimIndent()
 
 
-    private fun buildDIDL(title: String, uri: String): String {
+    private fun buildDIDL(title: String, uri: String, mimeType: String = "audio/mp4"): String {
         val safeTitle = title.xmlEscape()
-        val safeUri = uri.xmlEscape()
+        val safeUri   = uri.xmlEscape()
+        // Use DLNA.ORG_OP=01 (range-based time seeking supported) and
+        // DLNA.ORG_FLAGS=01700000… (streaming mode, HTTP connection stalling).
+        // This is required by strict Sonos firmware versions to accept the stream.
+        val dlnaInfo  = "http-get:*:$mimeType:DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000"
         return "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
             "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
             "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
             "<item id=\"1\" parentID=\"-1\" restricted=\"true\">" +
             "<dc:title>$safeTitle</dc:title>" +
             "<upnp:class>object.item.audioItem.musicTrack</upnp:class>" +
-            "<res protocolInfo=\"http-get:*:audio/mp4:*\">$safeUri</res>" +
+            "<res protocolInfo=\"$dlnaInfo\">$safeUri</res>" +
             "</item>" +
             "</DIDL-Lite>"
     }

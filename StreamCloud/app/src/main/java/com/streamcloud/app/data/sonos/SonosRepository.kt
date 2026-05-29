@@ -5,6 +5,7 @@ import android.util.Log
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -93,15 +94,22 @@ object SonosRepository {
                     return@launch
                 }
 
-                // Pre-resolve the audio URL before starting the proxy so Sonos gets data
-                // instantly on its first GET request — lazy resolution causes Sonos to timeout.
-                val resolvedUrl: String? = withContext(Dispatchers.IO) {
+                // Pre-resolve the audio URL + MIME type before starting the proxy.
+                // Lazy resolution during Sonos's synchronous URI probe causes the SOAP call
+                // to time-out (even at 30 s) and Sonos reports "stream rejected."
+                val formatInfo = withContext(Dispatchers.IO) {
                     if (videoId.isNotBlank())
-                        runCatching { YtPlayerUtils.resolveAudioStream(videoId, sonosSafe = true) }.getOrNull()
+                        runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId, sonosSafe = true) }.getOrNull()
                     else null
-                } ?: withContext(Dispatchers.IO) {
-                    runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
                 }
+                val resolvedUrl: String? = formatInfo?.url
+                    ?: withContext(Dispatchers.IO) {
+                        runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+                    }
+                // Normalise MIME type to bare type (strip codec params) so DIDL/HEAD agree.
+                val mimeType = formatInfo?.mimeType
+                    ?.substringBefore(";")?.trim()
+                    ?: "audio/mp4"
 
                 SonosProxyServer.setTrack(
                     SonosProxyServer.TrackInfo(
@@ -109,15 +117,23 @@ object SonosRepository {
                         title       = title,
                         watchUrl    = watchUrl,
                         resolvedUrl = resolvedUrl,
+                        mimeType    = mimeType,
                     ),
                 )
                 val proxyUrl = SonosProxyServer.start(localIp)
-                Log.d(TAG, "Proxy URL: $proxyUrl (resolved=${resolvedUrl != null})")
+                Log.d(TAG, "Proxy URL: $proxyUrl  resolved=${resolvedUrl != null}  mime=$mimeType")
 
-                SonosController.stop(device)
-
-                val ok = SonosController.setUri(device, proxyUrl, title) &&
-                    SonosController.play(device)
+                // Retry up to 2 times: some Sonos firmware takes a moment after Stop()
+                // to become ready for a new SetAVTransportURI command.
+                var ok = false
+                for (attempt in 0 until 2) {
+                    if (attempt > 0) delay(2_000L)
+                    SonosController.stop(device)
+                    ok = SonosController.setUri(device, proxyUrl, title, mimeType) &&
+                        SonosController.play(device)
+                    if (ok) break
+                    Log.w(TAG, "connect attempt $attempt failed, retrying…")
+                }
 
                 if (ok) {
                     _isSonosPlaying.value = true
