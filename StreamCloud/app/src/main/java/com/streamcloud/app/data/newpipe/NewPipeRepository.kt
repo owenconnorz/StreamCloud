@@ -130,19 +130,25 @@ object NewPipeRepository {
             org.schabi.newpipe.extractor.channel.ChannelInfo.getInfo(service, channelUrl)
         }.getOrNull() ?: return@withContext null
 
+        // Strip " - Topic" suffix added by YouTube Music auto-generated channels
+        val artistName = (info.name ?: "").removeSuffix(" - Topic").trim()
+
         // Parallel: tab 0 = popular tracks, tab 1 = playlists/albums
+        // Falls back to search when tabs are empty (common for YouTube Music Topic channels)
         val (tracks, albums) = coroutineScope {
             val tracksJob = async {
-                runCatching {
+                val tabTracks = runCatching {
                     val tab = info.tabs.firstOrNull() ?: return@runCatching emptyList<YtTrack>()
                     val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, tab)
                     tabInfo.relatedItems.filterIsInstance<StreamInfoItem>()
                         .mapNotNull { it.toTrack(isVideo = false) }
                         .take(20)
                 }.getOrDefault(emptyList())
+                if (tabTracks.isNotEmpty()) tabTracks
+                else runCatching { searchSongs(artistName) }.getOrDefault(emptyList()).take(10)
             }
             val albumsJob = async {
-                runCatching {
+                val tabAlbums = runCatching {
                     val tab = info.tabs.getOrNull(1) ?: return@runCatching emptyList<YtAlbum>()
                     val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, tab)
                     tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>().mapNotNull { item ->
@@ -155,12 +161,14 @@ object NewPipeRepository {
                         )
                     }.take(10)
                 }.getOrDefault(emptyList())
+                if (tabAlbums.isNotEmpty()) tabAlbums
+                else runCatching { searchAlbums(artistName) }.getOrDefault(emptyList()).take(8)
             }
             Pair(tracksJob.await(), albumsJob.await())
         }
 
         ArtistPage(
-            name = info.name ?: "",
+            name = artistName,
             avatar = info.avatars?.lastOrNull()?.url,
             banner = info.banners?.lastOrNull()?.url,
             description = info.description.orEmpty(),
