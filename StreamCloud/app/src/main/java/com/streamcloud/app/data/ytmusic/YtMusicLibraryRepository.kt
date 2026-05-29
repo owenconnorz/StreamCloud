@@ -139,12 +139,36 @@ object YtMusicLibraryRepository {
         Log.d(TAG, "FEmusic_liked_playlists renderers: $rendererTypes")
 
         // ── Path 1: grid-view (musicTwoRowItemRenderer) deep search ──────────
-        val twoRow = resp.collectTwoRowItems().mapNotNull { parseTwoRowAsPlaylist(it) }
+        val twoRowRaw = resp.collectTwoRowItems()
+        val twoRow = twoRowRaw.mapNotNull { parseTwoRowAsPlaylist(it) }
         if (twoRow.isNotEmpty()) return twoRow to null
 
+        // Per-item diagnostics: why did every twoRow item parse as null?
+        val twoRowDiag = if (twoRowRaw.isEmpty()) "twoRowCount=0" else {
+            val first = twoRowRaw.first()
+            val firstKeys  = first.keys.take(8).joinToString(",")
+            val titleEl    = first["title"]
+            val titleText  = titleEl?.runsText()
+            val titleBrowse  = titleEl?.findFirst("browseId")
+                ?.let { (it as? JsonPrimitive)?.contentOrNull }
+            val titlePLId  = titleEl?.findFirst("playlistId")
+                ?.let { (it as? JsonPrimitive)?.contentOrNull }
+            val rendBrowse = first.findFirst("browseId")
+                ?.let { (it as? JsonPrimitive)?.contentOrNull }
+            val rendPLId   = first.findFirst("playlistId")
+                ?.let { (it as? JsonPrimitive)?.contentOrNull }
+            val rendNavKeys = (first["navigationEndpoint"] as? JsonObject)?.keys
+                ?.take(4)?.joinToString(",")
+            "twoRowCount=${twoRowRaw.size} firstKeys=[$firstKeys] " +
+            "title=$titleText titleBrowse=$titleBrowse titlePL=$titlePLId " +
+            "rendBrowse=$rendBrowse rendPL=$rendPLId navEpKeys=[$rendNavKeys]"
+        }
+
         // ── Path 2: list-view (musicResponsiveListItemRenderer) deep search ──
-        val responsive = resp.collectResponsiveListItems().mapNotNull { parseResponsiveAsPlaylist(it) }
+        val responsiveRaw = resp.collectResponsiveListItems()
+        val responsive = responsiveRaw.mapNotNull { parseResponsiveAsPlaylist(it) }
         if (responsive.isNotEmpty()) return responsive to null
+        val responsiveDiag = "responsiveCount=${responsiveRaw.size}"
 
         // ── Path 3: ytmusicapi explicit navigation path ───────────────────────
         // singleColumnBrowseResultsRenderer → tabs[0] → sectionList → itemSectionRenderer
@@ -186,10 +210,9 @@ object YtMusicLibraryRepository {
             if (fromShelf.isNotEmpty()) return fromShelf to null
         }
 
-        // ── Nothing found — return diagnostic so the UI can display it ────────
+        // ── Nothing found — return full diagnostic so the UI can display it ─────
         val renderers = rendererTypes.take(12).joinToString(", ")
-        val diag = "Renderers found: [$renderers]. " +
-            "topKeys=${resp.keys.take(6).joinToString()}"
+        val diag = "Renderers: [$renderers]\n$twoRowDiag\n$responsiveDiag"
         Log.w(TAG, "fetchLibraryPlaylists: no items. $diag")
         return emptyList<YtmPlaylist>() to diag
     }
