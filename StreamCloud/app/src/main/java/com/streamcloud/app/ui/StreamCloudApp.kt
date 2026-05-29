@@ -237,6 +237,7 @@ fun StreamCloudApp() {
                             nav.navigate("cloudstream/$n")
                         },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
+                        onOpenCollections = { nav.navigate("collections") },
                         onOpenCatalog = { src, t, sub ->
                             val s = URLEncoder.encode(src, "UTF-8")
                             val tt = URLEncoder.encode(t, "UTF-8")
@@ -263,6 +264,17 @@ fun StreamCloudApp() {
                             val s = URLEncoder.encode(section, "UTF-8")
                             val d = URLEncoder.encode(displayName, "UTF-8")
                             nav.navigate("cs-section/$p/$s/$d")
+                        },
+                    )
+                }
+                composable("collections") {
+                    com.streamcloud.app.ui.screens.CollectionsScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenCatalog = { src, t, sub ->
+                            val s = URLEncoder.encode(src, "UTF-8")
+                            val tt = URLEncoder.encode(t, "UTF-8")
+                            val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
+                            nav.navigate("catalog/$s/$tt/$ss")
                         },
                     )
                 }

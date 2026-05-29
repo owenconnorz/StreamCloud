@@ -8,6 +8,7 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.collections.HomeCollection
 import com.streamcloud.app.data.collections.HomeCollections
+import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.library.WatchlistEntity
@@ -48,6 +49,12 @@ data class CollectionRow(
     val items: List<TmdbMovie>,
 )
 
+data class PinnedCollectionRow(
+    val collectionId: Long,
+    val collectionName: String,
+    val folders: List<CollectionFolderEntity>,
+)
+
 data class MoviesState(
     val trending: List<TmdbMovie> = emptyList(),
     val popular: List<TmdbMovie> = emptyList(),
@@ -62,6 +69,7 @@ data class MoviesState(
     val stremioRows: List<StremioHomeRow> = emptyList(),
     val watchlist: List<WatchlistEntity> = emptyList(),
     val csPluginRows: List<CsPluginRow> = emptyList(),
+    val pinnedCollections: List<PinnedCollectionRow> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
@@ -106,6 +114,15 @@ class MoviesViewModel(
         viewModelScope.launch {
             combine(sl.settings.csHomeSections, pluginRepo.installed) { _, _ -> Unit }
                 .collectLatest { loadCsPluginRows() }
+        }
+        viewModelScope.launch {
+            LibraryDb.get(appContext).userCollections().pinned().collectLatest { pinned ->
+                val rows = pinned.map { col ->
+                    val folders = LibraryDb.get(appContext).collectionFolders().forCollectionOnce(col.id)
+                    PinnedCollectionRow(col.id, col.name, folders)
+                }
+                _state.update { it.copy(pinnedCollections = rows) }
+            }
         }
     }
 

@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.TmdbMovie
+import com.streamcloud.app.data.collections.HomeCollections
+import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
@@ -46,6 +48,7 @@ import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
+import com.streamcloud.app.ui.viewmodel.PinnedCollectionRow
 
 private data class PosterSheetItem(
     val tmdbId: Long?,
@@ -61,6 +64,7 @@ fun MoviesScreen(
     onTvClick: (Long) -> Unit = {},
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
+    onOpenCollections: () -> Unit = {},
     onOpenCatalog: (source: String, title: String, subtitle: String) -> Unit = { _, _, _ -> },
     onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit =
         { _, _, _, _, _ -> },
@@ -85,7 +89,7 @@ fun MoviesScreen(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
-            item { MoviesHeader(onProfileClick = onProfileClick) }
+            item { MoviesHeader(onProfileClick = onProfileClick, onOpenCollections = onOpenCollections) }
             item {
                 MoviesSearchField(
                     query = query,
@@ -155,6 +159,36 @@ fun MoviesScreen(
                         }
                     }
                 }
+                state.pinnedCollections.forEach { pinnedRow ->
+                    item(key = "pinned_t_${pinnedRow.collectionId}") {
+                        SectionTitle(pinnedRow.collectionName)
+                    }
+                    if (pinnedRow.folders.isNotEmpty()) {
+                        item(key = "pinned_${pinnedRow.collectionId}") {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                items(pinnedRow.folders, key = { "pf_${it.id}" }) { folder ->
+                                    CollectionFolderTile(
+                                        folder = folder,
+                                        onClick = {
+                                            if (folder.linkedCategoryId.isNotBlank()) {
+                                                val cat = HomeCollections.byId(folder.linkedCategoryId)
+                                                onOpenCatalog(
+                                                    "tmdb:${folder.linkedCategoryId}",
+                                                    folder.name,
+                                                    cat?.subtitle.orEmpty(),
+                                                )
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 state.collections.forEachIndexed { _, row ->
                     item(key = "col_t_${row.id}") {
                         SectionTitleWithViewAll(
@@ -387,7 +421,7 @@ fun MoviesScreen(
 }
 
 @Composable
-private fun MoviesHeader(onProfileClick: () -> Unit) {
+private fun MoviesHeader(onProfileClick: () -> Unit, onOpenCollections: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -405,6 +439,13 @@ private fun MoviesHeader(onProfileClick: () -> Unit) {
                 "Movies, series, addons — all in one place",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onOpenCollections) {
+            Text(
+                "Collections",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
         com.streamcloud.app.ui.components.ProfileButton(onClick = onProfileClick)
@@ -1027,6 +1068,48 @@ private fun PosterOptionsSheet(
             icon = Icons.Default.CheckCircle,
             label = "Mark as watched",
             onClick = onMarkAsWatched,
+        )
+    }
+}
+
+@Composable
+private fun CollectionFolderTile(folder: CollectionFolderEntity, onClick: () -> Unit) {
+    val (width, ratio) = when (folder.tileShape) {
+        "poster" -> 120.dp to (2f / 3f)
+        "square" -> 160.dp to 1f
+        else     -> 200.dp to (16f / 9f)
+    }
+    Box(
+        Modifier
+            .width(width)
+            .aspectRatio(ratio)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick),
+    ) {
+        if (folder.coverUrl.isNotBlank()) {
+            AsyncImage(
+                model = folder.coverUrl,
+                contentDescription = folder.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f))),
+            )
+        )
+        Text(
+            folder.name,
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
         )
     }
 }

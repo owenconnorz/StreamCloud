@@ -190,6 +190,73 @@ interface FormatDao {
     suspend fun byVideoId(videoId: String): FormatEntity?
 }
 
+// ── User-defined Collections ─────────────────────────────────────────────────
+
+@Entity(tableName = "user_collections")
+data class UserCollectionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    @ColumnInfo(name = "cover_url") val coverUrl: String = "",
+    @ColumnInfo(name = "is_pinned") val isPinned: Boolean = false,
+    @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(tableName = "collection_folders")
+data class CollectionFolderEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "collection_id") val collectionId: Long,
+    val name: String,
+    @ColumnInfo(name = "cover_url") val coverUrl: String = "",
+    @ColumnInfo(name = "tile_shape") val tileShape: String = "wide",
+    @ColumnInfo(name = "linked_category_id") val linkedCategoryId: String = "",
+    @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+)
+
+@Dao
+interface UserCollectionDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: UserCollectionEntity): Long
+
+    @Query("DELETE FROM user_collections WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("SELECT * FROM user_collections ORDER BY sort_order ASC, created_at ASC")
+    fun all(): Flow<List<UserCollectionEntity>>
+
+    @Query("SELECT * FROM user_collections WHERE is_pinned = 1 ORDER BY sort_order ASC, created_at ASC")
+    fun pinned(): Flow<List<UserCollectionEntity>>
+
+    @Query("SELECT * FROM user_collections WHERE id = :id LIMIT 1")
+    suspend fun byId(id: Long): UserCollectionEntity?
+
+    @Query("UPDATE user_collections SET sort_order = :order WHERE id = :id")
+    suspend fun updateOrder(id: Long, order: Int)
+}
+
+@Dao
+interface CollectionFolderDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: CollectionFolderEntity): Long
+
+    @Query("DELETE FROM collection_folders WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("DELETE FROM collection_folders WHERE collection_id = :collectionId")
+    suspend fun deleteForCollection(collectionId: Long)
+
+    @Query("SELECT * FROM collection_folders WHERE collection_id = :collectionId ORDER BY sort_order ASC")
+    fun forCollection(collectionId: Long): Flow<List<CollectionFolderEntity>>
+
+    @Query("SELECT * FROM collection_folders WHERE collection_id = :collectionId ORDER BY sort_order ASC")
+    suspend fun forCollectionOnce(collectionId: Long): List<CollectionFolderEntity>
+
+    @Query("SELECT * FROM collection_folders")
+    fun all(): Flow<List<CollectionFolderEntity>>
+}
+
+// ── Database ─────────────────────────────────────────────────────────────────
+
 @Database(
     entities = [
         TrackEntity::class,
@@ -198,8 +265,10 @@ interface FormatDao {
         LocalPlaylistEntity::class,
         PlaylistTrackEntity::class,
         FormatEntity::class,
+        UserCollectionEntity::class,
+        CollectionFolderEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -208,6 +277,8 @@ abstract class LibraryDb : RoomDatabase() {
     abstract fun watchlist(): WatchlistDao
     abstract fun localPlaylists(): LocalPlaylistDao
     abstract fun formats(): FormatDao
+    abstract fun userCollections(): UserCollectionDao
+    abstract fun collectionFolders(): CollectionFolderDao
 
     companion object {
         private val MIGRATION_5_6 = object : Migration(5, 6) {
@@ -217,11 +288,41 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_collections (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        cover_url TEXT NOT NULL DEFAULT '',
+                        is_pinned INTEGER NOT NULL DEFAULT 0,
+                        sort_order INTEGER NOT NULL DEFAULT 0,
+                        created_at INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS collection_folders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        collection_id INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        cover_url TEXT NOT NULL DEFAULT '',
+                        tile_shape TEXT NOT NULL DEFAULT 'wide',
+                        linked_category_id TEXT NOT NULL DEFAULT '',
+                        sort_order INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LibraryDb? = null
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).addMigrations(MIGRATION_5_6).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_5_6, MIGRATION_6_7).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
 }
