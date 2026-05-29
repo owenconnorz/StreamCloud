@@ -111,6 +111,11 @@ object SonosRepository {
                     ?.substringBefore(";")?.trim()
                     ?: "audio/mp4"
 
+                // IMPORTANT: call start() BEFORE setTrack().
+                // start() internally calls stop() which clears currentTrack — if setTrack() ran
+                // first, that track reference would be immediately nulled out by stop(), and
+                // Sonos's first HEAD probe would hit a null currentTrack and get a 503.
+                val proxyUrl = SonosProxyServer.start(localIp)
                 SonosProxyServer.setTrack(
                     SonosProxyServer.TrackInfo(
                         videoId     = videoId,
@@ -120,7 +125,6 @@ object SonosRepository {
                         mimeType    = mimeType,
                     ),
                 )
-                val proxyUrl = SonosProxyServer.start(localIp)
                 Log.d(TAG, "Proxy URL: $proxyUrl  resolved=${resolvedUrl != null}  mime=$mimeType")
 
                 // Retry up to 2 times: some Sonos firmware takes a moment after Stop()
