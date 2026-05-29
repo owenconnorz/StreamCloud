@@ -131,14 +131,15 @@ object YtMusicLibraryRepository {
             }
             val first = client.browse(browseId) ?: return@withContext emptyList()
 
-            // For album browse IDs (MPREb_), tracks don't carry individual thumbnails —
-            // the album cover lives only in the header. Extract it once as a fallback.
-            val albumCover: String? = if (browseId.startsWith("MPREb_")) {
+            // Extract the page header thumbnail as a fallback for track rows that have no
+            // individual thumbnail (album browse IDs — MPREb_ and OLAK5uy_ — never include
+            // per-track art). Safe for playlists too: parseResponsiveSong uses it only when
+            // the per-track thumbnail is absent (null-coalesce order: per-track ?: fallback).
+            val albumCover: String? =
                 first.findFirst("musicDetailHeaderRenderer")?.jsonObject
                     ?.get("thumbnail").bestThumbnail()
                     ?: first.findFirst("musicImmersiveHeaderRenderer")?.jsonObject
                         ?.get("thumbnail").bestThumbnail()
-            } else null
 
             val collected = mutableListOf<YtmSong>()
             var pageNum = 0
