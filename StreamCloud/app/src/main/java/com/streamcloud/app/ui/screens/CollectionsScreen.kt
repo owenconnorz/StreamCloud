@@ -439,12 +439,22 @@ private fun FolderCard(
         else          -> "TMDB"
     }
     val categoryDisplay = when (folder.providerType) {
-        "cloudstream" -> decodeCsId(folder.linkedCategoryId)?.let {
-            "${it.displayName} › ${it.sectionName}".trimEnd { c -> c == '›' || c == ' ' }
-        } ?: "No section"
-        "stremio" -> decodeStremioId(folder.linkedCategoryId)?.let {
-            "${it.addonId} › ${it.catalogName}".trimEnd { c -> c == '›' || c == ' ' }
-        } ?: "No catalog"
+        "cloudstream" -> {
+            val ids = folder.linkedCategoryId.split("\n").filter { it.isNotBlank() }
+            when {
+                ids.isEmpty() -> "No section"
+                ids.size == 1 -> decodeCsId(ids[0])?.let { "${it.displayName} › ${it.sectionName}" } ?: "1 section"
+                else -> "${ids.size} sections"
+            }
+        }
+        "stremio" -> {
+            val ids = folder.linkedCategoryId.split("\n").filter { it.isNotBlank() }
+            when {
+                ids.isEmpty() -> "No catalog"
+                ids.size == 1 -> decodeStremioId(ids[0])?.let { it.catalogName.ifBlank { it.catalogId } } ?: "1 catalog"
+                else -> "${ids.size} catalogs"
+            }
+        }
         else -> HomeCollections.byId(folder.linkedCategoryId)?.title ?: "No category"
     }
     Surface(
@@ -655,13 +665,17 @@ private fun CsProviderSection(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val selectedDecoded = decodeCsId(selected)
-    var expandedPlugin by remember { mutableStateOf(selectedDecoded?.internalName) }
-    // Map<internalName, List<Pair<sectionName, displayName>>>
+    val selectedIds = remember(selected) {
+        selected.split("\n").filter { it.isNotBlank() }.toMutableSet()
+    }
+    var expandedPlugin by remember {
+        mutableStateOf(
+            selectedIds.firstOrNull()?.let { decodeCsId(it)?.internalName }
+        )
+    }
     var sectionMap by remember { mutableStateOf<Map<String, List<Pair<String, String>>>>(emptyMap()) }
     var loadingPlugin by remember { mutableStateOf<String?>(null) }
 
-    // Load sections when a plugin is expanded
     LaunchedEffect(expandedPlugin) {
         val internalName = expandedPlugin ?: return@LaunchedEffect
         if (sectionMap.containsKey(internalName)) return@LaunchedEffect
@@ -684,6 +698,7 @@ private fun CsProviderSection(
             val isExpanded = expandedPlugin == plugin.internalName
             val sections = sectionMap[plugin.internalName] ?: emptyList()
             val isLoading = loadingPlugin == plugin.internalName
+            val pluginSelectedCount = selectedIds.count { decodeCsId(it)?.internalName == plugin.internalName }
 
             Surface(
                 shape = RoundedCornerShape(12.dp),
@@ -691,13 +706,10 @@ private fun CsProviderSection(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column {
-                    // Plugin header row
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                expandedPlugin = if (isExpanded) null else plugin.internalName
-                            }
+                            .clickable { expandedPlugin = if (isExpanded) null else plugin.internalName }
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -716,11 +728,9 @@ private fun CsProviderSection(
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = Color.LightGray,
                             )
-                            val selectedSection = if (selectedDecoded?.internalName == plugin.internalName)
-                                selectedDecoded.sectionName else null
-                            if (selectedSection != null) {
+                            if (pluginSelectedCount > 0) {
                                 Text(
-                                    "Selected: $selectedSection",
+                                    "$pluginSelectedCount section(s) selected",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = EditBlue,
                                 )
@@ -738,7 +748,6 @@ private fun CsProviderSection(
                         )
                     }
 
-                    // Expanded section list
                     if (isExpanded) {
                         HorizontalDivider(color = Color(0xFF333333))
                         if (isLoading) {
@@ -747,9 +756,7 @@ private fun CsProviderSection(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = EditBlue,
+                                    modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = EditBlue,
                                 )
                                 Spacer(Modifier.width(12.dp))
                                 Text("Loading sections…", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
@@ -763,23 +770,24 @@ private fun CsProviderSection(
                         } else {
                             sections.forEach { (sectionName, displayName) ->
                                 val encodedId = encodeCs(plugin.internalName, sectionName, displayName)
-                                val isSelected = selected == encodedId
+                                val isSelected = encodedId in selectedIds
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
                                         .background(if (isSelected) Color(0xFF1A2E44) else SubItemBg)
-                                        .then(if (isSelected) Modifier.border(
-                                            1.dp, EditBlue, RoundedCornerShape(0.dp)
-                                        ) else Modifier)
-                                        .clickable { onSelect(if (isSelected) "" else encodedId) }
+                                        .clickable {
+                                            val newSet = if (isSelected) selectedIds - encodedId else selectedIds + encodedId
+                                            onSelect(newSet.joinToString("\n"))
+                                        }
                                         .padding(horizontal = 20.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Box(
                                         Modifier
                                             .size(18.dp)
-                                            .clip(RoundedCornerShape(9.dp))
-                                            .background(if (isSelected) EditBlue else Color.Gray.copy(alpha = 0.3f)),
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (isSelected) EditBlue else Color.Gray.copy(alpha = 0.3f))
+                                            .then(if (!isSelected) Modifier.border(1.dp, Color.Gray, RoundedCornerShape(4.dp)) else Modifier),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (isSelected) Text("✓", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -816,8 +824,12 @@ private fun StremioProviderSection(
     }
 
     val context = LocalContext.current
-    val selectedDecoded = decodeStremioId(selected)
-    var expandedAddon by remember { mutableStateOf(selectedDecoded?.addonId) }
+    val selectedIds = remember(selected) {
+        selected.split("\n").filter { it.isNotBlank() }.toMutableSet()
+    }
+    var expandedAddon by remember {
+        mutableStateOf(selectedIds.firstOrNull()?.let { decodeStremioId(it)?.addonId })
+    }
     var catalogMap by remember { mutableStateOf<Map<String, List<StremioCatalogDef>>>(emptyMap()) }
     var loadingAddon by remember { mutableStateOf<String?>(null) }
     val stremioRepo = remember { StremioRepository(context.applicationContext) }
@@ -839,6 +851,7 @@ private fun StremioProviderSection(
             val isExpanded = expandedAddon == addon.id
             val catalogs = catalogMap[addon.id] ?: emptyList()
             val isLoading = loadingAddon == addon.id
+            val addonSelectedCount = selectedIds.count { decodeStremioId(it)?.addonId == addon.id }
 
             Surface(
                 shape = RoundedCornerShape(12.dp),
@@ -868,10 +881,12 @@ private fun StremioProviderSection(
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = Color.LightGray,
                             )
-                            val selCatalog = if (selectedDecoded?.addonId == addon.id)
-                                selectedDecoded.catalogName.ifBlank { selectedDecoded.catalogId } else null
-                            if (selCatalog != null) {
-                                Text("Selected: $selCatalog", style = MaterialTheme.typography.bodySmall, color = EditBlue)
+                            if (addonSelectedCount > 0) {
+                                Text(
+                                    "$addonSelectedCount catalog(s) selected",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EditBlue,
+                                )
                             } else {
                                 Text("Tap to browse catalogs", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                             }
@@ -905,23 +920,24 @@ private fun StremioProviderSection(
                             catalogs.forEach { catalog ->
                                 val catName = catalog.name ?: "${catalog.type}/${catalog.id}"
                                 val encodedId = encodeStremio(addon.id, catalog.type, catalog.id, catName)
-                                val isSelected = selected == encodedId
+                                val isSelected = encodedId in selectedIds
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
                                         .background(if (isSelected) Color(0xFF1A2E44) else SubItemBg)
-                                        .then(if (isSelected) Modifier.border(
-                                            1.dp, EditBlue, RoundedCornerShape(0.dp)
-                                        ) else Modifier)
-                                        .clickable { onSelect(if (isSelected) "" else encodedId) }
+                                        .clickable {
+                                            val newSet = if (isSelected) selectedIds - encodedId else selectedIds + encodedId
+                                            onSelect(newSet.joinToString("\n"))
+                                        }
                                         .padding(horizontal = 20.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Box(
                                         Modifier
                                             .size(18.dp)
-                                            .clip(RoundedCornerShape(9.dp))
-                                            .background(if (isSelected) EditBlue else Color.Gray.copy(alpha = 0.3f)),
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (isSelected) EditBlue else Color.Gray.copy(alpha = 0.3f))
+                                            .then(if (!isSelected) Modifier.border(1.dp, Color.Gray, RoundedCornerShape(4.dp)) else Modifier),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (isSelected) Text("✓", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
