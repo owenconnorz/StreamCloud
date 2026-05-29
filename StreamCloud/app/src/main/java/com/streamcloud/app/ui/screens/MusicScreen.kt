@@ -59,7 +59,7 @@ private val SUGGESTIONS = listOf(
 @OptIn(ExperimentalMaterial3Api::class, androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun MusicScreen(
-    onArtistClick: (String) -> Unit = {},
+    onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
     onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
     onProfileClick: () -> Unit = {},
 ) {
@@ -308,7 +308,7 @@ fun MusicScreen(
                             title = artist.name,
                             subtitle = "Artists",
                             isCircle = true,
-                            onClick = { onArtistClick(artist.url) },
+                            onClick = { onArtistClick(artist.url, artist.thumbnail) },
                         )
                     }
                 }
