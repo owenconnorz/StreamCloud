@@ -149,6 +149,17 @@ object NewPipeRepository {
     )
 
     suspend fun loadArtist(channelUrl: String): ArtistPage? = withContext(Dispatchers.IO) {
+        // Try YouTube Music InnerTube browse first — gives all sections (Songs, Albums, Singles,
+        // Videos, Featured on, Related artists) exactly like SimpMusic does.
+        val channelId = channelUrl.substringAfterLast("/")
+        if (channelId.isNotBlank()) {
+            val ytmPage = runCatching {
+                com.streamcloud.app.data.ytmusic.YtMusicArtistRepository.load(channelId)
+            }.getOrNull()
+            if (ytmPage != null) return@withContext ytmPage
+        }
+
+        // Fallback: NewPipe ChannelInfo + parallel tab loading + search fallbacks
         val service = ServiceList.YouTube
         val info = runCatching {
             org.schabi.newpipe.extractor.channel.ChannelInfo.getInfo(service, channelUrl)
@@ -332,8 +343,8 @@ object NewPipeRepository {
     }
 
     private fun humanCount(n: Long): String = when {
-        n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0).removeSuffix(".0M") + "M"
-        n >= 1_000 -> "%.1fK".format(n / 1_000.0).removeSuffix(".0K") + "K"
+        n >= 1_000_000 -> "%.1f".format(n / 1_000_000.0).trimEnd('0').trimEnd('.') + "M"
+        n >= 1_000 -> "%.1f".format(n / 1_000.0).trimEnd('0').trimEnd('.') + "K"
         else -> n.toString()
     }
 }

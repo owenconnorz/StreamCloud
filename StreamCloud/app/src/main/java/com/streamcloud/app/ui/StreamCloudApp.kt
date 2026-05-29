@@ -499,10 +499,24 @@ fun StreamCloudApp() {
                     arguments = listOf(navArgument("url") { type = NavType.StringType }),
                 ) { entry ->
                     val url = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val artistContext = LocalContext.current
+                    val artistVm: com.streamcloud.app.ui.viewmodel.MusicViewModel =
+                        androidx.lifecycle.viewmodel.compose.viewModel(
+                            factory = com.streamcloud.app.ui.viewmodel.MusicViewModel.factory(artistContext)
+                        )
                     com.streamcloud.app.ui.screens.MusicArtistScreen(
                         channelUrl = url,
                         onBack = { nav.popBackStack() },
-                        onPlay = {  },
+                        onPlay = { track -> artistVm.play(track) },
+                        onAlbumClick = { id, title ->
+                            val i = URLEncoder.encode(id, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("yt-playlist/$i/$t")
+                        },
+                        onArtistClick = { artistUrl ->
+                            val u = URLEncoder.encode(artistUrl, "UTF-8")
+                            nav.navigate("artist/$u")
+                        },
                     )
                 }
                 composable(Tab.Library.route)  {
@@ -537,11 +551,16 @@ fun StreamCloudApp() {
                 ) { entry ->
                     val id = URLDecoder.decode(entry.arguments!!.getString("id")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    val plContext = LocalContext.current
+                    val plVm: com.streamcloud.app.ui.viewmodel.MusicViewModel =
+                        androidx.lifecycle.viewmodel.compose.viewModel(
+                            factory = com.streamcloud.app.ui.viewmodel.MusicViewModel.factory(plContext)
+                        )
                     com.streamcloud.app.ui.screens.YtPlaylistScreen(
                         playlistId = id,
                         title = title,
                         onBack = { nav.popBackStack() },
-                        onPlay = {  },
+                        onPlay = { track -> plVm.play(track) },
                     )
                 }
                 composable(Tab.Adult.route) {
