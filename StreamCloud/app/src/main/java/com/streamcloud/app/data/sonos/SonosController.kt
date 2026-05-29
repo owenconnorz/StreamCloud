@@ -32,38 +32,57 @@ object SonosController {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    suspend fun setUri(device: SonosDevice, streamUrl: String, title: String = "", mimeType: String = "audio/mp4"): Boolean =
-        withContext(Dispatchers.IO) {
-            try {
-                val body = """
-                    <InstanceID>0</InstanceID>
-                    <CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>
-                    <CurrentURIMetaData>${buildDIDL(title, streamUrl, mimeType).xmlEscape()}</CurrentURIMetaData>
-                """.trimIndent()
-                val envelope = soapEnvelope("SetAVTransportURI", body)
-                val req = Request.Builder()
-                    .url("http://${device.host}:${device.port}$AV_TRANSPORT_PATH")
-                    .post(envelope.toRequestBody("text/xml; charset=utf-8".toMediaType()))
-                    .header("SOAPACTION", "\"$AV_TRANSPORT_SERVICE#SetAVTransportURI\"")
-                    .header("Content-Type", "text/xml; charset=\"utf-8\"")
-                    .build()
-                val resp = setUriHttp.newCall(req).execute()
-                val ok = resp.isSuccessful
-                if (!ok) {
-                    val errBody = runCatching { resp.body?.string() }.getOrNull() ?: ""
-                    // Extract UPnP fault code for diagnostics: e.g. <errorCode>716</errorCode>
-                    val faultCode = Regex("<errorCode>([^<]+)</errorCode>")
-                        .find(errBody)?.groupValues?.get(1) ?: "?"
-                    Log.w(TAG, "SetAVTransportURI → HTTP ${resp.code} faultCode=$faultCode: ${errBody.take(300)}")
-                } else {
-                    resp.body?.close()
-                }
-                ok
-            } catch (e: Exception) {
-                Log.w(TAG, "SetAVTransportURI failed: ${e.message}")
-                false
+    /**
+     * Returns null on success, or a short error description on failure
+     * (used by SonosRepository to surface a specific message to the user).
+     */
+    suspend fun setUri(
+        device: SonosDevice,
+        streamUrl: String,
+        title: String = "",
+        mimeType: String = "audio/mp4",
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            // Pass empty CurrentURIMetaData — DIDL-Lite is optional and some Sonos
+            // firmware versions reject SetAVTransportURI when DIDL format is non-standard.
+            // The plain URI alone is sufficient for playback.
+            val body = """
+                <InstanceID>0</InstanceID>
+                <CurrentURI>${streamUrl.xmlEscape()}</CurrentURI>
+                <CurrentURIMetaData></CurrentURIMetaData>
+            """.trimIndent()
+            val envelope = soapEnvelope("SetAVTransportURI", body)
+            val req = Request.Builder()
+                .url("http://${device.host}:${device.port}$AV_TRANSPORT_PATH")
+                .post(envelope.toRequestBody("text/xml; charset=utf-8".toMediaType()))
+                .header("SOAPACTION", "\"$AV_TRANSPORT_SERVICE#SetAVTransportURI\"")
+                .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                .build()
+            val resp = setUriHttp.newCall(req).execute()
+            if (resp.isSuccessful) {
+                resp.body?.close()
+                null  // success
+            } else {
+                val errBody = runCatching { resp.body?.string() }.getOrNull() ?: ""
+                val faultCode = Regex("<errorCode>([^<]+)</errorCode>")
+                    .find(errBody)?.groupValues?.get(1) ?: "?"
+                val msg = "SetAVTransportURI HTTP ${resp.code} (UPnP error $faultCode)"
+                Log.w(TAG, "$msg: ${errBody.take(200)}")
+                msg
             }
+        } catch (e: Exception) {
+            val msg = "SetAVTransportURI failed: ${e.message?.take(80)}"
+            Log.w(TAG, msg)
+            msg
         }
+    }
+
+    suspend fun setUriBoolean(
+        device: SonosDevice,
+        streamUrl: String,
+        title: String = "",
+        mimeType: String = "audio/mp4",
+    ): Boolean = setUri(device, streamUrl, title, mimeType) == null
 
     suspend fun play(device: SonosDevice): Boolean =
         soap(
