@@ -166,7 +166,7 @@ object NewPipeRepository {
             description = info.description.orEmpty(),
             subscriberLabel = info.subscriberCount.takeIf { it >= 0 }
                 ?.let { humanCount(it) + " subscribers" },
-            viewCount = runCatching { info.viewCount }.getOrDefault(-1L).let { if (it >= 0) it else 0L },
+            viewCount = 0L,
             topTracks = tracks,
             albums = albums,
             videos = tracks.take(6),
