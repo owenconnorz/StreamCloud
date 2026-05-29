@@ -174,10 +174,22 @@ fun MoviesScreen(
                                         folder = folder,
                                         onClick = {
                                             when (folder.providerType) {
-                                                "cloudstream" -> if (folder.linkedCategoryId.isNotBlank())
-                                                    onOpenCloudStreamPlugin(folder.linkedCategoryId)
-                                                "stremio" -> if (folder.linkedCategoryId.isNotBlank())
-                                                    onOpenCatalog("stremio:${folder.linkedCategoryId}", folder.name, "")
+                                                "cloudstream" -> if (folder.linkedCategoryId.isNotBlank()) {
+                                                    val parts = folder.linkedCategoryId.split("|||")
+                                                    val iname = parts.getOrNull(0) ?: ""
+                                                    val sname = parts.getOrNull(1) ?: ""
+                                                    val dname = parts.getOrNull(2) ?: iname
+                                                    if (sname.isNotBlank()) onViewAllCsSection(iname, sname, dname)
+                                                    else if (iname.isNotBlank()) onOpenCloudStreamPlugin(iname)
+                                                }
+                                                "stremio" -> if (folder.linkedCategoryId.isNotBlank()) {
+                                                    val parts = folder.linkedCategoryId.split("|||")
+                                                    val addonId = parts.getOrNull(0) ?: ""
+                                                    val cType = parts.getOrNull(1) ?: ""
+                                                    val cId = parts.getOrNull(2) ?: ""
+                                                    val cName = parts.getOrNull(3) ?: folder.name
+                                                    onOpenCatalog("stremio:$addonId:$cType:$cId", folder.name, cName)
+                                                }
                                                 else -> if (folder.linkedCategoryId.isNotBlank()) {
                                                     val cat = HomeCollections.byId(folder.linkedCategoryId)
                                                     onOpenCatalog("tmdb:${folder.linkedCategoryId}", folder.name, cat?.subtitle.orEmpty())
