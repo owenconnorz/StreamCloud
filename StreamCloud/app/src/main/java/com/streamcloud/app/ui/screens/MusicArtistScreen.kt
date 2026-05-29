@@ -131,7 +131,7 @@ private fun ArtistPageContent(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(240.dp)
+                    .height(360.dp)
             ) {
                 AsyncImage(
                     // Use avatar (artist logo/photo) as hero; fall back to banner

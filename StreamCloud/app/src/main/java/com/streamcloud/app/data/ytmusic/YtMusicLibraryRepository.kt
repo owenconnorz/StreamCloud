@@ -121,7 +121,14 @@ object YtMusicLibraryRepository {
     suspend fun playlistTracks(cookie: String, playlistId: String): List<YtmSong> =
         withContext(Dispatchers.IO) {
             val client = InnerTubeClient(cookie)
-            val browseId = if (playlistId.startsWith("VL")) playlistId else "VL$playlistId"
+            // MPREb_ = YouTube Music album browse ID → use as-is (no VL prefix)
+            // VL…   = already a playlist browse ID → keep as-is
+            // everything else (PL…, OLAK5uy_…, etc.) → prepend VL
+            val browseId = when {
+                playlistId.startsWith("VL") -> playlistId
+                playlistId.startsWith("MPREb_") -> playlistId
+                else -> "VL$playlistId"
+            }
             val first = client.browse(browseId) ?: return@withContext emptyList()
 
             val collected = mutableListOf<YtmSong>()
