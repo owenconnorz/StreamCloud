@@ -1,48 +1,143 @@
-# StreamCloud
+<div align="center">
 
-Native Android music & media streaming app built with Kotlin and Jetpack Compose.
+<a href="https://discord.gg/z62jDev7t3">
+  <img src="https://img.shields.io/discord/1240015357700214805?color=5865F2&label=Join%20Our%20Discord&logo=discord&style=for-the-badge" alt="Discord">
+</a>
 
-## Features
+<br><br>
 
-- YouTube Music streaming with multi-client Innertube waterfall resolution
-- Android Auto / Automotive OS support with full browse tree
-- Offline downloads with ExoPlayer cache
-- Lyrics display
-- Equalizer / audio effects
-- Sonos speaker support
-- Cast (Chromecast) support
-- Torrent streaming via TorrServer
-- Plugin system (CloudStream / Nuvio / Stremio)
-- Movie & TV playback
-- AI assistant screen
+<h1>🎵 StreamCloud 🎬</h1>
 
-## Tech Stack
+<p>
+  <b>Android Music • Movies • TV • Plugins</b>
+</p>
 
-- **Language**: Kotlin
-- **UI**: Jetpack Compose
-- **Player**: Media3 / ExoPlayer
-- **Networking**: OkHttp
-- **Local DB**: Room
-- **Architecture**: ServiceLocator singletons, coroutines + Flow
+<p>
+  Native Android music & media streaming app built with Kotlin and Jetpack Compose.
+</p>
 
-## Stream Resolution
+</div>
 
-Audio streams are resolved via a multi-client Innertube waterfall:
+<hr>
 
-1. `ANDROID_MUSIC` — YT Music client, best audio metadata
-2. `ANDROID` — standard YouTube Android client
-3. `ANDROID_TESTSUITE` — YouTube-whitelisted internal test client
-4. `ANDROID_VR` (x2) — Oculus Quest clients
-5. `IOS` — iPhone client
-6. `IPADOS` — iPad client
-7. `ANDROID_CREATOR` — YouTube Studio Android client
+<h2>✨ Features</h2>
 
+<h3>🎵 Music</h3>
+<ul>
+  <li>YouTube Music streaming with multi-client Innertube waterfall resolution</li>
+  <li>🎤 Lyrics display</li>
+  <li>💾 Offline downloads with ExoPlayer cache</li>
+  <li>🎚️ Equalizer / audio effects</li>
+</ul>
+
+<h3>📺 Movies & TV</h3>
+<ul>
+  <li>🎬 Movie & TV playback</li>
+  <li>📡 Chromecast support</li>
+  <li>🔊 Sonos speaker support</li>
+  <li>🧲 Torrent streaming via TorrServer</li>
+</ul>
+
+<h3>🔌 Plugins</h3>
+<ul>
+  <li>CloudStream support</li>
+  <li>Nuvio support</li>
+  <li>Stremio support</li>
+</ul>
+
+<h3>🚗 Android</h3>
+<ul>
+  <li>Android Auto support</li>
+  <li>Android Automotive OS support</li>
+  <li>Full media browse tree support</li>
+</ul>
+
+<h3>🤖 Extras</h3>
+<ul>
+  <li>AI Assistant screen</li>
+</ul>
+
+<hr>
+
+<h2>🛠️ Tech Stack</h2>
+
+<table>
+  <tr>
+    <th>Component</th>
+    <th>Technology</th>
+  </tr>
+  <tr>
+    <td>💜 Language</td>
+    <td>Kotlin</td>
+  </tr>
+  <tr>
+    <td>🎨 UI</td>
+    <td>Jetpack Compose</td>
+  </tr>
+  <tr>
+    <td>▶️ Player</td>
+    <td>Media3 / ExoPlayer</td>
+  </tr>
+  <tr>
+    <td>🌐 Networking</td>
+    <td>OkHttp</td>
+  </tr>
+  <tr>
+    <td>🗄️ Local DB</td>
+    <td>Room</td>
+  </tr>
+  <tr>
+    <td>⚡ Architecture</td>
+    <td>ServiceLocator + Coroutines + Flow</td>
+  </tr>
+</table>
+
+<hr>
+
+<h2>🎧 Stream Resolution</h2>
+
+<p>Audio streams are resolved via a multi-client Innertube waterfall:</p>
+
+<ol>
+  <li><code>ANDROID_MUSIC</code> 🎵 — YT Music client, best audio metadata</li>
+  <li><code>ANDROID</code> 📱 — Standard Android client</li>
+  <li><code>ANDROID_TESTSUITE</code> 🧪 — Internal test client</li>
+  <li><code>ANDROID_VR</code> 🥽 — Oculus Quest clients</li>
+  <li><code>IOS</code> 🍎 — iPhone client</li>
+  <li><code>IPADOS</code> 📱 — iPad client</li>
+  <li><code>ANDROID_CREATOR</code> 🎬 — YouTube Studio client</li>
+</ol>
+
+<p>
 All clients return plain stream URLs. No cipher deobfuscation required.
+</p>
 
-## Build
+<hr>
 
-```
-./gradlew assembleDebug
-```
+<h2>🚀 Build</h2>
 
-Requires Android Studio Hedgehog or later, minSdk 26, targetSdk 35.
+<pre><code>./gradlew assembleDebug</code></pre>
+
+<h3>📋 Requirements</h3>
+
+<ul>
+  <li>Android Studio Hedgehog or newer</li>
+  <li>Min SDK: 26</li>
+  <li>Target SDK: 35</li>
+</ul>
+
+<hr>
+
+<div align="center">
+
+<h2>💬 Community</h2>
+
+<p>
+Join our Discord for support, feature requests and updates.
+</p>
+
+<a href="https://discord.gg/z62jDev7t3">
+  <img src="https://img.shields.io/discord/1240015357700214805?color=5865F2&label=Discord%20Community&logo=discord&style=for-the-badge" alt="Discord">
+</a>
+
+</div>
