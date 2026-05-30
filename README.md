@@ -1,20 +1,14 @@
 <div align="center">
 
 <a href="https://discord.gg/z62jDev7t3">
-  <img src="https://invidget.switchblade.xyz/1240015357700214805" alt="Discord Server">
+  <img src="https://img.shields.io/discord/1240015357700214805?style=for-the-badge&logo=discord&logoColor=white&label=JOIN%20OUR%20DISCORD&color=5865F2" alt="Discord">
 </a>
 
-<br>
+# 🎵 StreamCloud 🎬
 
-<h1>🎵 StreamCloud 🎬</h1>
+**Android Music • Movies • TV • Plugins**
 
-<p>
-<b>Android Music • Movies • TV • Plugins</b>
-</p>
-
-<p>
 Native Android music & media streaming app built with Kotlin and Jetpack Compose.
-</p>
 
 </div>
 
@@ -32,21 +26,24 @@ Native Android music & media streaming app built with Kotlin and Jetpack Compose
 ### 📺 Movies & TV
 
 - 🎬 Movie & TV playback
-- 📡 Cast (Chromecast) support
+- 📡 Chromecast support
 - 🔊 Sonos speaker support
 - 🧲 Torrent streaming via TorrServer
 
 ### 🔌 Plugins
 
-- Plugin system (CloudStream / Nuvio / Stremio)
+- CloudStream support
+- Nuvio support
+- Stremio support
 
 ### 🚗 Android
 
-- Android Auto / Automotive OS support with full browse tree
+- Android Auto support
+- Android Automotive OS support with full browse tree
 
 ### 🤖 Extras
 
-- AI assistant screen
+- AI Assistant screen
 
 ---
 
@@ -83,3 +80,14 @@ All clients return plain stream URLs. No cipher deobfuscation required.
 ./gradlew assembleDebug
 
 Requires Android Studio Hedgehog or later, minSdk 26, targetSdk 35.
+
+---
+
+💬 Community
+
+Join our Discord community for support, feature requests and updates.
+
+<a href="https://discord.gg/z62jDev7t3">
+  <img src="https://img.shields.io/discord/1240015357700214805?style=for-the-badge&logo=discord&logoColor=white&label=JOIN%20OUR%20DISCORD&color=5865F2" alt="Discord">
+</a>
+```
