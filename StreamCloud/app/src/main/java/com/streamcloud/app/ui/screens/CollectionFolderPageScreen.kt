@@ -146,7 +146,7 @@ fun CollectionFolderPageScreen(
                             }
                             else -> skeleton.copy(loading = false)
                         }
-                    } catch (_: Exception) {
+                    } catch (_: Throwable) {
                         skeleton.copy(loading = false)
                     }
                 }
