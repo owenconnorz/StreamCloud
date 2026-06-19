@@ -94,6 +94,9 @@ interface WatchProgressDao {
 
     @Query("SELECT * FROM watch_progress WHERE tmdb_id = :tmdbId LIMIT 1")
     suspend fun byId(tmdbId: Long): WatchProgressEntity?
+
+    @Query("SELECT * FROM watch_progress ORDER BY updated_at DESC")
+    suspend fun getAllEntries(): List<WatchProgressEntity>
 }
 
 @Entity(tableName = "watchlist")
