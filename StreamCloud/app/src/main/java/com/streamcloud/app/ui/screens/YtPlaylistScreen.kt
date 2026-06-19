@@ -1,6 +1,8 @@
 package com.streamcloud.app.ui.screens
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,17 +10,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
@@ -26,17 +32,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+import com.streamcloud.app.data.ytmusic.YtMusicPlaylistRepository
 import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.data.ytmusic.YtmSong
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -44,6 +57,7 @@ import com.streamcloud.app.ui.util.verticalScrollbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +77,14 @@ fun YtPlaylistScreen(
 
     var showPlaylistMenu by remember { mutableStateOf(false) }
     var syncTrigger by remember { mutableStateOf(0) }
+
+    // ── Search ────────────────────────────────────────────────────────────────
+    var searchActive by remember { mutableStateOf(false) }
+    var searchQuery  by remember { mutableStateOf("") }
+    val searchFocus  = remember { FocusRequester() }
+
+    // ── Snackbar ──────────────────────────────────────────────────────────────
+    val snackbarHostState = remember { SnackbarHostState() }
 
 
     val okhttpProgress by com.streamcloud.app.data.downloads.MusicDownloader.progressFlow
@@ -109,7 +131,43 @@ fun YtPlaylistScreen(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
         }
+        // Save locally
         scope.launch { sl.settings.setPlaylistThumb(playlistId, uri.toString()) }
+        // Sync to YouTube Music in the background
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    // Read + compress the image to JPEG ≤ 1500 px
+                    val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val src = BitmapFactory.decodeStream(stream) ?: return@use null
+                        val maxSide = 1500
+                        val scaled = if (src.width > maxSide || src.height > maxSide) {
+                            val ratio = maxSide.toFloat() / maxOf(src.width, src.height)
+                            Bitmap.createScaledBitmap(
+                                src,
+                                (src.width * ratio).toInt(),
+                                (src.height * ratio).toInt(),
+                                true,
+                            )
+                        } else src
+                        ByteArrayOutputStream().also { out ->
+                            scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                        }.toByteArray()
+                    } ?: return@runCatching false
+                    YtMusicPlaylistRepository.uploadAndSetPlaylistThumbnail(
+                        cookie = cookie,
+                        playlistId = playlistId,
+                        imageBytes = bytes,
+                        mimeType = mimeType,
+                    )
+                }.getOrElse { false }
+            }
+            snackbarHostState.showSnackbar(
+                if (ok) "Thumbnail synced to YouTube Music ✓"
+                else "Saved locally — could not sync to YouTube Music"
+            )
+        }
     }
 
     LaunchedEffect(playlistId, cookie, syncTrigger) {
@@ -161,10 +219,80 @@ fun YtPlaylistScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    if (searchActive) {
+                        // ── Inline search text field ────────────────────────────
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 16.sp,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(searchFocus),
+                            decorationBox = { inner ->
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        "Search in playlist…",
+                                        style = TextStyle(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 16.sp,
+                                        ),
+                                    )
+                                }
+                                inner()
+                            },
+                        )
+                        LaunchedEffect(searchActive) {
+                            if (searchActive) searchFocus.requestFocus()
+                        }
+                    } else {
+                        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        if (searchActive) {
+                            searchActive = false
+                            searchQuery = ""
+                        } else {
+                            onBack()
+                        }
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+                actions = {
+                    if (searchActive && searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, "Clear search")
+                        }
+                    } else if (!searchActive) {
+                        // Circle search button matching the MoreVert style in PlaylistHero
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable {
+                                    searchActive = true
+                                    searchQuery = ""
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "Search in playlist",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                 },
             )
@@ -172,6 +300,7 @@ fun YtPlaylistScreen(
         bottomBar = {
             com.streamcloud.app.ui.player.GlobalMiniPlayer()
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         val list = tracks
         when {
@@ -191,6 +320,14 @@ fun YtPlaylistScreen(
             }
 
             list != null -> {
+                // Apply search filter — empty query shows the full list
+                val query = searchQuery.trim().lowercase()
+                val filteredList = if (query.isBlank()) list
+                    else list.filter { s ->
+                        s.title.lowercase().contains(query) ||
+                            s.artist.lowercase().contains(query)
+                    }
+
                 val listState = rememberLazyListState()
                 LazyColumn(
                     state = listState,
@@ -199,30 +336,47 @@ fun YtPlaylistScreen(
                         .padding(padding)
                         .verticalScrollbar(listState),
                 ) {
-                item {
-                    PlaylistHero(
-                        title = title,
-                        coverArt = customThumbUri ?: list.firstOrNull()?.thumbnail,
-                        trackCount = list.size,
-                        onPlay = { playSongHandoff(list, 0) },
-                        onShuffle = {
-                            val shuffled = list.shuffled()
-                            scope.launch {
-                                runCatching { YtPlayback.playPlaylist(context, shuffled, 0) }
-                            }
-                        },
-                        onEditCover = { pickThumb.launch(arrayOf("image/*")) },
-                        onMoreOptions = { showPlaylistMenu = true },
-                    )
+                // Hide the hero when search is active so results start immediately
+                if (!searchActive) {
+                    item {
+                        PlaylistHero(
+                            title = title,
+                            coverArt = customThumbUri ?: list.firstOrNull()?.thumbnail,
+                            trackCount = list.size,
+                            onPlay = { playSongHandoff(list, 0) },
+                            onShuffle = {
+                                val shuffled = list.shuffled()
+                                scope.launch {
+                                    runCatching { YtPlayback.playPlaylist(context, shuffled, 0) }
+                                }
+                            },
+                            onEditCover = { pickThumb.launch(arrayOf("image/*")) },
+                            onMoreOptions = { showPlaylistMenu = true },
+                        )
+                    }
+                }
+                if (searchActive && filteredList.isEmpty() && query.isNotBlank()) {
+                    item {
+                        Box(
+                            Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "No songs match \"$searchQuery\"",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
                 }
                 itemsIndexed(
-                    list,
+                    filteredList,
                     key = { idx, s -> "pt_${s.videoId}_$idx" },
                 ) { index, s ->
                     PlaylistTrackRow(
                         song = s,
                         downloadFraction = downloadProgress[YtPlayback.watchUrl(s.videoId)],
-                        onClick = { playSongHandoff(list, index) },
+                        onClick = { playSongHandoff(list, list.indexOf(s).takeIf { it >= 0 } ?: index) },
                     )
                 }
                 item { Spacer(Modifier.height(80.dp)) }

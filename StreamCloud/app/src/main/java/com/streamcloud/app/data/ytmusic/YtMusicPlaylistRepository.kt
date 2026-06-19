@@ -55,6 +55,88 @@ object YtMusicPlaylistRepository {
     }
 
 
+    /**
+     * Uploads [imageBytes] (JPEG recommended) to YouTube's photo store, then sets it as the
+     * thumbnail of [playlistId] via `browse/edit_playlist → ACTION_SET_PLAYLIST_THUMBNAIL`.
+     *
+     * Returns true on success, false on any network/API failure.
+     */
+    suspend fun uploadAndSetPlaylistThumbnail(
+        cookie: String,
+        playlistId: String,
+        imageBytes: ByteArray,
+        mimeType: String = "image/jpeg",
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (cookie.isBlank() || imageBytes.isEmpty()) return@withContext false
+
+        // ── Step 1: upload image to YouTube Photos ────────────────────────────
+        val authHeader = YtMusicAuth.sapisidHashHeader(cookie, "https://www.youtube.com")
+            ?: run {
+                Log.w(TAG, "uploadAndSetPlaylistThumbnail: could not build SAPISIDHASH (no SAPISID in cookie)")
+                return@withContext false
+            }
+
+        val uploadReq = okhttp3.Request.Builder()
+            .url("https://upload.youtube.com/upload/photos/googlephotos")
+            .post(imageBytes.toRequestBody(mimeType.toMediaType()))
+            .header("Authorization", authHeader)
+            .header("Cookie", cookie)
+            .header("X-Goog-Upload-Command", "start,upload,finalize")
+            .header("X-Goog-Upload-Protocol", "raw")
+            .header("X-Goog-Upload-Raw-Size", imageBytes.size.toString())
+            .header("Content-Type", mimeType)
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            )
+            .header("Origin", YtMusicAuth.ORIGIN)
+            .header("Referer", "${YtMusicAuth.ORIGIN}/")
+            .build()
+
+        val datasyncId: String? = http.newCall(uploadReq).execute().use { resp ->
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                Log.w(TAG, "thumbnail upload HTTP ${resp.code}: ${text.take(200)}")
+                return@use null
+            }
+            Log.d(TAG, "thumbnail upload response: ${text.take(300)}")
+            runCatching {
+                val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    .parseToJsonElement(text).jsonObject
+                json["upload_status"]?.jsonObject?.get("resource_id")?.jsonPrimitive?.contentOrNull
+                    ?: json["resource_id"]?.jsonPrimitive?.contentOrNull
+            }.getOrElse {
+                Log.w(TAG, "thumbnail upload: failed to parse response – ${it.message}")
+                null
+            }
+        }
+
+        if (datasyncId.isNullOrBlank()) {
+            Log.w(TAG, "uploadAndSetPlaylistThumbnail: no datasync_id in upload response")
+            return@withContext false
+        }
+
+        // ── Step 2: set as playlist thumbnail via edit_playlist ───────────────
+        val cleanId = playlistId.removePrefix("VL")
+        val body = buildJsonObject {
+            putContext()
+            put("playlistId", cleanId)
+            put("actions", buildJsonArray {
+                add(buildJsonObject {
+                    put("action", "ACTION_SET_PLAYLIST_THUMBNAIL")
+                    put("uploadedThumbnailViaDatasyncId", datasyncId)
+                })
+            })
+        }
+        val resp = postInnerTube(cookie, "browse/edit_playlist", body) ?: return@withContext false
+        val status = (resp["status"] as? JsonPrimitive)?.contentOrNull
+        val ok = status == "STATUS_SUCCEEDED"
+        if (!ok) Log.w(TAG, "setPlaylistThumbnail status=$status resp=${resp.toString().take(200)}")
+        ok
+    }
+
+
     suspend fun createPlaylist(
         cookie: String,
         title: String,
