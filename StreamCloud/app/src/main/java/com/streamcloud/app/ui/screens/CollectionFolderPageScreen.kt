@@ -189,8 +189,8 @@ fun CollectionFolderPageScreen(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
-            rows.forEach { row ->
-                item(key = "hdr_${row.label}") {
+            rows.forEachIndexed { idx, row ->
+                item(key = "hdr_${idx}") {
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -227,7 +227,7 @@ fun CollectionFolderPageScreen(
                         }
                     }
                 }
-                item(key = "content_${row.label}") {
+                item(key = "content_${idx}") {
                     when {
                         row.loading -> Box(
                             Modifier

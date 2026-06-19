@@ -174,36 +174,43 @@ fun MoviesScreen(
                                     CollectionFolderTile(
                                         folder = folder,
                                         onClick = {
-                                            when (folder.providerType) {
-                                                "cloudstream" -> {
-                                                    val entries = folder.linkedCategoryId.split("\n").filter { it.isNotBlank() }
-                                                    if (entries.size == 1) {
-                                                        val p = entries[0].split("|||")
-                                                        val iname = p.getOrNull(0) ?: ""
-                                                        val sname = p.getOrNull(1) ?: ""
-                                                        val dname = p.getOrNull(2)?.ifBlank { null } ?: iname
-                                                        if (sname.isNotBlank()) onViewAllCsSection(iname, sname, dname)
-                                                        else if (iname.isNotBlank()) onOpenCloudStreamPlugin(iname)
-                                                    } else if (entries.size > 1) {
-                                                        onOpenCollectionFolder(folder.id)
+                                            runCatching {
+                                                when (folder.providerType) {
+                                                    "cloudstream" -> {
+                                                        val entries = folder.linkedCategoryId.split("\n").filter { it.isNotBlank() }
+                                                        if (entries.size == 1) {
+                                                            val p = entries[0].split("|||")
+                                                            val iname = p.getOrNull(0) ?: ""
+                                                            val sname = p.getOrNull(1) ?: ""
+                                                            val dname = p.getOrNull(2)?.ifBlank { null } ?: iname
+                                                            when {
+                                                                sname.isNotBlank() -> onViewAllCsSection(iname, sname, dname)
+                                                                iname.isNotBlank() -> onOpenCloudStreamPlugin(iname)
+                                                            }
+                                                        } else if (entries.size > 1) {
+                                                            onOpenCollectionFolder(folder.id)
+                                                        }
                                                     }
-                                                }
-                                                "stremio" -> {
-                                                    val entries = folder.linkedCategoryId.split("\n").filter { it.isNotBlank() }
-                                                    if (entries.size == 1) {
-                                                        val p = entries[0].split("|||")
-                                                        val addonId = p.getOrNull(0) ?: ""
-                                                        val cType = p.getOrNull(1) ?: ""
-                                                        val cId = p.getOrNull(2) ?: ""
-                                                        val cName = p.getOrNull(3) ?: folder.name
-                                                        onOpenCatalog("stremio:$addonId:$cType:$cId", folder.name, cName)
-                                                    } else if (entries.size > 1) {
-                                                        onOpenCollectionFolder(folder.id)
+                                                    "stremio" -> {
+                                                        val entries = folder.linkedCategoryId.split("\n").filter { it.isNotBlank() }
+                                                        if (entries.size == 1) {
+                                                            val p = entries[0].split("|||")
+                                                            val addonId = p.getOrNull(0) ?: ""
+                                                            val cType = p.getOrNull(1) ?: ""
+                                                            val cId = p.getOrNull(2) ?: ""
+                                                            val cName = p.getOrNull(3)?.ifBlank { null } ?: folder.name
+                                                            onOpenCatalog("stremio:$addonId:$cType:$cId", folder.name, cName)
+                                                        } else if (entries.size > 1) {
+                                                            onOpenCollectionFolder(folder.id)
+                                                        }
                                                     }
-                                                }
-                                                else -> if (folder.linkedCategoryId.isNotBlank()) {
-                                                    val cat = HomeCollections.byId(folder.linkedCategoryId)
-                                                    onOpenCatalog("tmdb:${folder.linkedCategoryId}", folder.name, cat?.subtitle.orEmpty())
+                                                    else -> {
+                                                        val catId = folder.linkedCategoryId.trim()
+                                                        if (catId.isNotBlank()) {
+                                                            val cat = HomeCollections.byId(catId)
+                                                            onOpenCatalog("tmdb:$catId", folder.name, cat?.subtitle.orEmpty())
+                                                        }
+                                                    }
                                                 }
                                             }
                                         },
