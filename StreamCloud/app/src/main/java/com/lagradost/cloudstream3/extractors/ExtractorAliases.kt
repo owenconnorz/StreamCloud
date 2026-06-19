@@ -119,6 +119,7 @@ open class StreamtapeExtractor    : StreamTape()
 open class OkruExtractor          : Okru()
 open class Okru2                  : Okru() { override val mainUrl = "https://odnoklassniki.ru";        override val name = "Okru2"        }
 open class OkRuSSL                : Okru() { override val mainUrl = "https://ok.ru";                   override val name = "OkRuSSL"      }
+open class OkRuHTTP               : Okru() { override val mainUrl = "https://ok.ru";                   override val name = "OkRuHTTP"     }
 open class OkRuExtractor          : Okru()
 open class OkRu                   : Okru() { override val mainUrl = "https://ok.ru";                   override val name = "OkRu"         }
 open class Odnoklassniki          : Okru() { override val mainUrl = "https://odnoklassniki.ru";        override val name = "Odnoklassniki"}
@@ -1068,6 +1069,8 @@ open class FilemoonSx      : FileMoon() { override val mainUrl = "https://filemo
 open class FileMoonSx      : FileMoon() { override val mainUrl = "https://filemoon.sx";        override val name = "FileMoonSx"     }
 open class FilemoonIn      : FileMoon() { override val mainUrl = "https://filemoon.in";        override val name = "FilemoonIn"     }
 open class FilemoonXyz     : FileMoon() { override val mainUrl = "https://filemoon.xyz";       override val name = "FilemoonXyz"    }
+open class FilemoonNl      : FileMoon() { override val mainUrl = "https://filemoon.nl";        override val name = "FilemoonNl"     }
+open class FilemoonV2      : FileMoon() { override val mainUrl = "https://filemoon.to";        override val name = "FilemoonV2"     }
 open class Kerapoxy        : FileMoon() { override val mainUrl = "https://kerapoxy.cc";        override val name = "Kerapoxy"       }
 open class Netembed        : FileMoon() { override val mainUrl = "https://netembed.xyz";       override val name = "Netembed"       }
 open class MoonPlayer      : FileMoon() { override val mainUrl = "https://moonplayer.sbs";     override val name = "MoonPlayer"     }
