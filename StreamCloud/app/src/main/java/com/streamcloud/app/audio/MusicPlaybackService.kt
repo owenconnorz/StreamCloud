@@ -47,6 +47,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -61,6 +62,13 @@ class MusicPlaybackService : MediaLibraryService() {
 
     private lateinit var playerCache: SimpleCache
     private lateinit var downloadCache: SimpleCache
+
+    // Crossfade engine state (all accessed only on the main thread via the monitor coroutine,
+    // except crossfadeDurationMs which is written from the IO settings-collector).
+    @Volatile private var crossfadeDurationMs: Long = 0L
+    private var crossfadeIsFadingIn: Boolean = false
+    private var crossfadeFadeInStartMs: Long = 0L
+    private lateinit var exoPlayer: ExoPlayer
 
 
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
@@ -111,6 +119,10 @@ class MusicPlaybackService : MediaLibraryService() {
                     }
                     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                         refreshLikedState()
+                        if (crossfadeDurationMs > 0L) {
+                            crossfadeIsFadingIn = true
+                            crossfadeFadeInStartMs = System.currentTimeMillis()
+                        }
                     }
                     override fun onRepeatModeChanged(repeatMode: Int) {
                         session?.setCustomLayout(buildCustomLayout())
@@ -131,8 +143,77 @@ class MusicPlaybackService : MediaLibraryService() {
         session?.setCustomLayout(buildCustomLayout())
 
         audioFx = AudioFx(applicationContext, player.audioSessionId).also { it.start() }
+        exoPlayer = player
 
+        // Keep crossfadeDurationMs in sync with the DataStore setting.
+        ioScope.launch {
+            sl.settings.crossfadeDuration.collect { raw ->
+                val secs = raw.toLongOrNull() ?: 0L
+                crossfadeDurationMs = secs * 1_000L
+                if (crossfadeDurationMs <= 0L) {
+                    // Crossfade turned off — restore volume on the main thread.
+                    ioScope.launch(Dispatchers.Main) {
+                        if (::exoPlayer.isInitialized) {
+                            crossfadeIsFadingIn = false
+                            exoPlayer.volume = 1f
+                        }
+                    }
+                }
+            }
+        }
 
+        // Crossfade monitor — polls every 50 ms on the main thread.
+        // Phase 1 (fade-out): during the last `cfMs` of the current track, linearly ramp
+        //   player.volume from 1.0 → 0.0.
+        // Phase 2 (fade-in): after onMediaItemTransition fires, linearly ramp from 0.0 → 1.0
+        //   over the same duration.
+        ioScope.launch(Dispatchers.Main) {
+            while (true) {
+                delay(50L)
+                if (!::exoPlayer.isInitialized) continue
+                val cfMs = crossfadeDurationMs
+
+                if (cfMs <= 0L) {
+                    // Crossfade disabled — guarantee volume is 1.
+                    if (exoPlayer.volume < 1f && !crossfadeIsFadingIn) exoPlayer.volume = 1f
+                    continue
+                }
+
+                // ── Fade-in phase ───────────────────────────────────────────
+                if (crossfadeIsFadingIn) {
+                    val elapsed = System.currentTimeMillis() - crossfadeFadeInStartMs
+                    if (elapsed >= cfMs) {
+                        crossfadeIsFadingIn = false
+                        exoPlayer.volume = 1f
+                    } else {
+                        exoPlayer.volume = (elapsed.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
+                    }
+                    continue
+                }
+
+                // ── Fade-out phase ───────────────────────────────────────────
+                if (exoPlayer.playbackState != Player.STATE_READY || !exoPlayer.isPlaying) {
+                    // Not playing — restore volume so nothing is stuck muted.
+                    if (exoPlayer.volume < 1f) exoPlayer.volume = 1f
+                    continue
+                }
+                val duration = exoPlayer.duration
+                val position = exoPlayer.currentPosition
+                if (duration <= 0L || position < 0L) continue
+
+                val remaining = duration - position
+                when {
+                    remaining <= 0L -> { /* track ended; transition event will handle fade-in */ }
+                    remaining <= cfMs -> {
+                        exoPlayer.volume = (remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
+                    }
+                    else -> {
+                        // Outside fade zone — make sure volume is at full.
+                        if (exoPlayer.volume < 1f) exoPlayer.volume = 1f
+                    }
+                }
+            }
+        }
 
         YtPlayerUtils.appContext = applicationContext
         ioScope.launch { YtPlayerUtils.warmUp() }
