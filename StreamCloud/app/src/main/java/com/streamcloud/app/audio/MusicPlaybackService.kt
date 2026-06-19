@@ -62,12 +62,28 @@ class MusicPlaybackService : MediaLibraryService() {
 
     private lateinit var playerCache: SimpleCache
     private lateinit var downloadCache: SimpleCache
+    private lateinit var dataSourceFactory: ResolvingDataSource.Factory
 
-    // Crossfade engine state (all accessed only on the main thread via the monitor coroutine,
-    // except crossfadeDurationMs which is written from the IO settings-collector).
+    // ── Crossfade engine ──────────────────────────────────────────────────────
+    // True crossfade uses TWO ExoPlayer instances.
+    //
+    //  exoPlayer  — primary (owns the MediaSession / notification).
+    //  xfPlayer   — secondary, spun up `crossfadeDurationMs` before the end of
+    //               the current track and immediately starts playing the next
+    //               track at volume 0.  Both fade in opposite directions so the
+    //               listener hears a smooth overlap.
+    //
+    // After the primary player advances to the next track (onMediaItemTransition)
+    // the primary is seeked to match xfPlayer's current position and both do a
+    // final silent hand-off: xfPlayer stays audible until the primary has
+    // buffered, then the primary unmutes and xfPlayer is released.
     @Volatile private var crossfadeDurationMs: Long = 0L
-    private var crossfadeIsFadingIn: Boolean = false
-    private var crossfadeFadeInStartMs: Long = 0L
+    private var xfPlayer: ExoPlayer? = null          // secondary cross-fade player
+    private var xfCrossfading: Boolean = false        // cross-fade in progress
+    private var xfStartMs: Long = 0L                 // wall-clock when xf began
+    private var xfNextMediaItem: MediaItem? = null   // guard against double-init
+    private var xfHandoffPending: Boolean = false    // waiting for primary to buffer
+    private var xfHandoffXfPlayer: ExoPlayer? = null // secondary ref during handoff
     private lateinit var exoPlayer: ExoPlayer
 
 
@@ -89,8 +105,9 @@ class MusicPlaybackService : MediaLibraryService() {
         playerCache = DownloadCaches.playerCache(this)
         downloadCache = DownloadCaches.downloadCache(this)
 
+        dataSourceFactory = buildDataSourceFactory()
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(buildDataSourceFactory())
+            .setDataSourceFactory(dataSourceFactory)
 
         val musicAudioAttrs = androidx.media3.common.AudioAttributes.Builder()
             .setUsage(androidx.media3.common.C.USAGE_MEDIA)
@@ -119,9 +136,27 @@ class MusicPlaybackService : MediaLibraryService() {
                     }
                     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                         refreshLikedState()
-                        if (crossfadeDurationMs > 0L) {
-                            crossfadeIsFadingIn = true
-                            crossfadeFadeInStartMs = System.currentTimeMillis()
+                        if (xfCrossfading) {
+                            // Primary advanced to the next track while xfPlayer was fading in.
+                            // Hand off: keep xfPlayer audible, seek primary to match, then swap.
+                            val xf = xfPlayer
+                            xfCrossfading = false
+                            xfPlayer = null
+                            xfNextMediaItem = null
+                            if (xf != null && xf.playbackState != Player.STATE_IDLE) {
+                                val syncPos = xf.currentPosition.coerceAtLeast(0L)
+                                exoPlayer.volume = 0f
+                                if (syncPos > 300L) exoPlayer.seekTo(syncPos)
+                                xfHandoffPending = true
+                                xfHandoffXfPlayer = xf
+                            } else {
+                                xf?.release()
+                                exoPlayer.volume = 1f
+                            }
+                        } else {
+                            // No active crossfade — restore full volume (e.g. very short track
+                            // that ended before the fade-out window even started).
+                            exoPlayer.volume = 1f
                         }
                     }
                     override fun onRepeatModeChanged(repeatMode: Int) {
@@ -151,10 +186,16 @@ class MusicPlaybackService : MediaLibraryService() {
                 val secs = raw.toLongOrNull() ?: 0L
                 crossfadeDurationMs = secs * 1_000L
                 if (crossfadeDurationMs <= 0L) {
-                    // Crossfade turned off — restore volume on the main thread.
+                    // Crossfade turned off — abort any in-progress xfPlayer on main thread.
                     ioScope.launch(Dispatchers.Main) {
                         if (::exoPlayer.isInitialized) {
-                            crossfadeIsFadingIn = false
+                            xfPlayer?.let { xf -> xf.stop(); xf.release() }
+                            xfPlayer = null
+                            xfCrossfading = false
+                            xfNextMediaItem = null
+                            xfHandoffXfPlayer?.let { xf -> xf.stop(); xf.release() }
+                            xfHandoffXfPlayer = null
+                            xfHandoffPending = false
                             exoPlayer.volume = 1f
                         }
                     }
@@ -162,38 +203,68 @@ class MusicPlaybackService : MediaLibraryService() {
             }
         }
 
-        // Crossfade monitor — polls every 50 ms on the main thread.
-        // Phase 1 (fade-out): during the last `cfMs` of the current track, linearly ramp
-        //   player.volume from 1.0 → 0.0.
-        // Phase 2 (fade-in): after onMediaItemTransition fires, linearly ramp from 0.0 → 1.0
-        //   over the same duration.
+        // ── Crossfade monitor (50 ms poll, main thread) ──────────────────────────
+        // Three phases:
+        //
+        //  HANDOFF   — xfPlayer finished the fade-in; primary is seeking to sync pos.
+        //               Keep xfPlayer audible until primary is buffered, then swap.
+        //
+        //  CROSSFADE — both players running; ramp exoPlayer 1→0, xfPlayer 0→1.
+        //
+        //  IDLE      — normal playback.  When `remaining ≤ cfMs`, spin up xfPlayer
+        //               with the next track and enter CROSSFADE.
         ioScope.launch(Dispatchers.Main) {
             while (true) {
                 delay(50L)
                 if (!::exoPlayer.isInitialized) continue
                 val cfMs = crossfadeDurationMs
 
-                if (cfMs <= 0L) {
-                    // Crossfade disabled — guarantee volume is 1.
-                    if (exoPlayer.volume < 1f && !crossfadeIsFadingIn) exoPlayer.volume = 1f
-                    continue
-                }
-
-                // ── Fade-in phase ───────────────────────────────────────────
-                if (crossfadeIsFadingIn) {
-                    val elapsed = System.currentTimeMillis() - crossfadeFadeInStartMs
-                    if (elapsed >= cfMs) {
-                        crossfadeIsFadingIn = false
-                        exoPlayer.volume = 1f
-                    } else {
-                        exoPlayer.volume = (elapsed.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
+                // ── HANDOFF phase ──────────────────────────────────────────────
+                if (xfHandoffPending) {
+                    val hf = xfHandoffXfPlayer
+                    when {
+                        exoPlayer.playbackState == Player.STATE_READY && exoPlayer.isPlaying -> {
+                            // Primary has buffered at the sync position — complete swap.
+                            exoPlayer.volume = 1f
+                            hf?.stop(); hf?.release()
+                            xfHandoffXfPlayer = null
+                            xfHandoffPending = false
+                        }
+                        hf != null && hf.isPlaying -> {
+                            // Primary still buffering — keep secondary audible so there's no gap.
+                            if (hf.volume < 1f) hf.volume = 1f
+                        }
+                        else -> {
+                            // Secondary gone or stalled — just restore primary.
+                            exoPlayer.volume = 1f
+                            xfHandoffXfPlayer = null
+                            xfHandoffPending = false
+                        }
                     }
                     continue
                 }
 
-                // ── Fade-out phase ───────────────────────────────────────────
+                // ── Crossfade disabled ─────────────────────────────────────────
+                if (cfMs <= 0L) {
+                    // Abort any lingering secondary player (safety net for the settings change).
+                    xfPlayer?.let { xf -> xf.stop(); xf.release(); xfPlayer = null }
+                    xfCrossfading = false; xfNextMediaItem = null
+                    if (exoPlayer.volume < 1f) exoPlayer.volume = 1f
+                    continue
+                }
+
+                // ── CROSSFADE phase ────────────────────────────────────────────
+                if (xfCrossfading) {
+                    val xf = xfPlayer
+                    val elapsed = System.currentTimeMillis() - xfStartMs
+                    val fraction = (elapsed.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
+                    exoPlayer.volume = (1f - fraction).coerceIn(0f, 1f)
+                    xf?.volume = fraction
+                    continue
+                }
+
+                // ── IDLE: watch for the fade-out window ────────────────────────
                 if (exoPlayer.playbackState != Player.STATE_READY || !exoPlayer.isPlaying) {
-                    // Not playing — restore volume so nothing is stuck muted.
                     if (exoPlayer.volume < 1f) exoPlayer.volume = 1f
                     continue
                 }
@@ -202,16 +273,55 @@ class MusicPlaybackService : MediaLibraryService() {
                 if (duration <= 0L || position < 0L) continue
 
                 val remaining = duration - position
-                when {
-                    remaining <= 0L -> { /* track ended; transition event will handle fade-in */ }
-                    remaining <= cfMs -> {
-                        exoPlayer.volume = (remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
-                    }
-                    else -> {
-                        // Outside fade zone — make sure volume is at full.
-                        if (exoPlayer.volume < 1f) exoPlayer.volume = 1f
+                if (remaining > cfMs) {
+                    // Outside the fade-out window — full volume.
+                    if (exoPlayer.volume < 1f) exoPlayer.volume = 1f
+                    continue
+                }
+                if (remaining <= 0L) continue  // already ended; transition handles it
+
+                // Inside the fade-out window: determine the next track.
+                val currentIdx = exoPlayer.currentMediaItemIndex
+                val nextIdx = when (exoPlayer.repeatMode) {
+                    Player.REPEAT_MODE_ONE -> currentIdx          // same track repeats
+                    Player.REPEAT_MODE_ALL ->
+                        if (exoPlayer.mediaItemCount > 0)
+                            (currentIdx + 1) % exoPlayer.mediaItemCount
+                        else -1
+                    else ->
+                        if (currentIdx < exoPlayer.mediaItemCount - 1) currentIdx + 1 else -1
+                }
+                if (nextIdx < 0) {
+                    // No next track — just let the track end naturally.
+                    exoPlayer.volume = (remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
+                    continue
+                }
+
+                if (xfPlayer == null) {
+                    // Spin up the secondary player for the upcoming track.
+                    val nextItem = runCatching { exoPlayer.getMediaItemAt(nextIdx) }.getOrNull()
+                    if (nextItem != null && nextItem.mediaId != xfNextMediaItem?.mediaId) {
+                        xfNextMediaItem = nextItem
+                        // Align xfStartMs so that elapsed = cfMs - remaining at this instant.
+                        xfStartMs = System.currentTimeMillis() - (cfMs - remaining)
+                        xfCrossfading = true
+
+                        val xf = ExoPlayer.Builder(this@MusicPlaybackService)
+                            .setMediaSourceFactory(
+                                DefaultMediaSourceFactory(this@MusicPlaybackService)
+                                    .setDataSourceFactory(dataSourceFactory)
+                            )
+                            .build()
+                        // Initial volume mirrors how far into the crossfade window we already are.
+                        xf.volume = (1f - remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
+                        xf.setMediaItem(attachUri(nextItem))
+                        xf.prepare()
+                        xf.playWhenReady = true
+                        xfPlayer = xf
                     }
                 }
+                // Fade out primary while crossfade is underway.
+                exoPlayer.volume = (remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
             }
         }
 
@@ -446,6 +556,8 @@ class MusicPlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         ioScope.cancel()
         audioFx?.release(); audioFx = null
+        xfPlayer?.stop(); xfPlayer?.release(); xfPlayer = null
+        xfHandoffXfPlayer?.stop(); xfHandoffXfPlayer?.release(); xfHandoffXfPlayer = null
         session?.run { player.release(); release(); session = null }
         super.onDestroy()
     }
