@@ -6,6 +6,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
+import com.streamcloud.app.data.util.ThumbnailCache
 import com.streamcloud.app.data.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,18 +22,7 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
-        .components {
-
-
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                add(ImageDecoderDecoder.Factory())
-            } else {
-                add(GifDecoder.Factory())
-            }
-        }
-        .build()
+    override fun newImageLoader(): ImageLoader = ThumbnailCache.loader(this)
 
     override fun onCreate() {
         super.onCreate()
