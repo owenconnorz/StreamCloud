@@ -7,9 +7,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.graphics.ColorUtils
 import androidx.media3.common.util.UnstableApi
 import androidx.palette.graphics.Palette
-import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.streamcloud.app.data.util.ThumbnailCache
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.audio.PlaybackBus
 import kotlinx.coroutines.CoroutineScope
@@ -85,7 +85,7 @@ object AlbumArtThemeBus {
                     .allowHardware(false)
                     .size(200)
                     .build()
-                val res = ImageLoader(context).execute(req) as? SuccessResult ?: return@runCatching null
+                val res = ThumbnailCache.loader(context).execute(req) as? SuccessResult ?: return@runCatching null
                 val bitmap: Bitmap = (res.drawable as? BitmapDrawable)?.bitmap ?: return@runCatching null
 
                 val palette = Palette.from(bitmap).maximumColorCount(24).generate()
