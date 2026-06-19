@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.RepeatOneOn
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
@@ -80,8 +82,11 @@ import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.ui.player.MusicActionsSheet
 import com.streamcloud.app.ui.player.SonosDevicePickerSheet
+import com.streamcloud.app.data.ytmusic.YtPlayerUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
@@ -232,6 +237,23 @@ fun NowPlayingShell(
     var showActions by remember { mutableStateOf(false) }
 
 
+    // ── Music video detection ─────────────────────────────────────────────────────────────────
+    // null = still checking, false = audio-only track, true = has a real music video
+    var isMusicVideo    by remember(mediaId) { mutableStateOf<Boolean?>(null) }
+    var videoStreamUrl  by remember(mediaId) { mutableStateOf<String?>(null) }
+    var showVideoPlayer by remember(mediaId) { mutableStateOf(false) }
+
+    LaunchedEffect(videoId) {
+        isMusicVideo   = null
+        videoStreamUrl = null
+        showVideoPlayer = false
+        if (videoId.isBlank()) return@LaunchedEffect
+        val result = withContext(Dispatchers.IO) { YtPlayerUtils.resolveVideoStream(videoId) }
+        isMusicVideo   = result.isMusicVideo
+        videoStreamUrl = result.url
+    }
+
+
     val canvasEnabled   by sl.settings.canvasEnabled.collectAsState(initial = true)
     val spotifyCookie   by sl.settings.spotifyCookie.collectAsState(initial = "")
 
@@ -314,7 +336,7 @@ fun NowPlayingShell(
             )
         }
 
-        // Album artwork — shown centred when no canvas is active
+        // Album artwork / music video player — shown centred when no Spotify Canvas is active
         if (activeCanvas == null) {
             Box(
                 Modifier
@@ -323,61 +345,115 @@ fun NowPlayingShell(
                     .padding(top = 72.dp, bottom = 280.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .pointerInput(controller) {
-                            while (true) {
-                                var totalX = 0f
-                                val widthPx = size.width.toFloat()
-                                awaitPointerEventScope {
-                                    awaitFirstDown(requireUnconsumed = false)
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        val change = event.changes.firstOrNull() ?: break
-                                        if (!change.pressed) break
-                                        totalX += (change.position - change.previousPosition).x
-                                        artworkDragX = totalX
-                                        change.consume()
-                                    }
-                                }
-                                artworkSwipeX.snapTo(artworkDragX)
-                                artworkDragX = 0f
-                                val threshold = widthPx * 0.28f
-                                when {
-                                    totalX < -threshold -> {
-                                        artworkSwipeX.animateTo(-widthPx, tween(220))
-                                        controller.seekToNextMediaItem()
-                                        artworkSwipeX.snapTo(widthPx)
-                                        artworkSwipeX.animateTo(0f, tween(300))
-                                    }
-                                    totalX > threshold -> {
-                                        artworkSwipeX.animateTo(widthPx, tween(220))
-                                        controller.seekToPreviousMediaItem()
-                                        artworkSwipeX.snapTo(-widthPx)
-                                        artworkSwipeX.animateTo(0f, tween(300))
-                                    }
-                                    else -> artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
-                                }
+                if (showVideoPlayer && videoStreamUrl != null) {
+                    // ── Music video player ──────────────────────────────────────────────────
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(0.85f)
+                                .aspectRatio(16f / 9f)
+                                .shadow(20.dp, RoundedCornerShape(20.dp))
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color.Black),
+                        ) {
+                            MusicVideoPlayer(
+                                url = videoStreamUrl!!,
+                                startPositionMs = controller.currentPosition,
+                                controllerPositionMs = displayPositionMs,
+                                isPlaying = isPlaying,
+                            )
+                        }
+                        // Close button — top-right corner of the video card
+                        Box(
+                            Modifier.fillMaxWidth(0.85f).aspectRatio(16f / 9f),
+                            contentAlignment = Alignment.TopEnd,
+                        ) {
+                            IconButton(
+                                onClick = { showVideoPlayer = false },
+                                modifier = Modifier
+                                    .padding(6.dp)
+                                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
+                            ) {
+                                Icon(Icons.Default.Close, "Close video", tint = Color.White)
                             }
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
+                        }
+                    }
+                } else {
+                    // ── Album artwork (default) ─────────────────────────────────────────────
                     Box(
                         Modifier
-                            .fillMaxWidth(0.85f)
-                            .aspectRatio(1f)
-                            .offset { IntOffset((artworkSwipeX.value + artworkDragX).roundToInt(), 0) }
-                            .shadow(20.dp, RoundedCornerShape(20.dp))
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color.Black.copy(alpha = 0.25f)),
+                            .fillMaxWidth()
+                            .pointerInput(controller) {
+                                while (true) {
+                                    var totalX = 0f
+                                    val widthPx = size.width.toFloat()
+                                    awaitPointerEventScope {
+                                        awaitFirstDown(requireUnconsumed = false)
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull() ?: break
+                                            if (!change.pressed) break
+                                            totalX += (change.position - change.previousPosition).x
+                                            artworkDragX = totalX
+                                            change.consume()
+                                        }
+                                    }
+                                    artworkSwipeX.snapTo(artworkDragX)
+                                    artworkDragX = 0f
+                                    val threshold = widthPx * 0.28f
+                                    when {
+                                        totalX < -threshold -> {
+                                            artworkSwipeX.animateTo(-widthPx, tween(220))
+                                            controller.seekToNextMediaItem()
+                                            artworkSwipeX.snapTo(widthPx)
+                                            artworkSwipeX.animateTo(0f, tween(300))
+                                        }
+                                        totalX > threshold -> {
+                                            artworkSwipeX.animateTo(widthPx, tween(220))
+                                            controller.seekToPreviousMediaItem()
+                                            artworkSwipeX.snapTo(-widthPx)
+                                            artworkSwipeX.animateTo(0f, tween(300))
+                                        }
+                                        else -> artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
+                                    }
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
                     ) {
-                        AsyncImage(
-                            model = artwork,
-                            contentDescription = title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        Box(
+                            Modifier
+                                .fillMaxWidth(0.85f)
+                                .aspectRatio(1f)
+                                .offset { IntOffset((artworkSwipeX.value + artworkDragX).roundToInt(), 0) }
+                                .shadow(20.dp, RoundedCornerShape(20.dp))
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color.Black.copy(alpha = 0.25f)),
+                        ) {
+                            AsyncImage(
+                                model = artwork,
+                                contentDescription = title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            // Play-circle badge — visible only for confirmed music videos
+                            if (isMusicVideo == true) {
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .clickable { showVideoPlayer = true },
+                                    contentAlignment = Alignment.BottomEnd,
+                                ) {
+                                    Icon(
+                                        Icons.Default.PlayCircle,
+                                        contentDescription = "Watch music video",
+                                        tint = Color.White.copy(alpha = 0.88f),
+                                        modifier = Modifier
+                                            .padding(12.dp)
+                                            .size(44.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -889,6 +965,84 @@ private fun formatTime(ms: Long): String {
     val m = totalSec / 60
     val s = totalSec % 60
     return "%d:%02d".format(m, s)
+}
+
+// ── Music video player ────────────────────────────────────────────────────────────────────────
+//
+// Plays a muxed mp4 YouTube stream in place of the album-art thumbnail.
+// Volume is kept at 0f — audio continues through MusicPlaybackService's ExoPlayer.
+// The player seeks to [startPositionMs] once prepared so it stays roughly in sync with audio.
+// It also mirrors pause/play state from the main controller.
+@OptIn(UnstableApi::class)
+@Composable
+private fun MusicVideoPlayer(
+    url: String,
+    startPositionMs: Long,
+    controllerPositionMs: Long,
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+
+    val player = remember(url) {
+        ExoPlayer.Builder(context).build().apply {
+            volume = 0f   // muted — audio comes from MusicPlaybackService
+            repeatMode = Player.REPEAT_MODE_OFF
+        }
+    }
+
+    LaunchedEffect(url) {
+        player.setMediaItem(MediaItem.fromUri(url))
+        player.prepare()
+        player.seekTo(startPositionMs)
+        player.playWhenReady = true
+    }
+
+    // Mirror main-player pause/play
+    LaunchedEffect(isPlaying) {
+        player.playWhenReady = isPlaying
+    }
+
+    // Drift correction: every 5 s compare video position to the main controller.
+    // If drift exceeds 2 s, re-seek so the video stays visually in sync with the audio.
+    LaunchedEffect(url, controllerPositionMs) {
+        val videoPosMs = player.currentPosition
+        val driftMs = kotlin.math.abs(videoPosMs - controllerPositionMs)
+        if (driftMs > 2_000L && player.playbackState == Player.STATE_READY) {
+            player.seekTo(controllerPositionMs)
+        }
+    }
+
+    DisposableEffect(url) {
+        onDispose { player.release() }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            TextureView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                        player.setVideoSurface(android.view.Surface(st))
+                    }
+                    override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
+                    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                        player.setVideoSurface(null); return true
+                    }
+                    override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                }
+            }
+        },
+        update = { tv ->
+            if (tv.isAvailable) {
+                player.setVideoSurface(android.view.Surface(tv.surfaceTexture!!))
+            }
+        },
+        modifier = modifier.fillMaxSize(),
+    )
 }
 
 // Canvas video player using TextureView so it renders inline with the Compose layer.

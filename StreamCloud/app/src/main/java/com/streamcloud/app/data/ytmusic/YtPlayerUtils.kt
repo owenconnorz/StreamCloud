@@ -598,6 +598,71 @@ object YtPlayerUtils {
     suspend fun resolveAudioStream(videoId: String, sonosSafe: Boolean = false): String? =
         resolveAudioFormatInfo(videoId, sonosSafe = sonosSafe)?.url
 
+    // ── Music video detection + stream resolution ─────────────────────────────────────────────
+
+    data class VideoStreamResult(
+        /** True only when the YouTube video has real muxed video tracks (not audio-only ATV). */
+        val isMusicVideo: Boolean,
+        /** Best muxed mp4 URL (720p preferred, 360p fallback), or null if unresolvable. */
+        val url: String?,
+    )
+
+    /**
+     * Determines whether [videoId] is a proper music video and, if so, resolves the best
+     * muxed mp4 stream URL (video + audio in one file, suitable for a muted video preview).
+     *
+     * Detection heuristic: audio-only tracks (MUSIC_VIDEO_TYPE_ATV) have no entries in
+     * `streamingData.formats[]`; real music videos always include at least one muxed
+     * `video/mp4` format there (itag 22 = 720p, itag 18 = 360p).
+     *
+     * Uses ANDROID_TESTSUITE — no auth, no PoToken, plain CDN URLs, no 'n' enforcement.
+     */
+    suspend fun resolveVideoStream(videoId: String): VideoStreamResult = withContext(Dispatchers.IO) {
+        try {
+            ensureVisitorData()
+            val client = CLIENTS.first { it.label == "ANDROID_TESTSUITE" }
+            val root = fetchPlayerResponse(client, videoId, null)
+                ?: return@withContext VideoStreamResult(isMusicVideo = false, url = null)
+
+            val streamingData = root["streamingData"]?.jsonObject
+                ?: return@withContext VideoStreamResult(isMusicVideo = false, url = null)
+
+            // Muxed formats only exist for actual music videos.
+            // Pure audio tracks (ATV) have nothing in `formats[]` — only `adaptiveFormats[]`.
+            val muxedFormats = streamingData["formats"]?.jsonArray
+                ?.mapNotNull { it as? JsonObject }
+                ?.filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("video/mp4") }
+                ?: emptyList()
+
+            if (muxedFormats.isEmpty()) {
+                AppLogger.i(TAG, "resolveVideoStream $videoId — no muxed formats, audio-only track")
+                return@withContext VideoStreamResult(isMusicVideo = false, url = null)
+            }
+
+            // Prefer 720p (22) → 360p (18) → first available muxed mp4
+            val best = muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 22 }
+                ?: muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 18 }
+                ?: muxedFormats.first()
+
+            val rawUrl = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                ?: run {
+                    // Fallback: try signatureCipher (base URL is usable unmodified as of player 57f5d44f)
+                    val cipher = best["signatureCipher"]?.jsonPrimitive?.content
+                        ?: best["cipher"]?.jsonPrimitive?.content
+                    cipher?.let { parseCipherUrl(it) }
+                }
+                ?: return@withContext VideoStreamResult(isMusicVideo = true, url = null)
+
+            val cpn = generateCpn()
+            val itag = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+            AppLogger.i(TAG, "resolveVideoStream $videoId — itag=$itag music video ok")
+            VideoStreamResult(isMusicVideo = true, url = "$rawUrl&cpn=$cpn")
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "resolveVideoStream $videoId — ${e.message}")
+            VideoStreamResult(isMusicVideo = false, url = null)
+        }
+    }
+
     private val AGE_GATE_STATUSES = setOf(
         "AGE_CHECK_REQUIRED",
         "AGE_VERIFICATION_REQUIRED",
