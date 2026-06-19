@@ -799,15 +799,39 @@ private fun PlayerSource.qualityScore(): Int {
 }
 
 private fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): PlayerSource {
-    val label = title?.takeIf { it.isNotBlank() }
-        ?: name?.takeIf { it.isNotBlank() }
-        ?: "Stream"
+    // Stremio convention (used by Nuvio providers):
+    //   `name`  = "Torrentio\n1080p"  — first line is the extractor/source name,
+    //             optional second line is the quality label.
+    //   `title` = multi-line description with torrent title, seeds, size, provider.
+    //
+    // We build a rich label that mirrors what the Nuvio app itself shows: extractor
+    // name on the first line, full description below it.
+    val extractorName = name?.lines()?.firstOrNull { it.isNotBlank() }?.trim()
+    val description   = title?.takeIf { it.isNotBlank() }
+
+    val label = buildString {
+        if (!extractorName.isNullOrBlank()) append(extractorName)
+        if (!description.isNullOrBlank()) {
+            if (isNotEmpty()) append("\n")
+            append(description)
+        }
+        if (isEmpty()) append("Stream")
+    }
+
+    // Quality: explicit field, else try the second line of `name` (e.g., "1080p")
+    val qualityHint = quality?.takeIf { it.isNotBlank() }
+        ?: name?.lines()?.drop(1)?.firstOrNull { it.isNotBlank() }?.trim()
+
+    // Filter-chip grouping: use the extractor name so the user sees "Torrentio",
+    // "RD+", etc. instead of the opaque provider package name.
+    val addonFilter = extractorName?.takeIf { it.isNotBlank() } ?: provider.name
+
     return PlayerSource(
         id = "nuvio::${provider.id}::${url.hashCode()}::${label.hashCode()}",
         url = url,
         label = label,
-        addonName = provider.name,
-        qualityTag = normaliseNuvioQuality(quality),
+        addonName = addonFilter,
+        qualityTag = normaliseNuvioQuality(qualityHint),
         isMagnet = url.startsWith("magnet:"),
         headers = headers ?: emptyMap(),
     )
@@ -883,11 +907,26 @@ private fun String.normalizedTitle(): String =
 private fun List<ExtractorLink>.toCsPlayerSources(pluginDisplayName: String): List<PlayerSource> =
     this.mapIndexedNotNull { idx, link ->
         if (link.url.isBlank()) return@mapIndexedNotNull null
+        // link.source = the actual extractor name (e.g. "4KHDHub", "Vidcloud").
+        // link.name   = display label set by the plugin — usually the plugin's own
+        //               display name (e.g. "SFlixProvider") but for well-maintained
+        //               extractors it contains rich detail like
+        //               "4KHDHub [FSL Server] WEB-DL H265 DDP5.1 [3.6 GB] 4K".
+        //
+        // Rule: if link.name adds no information beyond the plugin name, show the
+        // extractor name (link.source) as the label so the user always sees which
+        // individual server/extractor the link came from.
+        val extractorName = link.source.takeIf { it.isNotBlank() } ?: pluginDisplayName
+        val label = when {
+            link.name.isBlank() -> extractorName
+            link.name.trim().equals(pluginDisplayName.trim(), ignoreCase = true) -> extractorName
+            else -> link.name
+        }
         PlayerSource(
             id = "cs::$pluginDisplayName::${link.url.hashCode()}::$idx",
             url = link.url,
-            label = link.name.ifBlank { link.source.ifBlank { "Stream" } },
-            addonName = link.source.ifBlank { pluginDisplayName },
+            label = label,
+            addonName = extractorName,
             qualityTag = csQualityLabel(link.quality),
             isMagnet = link.url.startsWith("magnet:"),
             headers = buildMap {
