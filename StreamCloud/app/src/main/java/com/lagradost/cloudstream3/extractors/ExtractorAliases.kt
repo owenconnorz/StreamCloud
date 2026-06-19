@@ -59,6 +59,12 @@ open class DoodshExtractor        : DoodLaExtractor() { override val mainUrl = "
 open class DoodsProExtractor      : DoodLaExtractor() { override val mainUrl = "https://doods.pro";    override val name = "DoodsPro"     }
 open class Ds2PlayExtractor       : DoodLaExtractor() { override val mainUrl = "https://ds2play.com";  override val name = "Ds2Play"      }
 open class DoooodExtractor        : DoodLaExtractor() { override val mainUrl = "https://dooood.com";   override val name = "Dooood"       }
+open class DoodYtExtractor        : DoodLaExtractor() { override val mainUrl = "https://dood.yt";       override val name = "DoodYt"       }
+open class DoodytExtractor        : DoodLaExtractor() { override val mainUrl = "https://dood.yt";       override val name = "DoodYt"       }
+open class DoodReExtractor        : DoodLaExtractor() { override val mainUrl = "https://dood.re";       override val name = "DoodRe"       }
+open class DoodreExtractor        : DoodLaExtractor() { override val mainUrl = "https://dood.re";       override val name = "DoodRe"       }
+open class DoodStreamExtractor    : DoodLaExtractor() { override val mainUrl = "https://doodstream.com"; override val name = "Doodstream"  }
+open class DoooodcomExtractor     : DoodLaExtractor() { override val mainUrl = "https://dooood.com";    override val name = "Dooood"       }
 
 // ── MixDrop ───────────────────────────────────────────────────────────────────
 open class MixDropExtractor       : MixDrop()
