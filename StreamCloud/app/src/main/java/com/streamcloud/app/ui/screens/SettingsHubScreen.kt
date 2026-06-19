@@ -165,6 +165,13 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var canvasEnabled       by remember { mutableStateOf(false) }
     var posterStyle         by remember { mutableStateOf("portrait") }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
+    var smartTrimmer        by remember { mutableStateOf(false) }
+    var videoCacheMaxMb     by remember { mutableStateOf("unlimited") }
+    var imageCacheMaxMb     by remember { mutableStateOf("unlimited") }
+    var posterCacheMaxCount by remember { mutableStateOf("1024") }
+    var videoCacheSizeBytes by remember { mutableStateOf(0L) }
+    var imageCacheSizeBytes by remember { mutableStateOf(0L) }
+    var dlContentSizeBytes  by remember { mutableStateOf(0L) }
 
 
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
@@ -180,6 +187,9 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var showLanguageDialog      by remember { mutableStateOf(false) }
     var showCountryDialog       by remember { mutableStateOf(false) }
     var showLyricsSourceDialog  by remember { mutableStateOf(false) }
+    var showVideoCachePicker  by remember { mutableStateOf(false) }
+    var showImageCachePicker  by remember { mutableStateOf(false) }
+    var showPosterCachePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         backendUrl          = sl.settings.backendUrl.first()
@@ -224,6 +234,10 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         enabledCollections  = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet()
             ?: HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
         pluginsCacheBytes   = pluginRepo.pluginsCacheSize()
+        smartTrimmer        = sl.settings.smartTrimmer.first()
+        videoCacheMaxMb     = sl.settings.videoCacheMaxMb.first()
+        imageCacheMaxMb     = sl.settings.imageCacheMaxMb.first()
+        posterCacheMaxCount = sl.settings.posterCacheMaxCount.first()
     }
 
 
@@ -765,6 +779,222 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                 title = "Storage",
                 onBack = { currentPage = null },
             ) {
+                LaunchedEffect(Unit) {
+                    withContext(Dispatchers.IO) {
+                        videoCacheSizeBytes = DownloadCaches.playerCacheSizeBytes(context)
+                        imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
+                        dlContentSizeBytes  = DownloadCaches.downloadCacheSizeBytes(context)
+                    }
+                }
+
+                // ── Smart Trimmer ────────────────────────────────────────────
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .clickable {
+                            smartTrimmer = !smartTrimmer
+                            scope.launch { sl.settings.setSmartTrimmer(smartTrimmer) }
+                        }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Smart Trimmer",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = smartTrimmer,
+                            onCheckedChange = {
+                                smartTrimmer = it
+                                scope.launch { sl.settings.setSmartTrimmer(it) }
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Smart trimmer dynamically manages the image cache and video cache, pruning old entries to save disk space.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── Downloaded content ────────────────────────────────────────
+                SettingsGroup {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBox(Icons.Default.Download, ColourStorage)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Downloaded content", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Text(formatBytes(dlContentSizeBytes) + " used", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    DownloadCaches.clearDownloadCache(context)
+                                    dlContentSizeBytes = DownloadCaches.downloadCacheSizeBytes(context)
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                    ) {
+                        Text("Clear all downloads", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── Video Cache ───────────────────────────────────────────────
+                SettingsGroup {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBox(Icons.Default.PlayCircle, ColourStorage)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Video Cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Text(formatBytes(videoCacheSizeBytes) + " used", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showVideoCachePicker = true }.padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Max cache size", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(4.dp))
+                            CacheChip(cacheMbToLabel(videoCacheMaxMb))
+                        }
+                        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    DownloadCaches.releasePlayerCache()
+                                    File(context.cacheDir, "exoplayer").walkTopDown().filter { it.isFile }.forEach { it.delete() }
+                                    videoCacheSizeBytes = DownloadCaches.playerCacheSizeBytes(context)
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                    ) {
+                        Text("Clear video cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── Image Cache ───────────────────────────────────────────────
+                val imgMaxBytes = cacheMbToBytes(imageCacheMaxMb)
+                SettingsGroup {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBox(Icons.Default.Image, ColourStorage)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Image Cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Text(
+                                if (imgMaxBytes > 0) formatBytes(imageCacheSizeBytes) + " / " + cacheMbToLabel(imageCacheMaxMb)
+                                else formatBytes(imageCacheSizeBytes) + " used",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (imgMaxBytes > 0) {
+                        val progress = (imageCacheSizeBytes.toFloat() / imgMaxBytes).coerceIn(0f, 1f)
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(3.dp).clip(RoundedCornerShape(2.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        )
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showImageCachePicker = true }.padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Max cache size", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(4.dp))
+                            CacheChip(cacheMbToLabel(imageCacheMaxMb))
+                        }
+                        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    ThumbnailCache.clear(context)
+                                    imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                    ) {
+                        Text("Clear image cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── Poster Cache ──────────────────────────────────────────────
+                SettingsGroup {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBox(Icons.Default.Layers, ColourStorage)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Poster Cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            val posterMax = posterCacheMaxCount.toLongOrNull() ?: 0L
+                            Text(
+                                if (posterMax > 0) "/ $posterMax items" else "In-memory",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showPosterCachePicker = true }.padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Max cache size", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(4.dp))
+                            CacheChip(posterCountToLabel(posterCacheMaxCount))
+                        }
+                        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    ThumbnailCache.clear(context)
+                                    imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                    ) {
+                        Text("Clear poster cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── App cache & Wi-Fi toggle ──────────────────────────────────
                 SettingsGroup {
                     SettingNav(
                         icon = Icons.Default.DeleteSweep, tint = ColourStorage,
@@ -1033,6 +1263,82 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
             onDismiss = { showUiModeDialog = false },
         )
     }
+    if (showVideoCachePicker) {
+        CacheSizeSheet(
+            title = "Max cache size",
+            options = listOf(
+                "disable" to "Disable",
+                "128" to "128 MB",
+                "256" to "256 MB",
+                "512" to "512 MB",
+                "1024" to "1 GB",
+                "2048" to "2 GB",
+                "4096" to "4 GB",
+                "8192" to "8 GB",
+                "unlimited" to "Unlimited",
+            ),
+            selected = videoCacheMaxMb,
+            onSelect = { v ->
+                videoCacheMaxMb = v
+                scope.launch {
+                    sl.settings.setVideoCacheMaxMb(v)
+                    val maxBytes = cacheMbToBytes(v).takeIf { it > 0 } ?: (8L * 1024 * 1024 * 1024)
+                    DownloadCaches.playerCacheMaxBytes = maxBytes
+                    DownloadCaches.releasePlayerCache()
+                }
+                showVideoCachePicker = false
+            },
+            onDismiss = { showVideoCachePicker = false },
+        )
+    }
+    if (showImageCachePicker) {
+        CacheSizeSheet(
+            title = "Max cache size",
+            options = listOf(
+                "disable" to "Disable",
+                "128" to "128 MB",
+                "256" to "256 MB",
+                "512" to "512 MB",
+                "1024" to "1 GB",
+                "2048" to "2 GB",
+                "4096" to "4 GB",
+                "8192" to "8 GB",
+                "unlimited" to "Unlimited",
+            ),
+            selected = imageCacheMaxMb,
+            onSelect = { v ->
+                imageCacheMaxMb = v
+                scope.launch {
+                    sl.settings.setImageCacheMaxMb(v)
+                    val maxBytes = cacheMbToBytes(v).takeIf { it > 0 } ?: Long.MAX_VALUE
+                    withContext(Dispatchers.IO) { ThumbnailCache.setMaxDiskBytes(context, maxBytes) }
+                    imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
+                }
+                showImageCachePicker = false
+            },
+            onDismiss = { showImageCachePicker = false },
+        )
+    }
+    if (showPosterCachePicker) {
+        CacheSizeSheet(
+            title = "Max cache size",
+            options = listOf(
+                "disable" to "Disable",
+                "64" to "64 items",
+                "128" to "128 items",
+                "256" to "256 items",
+                "512" to "512 items",
+                "1024" to "1024 items",
+            ),
+            selected = posterCacheMaxCount,
+            onSelect = { v ->
+                posterCacheMaxCount = v
+                scope.launch { sl.settings.setPosterCacheMaxCount(v) }
+                showPosterCachePicker = false
+            },
+            onDismiss = { showPosterCachePicker = false },
+        )
+    }
 }
 
 @Composable
@@ -1116,82 +1422,6 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 onClick = onOpenCollections,
             )
         }
-    if (showVideoCachePicker) {
-        CacheSizeSheet(
-            title = "Max cache size",
-            options = listOf(
-                "disable" to "Disable",
-                "128" to "128 MB",
-                "256" to "256 MB",
-                "512" to "512 MB",
-                "1024" to "1 GB",
-                "2048" to "2 GB",
-                "4096" to "4 GB",
-                "8192" to "8 GB",
-                "unlimited" to "Unlimited",
-            ),
-            selected = videoCacheMaxMb,
-            onSelect = { v ->
-                videoCacheMaxMb = v
-                scope.launch {
-                    sl.settings.setVideoCacheMaxMb(v)
-                    val maxBytes = cacheMbToBytes(v).takeIf { it > 0 } ?: (8L * 1024 * 1024 * 1024)
-                    DownloadCaches.playerCacheMaxBytes = maxBytes
-                    DownloadCaches.releasePlayerCache()
-                }
-                showVideoCachePicker = false
-            },
-            onDismiss = { showVideoCachePicker = false },
-        )
-    }
-    if (showImageCachePicker) {
-        CacheSizeSheet(
-            title = "Max cache size",
-            options = listOf(
-                "disable" to "Disable",
-                "128" to "128 MB",
-                "256" to "256 MB",
-                "512" to "512 MB",
-                "1024" to "1 GB",
-                "2048" to "2 GB",
-                "4096" to "4 GB",
-                "8192" to "8 GB",
-                "unlimited" to "Unlimited",
-            ),
-            selected = imageCacheMaxMb,
-            onSelect = { v ->
-                imageCacheMaxMb = v
-                scope.launch {
-                    sl.settings.setImageCacheMaxMb(v)
-                    val maxBytes = cacheMbToBytes(v).takeIf { it > 0 } ?: Long.MAX_VALUE
-                    withContext(Dispatchers.IO) { ThumbnailCache.setMaxDiskBytes(context, maxBytes) }
-                    imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
-                }
-                showImageCachePicker = false
-            },
-            onDismiss = { showImageCachePicker = false },
-        )
-    }
-    if (showPosterCachePicker) {
-        CacheSizeSheet(
-            title = "Max cache size",
-            options = listOf(
-                "disable" to "Disable",
-                "64" to "64 items",
-                "128" to "128 items",
-                "256" to "256 items",
-                "512" to "512 items",
-                "1024" to "1024 items",
-            ),
-            selected = posterCacheMaxCount,
-            onSelect = { v ->
-                posterCacheMaxCount = v
-                scope.launch { sl.settings.setPosterCacheMaxCount(v) }
-                showPosterCachePicker = false
-            },
-            onDismiss = { showPosterCachePicker = false },
-        )
-    }
     }
 }
 

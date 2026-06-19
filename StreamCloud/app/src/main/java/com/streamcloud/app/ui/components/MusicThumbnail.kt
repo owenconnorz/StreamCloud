@@ -17,7 +17,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.streamcloud.app.data.util.ThumbnailCache
@@ -71,7 +71,7 @@ fun MusicThumbnail(
     if (url.isNullOrBlank()) {
         MusicThumbnailPlaceholder(finalModifier, shape)
     } else {
-        AsyncImage(
+        SubcomposeAsyncImage(
             model = request,
             imageLoader = ThumbnailCache.loader(context),
             contentDescription = null,
