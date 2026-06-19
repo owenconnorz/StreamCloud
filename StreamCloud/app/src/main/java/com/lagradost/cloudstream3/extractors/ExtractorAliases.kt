@@ -95,6 +95,10 @@ open class AnimeFeverExtractor    : VidHide() { override val mainUrl = "https://
 
 // ── Vidmoly ───────────────────────────────────────────────────────────────────
 open class VidmolyExtractor       : Vidmoly()
+open class Vidmolyme              : Vidmoly() { override val mainUrl = "https://vidmoly.me";  override val name = "VidmolyMe"  }
+open class VidmolymeExtractor     : Vidmoly() { override val mainUrl = "https://vidmoly.me";  override val name = "VidmolyMe"  }
+open class VidmolyComExtractor    : Vidmoly() { override val mainUrl = "https://vidmoly.com"; override val name = "VidmolyCom" }
+open class VidmolyToExtractor     : Vidmoly() { override val mainUrl = "https://vidmoly.to";  override val name = "VidmolyTo"  }
 
 // ── Streamlare ────────────────────────────────────────────────────────────────
 open class StreamlareExtractor    : Streamlare()
