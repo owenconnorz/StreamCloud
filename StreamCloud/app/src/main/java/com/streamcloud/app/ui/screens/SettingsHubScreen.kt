@@ -96,6 +96,9 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import com.streamcloud.app.data.nuvio.NuvioAccountService
 
 private val HubIconBg  = Color(0xFF1B2D52)
 private val HubIconFg  = Color(0xFF5B8DEF)
@@ -627,6 +630,8 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                 onBack = { currentPage = null },
             ) {
                 SettingsGroup {
+                    NuvioAccountRow()
+                    SettingDivider()
                     YtMusicAccountRow()
                     SettingDivider()
                     SpotifyAccountRow()
@@ -2660,5 +2665,187 @@ private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository)
             }
         }
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+private val ColourNuvio = Color(0xFF6C5CE7)
+
+@Composable
+private fun NuvioAccountRow() {
+    val context  = LocalContext.current
+    val sl       = remember(context) { ServiceLocator.get(context) }
+    val scope    = rememberCoroutineScope()
+    val nuvioSvc = remember(context) { NuvioAccountService.get(context) }
+
+    val accessToken by sl.settings.nuvioAccessToken.collectAsState(initial = "")
+    val email       by sl.settings.nuvioEmail.collectAsState(initial = "")
+    val signedIn    = accessToken.isNotBlank()
+
+    var showDialog   by remember { mutableStateOf(false) }
+    var emailInput   by remember { mutableStateOf("") }
+    var passInput    by remember { mutableStateOf("") }
+    var showPass     by remember { mutableStateOf(false) }
+    var busy         by remember { mutableStateOf(false) }
+    var errorMsg     by remember { mutableStateOf("") }
+    var syncStatus   by remember { mutableStateOf("") }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { if (signedIn) syncStatus = "Syncing…" else showDialog = true }
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(if (signedIn) Icons.Default.CloudUpload else Icons.Default.Cloud, ColourNuvio)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "Nuvio" else "Sign in to Nuvio",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) email.ifBlank { "Signed in" }
+                else "Sync plugins, addons, watch progress and watchlist",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            if (syncStatus.isNotBlank()) {
+                Text(
+                    syncStatus,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (syncStatus.startsWith("Sync")) MaterialTheme.colorScheme.primary
+                            else if (syncStatus.startsWith("Error")) MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                            else MaterialTheme.colorScheme.secondary,
+                    maxLines = 2,
+                )
+            }
+        }
+        if (signedIn) {
+            TextButton(onClick = {
+                scope.launch {
+                    syncStatus = "Syncing…"
+                    val result = runCatching {
+                        nuvioSvc.syncAll(accessToken)
+                    }
+                    syncStatus = result.fold(
+                        onSuccess = { r -> "Synced ✓  ${r.plugins} plugins · ${r.addons} addons · ${r.watchProgress} progress · ${r.library} library" },
+                        onFailure = { "Error: ${it.message?.take(60)}" },
+                    )
+                }
+            }) { Text("Sync") }
+            TextButton(onClick = {
+                scope.launch {
+                    nuvioSvc.signOut(accessToken)
+                    sl.settings.clearNuvioSession()
+                    syncStatus = ""
+                }
+            }) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) { showDialog = false; errorMsg = "" } },
+            title = { Text("Sign in to Nuvio") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Enter your Nuvio account credentials to sync plugins, addons, and watch history across devices.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = emailInput,
+                        onValueChange = { emailInput = it; errorMsg = "" },
+                        label = { Text("Email") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Email,
+                            imeAction = ImeAction.Next,
+                        ),
+                        enabled = !busy,
+                    )
+                    OutlinedTextField(
+                        value = passInput,
+                        onValueChange = { passInput = it; errorMsg = "" },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                            imeAction = ImeAction.Done,
+                        ),
+                        trailingIcon = {
+                            IconButton(onClick = { showPass = !showPass }) {
+                                Icon(
+                                    if (showPass) Icons.Default.Visibility else Icons.Default.VolumeOff,
+                                    contentDescription = if (showPass) "Hide password" else "Show password",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        },
+                        enabled = !busy,
+                    )
+                    if (errorMsg.isNotBlank()) {
+                        Text(
+                            errorMsg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    if (busy) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (emailInput.isBlank() || passInput.isBlank()) {
+                            errorMsg = "Email and password are required"
+                            return@TextButton
+                        }
+                        busy = true; errorMsg = ""
+                        scope.launch {
+                            val result = nuvioSvc.signIn(emailInput.trim(), passInput)
+                            busy = false
+                            result.fold(
+                                onSuccess = { session ->
+                                    val userEmail = session.user?.email ?: emailInput.trim()
+                                    val userId = session.user?.id ?: ""
+                                    sl.settings.setNuvioSession(
+                                        session.access_token,
+                                        session.refresh_token,
+                                        userEmail,
+                                        userId,
+                                    )
+                                    showDialog = false
+                                    emailInput = ""; passInput = ""; errorMsg = ""
+                                    syncStatus = "Signed in — tap Sync to push your data"
+                                },
+                                onFailure = { errorMsg = it.message ?: "Sign in failed" },
+                            )
+                        }
+                    },
+                    enabled = !busy,
+                ) { Text("Sign in") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false; errorMsg = "" }, enabled = !busy) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }

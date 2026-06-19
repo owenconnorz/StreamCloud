@@ -86,6 +86,11 @@ object SettingsKeys {
     val VIDEO_CACHE_MAX_MB     = stringPreferencesKey("video_cache_max_mb")
     val IMAGE_CACHE_MAX_MB     = stringPreferencesKey("image_cache_max_mb")
     val POSTER_CACHE_MAX_COUNT = stringPreferencesKey("poster_cache_max_count")
+
+    val NUVIO_ACCESS_TOKEN  = stringPreferencesKey("nuvio_access_token")
+    val NUVIO_REFRESH_TOKEN = stringPreferencesKey("nuvio_refresh_token")
+    val NUVIO_EMAIL         = stringPreferencesKey("nuvio_email")
+    val NUVIO_USER_ID       = stringPreferencesKey("nuvio_user_id")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -295,4 +300,24 @@ class SettingsRepository(private val context: Context) {
     suspend fun setVideoCacheMaxMb(s: String)      = context.dataStore.edit { it[SettingsKeys.VIDEO_CACHE_MAX_MB] = s }
     suspend fun setImageCacheMaxMb(s: String)      = context.dataStore.edit { it[SettingsKeys.IMAGE_CACHE_MAX_MB] = s }
     suspend fun setPosterCacheMaxCount(s: String)  = context.dataStore.edit { it[SettingsKeys.POSTER_CACHE_MAX_COUNT] = s }
+
+    val nuvioAccessToken: Flow<String>  = context.dataStore.data.map { it[SettingsKeys.NUVIO_ACCESS_TOKEN]  ?: "" }
+    val nuvioRefreshToken: Flow<String> = context.dataStore.data.map { it[SettingsKeys.NUVIO_REFRESH_TOKEN] ?: "" }
+    val nuvioEmail: Flow<String>        = context.dataStore.data.map { it[SettingsKeys.NUVIO_EMAIL]         ?: "" }
+    val nuvioUserId: Flow<String>       = context.dataStore.data.map { it[SettingsKeys.NUVIO_USER_ID]       ?: "" }
+
+    suspend fun setNuvioSession(accessToken: String, refreshToken: String, email: String, userId: String) =
+        context.dataStore.edit {
+            it[SettingsKeys.NUVIO_ACCESS_TOKEN]  = accessToken
+            it[SettingsKeys.NUVIO_REFRESH_TOKEN] = refreshToken
+            it[SettingsKeys.NUVIO_EMAIL]         = email
+            it[SettingsKeys.NUVIO_USER_ID]       = userId
+        }
+
+    suspend fun clearNuvioSession() = context.dataStore.edit {
+        it.remove(SettingsKeys.NUVIO_ACCESS_TOKEN)
+        it.remove(SettingsKeys.NUVIO_REFRESH_TOKEN)
+        it.remove(SettingsKeys.NUVIO_EMAIL)
+        it.remove(SettingsKeys.NUVIO_USER_ID)
+    }
 }
