@@ -1,41 +1,31 @@
-@file:Suppress("unused", "MemberVisibilityCanBePrivate")
+@file:Suppress("unused")
 package com.lagradost.cloudstream3.plugins
 
 import android.content.Context
-import android.content.res.Resources
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.utils.ExtractorApi
 
-// Annotation used by the plugin toolchain to identify the entry-point class
+abstract class Plugin {
+
+    val apis: MutableList<MainAPI> = mutableListOf()
+
+    open fun load(context: Context) {
+
+    }
+
+    open fun beforeLoad() {}
+    open fun afterLoad() {}
+
+    fun registerMainAPI(api: MainAPI) {
+        apis.add(api)
+    }
+
+    // Parameter must be ExtractorApi (not Any/Object) so the JVM method
+    // descriptor is (Lcom/lagradost/cloudstream3/utils/ExtractorApi;)V,
+    // matching what plugins compiled against the real CloudStream API expect.
+    fun registerExtractorAPI(extractor: ExtractorApi) { }
+}
+
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
 annotation class CloudstreamPlugin
-
-/**
- * Android-specific plugin base.  Extends [BasePlugin] so that the class
- * hierarchy matches compiled .cs3 plugins: MyPlugin → Plugin → BasePlugin.
- *
- * [apis] and [registerMainAPI] are inherited from [BasePlugin].
- */
-abstract class Plugin : BasePlugin() {
-
-    /**
-     * Called by PluginRuntime when your plugin is loaded on Android.
-     * Call [registerMainAPI] here to make your provider available.
-     *
-     * Default implementation falls through to the KMP [BasePlugin.load].
-     */
-    @Throws(Throwable::class)
-    open fun load(context: Context) {
-        load()
-    }
-
-    /**
-     * Android resources for plugins that set requiresResources = true in
-     * their build.gradle.  Set by PluginRuntime when resources are available.
-     */
-    var resources: Resources? = null
-
-    /**
-     * Optional in-app settings screen callback.
-     */
-    var openSettings: ((context: Context) -> Unit)? = null
-}
