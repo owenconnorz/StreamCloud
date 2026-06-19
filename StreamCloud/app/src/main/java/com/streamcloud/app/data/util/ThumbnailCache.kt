@@ -30,6 +30,7 @@ object ThumbnailCache {
     /** Subdirectory inside cacheDir used for thumbnail storage. */
     const val CACHE_DIR_NAME = "music_thumbnails"
 
+    @Volatile private var _maxDiskBytes: Long = DISK_CACHE_BYTES
     @Volatile private var _loader: ImageLoader? = null
 
     /**
@@ -44,6 +45,18 @@ object ThumbnailCache {
     /** Force-rebuilds the loader (e.g. after clearing the cache). */
     fun reset() {
         synchronized(this) { _loader = null }
+    }
+
+    /**
+     * Updates the maximum disk-cache size and rebuilds the loader on next use.
+     * Pass [Long.MAX_VALUE] for "unlimited" (Coil will manage its own eviction).
+     */
+    fun setMaxDiskBytes(context: Context, bytes: Long) {
+        synchronized(this) {
+            _maxDiskBytes = bytes
+            _loader = null
+        }
+        loader(context)
     }
 
     // ── Cache management ──────────────────────────────────────────────────────
@@ -126,7 +139,7 @@ object ThumbnailCache {
         .diskCache {
             DiskCache.Builder()
                 .directory(cacheDir(context))
-                .maxSizeBytes(DISK_CACHE_BYTES)
+                .maxSizeBytes(_maxDiskBytes)
                 .build()
         }
         .memoryCachePolicy(CachePolicy.ENABLED)
