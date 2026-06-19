@@ -118,6 +118,20 @@ fun NowPlayingShell(
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onShuffleModeEnabledChanged(enabled: Boolean) { shuffleOn = enabled }
             override fun onRepeatModeChanged(mode: Int) { repeatMode = mode }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // When casting, tell Sonos to load and play the newly-selected track.
+                val cstate = SonosRepository.castState.value
+                if (cstate is SonosRepository.CastState.Casting && mediaItem != null) {
+                    val mid = mediaItem.mediaId
+                    val vid = if (mid.startsWith("http"))
+                        mid.substringAfter("v=", "").substringBefore("&")
+                    else mid
+                    val watchUrl = if (mid.startsWith("http")) mid
+                    else "https://music.youtube.com/watch?v=$mid"
+                    val trackTitle = mediaItem.mediaMetadata.title?.toString().orEmpty()
+                    SonosRepository.updateTrack(context.applicationContext, vid, trackTitle, watchUrl)
+                }
+            }
         }
         controller.addListener(listener)
         onDispose { controller.removeListener(listener) }
@@ -185,6 +199,14 @@ fun NowPlayingShell(
     var showSonos by remember { mutableStateOf(false) }
     val castState by SonosRepository.castState.collectAsState()
     val isCasting = castState is SonosRepository.CastState.Casting
+
+    val sonosIsPlaying  by SonosRepository.isSonosPlaying.collectAsState()
+    val sonosPosMs      by SonosRepository.sonosPositionMs.collectAsState()
+    val sonosDurMs      by SonosRepository.sonosDurationMs.collectAsState()
+
+    val displayIsPlaying  = if (isCasting) sonosIsPlaying  else isPlaying
+    val displayPositionMs = if (isCasting) sonosPosMs      else positionMs
+    val displayDurationMs = if (isCasting) sonosDurMs      else durationMs
 
 
 
@@ -486,9 +508,14 @@ fun NowPlayingShell(
                     Spacer(Modifier.height(12.dp))
 
                     Slider(
-                        value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
+                        value = if (displayDurationMs > 0) displayPositionMs / displayDurationMs.toFloat() else 0f,
                         onValueChange = { v ->
-                            if (durationMs > 0) controller.seekTo((v * durationMs).toLong())
+                            if (isCasting) {
+                                if (displayDurationMs > 0)
+                                    SonosRepository.seek((v * displayDurationMs).toLong())
+                            } else if (durationMs > 0) {
+                                controller.seekTo((v * durationMs).toLong())
+                            }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = SliderDefaults.colors(
@@ -499,11 +526,11 @@ fun NowPlayingShell(
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(
-                            formatTime(positionMs), color = onBg.copy(alpha = 0.85f),
+                            formatTime(displayPositionMs), color = onBg.copy(alpha = 0.85f),
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                         )
                         Text(
-                            formatTime(durationMs), color = onBg.copy(alpha = 0.85f),
+                            formatTime(displayDurationMs), color = onBg.copy(alpha = 0.85f),
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                         )
                     }
@@ -520,8 +547,15 @@ fun NowPlayingShell(
                             onClick = { controller.seekToPreviousMediaItem() },
                         )
                         PlayPill(
-                            playing = isPlaying,
-                            onClick = { if (isPlaying) controller.pause() else controller.play() },
+                            playing = displayIsPlaying,
+                            onClick = {
+                                if (isCasting) {
+                                    if (sonosIsPlaying) SonosRepository.pause()
+                                    else SonosRepository.resume()
+                                } else {
+                                    if (isPlaying) controller.pause() else controller.play()
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                         )
                         DarkCapsule(
