@@ -265,6 +265,46 @@ fun StreamCloudApp() {
                             val d = URLEncoder.encode(displayName, "UTF-8")
                             nav.navigate("cs-section/$p/$s/$d")
                         },
+                        onOpenCollectionFolder = { folderId ->
+                            nav.navigate("collection-folder/$folderId")
+                        },
+                    )
+                }
+                composable(
+                    "collection-folder/{folderId}",
+                    arguments = listOf(navArgument("folderId") { type = NavType.LongType }),
+                ) { entry ->
+                    val folderId = entry.arguments!!.getLong("folderId")
+                    com.streamcloud.app.ui.screens.CollectionFolderPageScreen(
+                        folderId = folderId,
+                        onBack = { nav.popBackStack() },
+                        onOpenCsItem = { plugin, itemUrl, itemName, poster ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val u = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                        onViewAllCsSection = { plugin, section, displayName ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val s = URLEncoder.encode(section, "UTF-8")
+                            val d = URLEncoder.encode(displayName, "UTF-8")
+                            nav.navigate("cs-section/$p/$s/$d")
+                        },
+                        onOpenCatalog = { src, t, sub ->
+                            val s = URLEncoder.encode(src, "UTF-8")
+                            val tt = URLEncoder.encode(t, "UTF-8")
+                            val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
+                            nav.navigate("catalog/$s/$tt/$ss")
+                        },
+                        onOpenStremio = { addonId, type, metaId, ttl, poster ->
+                            val a = URLEncoder.encode(addonId, "UTF-8")
+                            val ty = URLEncoder.encode(type, "UTF-8")
+                            val m = URLEncoder.encode(metaId, "UTF-8")
+                            val tt = URLEncoder.encode(ttl, "UTF-8")
+                            val p = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
+                        },
                     )
                 }
                 composable("collections") {

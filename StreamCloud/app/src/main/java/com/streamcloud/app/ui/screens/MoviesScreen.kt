@@ -72,6 +72,7 @@ fun MoviesScreen(
         { _, _, _, _ -> },
     onViewAllCsSection: (pluginInternalName: String, sectionName: String, pluginDisplayName: String) -> Unit =
         { _, _, _ -> },
+    onOpenCollectionFolder: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
@@ -81,7 +82,6 @@ fun MoviesScreen(
     var query by remember { mutableStateOf("") }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
-    var sectionPickerFolder by remember { mutableStateOf<CollectionFolderEntity?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -185,7 +185,7 @@ fun MoviesScreen(
                                                         if (sname.isNotBlank()) onViewAllCsSection(iname, sname, dname)
                                                         else if (iname.isNotBlank()) onOpenCloudStreamPlugin(iname)
                                                     } else if (entries.size > 1) {
-                                                        sectionPickerFolder = folder
+                                                        onOpenCollectionFolder(folder.id)
                                                     }
                                                 }
                                                 "stremio" -> {
@@ -198,7 +198,7 @@ fun MoviesScreen(
                                                         val cName = p.getOrNull(3) ?: folder.name
                                                         onOpenCatalog("stremio:$addonId:$cType:$cId", folder.name, cName)
                                                     } else if (entries.size > 1) {
-                                                        sectionPickerFolder = folder
+                                                        onOpenCollectionFolder(folder.id)
                                                     }
                                                 }
                                                 else -> if (folder.linkedCategoryId.isNotBlank()) {
@@ -443,64 +443,6 @@ fun MoviesScreen(
             }
         }
 
-        sectionPickerFolder?.let { pickerFolder ->
-            AlertDialog(
-                onDismissRequest = { sectionPickerFolder = null },
-                title = { Text(pickerFolder.name) },
-                text = {
-                    val entries = pickerFolder.linkedCategoryId.split("\n").filter { it.isNotBlank() }
-                    androidx.compose.foundation.lazy.LazyColumn {
-                        items(entries) { enc ->
-                            when (pickerFolder.providerType) {
-                                "cloudstream" -> {
-                                    val p = enc.split("|||")
-                                    val iname = p.getOrNull(0) ?: ""
-                                    val sname = p.getOrNull(1) ?: ""
-                                    val dname = p.getOrNull(2) ?: iname
-                                    val label = if (sname.isNotBlank()) "$dname › $sname" else dname
-                                    Text(
-                                        label,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                sectionPickerFolder = null
-                                                if (sname.isNotBlank()) onViewAllCsSection(iname, sname, dname)
-                                                else if (iname.isNotBlank()) onOpenCloudStreamPlugin(iname)
-                                            }
-                                            .padding(vertical = 14.dp, horizontal = 4.dp),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                    )
-                                    HorizontalDivider(color = androidx.compose.ui.graphics.Color(0xFF333333))
-                                }
-                                "stremio" -> {
-                                    val p = enc.split("|||")
-                                    val addonId = p.getOrNull(0) ?: ""
-                                    val cType = p.getOrNull(1) ?: ""
-                                    val cId = p.getOrNull(2) ?: ""
-                                    val cName = p.getOrNull(3) ?: ""
-                                    val label = cName.ifBlank { "$addonId › $cId" }
-                                    Text(
-                                        label,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                sectionPickerFolder = null
-                                                onOpenCatalog("stremio:$addonId:$cType:$cId", pickerFolder.name, cName)
-                                            }
-                                            .padding(vertical = 14.dp, horizontal = 4.dp),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                    )
-                                    HorizontalDivider(color = androidx.compose.ui.graphics.Color(0xFF333333))
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { sectionPickerFolder = null }) { Text("Close") }
-                },
-            )
-        }
     }
 }
 

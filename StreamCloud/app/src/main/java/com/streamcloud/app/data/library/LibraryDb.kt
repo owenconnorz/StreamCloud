@@ -240,6 +240,9 @@ interface CollectionFolderDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: CollectionFolderEntity): Long
 
+    @Query("SELECT * FROM collection_folders WHERE id = :id LIMIT 1")
+    suspend fun byId(id: Long): CollectionFolderEntity?
+
     @Query("DELETE FROM collection_folders WHERE id = :id")
     suspend fun delete(id: Long)
 
