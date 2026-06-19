@@ -118,6 +118,11 @@ open class StreamtapeExtractor    : StreamTape()
 // ── Okru ──────────────────────────────────────────────────────────────────────
 open class OkruExtractor          : Okru()
 open class Okru2                  : Okru() { override val mainUrl = "https://odnoklassniki.ru";        override val name = "Okru2"        }
+open class OkRuSSL                : Okru() { override val mainUrl = "https://ok.ru";                   override val name = "OkRuSSL"      }
+open class OkRuExtractor          : Okru()
+open class OkRu                   : Okru() { override val mainUrl = "https://ok.ru";                   override val name = "OkRu"         }
+open class Odnoklassniki          : Okru() { override val mainUrl = "https://odnoklassniki.ru";        override val name = "Odnoklassniki"}
+open class OkruSSL                : Okru() { override val mainUrl = "https://ok.ru";                   override val name = "OkruSSL"      }
 
 // ── SendVid ───────────────────────────────────────────────────────────────────
 open class SendVidExtractor       : SendVid()
