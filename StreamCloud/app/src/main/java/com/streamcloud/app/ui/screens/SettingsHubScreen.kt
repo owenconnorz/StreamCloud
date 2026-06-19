@@ -2477,12 +2477,12 @@ private fun CacheSizeSheet(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 16.dp),
         )
-        androidx.compose.foundation.lazy.LazyColumn(
+        LazyColumn(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.navigationBarsPadding(),
         ) {
-            androidx.compose.foundation.lazy.items(options) { (value, label) ->
+            items(options) { (value, label) ->
                 val isSelected = value == selected
                 Box(
                     Modifier
