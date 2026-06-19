@@ -54,6 +54,38 @@ object SonosRepository {
 
     private var activeDevice: SonosDevice? = null
     private var appContext: Context? = null
+    private var pollingJob: kotlinx.coroutines.Job? = null
+
+    // ── Position polling ──────────────────────────────────────────────────────
+
+    private fun startPositionPolling(device: SonosDevice) {
+        pollingJob?.cancel()
+        pollingJob = scope.launch {
+            var tick = 0
+            while (true) {
+                delay(1_000)
+                // GetPositionInfo every second for smooth progress bar
+                runCatching { SonosController.getPositionInfo(device) }.getOrNull()?.let { (pos, dur) ->
+                    _sonosPositionMs.value = pos
+                    _sonosDurationMs.value = dur
+                }
+                // Sync transport state every 5 seconds
+                if (tick % 5 == 0) {
+                    runCatching { SonosController.getState(device) }.getOrNull()?.let { state ->
+                        _isSonosPlaying.value = state == "PLAYING"
+                    }
+                }
+                tick++
+            }
+        }
+    }
+
+    fun seek(positionMs: Long) {
+        val device = activeDevice ?: return
+        // Optimistically update UI while the SOAP call is in-flight
+        _sonosPositionMs.value = positionMs
+        scope.launch { SonosController.seek(device, positionMs) }
+    }
 
     fun startDiscovery(context: Context) {
         _castState.update { CastState.Discovering }
@@ -187,6 +219,9 @@ object SonosRepository {
                     }
 
                     SonosController.getVolume(device)?.let { _sonosVolume.value = it }
+                    _sonosPositionMs.value = 0L
+                    _sonosDurationMs.value = 0L
+                    startPositionPolling(device)
                     _castState.update { CastState.Casting(device, title, displayName) }
                 } else {
                     SonosProxyServer.stop()
@@ -255,7 +290,11 @@ object SonosRepository {
     }
 
     fun disconnect() {
+        pollingJob?.cancel()
+        pollingJob = null
         _isSonosPlaying.value = false
+        _sonosPositionMs.value = 0L
+        _sonosDurationMs.value = 0L
         val device = activeDevice
         val ctx    = appContext
         activeDevice = null

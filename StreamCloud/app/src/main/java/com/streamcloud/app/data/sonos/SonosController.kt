@@ -137,6 +137,59 @@ object SonosController {
         }
     }
 
+    /**
+     * Returns (positionMs, durationMs) from the Sonos device.
+     * Both values are 0 when no track is loaded or the response cannot be parsed.
+     */
+    suspend fun getPositionInfo(device: SonosDevice): Pair<Long, Long>? = withContext(Dispatchers.IO) {
+        try {
+            val envelope = soapEnvelope("GetPositionInfo", "<InstanceID>0</InstanceID>")
+            val body = http.newCall(
+                Request.Builder()
+                    .url("http://${device.host}:${device.port}$AV_TRANSPORT_PATH")
+                    .post(envelope.toRequestBody("text/xml; charset=utf-8".toMediaType()))
+                    .header("SOAPACTION", "\"$AV_TRANSPORT_SERVICE#GetPositionInfo\"")
+                    .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                    .build(),
+            ).execute().use { it.body?.string() } ?: return@withContext null
+            val posMs = Regex("<RelTime>([^<]+)</RelTime>").find(body)
+                ?.groupValues?.get(1)?.let { parseUpnpTime(it) } ?: 0L
+            val durMs = Regex("<TrackDuration>([^<]+)</TrackDuration>").find(body)
+                ?.groupValues?.get(1)?.let { parseUpnpTime(it) } ?: 0L
+            Pair(posMs, durMs)
+        } catch (e: Exception) {
+            Log.w(TAG, "getPositionInfo failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Seeks to [positionMs] on the device using UPnP REL_TIME seek.
+     * This works only when the proxied stream supports Range requests.
+     */
+    suspend fun seek(device: SonosDevice, positionMs: Long): Boolean {
+        val h = positionMs / 3_600_000
+        val m = (positionMs % 3_600_000) / 60_000
+        val s = (positionMs % 60_000) / 1_000
+        return soap(
+            device = device,
+            action = "Seek",
+            body = "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit>" +
+                "<Target>$h:${"${m}".padStart(2, '0')}:${"${s}".padStart(2, '0')}</Target>",
+        )
+    }
+
+    /** Parse a UPnP H:MM:SS or MM:SS time string to milliseconds. */
+    private fun parseUpnpTime(time: String): Long {
+        val parts = time.trim().split(":").mapNotNull { it.trim().toLongOrNull() }
+        return when (parts.size) {
+            3 -> (parts[0] * 3_600 + parts[1] * 60 + parts[2]) * 1_000
+            2 -> (parts[0] * 60 + parts[1]) * 1_000
+            1 -> parts[0] * 1_000
+            else -> 0L
+        }
+    }
+
 
 
 
