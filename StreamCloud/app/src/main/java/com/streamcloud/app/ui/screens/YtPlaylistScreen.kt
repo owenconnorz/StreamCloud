@@ -270,28 +270,14 @@ fun YtPlaylistScreen(
                 actions = {
                     if (searchActive && searchQuery.isNotEmpty()) {
                         IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Close, "Clear search")
+                            Icon(Icons.Default.Close, contentDescription = "Clear search")
                         }
                     } else if (!searchActive) {
-                        // Circle search button matching the MoreVert style in PlaylistHero
-                        Box(
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable {
-                                    searchActive = true
-                                    searchQuery = ""
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = "Search in playlist",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
+                        IconButton(onClick = {
+                            searchActive = true
+                            searchQuery = ""
+                        }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search in playlist")
                         }
                     }
                 },
