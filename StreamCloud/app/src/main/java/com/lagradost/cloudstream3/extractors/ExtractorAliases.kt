@@ -641,14 +641,28 @@ open class Alions : GenericJwExtractor("Alions", "https://alions.pro")
 open class AlionsExtractor : Alions()
 
 // ── VidHidePro family ─────────────────────────────────────────────────────────
-open class VidHidePro : VidHide()
-open class VidHidePro1 : VidHide() { override val mainUrl = "https://filelions.live";   override val name = "VidHidePro1" }
-open class VidHidePro2 : VidHide() { override val mainUrl = "https://filelions.online"; override val name = "VidHidePro2" }
-open class VidHidePro3 : VidHide() { override val mainUrl = "https://vidhidehub.com";   override val name = "VidHidePro3" }
-open class VidHidePro4 : VidHide() { override val mainUrl = "https://vidhide.com";      override val name = "VidHidePro4" }
-open class VidHideHub  : VidHide() { override val mainUrl = "https://vidhidehub.com";   override val name = "VidHideHub"  }
-open class Ryderjet    : VidHide() { override val mainUrl = "https://ryderjet.com";      override val name = "Ryderjet"    }
+// Real CloudStream API defines Pro1–Pro10+; plugins compiled against it reference
+// all of them. Class must exist in DEX — plugin sets its own mainUrl at runtime.
+open class VidHidePro  : VidHide()
+open class VidHidePro1 : VidHide() { override val mainUrl = "https://filelions.live";    override val name = "VidHidePro1"  }
+open class VidHidePro2 : VidHide() { override val mainUrl = "https://filelions.online";  override val name = "VidHidePro2"  }
+open class VidHidePro3 : VidHide() { override val mainUrl = "https://vidhidehub.com";    override val name = "VidHidePro3"  }
+open class VidHidePro4 : VidHide() { override val mainUrl = "https://vidhide.com";       override val name = "VidHidePro4"  }
+open class VidHidePro5 : VidHide() { override val mainUrl = "https://vidhide.art";       override val name = "VidHidePro5"  }
+open class VidHidePro6 : VidHide() { override val mainUrl = "https://vidhide.pro";       override val name = "VidHidePro6"  }
+open class VidHidePro7 : VidHide() { override val mainUrl = "https://filelions.xyz";     override val name = "VidHidePro7"  }
+open class VidHidePro8 : VidHide() { override val mainUrl = "https://vidhidevip.com";    override val name = "VidHidePro8"  }
+open class VidHidePro9 : VidHide() { override val mainUrl = "https://filelions.net";     override val name = "VidHidePro9"  }
+open class VidHidePro10: VidHide() { override val mainUrl = "https://vidhide.cc";        override val name = "VidHidePro10" }
+open class VidHideHub  : VidHide() { override val mainUrl = "https://vidhidehub.com";    override val name = "VidHideHub"   }
+open class Ryderjet    : VidHide() { override val mainUrl = "https://ryderjet.com";       override val name = "Ryderjet"     }
 open class VidhideProExtractor : VidHidePro()
+open class VidhidePro1Extractor: VidHidePro1()
+open class VidhidePro2Extractor: VidHidePro2()
+open class VidhidePro3Extractor: VidHidePro3()
+open class VidhidePro4Extractor: VidHidePro4()
+open class VidhidePro5Extractor: VidHidePro5()
+open class VidhidePro6Extractor: VidHidePro6()
 
 // ── Gdriveplayer family ───────────────────────────────────────────────────────
 open class Gdriveplayerio  : GenericJwExtractor("GdriveplayerIo",  "https://gdriveplayer.io")
@@ -1084,6 +1098,12 @@ fun registerExtraExtractors() {
         VidHidePro2(),
         VidHidePro3(),
         VidHidePro4(),
+        VidHidePro5(),
+        VidHidePro6(),
+        VidHidePro7(),
+        VidHidePro8(),
+        VidHidePro9(),
+        VidHidePro10(),
         VidHideHub(),
         Ryderjet(),
         Gdriveplayerio(),
