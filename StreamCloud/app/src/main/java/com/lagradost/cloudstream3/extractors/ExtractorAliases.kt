@@ -1037,6 +1037,137 @@ open class Wcostream : WcoStream()
 open class WcostreamExtractor : WcoStream()
 
 // =============================================================================
+// COMPREHENSIVE NO-SUFFIX VARIANTS
+// Plugins compiled against the real CloudStream API often reference class names
+// WITHOUT the "Extractor" suffix (or with different casing).  We keep both so
+// every plugin combination resolves correctly.
+// =============================================================================
+
+// ── StreamWish no-suffix / casing variants ───────────────────────────────────
+open class Awish           : StreamWish() { override val mainUrl = "https://awish.pro";        override val name = "AWish"          }
+open class WishOnly        : StreamWish() { override val mainUrl = "https://wishonly.site";    override val name = "WishOnly"       }
+open class StmRuby         : StreamWish() { override val mainUrl = "https://stmruby.com";      override val name = "StmRuby"        }
+open class StreamRuby      : StreamWish() { override val mainUrl = "https://streamruby.com";   override val name = "StreamRuby"     }
+open class Wishembed       : StreamWish() { override val mainUrl = "https://wishembed.pro";    override val name = "Wishembed"      }
+open class VidHideVip      : StreamWish() { override val mainUrl = "https://vidhidevip.com";   override val name = "VidHideVip"     }
+open class VidhideVip      : StreamWish() { override val mainUrl = "https://vidhidevip.com";   override val name = "VidhideVip"     }
+open class StreamWishTo    : StreamWish() { override val mainUrl = "https://streamwish.to";    override val name = "StreamWishTo"   }
+open class StreamWishSite  : StreamWish() { override val mainUrl = "https://streamwish.site";  override val name = "StreamWishSite" }
+open class StreamWishPw    : StreamWish() { override val mainUrl = "https://streamwish.pw";    override val name = "StreamWishPw"   }
+open class StreamWishCom   : StreamWish() { override val mainUrl = "https://streamwish.com";   override val name = "StreamWishCom"  }
+open class Streamwish      : StreamWish()
+
+// ── FileMoon no-suffix / casing variants ─────────────────────────────────────
+open class Filemoon        : FileMoon()
+open class FilemoonSx      : FileMoon() { override val mainUrl = "https://filemoon.sx";        override val name = "FilemoonSx"     }
+open class FileMoonSx      : FileMoon() { override val mainUrl = "https://filemoon.sx";        override val name = "FileMoonSx"     }
+open class FilemoonIn      : FileMoon() { override val mainUrl = "https://filemoon.in";        override val name = "FilemoonIn"     }
+open class FilemoonXyz     : FileMoon() { override val mainUrl = "https://filemoon.xyz";       override val name = "FilemoonXyz"    }
+open class Kerapoxy        : FileMoon() { override val mainUrl = "https://kerapoxy.cc";        override val name = "Kerapoxy"       }
+open class Netembed        : FileMoon() { override val mainUrl = "https://netembed.xyz";       override val name = "Netembed"       }
+open class MoonPlayer      : FileMoon() { override val mainUrl = "https://moonplayer.sbs";     override val name = "MoonPlayer"     }
+
+// ── DoodStream no-suffix / casing variants ───────────────────────────────────
+open class DoodLa          : DoodLaExtractor()
+open class DoodTo          : DoodLaExtractor() { override val mainUrl = "https://dood.to";     override val name = "DoodTo"         }
+open class DoodSo          : DoodLaExtractor() { override val mainUrl = "https://dood.so";     override val name = "DoodSo"         }
+open class DoodWatch       : DoodLaExtractor() { override val mainUrl = "https://dood.watch";  override val name = "DoodWatch"      }
+open class DoodPm          : DoodLaExtractor() { override val mainUrl = "https://dood.pm";     override val name = "DoodPm"         }
+open class DoodSh          : DoodLaExtractor() { override val mainUrl = "https://dood.sh";     override val name = "DoodSh"         }
+open class DoodsPro        : DoodLaExtractor() { override val mainUrl = "https://doods.pro";   override val name = "DoodsPro"       }
+open class DoodYt          : DoodLaExtractor() { override val mainUrl = "https://dood.yt";     override val name = "DoodYt"         }
+open class DoodRe          : DoodLaExtractor() { override val mainUrl = "https://dood.re";     override val name = "DoodRe"         }
+open class DoodCx          : DoodLaExtractor() { override val mainUrl = "https://dood.cx";     override val name = "DoodCx"         }
+open class DoodBz          : DoodLaExtractor() { override val mainUrl = "https://dood.bz";     override val name = "DoodBz"         }
+open class DoodNl          : DoodLaExtractor() { override val mainUrl = "https://dood.nl";     override val name = "DoodNl"         }
+open class DoodWs          : DoodLaExtractor() { override val mainUrl = "https://dood.ws";     override val name = "DoodWs"         }
+open class Ds2Play         : DoodLaExtractor() { override val mainUrl = "https://ds2play.com"; override val name = "Ds2Play"        }
+open class Ds2Video        : DoodLaExtractor() { override val mainUrl = "https://ds2video.com";override val name = "Ds2Video"       }
+open class Doodstream      : DoodLaExtractor() { override val mainUrl = "https://doodstream.com"; override val name = "Doodstream" }
+open class Dooood          : DoodLaExtractor() { override val mainUrl = "https://dooood.com";  override val name = "Dooood"         }
+
+// ── VidHide / FileLions no-suffix variants ───────────────────────────────────
+open class FileLions       : VidHide() { override val mainUrl = "https://filelions.com";       override val name = "FileLions"      }
+open class FileLionsTo     : VidHide() { override val mainUrl = "https://filelions.to";        override val name = "FileLionsTo"    }
+open class FileLionsLive   : VidHide() { override val mainUrl = "https://filelions.live";      override val name = "FileLionsLive"  }
+open class FileLionsOnline : VidHide() { override val mainUrl = "https://filelions.online";    override val name = "FileLionsOnline"}
+open class AnimeFever      : VidHide() { override val mainUrl = "https://animefever.cc";       override val name = "AnimeFever"     }
+open class VidHideTo       : VidHide() { override val mainUrl = "https://vidhide.to";          override val name = "VidHideTo"      }
+
+// ── Vidmoly no-suffix variants ───────────────────────────────────────────────
+open class VidmolyCom      : Vidmoly() { override val mainUrl = "https://vidmoly.com";         override val name = "VidmolyCom"     }
+open class VidmolyTo       : Vidmoly() { override val mainUrl = "https://vidmoly.to";          override val name = "VidmolyTo"      }
+open class Vidmolyto       : Vidmoly() { override val mainUrl = "https://vidmoly.to";          override val name = "VidmolyTo"      }
+open class Vidmolycom      : Vidmoly() { override val mainUrl = "https://vidmoly.com";         override val name = "VidmolyCom"     }
+
+// ── MixDrop no-suffix / casing variants ──────────────────────────────────────
+open class Mixdrop         : MixDrop()
+open class Mixdroop        : MixDrop() { override val mainUrl = "https://mixdroop.bz"; override val name = "Mixdroop" }
+
+// ── StreamSB no-suffix variants ───────────────────────────────────────────────
+open class Cloudemb        : StreamSB() { override val mainUrl = "https://cloudemb.com"; override val name = "CloudEmb" }
+open class Sbplay          : StreamSB() { override val mainUrl = "https://sbplay.org";   override val name = "SbPlay"   }
+open class Sbplay2         : StreamSB() { override val mainUrl = "https://sbplay2.com";  override val name = "SbPlay2"  }
+open class SbVid           : StreamSB() { override val mainUrl = "https://sbvid.net";    override val name = "SbVid"    }
+
+// ── StreamTape no-suffix variants ─────────────────────────────────────────────
+open class Streamtape      : StreamTape()
+open class StreamtapeNet   : StreamTape() { override val mainUrl = "https://streamtape.net"; override val name = "StreamtapeNet" }
+open class StreamtapeXyz   : StreamTape() { override val mainUrl = "https://streamtape.xyz"; override val name = "StreamtapeXyz" }
+
+// ── VidSrc no-suffix / domain variants ───────────────────────────────────────
+open class VidSrcXyz       : VidSrcExtractor() { override val mainUrl = "https://vidsrc.xyz"; override val name = "VidSrcXyz" }
+open class VidSrcPm        : VidSrcExtractor() { override val mainUrl = "https://vidsrc.pm";  override val name = "VidSrcPm"  }
+open class VidSrcIn        : VidSrcExtractor() { override val mainUrl = "https://vidsrc.in";  override val name = "VidSrcIn"  }
+open class VidSrcMe        : VidSrcExtractor() { override val mainUrl = "https://vidsrc.me";  override val name = "VidSrcMe"  }
+open class VidSrcMeExtractor : VidSrcExtractor() { override val mainUrl = "https://vidsrc.me"; override val name = "VidSrcMe" }
+open class VidSrcNet       : VidSrcExtractor() { override val mainUrl = "https://vidsrc.net"; override val name = "VidSrcNet" }
+open class VidSrcCc        : VidSrcExtractor() { override val mainUrl = "https://vidsrc.cc";  override val name = "VidSrcCc"  }
+
+// ── Voe domain variants ───────────────────────────────────────────────────────
+open class VoeLa           : Voe() { override val mainUrl = "https://voe.la"  }
+open class VoeWtf          : Voe() { override val mainUrl = "https://voe.wtf" }
+open class VoeSx           : Voe() { override val mainUrl = "https://voe.sx"  }
+open class VoeBar          : Voe() { override val mainUrl = "https://voe.bar" }
+open class VoePub          : Voe() { override val mainUrl = "https://voe.pub" }
+open class VoeRun          : Voe() { override val mainUrl = "https://voe.run" }
+
+// ── Kwik variants ─────────────────────────────────────────────────────────────
+open class KwikE           : Kwik()
+open class KwikF           : Kwik()
+open class KwikCom         : Kwik() { override val mainUrl = "https://kwik.cx"; override val name = "KwikCx" }
+
+// ── Superembed / 2embed no-suffix variants ────────────────────────────────────
+open class Multiembed      : Superembed() { override val mainUrl = "https://multiembed.mov"; override val name = "MultiEmbed" }
+open class TwoEmbed        : Superembed() { override val mainUrl = "https://2embed.cc";      override val name = "2Embed"     }
+open class Twoembed        : Superembed() { override val mainUrl = "https://2embed.cc";      override val name = "2Embed"     }
+
+// ── Okru variants ─────────────────────────────────────────────────────────────
+open class Ok              : Okru() { override val mainUrl = "https://ok.ru"; override val name = "Ok" }
+
+// ── SendVid variants ──────────────────────────────────────────────────────────
+open class SendvidCom      : SendVid() { override val mainUrl = "https://sendvid.com"; override val name = "SendvidCom" }
+
+// ── M3u8 / GeneralM3u8 variants ───────────────────────────────────────────────
+open class M3u8            : GeneralM3u8Extractor()
+
+// ── Uqload / UpStream no-suffix ───────────────────────────────────────────────
+open class UpStream        : Uqload() { override val mainUrl = "https://upstream.to"; override val name = "UpStream" }
+open class UpRot           : Uqload() { override val mainUrl = "https://uprot.net";   override val name = "UpRot"    }
+open class UqloadCom       : Uqload() { override val mainUrl = "https://uqload.com";  override val name = "UqloadCom"}
+open class UqloadIo        : Uqload() { override val mainUrl = "https://uqload.io";   override val name = "UqloadIo" }
+
+// ── Vtube / Vtbe no-suffix ────────────────────────────────────────────────────
+open class VtbeTo          : Vtube() { override val mainUrl = "https://vtbe.to"; override val name = "VtbeTo" }
+open class VtCdnpro        : Vtube() { override val mainUrl = "https://vt.cdnpro.cc"; override val name = "VtCdnpro" }
+
+// ── Mp4Upload no-suffix ───────────────────────────────────────────────────────
+open class Mp4upload       : Mp4Upload()
+
+// ── VCloud no-suffix ──────────────────────────────────────────────────────────
+open class Vcloud          : VCloud()
+
+// =============================================================================
 // Registration of new extractors (aliases share the parent's mainUrl so they
 // don't need separate entries — plugins instantiate them directly by class name)
 // =============================================================================
