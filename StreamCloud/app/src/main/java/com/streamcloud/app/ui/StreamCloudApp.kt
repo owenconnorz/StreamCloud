@@ -68,6 +68,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import java.net.URLDecoder
@@ -133,6 +134,32 @@ fun StreamCloudApp() {
 
 
         middle + Tab.Settings
+    }
+
+    // Resolve the correct start destination ONCE — before the NavHost is created.
+    // We read the saved order directly from DataStore (one fast suspend call) so the
+    // NavHost is created with the right startDestination from the very first frame it
+    // appears, rather than always opening on Movies.
+    var resolvedStartRoute by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        val csv  = sl.settings.navTabOrderCsv.first()
+        val nsfw = sl.settings.nsfwEnabled.first()
+
+        val validRoutes = buildSet<String> {
+            add(Tab.Movies.route)
+            add(Tab.Music.route)
+            add(Tab.Library.route)
+            if (nsfw) add(Tab.Adult.route)
+        }
+
+        resolvedStartRoute = if (!csv.isNullOrBlank()) {
+            csv.split(",")
+                .map { it.trim() }
+                .firstOrNull { it in validRoutes }
+                ?: Tab.Movies.route
+        } else {
+            Tab.Movies.route
+        }
     }
 
     Scaffold(
@@ -224,9 +251,10 @@ fun StreamCloudApp() {
             Box(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxSize()) {
-                        NavHost(
+                        val startRoute = resolvedStartRoute
+                        if (startRoute != null) NavHost(
                 navController = nav,
-                startDestination = Tab.Movies.route,
+                startDestination = startRoute,
             ) {
                 composable(Tab.Movies.route) {
                     MoviesScreen(
