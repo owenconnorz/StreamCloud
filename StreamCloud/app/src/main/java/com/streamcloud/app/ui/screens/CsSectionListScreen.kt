@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -156,7 +157,7 @@ fun CsSectionListScreen(
                     }
                 }
                 else -> {
-                    items(items, key = { it.url }) { sr ->
+                    itemsIndexed(items, key = { i, sr -> "${i}_${sr.url}" }) { _, sr ->
                         Column(
                             Modifier
                                 .clip(RoundedCornerShape(12.dp))

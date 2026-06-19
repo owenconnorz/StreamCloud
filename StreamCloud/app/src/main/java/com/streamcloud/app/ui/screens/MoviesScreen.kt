@@ -181,7 +181,7 @@ fun MoviesScreen(
                                                         val p = entries[0].split("|||")
                                                         val iname = p.getOrNull(0) ?: ""
                                                         val sname = p.getOrNull(1) ?: ""
-                                                        val dname = p.getOrNull(2) ?: iname
+                                                        val dname = p.getOrNull(2)?.ifBlank { null } ?: iname
                                                         if (sname.isNotBlank()) onViewAllCsSection(iname, sname, dname)
                                                         else if (iname.isNotBlank()) onOpenCloudStreamPlugin(iname)
                                                     } else if (entries.size > 1) {

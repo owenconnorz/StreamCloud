@@ -116,13 +116,17 @@ class MoviesViewModel(
                 .collectLatest { loadCsPluginRows() }
         }
         viewModelScope.launch {
-            LibraryDb.get(appContext).userCollections().pinned().collectLatest { pinned ->
-                val rows = pinned.map { col ->
-                    val folders = LibraryDb.get(appContext).collectionFolders().forCollectionOnce(col.id)
-                    PinnedCollectionRow(col.id, col.name, folders)
+            try {
+                LibraryDb.get(appContext).userCollections().pinned().collectLatest { pinned ->
+                    try {
+                        val rows = pinned.map { col ->
+                            val folders = LibraryDb.get(appContext).collectionFolders().forCollectionOnce(col.id)
+                            PinnedCollectionRow(col.id, col.name, folders)
+                        }
+                        _state.update { it.copy(pinnedCollections = rows) }
+                    } catch (_: Throwable) {}
                 }
-                _state.update { it.copy(pinnedCollections = rows) }
-            }
+            } catch (_: Throwable) {}
         }
     }
 
