@@ -799,38 +799,43 @@ private fun PlayerSource.qualityScore(): Int {
 }
 
 private fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): PlayerSource {
-    // Stremio convention (used by Nuvio providers):
-    //   `name`  = "Torrentio\n1080p"  — first line is the extractor/source name,
-    //             optional second line is the quality label.
-    //   `title` = multi-line description with torrent title, seeds, size, provider.
+    // Nuvio / Stremio stream JSON conventions:
     //
-    // We build a rich label that mirrors what the Nuvio app itself shows: extractor
-    // name on the first line, full description below it.
-    val extractorName = name?.lines()?.firstOrNull { it.isNotBlank() }?.trim()
-    val description   = title?.takeIf { it.isNotBlank() }
-
+    //  Torrentio provider:
+    //    `name`  = "Torrentio\n1080p"   — provider name + quality on separate lines
+    //    `title` = "Master Of The Universe 2026 1080p WEB-DL HEVC x265 5.1 BONE
+    //               👤 2337 📁 1.06 GB ⚙ ThePirateBay"
+    //
+    //  All-in-One-Nuvio provider:
+    //    `name`  = "4KHDHub | 1080p | 13.52 GB"   — full descriptive label, no title
+    //    `title` = null
+    //
+    // Build a combined label: stream name first (preserving its internal newlines so
+    // e.g. "Torrentio" and "1080p" stay on separate lines), then the description
+    // below — matching what the Nuvio app itself renders per-card.
+    val cleanName = name?.trim()?.takeIf { it.isNotBlank() }
     val label = buildString {
-        if (!extractorName.isNullOrBlank()) append(extractorName)
-        if (!description.isNullOrBlank()) {
+        if (!cleanName.isNullOrBlank()) append(cleanName)
+        val desc = title?.trim()?.takeIf { it.isNotBlank() }
+        if (!desc.isNullOrBlank()) {
             if (isNotEmpty()) append("\n")
-            append(description)
+            append(desc)
         }
         if (isEmpty()) append("Stream")
     }
 
-    // Quality: explicit field, else try the second line of `name` (e.g., "1080p")
+    // Quality: use explicit field when present; fall back to the second line of
+    // `name` (Torrentio format: "Torrentio\n1080p").
     val qualityHint = quality?.takeIf { it.isNotBlank() }
         ?: name?.lines()?.drop(1)?.firstOrNull { it.isNotBlank() }?.trim()
 
-    // Filter-chip grouping: use the extractor name so the user sees "Torrentio",
-    // "RD+", etc. instead of the opaque provider package name.
-    val addonFilter = extractorName?.takeIf { it.isNotBlank() } ?: provider.name
-
+    // Filter chips must group by installed Nuvio provider, exactly matching what
+    // the Nuvio app shows ("Torrentio", "All-in-One-Nuvio" tabs).
     return PlayerSource(
         id = "nuvio::${provider.id}::${url.hashCode()}::${label.hashCode()}",
         url = url,
         label = label,
-        addonName = addonFilter,
+        addonName = provider.name,
         qualityTag = normaliseNuvioQuality(qualityHint),
         isMagnet = url.startsWith("magnet:"),
         headers = headers ?: emptyMap(),
