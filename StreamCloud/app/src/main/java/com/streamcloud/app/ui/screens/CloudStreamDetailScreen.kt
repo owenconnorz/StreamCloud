@@ -49,6 +49,31 @@ private val TextSecondary = Color(0xFFAA9B8A)
 private val SurfaceColor = Color(0xFF1E1710)
 private val DarkOverlay = Color(0xFF1A1108).copy(alpha = 0.7f)
 
+/**
+ * Converts a raw plugin error string into a concise, user-friendly message.
+ * Returns the original string for errors that don't match known patterns.
+ */
+private fun friendlyPluginError(raw: String?): String? {
+    if (raw.isNullOrBlank()) return null
+    return when {
+        "JsonSyntaxException" in raw || "BEGIN_OBJECT" in raw || "BEGIN_ARRAY" in raw ->
+            "Plugin received an unexpected response from its API — it may need updating."
+        "IncompatibleClassChangeError" in raw ->
+            "Plugin is incompatible with this version of StreamCloud."
+        "ClassNotFoundException" in raw || "NoClassDefFoundError" in raw ->
+            "Plugin is missing required components — try reinstalling it."
+        "SocketTimeoutException" in raw || "ConnectException" in raw ->
+            "Network timeout or connection error."
+        "UnknownHostException" in raw ->
+            "Could not reach the plugin's server — check your connection."
+        "SSLException" in raw || "SSLHandshakeException" in raw ->
+            "Secure connection failed. The plugin's server may be down."
+        "HTTP 4" in raw || "404" in raw ->
+            "The plugin's server returned an error."
+        else -> raw
+    }
+}
+
 private sealed class CsDetailState {
     data object Loading : CsDetailState()
     data class Error(val message: String) : CsDetailState()
@@ -152,22 +177,26 @@ fun CloudStreamDetailScreen(
                     resolveError = buildString {
                         append("No streams found")
                         if (!pluginDisplayName.isNullOrBlank()) append(" — $pluginDisplayName")
-                        if (!internalErr.isNullOrBlank()) append("\n\n$internalErr")
+                        val friendly = friendlyPluginError(internalErr)
+                        if (!friendly.isNullOrBlank()) append("\n$friendly")
                     }
                     return@launch
                 }
                 val sources = links.toPlayerSources(pluginDisplayName ?: pluginInternalName)
                 val sorted = sources.sortedByDescending { it.qualityScoreCs() }
                 val displayTitle = listOfNotNull(initialTitle, episodeTitle).joinToString(" · ")
+                val poster = (state as? CsDetailState.Ready)?.response?.posterUrl ?: initialPoster
                 val progressKey = WatchProgressKey(
                     tmdbId = -((pluginInternalName + "|" + url + "|" + (episodeTitle ?: "")).hashCode().toLong()),
                     title = displayTitle,
-                    posterUrl = (state as? CsDetailState.Ready)?.response?.posterUrl ?: initialPoster,
+                    posterUrl = poster,
                     mediaType = "movie",
+                    sourceRoute = "cs:$pluginInternalName|||$url|||$displayTitle|||${poster ?: ""}",
                 )
                 onPlay(sorted.first().url, displayTitle, sorted, progressKey)
             } catch (e: Throwable) {
-                resolveError = "Failed to load streams: ${e::class.simpleName}: ${e.message}"
+                val raw = "${e::class.simpleName}: ${e.message}"
+                resolveError = friendlyPluginError(raw) ?: "Failed to load streams: $raw"
             } finally {
                 resolving = false
             }

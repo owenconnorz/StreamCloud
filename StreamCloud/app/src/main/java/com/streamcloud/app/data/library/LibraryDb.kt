@@ -73,6 +73,9 @@ data class WatchProgressEntity(
     @ColumnInfo(name = "position_ms") val positionMs: Long,
     @ColumnInfo(name = "duration_ms") val durationMs: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
+    // For CloudStream movies, stores "cs:{plugin}|||{url}|||{title}|||{poster}"
+    // so Continue Watching can navigate back to the correct plugin screen.
+    @ColumnInfo(name = "source_route") val sourceRoute: String? = null,
 )
 
 @Dao
@@ -275,7 +278,7 @@ interface CollectionFolderDao {
         UserCollectionEntity::class,
         CollectionFolderEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -300,6 +303,12 @@ abstract class LibraryDb : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE collection_folders ADD COLUMN provider_type TEXT NOT NULL DEFAULT 'tmdb'"
                 )
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE watch_progress ADD COLUMN source_route TEXT")
             }
         }
 
@@ -337,7 +346,7 @@ abstract class LibraryDb : RoomDatabase() {
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
 }

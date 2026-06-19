@@ -81,6 +81,19 @@ fun MoviesScreen(
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
     var query by remember { mutableStateOf("") }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
+    val openCwEntry: (WatchProgressEntity) -> Unit = { entry ->
+        val sr = entry.sourceRoute
+        if (sr != null && sr.startsWith("cs:")) {
+            val parts = sr.removePrefix("cs:").split("|||", limit = 4)
+            val plugin = parts.getOrElse(0) { "" }
+            val url    = parts.getOrElse(1) { "" }
+            val name   = parts.getOrElse(2) { entry.title }
+            val poster = parts.getOrElse(3) { "" }.takeIf { it.isNotBlank() }
+            onOpenCsItem(plugin, url, name, poster)
+        } else {
+            if (entry.mediaType == "tv") onTvClick(entry.tmdbId) else onMovieClick(entry.tmdbId)
+        }
+    }
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -150,10 +163,7 @@ fun MoviesScreen(
                             items(state.continueWatching, key = { "cw_${it.tmdbId}" }) { entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
-                                    onClick = {
-                                        if (entry.mediaType == "tv") onTvClick(entry.tmdbId)
-                                        else onMovieClick(entry.tmdbId)
-                                    },
+                                    onClick = { openCwEntry(entry) },
                                     onLongPress = { cwSheetEntry = entry },
                                 )
                             }
@@ -410,16 +420,16 @@ fun MoviesScreen(
                     entry = cwEntry,
                     onGoToDetails = {
                         cwSheetEntry = null
-                        if (cwEntry.mediaType == "tv") onTvClick(cwEntry.tmdbId) else onMovieClick(cwEntry.tmdbId)
+                        openCwEntry(cwEntry)
                     },
                     onPlayManually = {
                         cwSheetEntry = null
-                        if (cwEntry.mediaType == "tv") onTvClick(cwEntry.tmdbId) else onMovieClick(cwEntry.tmdbId)
+                        openCwEntry(cwEntry)
                     },
                     onStartFromBeginning = {
                         cwSheetEntry = null
                         vm.resetWatchProgress(cwEntry.tmdbId)
-                        if (cwEntry.mediaType == "tv") onTvClick(cwEntry.tmdbId) else onMovieClick(cwEntry.tmdbId)
+                        openCwEntry(cwEntry)
                     },
                     onRemove = {
                         cwSheetEntry = null

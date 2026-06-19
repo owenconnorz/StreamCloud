@@ -72,4 +72,7 @@ data class WatchProgressKey(
     val title: String,
     val posterUrl: String?,
     val mediaType: String,
+    // Non-null for CloudStream items: "cs:{pluginInternalName}|||{url}|||{title}|||{poster}"
+    // Allows Continue Watching to navigate back to the plugin screen instead of TMDB.
+    val sourceRoute: String? = null,
 )
