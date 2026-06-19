@@ -81,6 +81,11 @@ object SettingsKeys {
     val SPOTIFY_USER_NAME = stringPreferencesKey("spotify_user_name")
 
     val CS_HOME_SECTIONS  = stringPreferencesKey("cs_home_sections")
+
+    val SMART_TRIMMER          = booleanPreferencesKey("smart_trimmer")
+    val VIDEO_CACHE_MAX_MB     = stringPreferencesKey("video_cache_max_mb")
+    val IMAGE_CACHE_MAX_MB     = stringPreferencesKey("image_cache_max_mb")
+    val POSTER_CACHE_MAX_COUNT = stringPreferencesKey("poster_cache_max_count")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -280,4 +285,14 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setCsHomeSections(sections: List<PinnedCsSection>) =
         context.dataStore.edit { it[SettingsKeys.CS_HOME_SECTIONS] = csHomeSectionsJson.encodeToString(sections) }
+
+    val smartTrimmer: Flow<Boolean>        = context.dataStore.data.map { it[SettingsKeys.SMART_TRIMMER] ?: false }
+    val videoCacheMaxMb: Flow<String>      = context.dataStore.data.map { it[SettingsKeys.VIDEO_CACHE_MAX_MB] ?: "unlimited" }
+    val imageCacheMaxMb: Flow<String>      = context.dataStore.data.map { it[SettingsKeys.IMAGE_CACHE_MAX_MB] ?: "unlimited" }
+    val posterCacheMaxCount: Flow<String>  = context.dataStore.data.map { it[SettingsKeys.POSTER_CACHE_MAX_COUNT] ?: "1024" }
+
+    suspend fun setSmartTrimmer(b: Boolean)        = context.dataStore.edit { it[SettingsKeys.SMART_TRIMMER] = b }
+    suspend fun setVideoCacheMaxMb(s: String)      = context.dataStore.edit { it[SettingsKeys.VIDEO_CACHE_MAX_MB] = s }
+    suspend fun setImageCacheMaxMb(s: String)      = context.dataStore.edit { it[SettingsKeys.IMAGE_CACHE_MAX_MB] = s }
+    suspend fun setPosterCacheMaxCount(s: String)  = context.dataStore.edit { it[SettingsKeys.POSTER_CACHE_MAX_COUNT] = s }
 }

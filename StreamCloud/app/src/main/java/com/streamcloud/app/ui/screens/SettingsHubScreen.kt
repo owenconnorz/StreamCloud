@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Layers
@@ -81,6 +82,8 @@ import androidx.compose.ui.unit.sp
 import com.streamcloud.app.BuildConfig
 import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.downloads.DownloadCaches
+import com.streamcloud.app.data.util.ThumbnailCache
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PinnedCsSection
@@ -89,7 +92,10 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.updater.UpdateChecker
 import com.streamcloud.app.data.updater.UpdateInfo
 import kotlinx.coroutines.flow.first
+import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val HubIconBg  = Color(0xFF1B2D52)
 private val HubIconFg  = Color(0xFF5B8DEF)
@@ -1110,6 +1116,82 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 onClick = onOpenCollections,
             )
         }
+    if (showVideoCachePicker) {
+        CacheSizeSheet(
+            title = "Max cache size",
+            options = listOf(
+                "disable" to "Disable",
+                "128" to "128 MB",
+                "256" to "256 MB",
+                "512" to "512 MB",
+                "1024" to "1 GB",
+                "2048" to "2 GB",
+                "4096" to "4 GB",
+                "8192" to "8 GB",
+                "unlimited" to "Unlimited",
+            ),
+            selected = videoCacheMaxMb,
+            onSelect = { v ->
+                videoCacheMaxMb = v
+                scope.launch {
+                    sl.settings.setVideoCacheMaxMb(v)
+                    val maxBytes = cacheMbToBytes(v).takeIf { it > 0 } ?: (8L * 1024 * 1024 * 1024)
+                    DownloadCaches.playerCacheMaxBytes = maxBytes
+                    DownloadCaches.releasePlayerCache()
+                }
+                showVideoCachePicker = false
+            },
+            onDismiss = { showVideoCachePicker = false },
+        )
+    }
+    if (showImageCachePicker) {
+        CacheSizeSheet(
+            title = "Max cache size",
+            options = listOf(
+                "disable" to "Disable",
+                "128" to "128 MB",
+                "256" to "256 MB",
+                "512" to "512 MB",
+                "1024" to "1 GB",
+                "2048" to "2 GB",
+                "4096" to "4 GB",
+                "8192" to "8 GB",
+                "unlimited" to "Unlimited",
+            ),
+            selected = imageCacheMaxMb,
+            onSelect = { v ->
+                imageCacheMaxMb = v
+                scope.launch {
+                    sl.settings.setImageCacheMaxMb(v)
+                    val maxBytes = cacheMbToBytes(v).takeIf { it > 0 } ?: Long.MAX_VALUE
+                    withContext(Dispatchers.IO) { ThumbnailCache.setMaxDiskBytes(context, maxBytes) }
+                    imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
+                }
+                showImageCachePicker = false
+            },
+            onDismiss = { showImageCachePicker = false },
+        )
+    }
+    if (showPosterCachePicker) {
+        CacheSizeSheet(
+            title = "Max cache size",
+            options = listOf(
+                "disable" to "Disable",
+                "64" to "64 items",
+                "128" to "128 items",
+                "256" to "256 items",
+                "512" to "512 items",
+                "1024" to "1024 items",
+            ),
+            selected = posterCacheMaxCount,
+            onSelect = { v ->
+                posterCacheMaxCount = v
+                scope.launch { sl.settings.setPosterCacheMaxCount(v) }
+                showPosterCachePicker = false
+            },
+            onDismiss = { showPosterCachePicker = false },
+        )
+    }
     }
 }
 
@@ -2085,6 +2167,124 @@ private fun LogsPage(onBack: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+private fun cacheMbToBytes(mb: String): Long = when (mb) {
+    "disable"   -> -1L
+    "unlimited" -> 0L
+    else        -> (mb.toLongOrNull() ?: 0L) * 1024L * 1024L
+}
+
+private fun cacheMbToLabel(mb: String): String = when (mb) {
+    "disable"   -> "Disable"
+    "unlimited" -> "Unlimited"
+    "128"       -> "128 MB"
+    "256"       -> "256 MB"
+    "512"       -> "512 MB"
+    "1024"      -> "1 GB"
+    "2048"      -> "2 GB"
+    "4096"      -> "4 GB"
+    "8192"      -> "8 GB"
+    else        -> mb
+}
+
+private fun posterCountToLabel(count: String): String = when (count) {
+    "disable" -> "Disable"
+    else      -> count.toLongOrNull()?.let { "$it items" } ?: count
+}
+
+@Composable
+private fun CacheChip(label: String) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CacheSizeSheet(
+    title: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        dragHandle = {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp, bottom = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
+                )
+            }
+        },
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 16.dp),
+        )
+        androidx.compose.foundation.lazy.LazyColumn(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.navigationBarsPadding(),
+        ) {
+            androidx.compose.foundation.lazy.items(options) { (value, label) ->
+                val isSelected = value == selected
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(50.dp))
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        )
+                        .clickable { onSelect(value) }
+                        .padding(vertical = 14.dp, horizontal = 20.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (isSelected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(16.dp)) }
         }
     }
 }
