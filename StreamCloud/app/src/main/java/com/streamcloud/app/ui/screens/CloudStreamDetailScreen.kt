@@ -557,11 +557,21 @@ private fun Episode.displayLabel(): String {
 private fun List<ExtractorLink>.toPlayerSources(pluginDisplayName: String): List<PlayerSource> =
     this.mapIndexedNotNull { idx, link ->
         if (link.url.isBlank()) return@mapIndexedNotNull null
+        // link.source = individual extractor name (e.g. "4KHDHub", "Vidcloud").
+        // link.name   = label set by plugin — often just the plugin display name;
+        //               richer extractors set it to full detail including server/quality.
+        // Always show at minimum the extractor name so users can tell sources apart.
+        val extractorName = link.source.takeIf { it.isNotBlank() } ?: pluginDisplayName
+        val label = when {
+            link.name.isBlank() -> extractorName
+            link.name.trim().equals(pluginDisplayName.trim(), ignoreCase = true) -> extractorName
+            else -> link.name
+        }
         PlayerSource(
             id = "cs::$pluginDisplayName::${link.url.hashCode()}::$idx",
             url = link.url,
-            label = link.name.ifBlank { link.source.ifBlank { "Stream" } },
-            addonName = link.source.ifBlank { pluginDisplayName },
+            label = label,
+            addonName = extractorName,
             qualityTag = qualityLabel(link.quality),
             isMagnet = link.url.startsWith("magnet:"),
             headers = buildMap {
