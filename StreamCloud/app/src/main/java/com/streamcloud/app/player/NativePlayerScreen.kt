@@ -354,6 +354,7 @@ fun NativePlayerScreen(
                                     positionMs = pos,
                                     durationMs = dur,
                                     updatedAt = System.currentTimeMillis(),
+                                    sourceRoute = progressKey.sourceRoute,
                                 ),
                             )
                     }
@@ -383,6 +384,7 @@ fun NativePlayerScreen(
                                                     positionMs = pos,
                                                     durationMs = dur,
                                                     updatedAt = System.currentTimeMillis(),
+                                                    sourceRoute = progressKey.sourceRoute,
                                                 ),
                                             )
                                         }
