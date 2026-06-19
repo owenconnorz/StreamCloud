@@ -75,9 +75,16 @@ open class SBPlay2                : StreamSB() { override val mainUrl = "https:/
 open class CloudembExtractor      : StreamSB() { override val mainUrl = "https://cloudemb.com";        override val name = "CloudEmb"     }
 
 // ── VidHide / FileLions family ────────────────────────────────────────────────
+// Note: real CloudStream API spells the class "Vidhide" (lowercase h).
+// Plugins compiled against it reference VidhideExtractor, not VidHideExtractor.
+// We keep both casings so both old and new plugins resolve correctly.
 open class VidHideExtractor       : VidHide()
+open class VidhideExtractor       : VidHide()   // lowercase h — real CloudStream API name
+open class Vidhide                : VidHide()   // base-class variant (lowercase h)
+open class VidhideTo              : VidHide() { override val mainUrl = "https://vidhide.to";            override val name = "VidhideTo"    }
 open class FileLionsExtractor     : VidHide() { override val mainUrl = "https://filelions.com";        override val name = "FileLions"    }
 open class FileLionsToExtractor   : VidHide() { override val mainUrl = "https://filelions.to";         override val name = "FileLionsTo"  }
+open class FilelionsExtractor     : VidHide() { override val mainUrl = "https://filelions.com";        override val name = "FileLions"    }
 open class AnimeFeverExtractor    : VidHide() { override val mainUrl = "https://animefever.cc";        override val name = "AnimeFever"   }
 
 // ── Vidmoly ───────────────────────────────────────────────────────────────────
