@@ -1104,11 +1104,36 @@ open class Vidmolycom      : Vidmoly() { override val mainUrl = "https://vidmoly
 open class Mixdrop         : MixDrop()
 open class Mixdroop        : MixDrop() { override val mainUrl = "https://mixdroop.bz"; override val name = "Mixdroop" }
 
-// ── StreamSB no-suffix variants ───────────────────────────────────────────────
+// ── StreamSB numbered variants (real CloudStream API names them StreamSB1-N) ──
+// Plugin compiled against real API references StreamSB1..StreamSB8+ by name.
+open class StreamSB1       : StreamSB() { override val mainUrl = "https://sbplay.org";    override val name = "StreamSB1"  }
+open class StreamSB2       : StreamSB() { override val mainUrl = "https://sbplay2.com";   override val name = "StreamSB2"  }
+open class StreamSB3       : StreamSB() { override val mainUrl = "https://sbvid.net";     override val name = "StreamSB3"  }
+open class StreamSB4       : StreamSB() { override val mainUrl = "https://sblongvu.com";  override val name = "StreamSB4"  }
+open class StreamSB5       : StreamSB() { override val mainUrl = "https://cloudemb.com";  override val name = "StreamSB5"  }
+open class StreamSB6       : StreamSB() { override val mainUrl = "https://sbthe.com";     override val name = "StreamSB6"  }
+open class StreamSB7       : StreamSB() { override val mainUrl = "https://sbchill.com";   override val name = "StreamSB7"  }
+open class StreamSB8       : StreamSB() { override val mainUrl = "https://sbface.com";    override val name = "StreamSB8"  }
+open class StreamSB9       : StreamSB() { override val mainUrl = "https://sblanh.com";    override val name = "StreamSB9"  }
+open class StreamSB10      : StreamSB() { override val mainUrl = "https://sbanseh.com";   override val name = "StreamSB10" }
+open class StreamSB11      : StreamSB() { override val mainUrl = "https://sbrity.com";    override val name = "StreamSB11" }
+open class StreamSB12      : StreamSB() { override val mainUrl = "https://sbvier.com";    override val name = "StreamSB12" }
+open class StreamSB13      : StreamSB() { override val mainUrl = "https://sbspeed.com";   override val name = "StreamSB13" }
+
+// ── StreamSB no-suffix / named variants ───────────────────────────────────────
 open class Cloudemb        : StreamSB() { override val mainUrl = "https://cloudemb.com"; override val name = "CloudEmb" }
 open class Sbplay          : StreamSB() { override val mainUrl = "https://sbplay.org";   override val name = "SbPlay"   }
 open class Sbplay2         : StreamSB() { override val mainUrl = "https://sbplay2.com";  override val name = "SbPlay2"  }
 open class SbVid           : StreamSB() { override val mainUrl = "https://sbvid.net";    override val name = "SbVid"    }
+open class SbLongVu        : StreamSB() { override val mainUrl = "https://sblongvu.com"; override val name = "SbLongVu" }
+open class SbThe           : StreamSB() { override val mainUrl = "https://sbthe.com";    override val name = "SbThe"    }
+open class SbChill         : StreamSB() { override val mainUrl = "https://sbchill.com";  override val name = "SbChill"  }
+open class SbFace          : StreamSB() { override val mainUrl = "https://sbface.com";   override val name = "SbFace"   }
+open class SbLanh          : StreamSB() { override val mainUrl = "https://sblanh.com";   override val name = "SbLanh"   }
+open class SbAnseh         : StreamSB() { override val mainUrl = "https://sbanseh.com";  override val name = "SbAnseh"  }
+open class SbRity          : StreamSB() { override val mainUrl = "https://sbrity.com";   override val name = "SbRity"   }
+open class SbVier          : StreamSB() { override val mainUrl = "https://sbvier.com";   override val name = "SbVier"   }
+open class SbSpeed         : StreamSB() { override val mainUrl = "https://sbspeed.com";  override val name = "SbSpeed"  }
 
 // ── StreamTape no-suffix variants ─────────────────────────────────────────────
 open class Streamtape      : StreamTape()
