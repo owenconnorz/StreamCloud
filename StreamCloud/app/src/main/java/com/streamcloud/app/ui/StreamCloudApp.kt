@@ -181,61 +181,7 @@ fun StreamCloudApp() {
             .background(MaterialTheme.colorScheme.background),
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         contentWindowInsets = WindowInsets(0),
-        bottomBar = {
-            val showBar = currentRoute == null || tabs.any { it.route == currentRoute }
-
-
-            val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
-            if (!useRail && (showBar || showMiniPlayer)) {
-                Column {
-
-                    if (showMiniPlayer) {
-                        com.streamcloud.app.ui.player.GlobalMiniPlayer(
-                            onExpand = {
-                                com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
-                            },
-                        )
-                    }
-
-
-
-
-
-                    if (showBar) Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 10.dp,
-                            tonalElevation = 4.dp,
-                        ) {
-                            Row(
-                                Modifier
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                tabs.forEach { tab ->
-                                    val selected = currentRoute == tab.route
-                                    ScrollableNavBarItem(
-                                        icon = tab.icon,
-                                        label = tab.label,
-                                        selected = selected,
-                                        onClick = { navigateToTab(nav, tab.route) },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        bottomBar = {},
     ) { padding ->
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
         val showRail = useRail &&
@@ -872,6 +818,56 @@ fun StreamCloudApp() {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                             },
                         )
+                    }
+                }
+
+                // Floating pills — no solid container, float over content
+                if (!useRail && (showMiniPlayer || currentRoute == null || tabs.any { it.route == currentRoute })) {
+                    Column(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
+                    ) {
+                        if (showMiniPlayer) {
+                            com.streamcloud.app.ui.player.GlobalMiniPlayer(
+                                onExpand = {
+                                    com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
+                                },
+                            )
+                        }
+                        val showBar = currentRoute == null || tabs.any { it.route == currentRoute }
+                        if (showBar) Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                                .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.surface,
+                                shadowElevation = 10.dp,
+                                tonalElevation = 4.dp,
+                            ) {
+                                Row(
+                                    Modifier
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    tabs.forEach { tab ->
+                                        val selected = currentRoute == tab.route
+                                        ScrollableNavBarItem(
+                                            icon = tab.icon,
+                                            label = tab.label,
+                                            selected = selected,
+                                            onClick = { navigateToTab(nav, tab.route) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
