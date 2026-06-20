@@ -76,6 +76,17 @@ fun LibraryScreen(
     val dao = remember { LibraryDb.get(context).tracks() }
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
+    val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
+    val playlistThumbs = remember(playlistThumbsJson) {
+        playlistThumbsJson
+            .removePrefix("{").removeSuffix("}")
+            .split(",").filter { it.isNotBlank() }
+            .mapNotNull {
+                val parts = it.split(":", limit = 2)
+                if (parts.size != 2) null
+                else parts[0].trim().trim('"') to parts[1].trim().trim('"')
+            }.toMap()
+    }
     val scope = rememberCoroutineScope()
 
 
@@ -343,6 +354,7 @@ fun LibraryScreen(
                         items(localPlaylists, key = { "lp_${it.id}" }) { pl ->
                             LocalPlaylistGridTile(
                                 name = pl.name,
+                                customThumb = playlistThumbs[pl.id.toString()],
                                 onDelete = {
                                     scope.launch {
                                         val dao = LibraryDb.get(context).localPlaylists()
@@ -361,7 +373,7 @@ fun LibraryScreen(
                             }
                         }
                         items(ytLibrary.playlists, key = { "yp_${it.id}" }) { pl ->
-                            YtPlaylistTile(pl) { onOpenPlaylist(pl.id, pl.title) }
+                            YtPlaylistTile(pl, customThumb = playlistThumbs[pl.id]) { onOpenPlaylist(pl.id, pl.title) }
                         }
                     }
                     LibTab.Albums -> {
@@ -728,6 +740,7 @@ private fun LocalSystemTile(
 @Composable
 private fun LocalPlaylistGridTile(
     name: String,
+    customThumb: String?,
     onDelete: () -> Unit,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -755,12 +768,21 @@ private fun LocalPlaylistGridTile(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                Icons.Default.PlaylistPlay,
-                contentDescription = name,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(48.dp),
-            )
+            if (!customThumb.isNullOrBlank()) {
+                AsyncImage(
+                    model = android.net.Uri.parse(customThumb),
+                    contentDescription = name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Default.PlaylistPlay,
+                    contentDescription = name,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(48.dp),
+                )
+            }
             IconButton(
                 onClick = { showDeleteConfirm = true },
                 modifier = Modifier
@@ -804,18 +826,37 @@ private fun MosaicCell(url: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun YtPlaylistTile(pl: YtmPlaylist, onClick: () -> Unit) {
+private fun YtPlaylistTile(pl: YtmPlaylist, customThumb: String? = null, onClick: () -> Unit) {
+    val thumbModel: Any? = when {
+        !customThumb.isNullOrBlank() -> android.net.Uri.parse(customThumb)
+        !pl.thumbnail.isNullOrBlank() -> pl.thumbnail
+        else -> null
+    }
     Column(Modifier.clickable(onClick = onClick)) {
-        AsyncImage(
-            model = pl.thumbnail,
-            contentDescription = pl.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
+        Box(
+            Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(16.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
+            contentAlignment = Alignment.Center,
+        ) {
+            if (thumbModel != null) {
+                AsyncImage(
+                    model = thumbModel,
+                    contentDescription = pl.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Default.PlaylistPlay,
+                    contentDescription = pl.title,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(48.dp),
+                )
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             pl.title,
