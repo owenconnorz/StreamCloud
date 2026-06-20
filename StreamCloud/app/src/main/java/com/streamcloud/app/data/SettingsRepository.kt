@@ -76,6 +76,7 @@ object SettingsKeys {
     val POSTER_STYLE = stringPreferencesKey("poster_style")
 
     val DYNAMIC_MINI_PLAYER_THEME = booleanPreferencesKey("dynamic_mini_player_theme")
+    val NAV_LABELS                = booleanPreferencesKey("nav_labels")
 
     val SPOTIFY_COOKIE    = stringPreferencesKey("spotify_cookie")
     val SPOTIFY_USER_NAME = stringPreferencesKey("spotify_user_name")
@@ -306,6 +307,10 @@ class SettingsRepository(private val context: Context) {
     val dynamicMiniPlayerTheme: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.DYNAMIC_MINI_PLAYER_THEME] ?: true }
 
     suspend fun setDynamicMiniPlayerTheme(b: Boolean) = context.dataStore.edit { it[SettingsKeys.DYNAMIC_MINI_PLAYER_THEME] = b }
+
+    val navLabels: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NAV_LABELS] ?: true }
+
+    suspend fun setNavLabels(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NAV_LABELS] = b }
 
 
     val spotifyCookie: Flow<String>    = context.dataStore.data.map { it[SettingsKeys.SPOTIFY_COOKIE]    ?: "" }

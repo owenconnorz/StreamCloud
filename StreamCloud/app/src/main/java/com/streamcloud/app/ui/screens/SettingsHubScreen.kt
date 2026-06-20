@@ -151,6 +151,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var newMiniPlayer       by remember { mutableStateOf(true) }
     var pureBlackMiniPlayer by remember { mutableStateOf(false) }
     var dynamicMiniTheme    by remember { mutableStateOf(true) }
+    var navLabels           by remember { mutableStateOf(true) }
     var newPlayerDesign     by remember { mutableStateOf(true) }
     var skipSilence         by remember { mutableStateOf(false) }
     var keepScreenOn        by remember { mutableStateOf(false) }
@@ -217,6 +218,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         newMiniPlayer       = sl.settings.newMiniPlayerDesign.first()
         pureBlackMiniPlayer = sl.settings.pureBlackMiniPlayer.first()
         dynamicMiniTheme    = sl.settings.dynamicMiniPlayerTheme.first()
+        navLabels           = sl.settings.navLabels.first()
         newPlayerDesign     = sl.settings.newPlayerDesign.first()
         skipSilence         = sl.settings.skipSilence.first()
         keepScreenOn        = sl.settings.keepScreenOn.first()
@@ -459,6 +461,14 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                         subtitle = "Tint the mini-player background and progress ring with album art colours",
                         checked = dynamicMiniTheme,
                         onChange = { dynamicMiniTheme = it; scope.launch { sl.settings.setDynamicMiniPlayerTheme(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Label, tint = ColourAppearance,
+                        title = "Navigation labels",
+                        subtitle = "Show text labels below icons in the navigation bar",
+                        checked = navLabels,
+                        onChange = { navLabels = it; scope.launch { sl.settings.setNavLabels(it) } },
                     )
                 }
                 Spacer(Modifier.height(16.dp))
