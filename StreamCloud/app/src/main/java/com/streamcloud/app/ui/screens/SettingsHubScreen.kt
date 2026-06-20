@@ -1392,7 +1392,8 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

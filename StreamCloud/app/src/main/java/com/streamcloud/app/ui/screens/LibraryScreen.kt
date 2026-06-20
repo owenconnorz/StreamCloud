@@ -177,11 +177,11 @@ fun LibraryScreen(
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Spacer(Modifier.height(12.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 14.dp),
+                .statusBarsPadding()
+                .padding(start = 20.dp, top = 8.dp, end = 14.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
