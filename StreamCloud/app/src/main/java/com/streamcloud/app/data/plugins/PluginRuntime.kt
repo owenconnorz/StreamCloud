@@ -107,43 +107,56 @@ object PluginRuntime {
                     }
                 }
                 else -> {
-                    // instanceof failed — may be a classloader mismatch where the plugin's
-                    // Plugin/MainAPI was loaded by a different classloader than ours.
-                    // Walk the superclass chain by name as a last resort.
+                    // instanceof failed — classloader mismatch: the plugin's Plugin/MainAPI was
+                    // resolved from its own dex rather than from our app's class hierarchy.
+                    // Strategy 1: walk the superclass chain by name and reload with fallbackParent.
                     val hierarchy = generateSequence(rawInstance::class.java as Class<*>?) { it.superclass }
                         .map { it.name }
                         .toList()
-                    when {
-                        "com.lagradost.cloudstream3.plugins.Plugin" in hierarchy -> {
-                            // Plugin by name — reload via fallbackParent so our Plugin resolves
-                            val fallback = DexClassLoader(
-                                readOnlyFile.absolutePath, optimizedDir.absolutePath,
-                                null, fallbackParent
-                            )
-                            runCatching {
-                                fallback.loadClass(pluginClassName)
-                                    .getDeclaredConstructor().newInstance() as? Plugin
-                            }.getOrNull()
-                                ?: error("Class `$pluginClassName` detected as Plugin by name but cast failed")
-                        }
-                        "com.lagradost.cloudstream3.MainAPI" in hierarchy -> {
-                            // MainAPI by name — reload via fallbackParent so our MainAPI resolves
-                            val fallback = DexClassLoader(
-                                readOnlyFile.absolutePath, optimizedDir.absolutePath,
-                                null, fallbackParent
-                            )
-                            val inst = runCatching {
-                                fallback.loadClass(pluginClassName).getDeclaredConstructor().newInstance()
-                            }.getOrElse { e ->
-                                error("Class `$pluginClassName` reload via fallback failed: ${e::class.simpleName}: ${e.message}")
+
+                    // Helper: reload the class under a given parent and return a wrapped Plugin.
+                    fun reloadAsPlugin(parent: ClassLoader): Plugin? {
+                        val reloaded = runCatching {
+                            DexClassLoader(readOnlyFile.absolutePath, optimizedDir.absolutePath, null, parent)
+                                .loadClass(pluginClassName).getDeclaredConstructor().newInstance()
+                        }.getOrNull() ?: return null
+                        return when {
+                            reloaded is Plugin -> reloaded
+                            reloaded is MainAPI -> object : Plugin() {
+                                override fun load(ctx: android.content.Context) { registerMainAPI(reloaded) }
                             }
-                            (inst as? MainAPI)?.let { api ->
-                                object : Plugin() {
-                                    override fun load(ctx: android.content.Context) { registerMainAPI(api) }
-                                }
-                            } ?: error("Class `$pluginClassName` detected as MainAPI by name but cast failed via fallback")
+                            else -> null
                         }
-                        else -> error("Class `$pluginClassName` is not a subclass of `Plugin` or `MainAPI`")
+                    }
+
+                    // Strategy 2: the class's OWN classloader may hold a copy of Plugin —
+                    // check membership there, then reload via our fallbackParent so the cast works.
+                    fun resolveViaOwnClassloader(): Plugin? {
+                        val ownCL = rawInstance::class.java.classLoader ?: return null
+                        val pluginInOwnCL = runCatching {
+                            ownCL.loadClass("com.lagradost.cloudstream3.plugins.Plugin")
+                        }.getOrNull()
+                        val mainApiInOwnCL = runCatching {
+                            ownCL.loadClass("com.lagradost.cloudstream3.MainAPI")
+                        }.getOrNull()
+                        return when {
+                            pluginInOwnCL?.isInstance(rawInstance) == true -> reloadAsPlugin(fallbackParent)
+                            mainApiInOwnCL?.isInstance(rawInstance) == true -> reloadAsPlugin(fallbackParent)
+                            else -> null
+                        }
+                    }
+
+                    when {
+                        "com.lagradost.cloudstream3.plugins.Plugin" in hierarchy ->
+                            reloadAsPlugin(fallbackParent)
+                                ?: error("Class `$pluginClassName` detected as Plugin by name but cast failed")
+
+                        "com.lagradost.cloudstream3.MainAPI" in hierarchy ->
+                            reloadAsPlugin(fallbackParent)
+                                ?: error("Class `$pluginClassName` detected as MainAPI by name but cast failed")
+
+                        else -> resolveViaOwnClassloader()
+                            ?: error("Class `$pluginClassName` is not a subclass of `Plugin` or `MainAPI`")
                     }
                 }
             }
@@ -281,18 +294,26 @@ object PluginRuntime {
         } catch (_: Throwable) { null }
     }
 
-    /** Extracts the classes.dex from the .cs3 ZIP and parses its string table for class names. */
+    /**
+     * Extracts all classes*.dex entries from the .cs3 ZIP (multi-dex aware) and
+     * returns the union of class names found in each DEX's string table.
+     */
     private fun readDexClassNamesFromZip(cs3File: File): List<String> {
         return try {
-            var dexBytes: ByteArray? = null
+            val result = mutableListOf<String>()
             ZipInputStream(cs3File.inputStream().buffered()).use { zis ->
                 var entry = zis.nextEntry
                 while (entry != null) {
-                    if (entry.name == "classes.dex") { dexBytes = zis.readBytes(); break }
-                    zis.closeEntry(); entry = zis.nextEntry
+                    // Match classes.dex, classes2.dex, classes3.dex, etc.
+                    if (entry.name.matches(Regex("classes\\d*\\.dex"))) {
+                        result += parseDexTypeDescriptors(zis.readBytes())
+                    } else {
+                        zis.closeEntry()
+                    }
+                    entry = zis.nextEntry
                 }
             }
-            parseDexTypeDescriptors(dexBytes ?: return emptyList())
+            result.distinct()
         } catch (_: Throwable) { emptyList() }
     }
 
@@ -319,8 +340,11 @@ object PluginRuntime {
                 if (pos >= dex.size || dex[pos].toInt().toChar() != 'L') return@repeat
                 // Scan to terminating ';'
                 val end = dex.indexOf(';'.code.toByte(), pos)
-                if (end < 0 || !dex.slice(pos until end).any { it == '/'.code.toByte() }) return@repeat
-                val descriptor = String(dex, pos, end - pos, Charsets.UTF_8)
+                // pos points at 'L'; skip it — class name is pos+1 .. end-1
+                if (end < 0 || end <= pos + 1) return@repeat
+                if (!dex.slice(pos + 1 until end).any { it == '/'.code.toByte() }) return@repeat
+                // Convert Lcom/example/ClassName to com.example.ClassName (strip L, replace /)
+                val descriptor = String(dex, pos + 1, end - pos - 1, Charsets.UTF_8)
                 result.add(descriptor.replace('/', '.'))
             }
             result.distinct()
