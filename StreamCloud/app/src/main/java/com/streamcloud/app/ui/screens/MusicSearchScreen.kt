@@ -118,7 +118,7 @@ fun MusicSearchScreen(
         LazyColumn(
             contentPadding = PaddingValues(
                 top = padding.calculateTopPadding() + 4.dp,
-                bottom = 80.dp,
+                bottom = padding.calculateBottomPadding() + 8.dp,
             ),
             modifier = Modifier.fillMaxSize(),
         ) {

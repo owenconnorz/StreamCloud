@@ -118,7 +118,7 @@ private fun ArtistPageContent(
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 120.dp),
+        contentPadding = PaddingValues(bottom = 8.dp),
     ) {
 
         // ── Hero: extends behind status bar ──

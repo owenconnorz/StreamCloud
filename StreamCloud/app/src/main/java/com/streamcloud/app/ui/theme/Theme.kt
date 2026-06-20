@@ -150,21 +150,15 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
 
     val colors = when {
 
-        // Android 12+ Material You wallpaper-based dynamic colours
-        dynamicEnabled && supportsDynamic -> {
-            if (useDark) dynamicDarkColorScheme(context)
-            else         dynamicLightColorScheme(context)
-        }
-
-        // Album-art extracted palette — only when dynamic theme is ON and artwork is available
-        dynamicEnabled && useDark && hasArtwork -> {
+        // Album-art extracted palette — highest priority when dynamic theme is ON and artwork exists
+        dynamicEnabled && hasArtwork -> {
             val accent    = albumArtAccent   // vivid, already HSL-boosted by AlbumArtThemeBus
             val secondary = albumArtSecond   // same hue, darker/more muted
 
-            // Subtle tint on backgrounds so the whole UI feels cohesive
-            val tintedBg      = lerp(Color(0xFF0A0A0A), accent, 0.08f)
-            val tintedSurface = lerp(Color(0xFF141414), accent, 0.10f)
-            val tintedVariant = lerp(Color(0xFF1E1E1E), accent, 0.13f)
+            // Strong tint on backgrounds so the whole UI reflects the album palette
+            val tintedBg      = lerp(Color(0xFF0A0A0A), accent, 0.18f)
+            val tintedSurface = lerp(Color(0xFF141414), accent, 0.22f)
+            val tintedVariant = lerp(Color(0xFF1E1E1E), accent, 0.28f)
 
             // onPrimary: use black for light accent, white for dark accent
             val onPrimary = if (accent.luminance() > 0.4f) Color.Black else Color.White
@@ -172,11 +166,11 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
             AioColors.copy(
                 primary              = accent,
                 onPrimary            = onPrimary,
-                primaryContainer     = lerp(Color.Black, accent, 0.30f),
+                primaryContainer     = lerp(Color.Black, accent, 0.35f),
                 onPrimaryContainer   = accent,
                 secondary            = secondary,
                 onSecondary          = onPrimary,
-                secondaryContainer   = lerp(Color.Black, secondary, 0.35f),
+                secondaryContainer   = lerp(Color.Black, secondary, 0.40f),
                 onSecondaryContainer = secondary,
                 tertiary             = lerp(accent, secondary, 0.45f),
                 onTertiary           = onPrimary,
@@ -186,9 +180,16 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
                 onSurface            = TextPrimary,
                 surfaceVariant       = tintedVariant,
                 onSurfaceVariant     = TextSecondary,
+                outline              = lerp(Outline, accent, 0.25f),
+                outlineVariant       = lerp(Outline, accent, 0.15f),
             )
         }
 
+        // Android 12+ Material You wallpaper-based dynamic colours (fallback when no artwork)
+        dynamicEnabled && supportsDynamic -> {
+            if (useDark) dynamicDarkColorScheme(context)
+            else         dynamicLightColorScheme(context)
+        }
 
         !useDark -> AioLightColors
         else -> {
