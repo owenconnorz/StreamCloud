@@ -80,6 +80,7 @@ fun MoviesScreen(
     val settingsRepo = remember { SettingsRepository(context) }
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
     var query by remember { mutableStateOf("") }
+    var searchExpanded by remember { mutableStateOf(false) }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
     val openCwEntry: (WatchProgressEntity) -> Unit = { entry ->
         val sr = entry.sourceRoute
@@ -103,20 +104,25 @@ fun MoviesScreen(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
-            item { MoviesHeader(onProfileClick = onProfileClick, onOpenCollections = onOpenCollections) }
             item {
-                MoviesSearchField(
-                    query = query,
-                    loading = state.loading,
-                    onQueryChange = { query = it; vm.search(it) },
+                MoviesHeader(
+                    onProfileClick = onProfileClick,
+                    onOpenCollections = onOpenCollections,
+                    searchExpanded = searchExpanded,
+                    onSearchToggle = {
+                        searchExpanded = !searchExpanded
+                        if (!searchExpanded) { query = ""; vm.search("") }
+                    },
+                    plugins = state.installedPlugins,
+                    onPluginOpen = onOpenCloudStreamPlugin,
                 )
             }
-
-            if (state.installedPlugins.isNotEmpty()) {
+            if (searchExpanded) {
                 item {
-                    CloudStreamChipsRow(
-                        plugins = state.installedPlugins,
-                        onOpen = onOpenCloudStreamPlugin,
+                    MoviesSearchField(
+                        query = query,
+                        loading = state.loading,
+                        onQueryChange = { query = it; vm.search(it) },
                     )
                 }
             }
@@ -464,26 +470,89 @@ fun MoviesScreen(
 }
 
 @Composable
-private fun MoviesHeader(onProfileClick: () -> Unit, onOpenCollections: () -> Unit = {}) {
+private fun MoviesHeader(
+    onProfileClick: () -> Unit,
+    onOpenCollections: () -> Unit = {},
+    searchExpanded: Boolean = false,
+    onSearchToggle: () -> Unit = {},
+    plugins: List<InstalledPlugin> = emptyList(),
+    onPluginOpen: (String) -> Unit = {},
+) {
+    var pluginMenuOpen by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, top = 16.dp, end = 14.dp, bottom = 8.dp),
+            .padding(start = 20.dp, top = 12.dp, end = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                "Discover",
-                style = MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Black,
-            )
-            Text(
-                "Movies, series, addons — all in one place",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Text(
+            "StreamCloud",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+
+        IconButton(onClick = onSearchToggle) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = "Search",
+                tint = if (searchExpanded) MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onBackground,
             )
         }
+
+        if (plugins.isNotEmpty()) {
+            Box {
+                IconButton(onClick = { pluginMenuOpen = true }) {
+                    Icon(
+                        Icons.Default.Extension,
+                        contentDescription = "Switch Plugin",
+                        tint = MaterialTheme.colorScheme.onBackground,
+                    )
+                }
+                DropdownMenu(
+                    expanded = pluginMenuOpen,
+                    onDismissRequest = { pluginMenuOpen = false },
+                ) {
+                    plugins.forEach { p ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    p.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            },
+                            onClick = {
+                                pluginMenuOpen = false
+                                onPluginOpen(p.internalName)
+                            },
+                            leadingIcon = {
+                                if (!p.iconUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = p.iconUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(RoundedCornerShape(4.dp)),
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.Extension,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = Color(0xFF7C5CFF),
+                                    )
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
         com.streamcloud.app.ui.components.ProfileButton(onClick = onProfileClick)
     }
 }
@@ -640,62 +709,6 @@ private fun MoviesSearchField(query: String, loading: Boolean, onQueryChange: (S
     )
 }
 
-@Composable
-private fun CloudStreamChipsRow(
-    plugins: List<InstalledPlugin>,
-    onOpen: (String) -> Unit,
-) {
-    Column {
-        Text(
-            "CloudStream plugins",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp),
-        )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(plugins, key = { "pl_${it.internalName}" }) { p ->
-                PluginChip(label = p.name, logoUrl = p.iconUrl, onClick = { onOpen(p.internalName) })
-            }
-        }
-    }
-}
-
-@Composable
-private fun PluginChip(label: String, logoUrl: String?, onClick: () -> Unit) {
-    val brand = Color(0xFF7C5CFF)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-    ) {
-        if (!logoUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = logoUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.size(18.dp).clip(RoundedCornerShape(4.dp)),
-            )
-        } else {
-            Icon(
-                Icons.Default.Extension, null,
-                tint = brand,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
 
 @Composable
 private fun NoticeBanner(text: String, onDismiss: () -> Unit) {
