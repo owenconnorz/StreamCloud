@@ -22,15 +22,26 @@ import java.util.concurrent.TimeUnit
 // Declaring it as a class causes IncompatibleClassChangeError at runtime.
 //
 // The real CloudStream NiceHTTP declares TWO methods on this interface:
-//   parse(String, KClass<T>): T?      — used by most plugins (invokeinterface descriptor)
-//   parseSafe(String, KClass<T>): T?  — legacy / null-returning fallback
-// Both must exist here so plugins compiled against either API version work.
+//   parse(String, KClass<T>): T?      — used by most plugins; throws on failure
+//   parseSafe(String, KClass<T>): T?  — null-returning fallback
+// Both delegate to Jackson so plugins actually receive deserialized objects.
 interface ResponseParser {
-    fun <T : Any> parse(json: String, klass: kotlin.reflect.KClass<T>): T? = null
-    fun <T : Any> parseSafe(json: String, klass: kotlin.reflect.KClass<T>): T? = null
+    fun <T : Any> parse(json: String, klass: kotlin.reflect.KClass<T>): T?
+    fun <T : Any> parseSafe(json: String, klass: kotlin.reflect.KClass<T>): T?
 }
 
-private object NoOpResponseParser : ResponseParser
+private object DefaultResponseParser : ResponseParser {
+    override fun <T : Any> parse(json: String, klass: kotlin.reflect.KClass<T>): T? =
+        runCatching { jacksonMapper.readValue(json, klass.java) }.getOrNull()
+    override fun <T : Any> parseSafe(json: String, klass: kotlin.reflect.KClass<T>): T? =
+        runCatching { jacksonMapper.readValue(json, klass.java) }.getOrNull()
+}
+
+@Deprecated("Use DefaultResponseParser")
+private object NoOpResponseParser : ResponseParser {
+    override fun <T : Any> parse(json: String, klass: kotlin.reflect.KClass<T>): T? = null
+    override fun <T : Any> parseSafe(json: String, klass: kotlin.reflect.KClass<T>): T? = null
+}
 
 object Requests {
 
@@ -254,7 +265,7 @@ class NiceResponse(
     val headers: Map<String, List<String>>,
     val url: String,
     val error: Throwable? = null,
-    val parser: ResponseParser = NoOpResponseParser,
+    val parser: ResponseParser = DefaultResponseParser,
 ) {
     val ok: Boolean get() = code in 200..299
     val isSuccessful: Boolean get() = ok
@@ -274,6 +285,12 @@ class NiceResponse(
     inline fun <reified T> parsedSafe(): T? = try {
         jacksonMapper.readValue<T>(text)
     } catch (_: Exception) { null }
+
+    // Typed overload matching the real NiceHTTP API:
+    //   fun <T : Any> NiceResponse.parsedSafe(klass: KClass<T>): T?
+    // Plugins compiled against that overload call this at runtime.
+    fun <T : Any> parsedSafe(klass: kotlin.reflect.KClass<T>): T? =
+        parser.parseSafe(text, klass)
 
     // Kotlin generates getOkhttpResponse() as the JVM getter for this property.
     // Plugins compiled against the real nicehttp library call getOkhttpResponse() to get

@@ -173,17 +173,42 @@ object PluginRuntime {
 
                     // Strategy 4 (last resort): reflection bridge.
                     // If EVERY instanceof check fails regardless of classloader, duck-type the
-                    // class: call load(Context) via reflection, then harvest its `apis` list via
-                    // the field reference.  Any api that IS our MainAPI gets registered; others
-                    // are silently ignored.
+                    // class: find a "load" method by walking declaredMethods on each class in the
+                    // hierarchy (more robust than getMethod which requires exact parameter types to
+                    // match across classloaders), call it, then harvest the `apis` list via field
+                    // reflection.  Any api that IS our MainAPI gets registered; others are ignored.
                     fun reflectionBridge(): Plugin? {
                         val cls = rawInstance::class.java
-                        val loadMethod = runCatching {
-                            cls.getMethod("load", android.content.Context::class.java)
-                        }.getOrNull() ?: return null
+                        val hierarchy = generateSequence(cls as Class<*>?) { it.superclass }
+
+                        // Find any public method named "load" that takes a single Context-like param
+                        val loadMethod = hierarchy
+                            .flatMap { c -> runCatching { c.declaredMethods.asSequence() }.getOrDefault(emptySequence()) }
+                            .firstOrNull { m ->
+                                m.name == "load" && m.parameterCount == 1 &&
+                                    (m.parameterTypes[0].name == "android.content.Context" ||
+                                        m.parameterTypes[0].name.endsWith("Context"))
+                            }
+                        // Also accept a no-arg load() if nothing else found
+                        val loadMethodNoArg = if (loadMethod == null)
+                            generateSequence(cls as Class<*>?) { it.superclass }
+                                .flatMap { c -> runCatching { c.declaredMethods.asSequence() }.getOrDefault(emptySequence()) }
+                                .firstOrNull { m -> m.name == "load" && m.parameterCount == 0 }
+                        else null
+
+                        // Must find SOME load method; otherwise it's truly not a Plugin-like class
+                        if (loadMethod == null && loadMethodNoArg == null) return null
+
                         return object : Plugin() {
                             override fun load(ctx: android.content.Context) {
-                                runCatching { loadMethod.invoke(rawInstance, ctx) }
+                                loadMethod?.let { m ->
+                                    m.isAccessible = true
+                                    runCatching { m.invoke(rawInstance, ctx) }
+                                }
+                                loadMethodNoArg?.let { m ->
+                                    m.isAccessible = true
+                                    runCatching { m.invoke(rawInstance) }
+                                }
                                 // Harvest apis from the raw instance's field via reflection
                                 val apisField = generateSequence(cls as Class<*>?) { it.superclass }
                                     .firstNotNullOfOrNull { c ->
@@ -379,9 +404,13 @@ object PluginRuntime {
     /**
      * Extracts all classes*.dex entries from the .cs3 ZIP (multi-dex aware) and
      * returns the union of class names found in each DEX's string table.
+     *
+     * Also handles the case where the .cs3 is a raw DEX file (not a ZIP) — some
+     * older CloudStream plugin builds ship bare .dex files renamed to .cs3.
      */
     private fun readDexClassNamesFromZip(cs3File: File): List<String> {
-        return try {
+        // Try as ZIP first
+        val zipResult = runCatching {
             val result = mutableListOf<String>()
             ZipInputStream(cs3File.inputStream().buffered()).use { zis ->
                 var entry = zis.nextEntry
@@ -396,7 +425,21 @@ object PluginRuntime {
                 }
             }
             result.distinct()
-        } catch (_: Throwable) { emptyList() }
+        }.getOrElse { emptyList() }
+
+        if (zipResult.isNotEmpty()) return zipResult
+
+        // Fallback: try the file itself as a raw DEX (magic bytes "dex\n")
+        return runCatching {
+            val bytes = cs3File.readBytes()
+            if (bytes.size >= 8 &&
+                bytes[0] == 'd'.code.toByte() &&
+                bytes[1] == 'e'.code.toByte() &&
+                bytes[2] == 'x'.code.toByte()
+            ) {
+                parseDexTypeDescriptors(bytes).distinct()
+            } else emptyList()
+        }.getOrElse { emptyList() }
     }
 
     /**
