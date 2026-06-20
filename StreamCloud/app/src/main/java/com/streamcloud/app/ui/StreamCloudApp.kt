@@ -166,6 +166,11 @@ fun StreamCloudApp() {
         }
     }
 
+    // Show miniplayer on any non-media, non-music-tab route (including search, artist, playlist)
+    val showMiniPlayer = currentRoute != null &&
+        currentRoute != Tab.Music.route &&
+        !isMediaRoute
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -175,18 +180,12 @@ fun StreamCloudApp() {
 
 
             val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
-            if (showBar && !useRail) {
+            if (!useRail && (showBar || showMiniPlayer)) {
                 Column {
 
-
-
-
-                    if (currentRoute != Tab.Music.route && !isMediaRoute) {
+                    if (showMiniPlayer) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             onExpand = {
-
-
-
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                             },
                         )
@@ -196,7 +195,7 @@ fun StreamCloudApp() {
 
 
 
-                    Box(
+                    if (showBar) Box(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
