@@ -67,6 +67,7 @@ import com.streamcloud.app.ui.screens.MusicSearchScreen
 import com.streamcloud.app.ui.screens.PluginPickerScreen
 import com.streamcloud.app.ui.screens.PluginsScreen
 import com.streamcloud.app.ui.screens.SettingsHubScreen
+import com.streamcloud.app.ui.screens.ProfilePickerScreen
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
@@ -196,6 +197,13 @@ fun StreamCloudApp() {
     // Show miniplayer on all non-media routes (including music home)
     val showMiniPlayer = currentRoute != null && !isMediaRoute
 
+    // Profile picker — show on launch when profiles exist; also triggered from Settings
+    var showProfilePicker by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (sl.profiles.currentProfiles().isNotEmpty()) showProfilePicker = true
+    }
+
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -821,8 +829,9 @@ fun StreamCloudApp() {
                 }
                 composable(Tab.Settings.route) {
                     SettingsHubScreen(
-                        onOpenPlugins = { nav.navigate("plugins") },
+                        onOpenPlugins     = { nav.navigate("plugins") },
                         onOpenCollections = { nav.navigate("collections") },
+                        onSwitchProfile   = { showProfilePicker = true },
                     )
                 }
                 composable("plugins") {
@@ -908,6 +917,21 @@ fun StreamCloudApp() {
             },
         )
     }
+
+    // Profile picker overlay — floats above everything
+    if (showProfilePicker) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0A0A0A)),
+        ) {
+            ProfilePickerScreen(
+                repo   = sl.profiles,
+                onDone = { showProfilePicker = false },
+            )
+        }
+    }
+    } // end outer Box
 }
 
 private fun navigateToTab(nav: NavHostController, route: String) {
