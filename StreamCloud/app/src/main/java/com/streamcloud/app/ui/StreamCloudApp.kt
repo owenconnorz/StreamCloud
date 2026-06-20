@@ -201,7 +201,7 @@ fun StreamCloudApp() {
                         Modifier
                             .fillMaxWidth()
                             .navigationBarsPadding()
-                            .padding(horizontal = 20.dp, bottom = 12.dp),
+                            .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Surface(
