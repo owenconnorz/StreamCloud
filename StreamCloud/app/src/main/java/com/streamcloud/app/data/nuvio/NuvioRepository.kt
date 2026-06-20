@@ -62,11 +62,17 @@ class NuvioRepository(private val context: Context) {
                 repoUrl = manifestUrl, downloadUrl = absDl,
                 filePath = outFile.absolutePath, installedAt = System.currentTimeMillis(),
                 logo = entry.logo ?: entry.icon, description = entry.description,
+                version = entry.version,
             )
             val list = installed.first().filterNot { it.id == entry.id } + rec
             save(list)
             rec
         }
+
+    suspend fun updateProvider(updated: InstalledNuvioProvider) {
+        val list = installed.first().map { if (it.id == updated.id) updated else it }
+        save(list)
+    }
 
     suspend fun uninstall(id: String) {
         val list = installed.first()

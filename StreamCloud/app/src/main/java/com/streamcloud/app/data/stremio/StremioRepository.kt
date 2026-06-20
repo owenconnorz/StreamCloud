@@ -50,10 +50,16 @@ class StremioRepository(private val context: Context) {
         val addon = InstalledStremioAddon(
             id = mf.id, name = mf.name, manifestUrl = url, baseUrl = baseUrl,
             logo = mf.logo ?: mf.icon, installedAt = System.currentTimeMillis(),
+            version = mf.version,
         )
         val list = addons.first().filterNot { it.manifestUrl == url } + addon
         saveAddons(list)
         addon
+    }
+
+    suspend fun updateAddon(updated: InstalledStremioAddon) {
+        val list = addons.first().map { if (it.manifestUrl == updated.manifestUrl) updated else it }
+        saveAddons(list)
     }
 
     suspend fun removeAddon(manifestUrl: String) {
