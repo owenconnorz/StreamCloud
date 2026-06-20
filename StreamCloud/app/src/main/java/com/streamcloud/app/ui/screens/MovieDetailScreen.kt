@@ -44,9 +44,11 @@ import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.WatchProgressKey
+import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.ExtractorLink
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
@@ -115,31 +117,58 @@ fun MovieDetailScreen(
             resolving = true
             resolverMessage = null
             try {
-
-
-
-
                 val stremioType = if (mediaType == "tv") "series" else "movie"
+
+                // Stremio: try both IMDB ID (tt…) and tmdb:{id} — many addons support both
                 val stremioJob = async {
                     installedAddons.map { addon ->
                         async {
-                            runCatching { sl.stremio.fetchStreams(addon, stremioType, tt) }
-                                .map { streams -> streams.mapNotNull { it.toPlayerSource(addon) } }
-                                .getOrDefault(emptyList())
+                            val ids = buildList {
+                                add(tt)
+                                if (!tt.startsWith("tmdb:")) add("tmdb:$movieId")
+                            }
+                            val seen = mutableSetOf<String>()
+                            ids.flatMap { id ->
+                                runCatching { sl.stremio.fetchStreams(addon, stremioType, id) }
+                                    .getOrDefault(emptyList())
+                                    .mapNotNull { it.toPlayerSource(addon) }
+                            }.filter { ps -> seen.add(ps.url) }
                         }
                     }.awaitAll().flatten()
                 }
+
+                // CloudStream: skip TV-only plugins when resolving a movie
                 val csJob = async {
                     val title = movie?.displayTitle.orEmpty()
                     if (title.isBlank()) emptyList<PlayerSource>()
-                    else installedCsPlugins
-                        .filter { !it.isAdultPlugin() }
-                        .map { plugin ->
+                    else {
+                        val relevantPlugins = if (mediaType == "tv") {
+                            installedCsPlugins.filter { !it.isAdultPlugin() }
+                        } else {
+                            installedCsPlugins.filter { plugin ->
+                                !plugin.isAdultPlugin() && run {
+                                    val types = plugin.tvTypes
+                                    types == null || types.any { t ->
+                                        val lt = t.lowercase()
+                                        lt.contains("movie") || lt == "others" || lt == "live"
+                                    }
+                                }
+                            }
+                        }
+                        relevantPlugins.map { plugin ->
                             async { resolveCsPluginForMovie(context, plugin, title, movie?.year()) }
                         }.awaitAll().flatten()
+                    }
                 }
 
-                val fastSources = stremioJob.await() + csJob.await()
+                // Nuvio: start immediately in parallel so it's ready when fast sources finish
+                val nuvioJob = async {
+                    if (installedNuvio.isEmpty()) emptyList<PlayerSource>()
+                    else runCatching {
+                        sl.nuvio.resolveAll(movieId.toString(), mediaType)
+                            .map { (provider, stream) -> stream.toPlayerSource(provider) }
+                    }.getOrDefault(emptyList())
+                }
 
                 val m = movie
                 val displayTitle = m?.displayTitle ?: "Playback"
@@ -150,27 +179,21 @@ fun MovieDetailScreen(
                     mediaType = mediaType,
                 )
 
+                val fastSources = stremioJob.await() + csJob.await()
+
                 if (fastSources.isNotEmpty()) {
-
-
                     val sorted = fastSources.sortedByDescending { it.qualityScore() }
-
-
 
                     if (installedNuvio.isNotEmpty()) {
                         com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
                     }
-
                     onPlay(sorted.first().url, displayTitle, sorted, progressKey)
 
-
+                    // Nuvio is already running in parallel — merge when it completes
                     if (installedNuvio.isNotEmpty()) {
                         scope.launch {
                             try {
-                                val nuvioSources = runCatching {
-                                    sl.nuvio.resolveAll(movieId.toString(), mediaType)
-                                        .map { (provider, stream) -> stream.toPlayerSource(provider) }
-                                }.getOrDefault(emptyList())
+                                val nuvioSources = nuvioJob.await()
                                 if (nuvioSources.isNotEmpty()) {
                                     com.streamcloud.app.player.MoviePlayerSession.mergeSources(nuvioSources)
                                 }
@@ -180,13 +203,8 @@ fun MovieDetailScreen(
                         }
                     }
                 } else {
-
-                    val nuvioSources = runCatching {
-                        sl.nuvio.resolveAll(movieId.toString(), mediaType)
-                            .map { (provider, stream) -> stream.toPlayerSource(provider) }
-                    }.getOrDefault(emptyList())
-
-                    val all = nuvioSources
+                    // No fast sources — await Nuvio (already running)
+                    val all = nuvioJob.await()
                     if (all.isEmpty()) {
                         val total = installedAddons.size + installedNuvio.size + installedCsPlugins.size
                         resolverMessage = "No streams found across $total source(s)."
@@ -875,10 +893,28 @@ private suspend fun resolveCsPluginForMovie(
             PluginRuntime.search(context, plugin.filePath, title)
         }.getOrDefault(emptyList())
         val best = pickBestMatch(results, title, year) ?: return emptyList()
-        val detail = runCatching { PluginRuntime.loadDetail(context, plugin.filePath, best.url) }.getOrNull()
-        val movieDetail = detail as? MovieLoadResponse ?: return emptyList()
+        val detail = runCatching {
+            PluginRuntime.loadDetail(context, plugin.filePath, best.url)
+        }.getOrNull() ?: return emptyList()
+
+        // Accept MovieLoadResponse; also fall back for plugins that mis-classify
+        // a standalone movie as a single-episode series/anime.
+        val dataStr: String? = when (detail) {
+            is MovieLoadResponse -> detail.dataUrl
+            is TvSeriesLoadResponse -> {
+                val eps = detail.episodes
+                if (eps.size == 1) eps.first().data else null
+            }
+            is AnimeLoadResponse -> {
+                val eps = detail.episodes.values.flatten()
+                if (eps.size == 1) eps.first().data else null
+            }
+            else -> null
+        }
+        val data = dataStr ?: return emptyList()
+
         val (links, _) = runCatching {
-            PluginRuntime.loadLinks(context, plugin.filePath, movieDetail.dataUrl, isCasting = false)
+            PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
         }.getOrElse { return emptyList() }
         links.toCsPlayerSources(plugin.name)
     } catch (_: Throwable) {
