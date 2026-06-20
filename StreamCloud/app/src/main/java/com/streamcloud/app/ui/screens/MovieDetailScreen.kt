@@ -178,13 +178,13 @@ fun MovieDetailScreen(
                     }.awaitAll().flatten()
                 }
 
-                // Nuvio: start immediately in parallel
+                // Nuvio: start immediately in parallel — pass imdbId so providers can use params.imdbId
                 val nuvioJob = async {
                     if (installedNuvio.isEmpty()) emptyList<PlayerSource>()
                     else {
-                        Log.d("StreamCloud", "Nuvio: starting ${installedNuvio.size} providers for tmdbId=$movieId")
+                        Log.d("StreamCloud", "Nuvio: starting ${installedNuvio.size} providers for tmdbId=$movieId imdbId=$tt")
                         runCatching {
-                            sl.nuvio.resolveAll(movieId.toString(), mediaType)
+                            sl.nuvio.resolveAll(movieId.toString(), mediaType, imdbId = tt)
                                 .map { (provider, stream) -> stream.toPlayerSource(provider) }
                         }.getOrElse { e ->
                             Log.d("StreamCloud", "Nuvio resolveAll error: ${e.message}")
