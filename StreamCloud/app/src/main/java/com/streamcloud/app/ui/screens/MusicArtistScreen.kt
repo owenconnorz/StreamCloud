@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
@@ -47,7 +48,6 @@ fun MusicArtistScreen(
     var page by remember(channelUrl) { mutableStateOf<NewPipeRepository.ArtistPage?>(null) }
     var loading by remember(channelUrl) { mutableStateOf(true) }
     var error by remember(channelUrl) { mutableStateOf<String?>(null) }
-    var menuTrack by remember { mutableStateOf<YtTrack?>(null) }
 
     LaunchedEffect(channelUrl) {
         loading = true; error = null; page = null
@@ -106,6 +106,7 @@ fun MusicArtistScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ArtistPageContent(
     page: NewPipeRepository.ArtistPage,
@@ -116,6 +117,7 @@ private fun ArtistPageContent(
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
 ) {
     var descExpanded by remember { mutableStateOf(false) }
+    var menuTrack by remember { mutableStateOf<YtTrack?>(null) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -363,7 +365,7 @@ private fun ArtistPageContent(
                 val context = androidx.compose.ui.platform.LocalContext.current
                 ListItem(
                     headlineContent = { Text("Share") },
-                    leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Share, null) },
+                    leadingContent = { Icon(Icons.Default.OpenInNew, null) },
                     modifier = androidx.compose.ui.Modifier.clickable {
                         val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                             type = "text/plain"
