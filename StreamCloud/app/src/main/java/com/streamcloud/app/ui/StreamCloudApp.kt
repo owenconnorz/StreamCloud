@@ -180,6 +180,7 @@ fun StreamCloudApp() {
     // Dynamic album-art theme — distinct colour per UI layer (Metrolist-style)
     val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
     val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
+    val showNavLabels by sl.settings.navLabels.collectAsState(initial = true)
     val navPillColor by animateColorAsState(
         targetValue = if (dynamicMiniTheme) navPillBgColor else Color(0xFF1C1C1E),
         animationSpec = tween(600),
@@ -884,6 +885,7 @@ fun StreamCloudApp() {
                                             icon = tab.icon,
                                             label = tab.label,
                                             selected = selected,
+                                            showLabel = showNavLabels,
                                             onClick = { navigateToTab(nav, tab.route) },
                                         )
                                     }
@@ -939,6 +941,7 @@ private fun ScrollableNavBarItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,
+    showLabel: Boolean = true,
     onClick: () -> Unit,
 ) {
     val primaryColor   = MaterialTheme.colorScheme.primary
@@ -957,7 +960,7 @@ private fun ScrollableNavBarItem(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(primaryColor)
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                    .padding(horizontal = if (showLabel) 18.dp else 14.dp, vertical = 10.dp),
             ) {
                 Icon(
                     icon,
@@ -965,13 +968,15 @@ private fun ScrollableNavBarItem(
                     tint = onPrimaryColor,
                     modifier = Modifier.size(20.dp),
                 )
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = onPrimaryColor,
-                )
+                if (showLabel) {
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = onPrimaryColor,
+                    )
+                }
             }
         } else {
             Column(
@@ -984,12 +989,14 @@ private fun ScrollableNavBarItem(
                     tint = mutedColor,
                     modifier = Modifier.size(22.dp),
                 )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = mutedColor,
-                )
+                if (showLabel) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = mutedColor,
+                    )
+                }
             }
         }
     }
