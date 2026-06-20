@@ -469,7 +469,8 @@ private fun MoviesHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, top = 12.dp, end = 4.dp, bottom = 4.dp),
+            .statusBarsPadding()
+            .padding(start = 20.dp, top = 8.dp, end = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
