@@ -26,6 +26,7 @@ import coil.compose.AsyncImage
 import com.lagradost.cloudstream3.SearchResponse
 import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.plugins.PluginRuntime
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 
 @Composable
@@ -75,23 +76,25 @@ fun CsSectionListScreen(
         snapshotFlow {
             val last = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val total = gridState.layoutInfo.totalItemsCount
-            last to total
-        }.collect { (last, total) ->
-            if (total > 0 && last >= total - 6 && !loadingMore && !noMore && !loading && filePath.isNotBlank()) {
-                loadingMore = true
-                val nextPage = page + 1
-                val more = runCatching {
-                    PluginRuntime.homePage(context, filePath, sectionName, nextPage)
-                }.getOrDefault(emptyList())
-                if (more.isEmpty()) {
-                    noMore = true
-                } else {
-                    items = items + more
-                    page = nextPage
-                }
-                loadingMore = false
-            }
+            total > 0 && last >= total - 6
         }
+            .distinctUntilChanged()
+            .collect { isNearEnd ->
+                if (isNearEnd && !loadingMore && !noMore && !loading && filePath.isNotBlank()) {
+                    loadingMore = true
+                    val nextPage = page + 1
+                    val more = runCatching {
+                        PluginRuntime.homePage(context, filePath, sectionName, nextPage)
+                    }.getOrDefault(emptyList())
+                    if (more.isEmpty()) {
+                        noMore = true
+                    } else {
+                        items = items + more
+                        page = nextPage
+                    }
+                    loadingMore = false
+                }
+            }
     }
 
     Column(
@@ -157,7 +160,7 @@ fun CsSectionListScreen(
                     }
                 }
                 else -> {
-                    itemsIndexed(items, key = { i, sr -> "${i}_${sr.url}" }) { _, sr ->
+                    itemsIndexed(items, key = { i, _ -> "cs_item_$i" }) { _, sr ->
                         Column(
                             Modifier
                                 .clip(RoundedCornerShape(12.dp))

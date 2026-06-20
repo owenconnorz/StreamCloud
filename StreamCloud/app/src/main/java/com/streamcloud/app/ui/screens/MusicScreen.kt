@@ -224,15 +224,8 @@ fun MusicScreen(
                         }
                         is com.streamcloud.app.data.ytmusic.HomeSection.SongRail -> {
                             item(key = "yt_srail_title_$idx") { SectionTitle(section.title) }
-                            item(key = "yt_srail_$idx") {
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    items(section.items) { s ->
-                                        YtHomeSongCard(s)
-                                    }
-                                }
+                            items(section.items) { s ->
+                                YtHomeSongRow(s)
                             }
                         }
                     }
@@ -1048,7 +1041,7 @@ private fun YtHomePlaylistCard(
 }
 
 @Composable
-private fun YtHomeSongCard(s: com.streamcloud.app.data.ytmusic.YtmSong) {
+private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val onPlay = {
@@ -1057,37 +1050,40 @@ private fun YtHomeSongCard(s: com.streamcloud.app.data.ytmusic.YtmSong) {
         }
         Unit
     }
-    Column(Modifier.width(150.dp)) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onPlay() }
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         AsyncImage(
             model = s.thumbnail,
             contentDescription = s.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(150.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { onPlay() },
+                .size(54.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
         )
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).clickable { onPlay() }) {
-                Text(
-                    s.title,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    s.artist,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            com.streamcloud.app.ui.components.SongRowMenu(song = s, onPlay = { onPlay() })
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                s.title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                s.artist,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
+        com.streamcloud.app.ui.components.SongRowMenu(song = s, onPlay = { onPlay() })
     }
 }
 
