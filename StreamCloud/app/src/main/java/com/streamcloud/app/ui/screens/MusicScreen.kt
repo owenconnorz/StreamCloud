@@ -27,7 +27,10 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -108,7 +111,23 @@ fun MusicScreen(
         ?: state.tracks.firstOrNull { it.url == state.nowPlayingUrl }
         ?: state.homeFeed.firstOrNull { it.url == state.nowPlayingUrl }
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    val pullRefreshState = rememberPullToRefreshState()
+    if (pullRefreshState.isRefreshing) {
+        LaunchedEffect(Unit) {
+            vm.loadYtHome()
+            vm.loadHomeFeed()
+        }
+    }
+    LaunchedEffect(state.ytHomeLoading, state.homeLoading) {
+        if (!state.ytHomeLoading && !state.homeLoading) pullRefreshState.endRefresh()
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .nestedScroll(pullRefreshState.nestedScrollConnection)
+    ) {
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = if (nowPlaying != null) 96.dp else 12.dp),
@@ -351,7 +370,11 @@ fun MusicScreen(
             }
         }
 
-
+        PullToRefreshContainer(
+            state = pullRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter),
+            contentColor = MaterialTheme.colorScheme.primary,
+        )
 
 
 
