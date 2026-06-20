@@ -214,10 +214,7 @@ fun MusicScreen(
                                     contentPadding = PaddingValues(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    items(section.items, key = { "${it.id}_$idx" }) { pl ->
-
-
-
+                                    items(section.items) { pl ->
                                         YtHomePlaylistCard(pl) {
                                             onOpenPlaylist(pl.id, pl.title)
                                         }
@@ -232,7 +229,7 @@ fun MusicScreen(
                                     contentPadding = PaddingValues(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    items(section.items, key = { "${it.videoId}_$idx" }) { s ->
+                                    items(section.items) { s ->
                                         YtHomeSongCard(s)
                                     }
                                 }

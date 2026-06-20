@@ -110,7 +110,7 @@ object YtMusicHomeRepository {
                     val r = (raw as? JsonObject)?.get("musicTwoRowItemRenderer") as? JsonObject
                         ?: return@mapNotNull null
                     parseTwoRowPlaylist(r)
-                }
+                }.distinctBy { it.id }
                 HomeSection.PlaylistRail(title, items)
             }
             first.containsKey("musicResponsiveListItemRenderer") -> {
@@ -118,7 +118,7 @@ object YtMusicHomeRepository {
                     val r = (raw as? JsonObject)?.get("musicResponsiveListItemRenderer") as? JsonObject
                         ?: return@mapNotNull null
                     parseResponsiveSong(r)
-                }
+                }.distinctBy { it.videoId }
                 HomeSection.SongRail(title, items)
             }
             else -> null
