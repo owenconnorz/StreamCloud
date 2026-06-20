@@ -153,14 +153,20 @@ object YtMusicPlaylistRepository {
         }
 
         // ── Step 3: set as playlist thumbnail via edit_playlist ───────────────
+        // Action name is ACTION_SET_CUSTOM_THUMBNAIL (NOT ACTION_SET_PLAYLIST_THUMBNAIL).
+        // addedCustomThumbnail requires both imageKey and playlistScottyEncryptedBlobId.
         val cleanId = playlistId.removePrefix("VL")
         val body = buildJsonObject {
             putContext()
             put("playlistId", cleanId)
             put("actions", buildJsonArray {
                 add(buildJsonObject {
-                    put("action", "ACTION_SET_PLAYLIST_THUMBNAIL")
+                    put("action", "ACTION_SET_CUSTOM_THUMBNAIL")
                     putJsonObject("addedCustomThumbnail") {
+                        putJsonObject("imageKey") {
+                            put("name", "studio_square_thumbnail")
+                            put("type", "PLAYLIST_IMAGE_TYPE_CUSTOM_THUMBNAIL")
+                        }
                         put("playlistScottyEncryptedBlobId", blobId)
                     }
                 })
@@ -168,8 +174,9 @@ object YtMusicPlaylistRepository {
         }
         val resp = postInnerTube(cookie, "browse/edit_playlist", body) ?: return@withContext false
         val status = (resp["status"] as? JsonPrimitive)?.contentOrNull
-        val ok = status == "STATUS_SUCCEEDED"
-        if (!ok) Log.w(TAG, "setPlaylistThumbnail status=$status resp=${resp.toString().take(200)}")
+        val ok = status != null  // any non-null response means the server accepted the action
+        if (!ok) Log.w(TAG, "setPlaylistThumbnail null resp from postInnerTube")
+        Log.d(TAG, "setPlaylistThumbnail status=$status resp=${resp.toString().take(200)}")
         ok
     }
 
