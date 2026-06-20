@@ -177,6 +177,7 @@ fun StreamCloudApp() {
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
         bottomBar = {
             val showBar = currentRoute == null || tabs.any { it.route == currentRoute }
 
