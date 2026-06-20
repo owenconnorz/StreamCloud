@@ -177,19 +177,11 @@ fun StreamCloudApp() {
         }
     }
 
-    // Dynamic album-art theme — same source as GlobalMiniPlayer
-    val accentSecondary by AlbumArtThemeBus.accentSecondary.collectAsState()
+    // Dynamic album-art theme — distinct colour per UI layer (Metrolist-style)
+    val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
     val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
     val navPillColor by animateColorAsState(
-        targetValue = if (dynamicMiniTheme) {
-            Color(
-                red   = accentSecondary.red   * 0.38f,
-                green = accentSecondary.green * 0.38f,
-                blue  = accentSecondary.blue  * 0.38f,
-            )
-        } else {
-            Color(0xFF1C1C1E)
-        },
+        targetValue = if (dynamicMiniTheme) navPillBgColor else Color(0xFF1C1C1E),
         animationSpec = tween(600),
         label = "navPillBg",
     )
