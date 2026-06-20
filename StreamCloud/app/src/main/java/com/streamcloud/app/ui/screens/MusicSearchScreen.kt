@@ -225,9 +225,9 @@ private fun MusicSearchResultRow(track: YtTrack, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            track.artist?.let {
+            if (track.uploader.isNotBlank()) {
                 Text(
-                    it,
+                    track.uploader,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
