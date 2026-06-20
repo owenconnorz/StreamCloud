@@ -129,11 +129,18 @@ object YtMusicHomeRepository {
         val titleEl = renderer["title"] ?: return null
         val title = titleEl.runsText() ?: return null
         val subtitle = renderer["subtitle"].runsText()
+
+        // Thumbnail: try standard renderer path first, fall back to searching entire renderer tree
         val thumb = renderer["thumbnailRenderer"].bestThumbnail()
-        val browseId = titleEl.findFirst("browseId") as? JsonPrimitive
-        val playlistIdFromNav = titleEl.findFirst("playlistId") as? JsonPrimitive
-        val videoIdFromNav = titleEl.findFirst("videoId") as? JsonPrimitive
-        val id = (browseId ?: playlistIdFromNav ?: videoIdFromNav)?.contentOrNull ?: return null
+            ?: renderer.bestThumbnailAnywhere()
+
+        // ID: search title element first, then fall back to searching the whole renderer
+        // (auto-generated mixes and shows often put the ID in overlays or nav endpoints)
+        val browseId = (titleEl.findFirst("browseId") ?: renderer.findFirst("browseId")) as? JsonPrimitive
+        val playlistId = (titleEl.findFirst("playlistId") ?: renderer.findFirst("playlistId")) as? JsonPrimitive
+        val videoId = (titleEl.findFirst("videoId") ?: renderer.findFirst("videoId")) as? JsonPrimitive
+        val id = (browseId ?: playlistId ?: videoId)?.contentOrNull ?: return null
+
         val isAlbum = subtitle?.contains("Album", ignoreCase = true) == true ||
             subtitle?.contains("Single", ignoreCase = true) == true
         return YtmPlaylist(
@@ -159,7 +166,11 @@ object YtMusicHomeRepository {
             ?.mapNotNull { (it.jsonObject["text"] as? JsonPrimitive)?.contentOrNull }
             ?.firstOrNull { it.isNotBlank() && it != " · " && it != "•" }
             .orEmpty()
+
+        // Thumbnail: try standard path first, fall back to searching whole item tree
         val thumb = item["thumbnail"].bestThumbnail()
+            ?: item.bestThumbnailAnywhere()
+
         return YtmSong(
             videoId = videoId, title = title, artist = artist,
             album = null, thumbnail = thumb, durationSeconds = null,
