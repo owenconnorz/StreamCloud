@@ -858,7 +858,8 @@ fun StreamCloudApp() {
                                 },
                             )
                         }
-                        val showBar = currentRoute == null || tabs.any { it.route == currentRoute }
+                        val showBar = currentRoute == null ||
+                            (tabs.any { it.route == currentRoute } && currentRoute != Tab.Settings.route)
                         if (showBar) Box(
                             Modifier
                                 .fillMaxWidth()
