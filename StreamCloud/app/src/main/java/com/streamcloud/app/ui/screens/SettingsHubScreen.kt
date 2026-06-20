@@ -121,7 +121,7 @@ private enum class SettingsPage {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}) {
+fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}) {
     val context = LocalContext.current
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
@@ -1403,6 +1403,13 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 badge      = hubItem.badge,
                 badgeError = hubItem.badgeError,
                 onClick    = { onNavigate(hubItem.page) },
+            )
+        }
+        item {
+            HubRow(
+                icon    = Icons.Default.Group,
+                title   = "Profiles",
+                onClick = onSwitchProfile,
             )
         }
         item {
