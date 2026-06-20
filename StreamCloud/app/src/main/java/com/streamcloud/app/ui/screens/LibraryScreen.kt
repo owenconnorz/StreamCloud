@@ -1,3 +1,4 @@
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -176,7 +178,8 @@ fun LibraryScreen(
         )
     }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    val bgTintColor by AlbumArtThemeBus.bgTint.collectAsState()
+    Column(Modifier.fillMaxSize().background(bgTintColor)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

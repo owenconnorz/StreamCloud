@@ -383,10 +383,6 @@ fun MusicScreen(
 
 
 
-        com.streamcloud.app.ui.player.GlobalMiniPlayer(
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
-
         if (showHistory) {
             HistorySheet(
                 recent = state.recent,

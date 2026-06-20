@@ -78,18 +78,10 @@ fun GlobalMiniPlayer(
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
 
     val accent by AlbumArtThemeBus.accent.collectAsState()
-    val accentSecondary by AlbumArtThemeBus.accentSecondary.collectAsState()
+    val miniPlayerBgColor by AlbumArtThemeBus.miniPlayerBg.collectAsState()
 
     val bgColor by animateColorAsState(
-        targetValue = if (dynamicMiniTheme) {
-            Color(
-                red = accentSecondary.red * 0.38f,
-                green = accentSecondary.green * 0.38f,
-                blue = accentSecondary.blue * 0.38f,
-            )
-        } else {
-            Color(0xFF1C1C1E)
-        },
+        targetValue = if (dynamicMiniTheme) miniPlayerBgColor else Color(0xFF1C1C1E),
         animationSpec = tween(600),
         label = "miniPlayerBg",
     )
