@@ -78,10 +78,10 @@ fun GlobalMiniPlayer(
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
 
     val accent by AlbumArtThemeBus.accent.collectAsState()
-    val miniPlayerBgColor by AlbumArtThemeBus.miniPlayerBg.collectAsState()
+    val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
 
     val bgColor by animateColorAsState(
-        targetValue = if (dynamicMiniTheme) miniPlayerBgColor else Color(0xFF1C1C1E),
+        targetValue = if (dynamicMiniTheme) navPillBgColor else Color(0xFF1C1C1E),
         animationSpec = tween(600),
         label = "miniPlayerBg",
     )
