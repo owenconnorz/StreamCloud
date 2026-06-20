@@ -960,13 +960,16 @@ private fun ScrollableNavBarItem(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(primaryColor)
-                    .padding(horizontal = if (showLabel) 18.dp else 14.dp, vertical = 10.dp),
+                    .padding(
+                        horizontal = if (showLabel) 18.dp else 20.dp,
+                        vertical   = if (showLabel) 10.dp else 14.dp,
+                    ),
             ) {
                 Icon(
                     icon,
                     contentDescription = label,
                     tint = onPrimaryColor,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(if (showLabel) 20.dp else 26.dp),
                 )
                 if (showLabel) {
                     Spacer(Modifier.width(7.dp))
@@ -981,13 +984,16 @@ private fun ScrollableNavBarItem(
         } else {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.padding(
+                    horizontal = if (showLabel) 12.dp else 16.dp,
+                    vertical   = if (showLabel) 6.dp  else 12.dp,
+                ),
             ) {
                 Icon(
                     icon,
                     contentDescription = label,
                     tint = mutedColor,
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(if (showLabel) 22.dp else 28.dp),
                 )
                 if (showLabel) {
                     Spacer(Modifier.height(3.dp))
