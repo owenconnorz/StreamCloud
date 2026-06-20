@@ -632,6 +632,15 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                 onBack = { currentPage = null },
             ) {
                 SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.Group, tint = ColourSystem,
+                        title = "Profiles",
+                        subtitle = "Switch or manage profiles",
+                        onClick = onSwitchProfile,
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
                     NuvioAccountRow()
                     SettingDivider()
                     YtMusicAccountRow()
@@ -1057,6 +1066,25 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                 onBack = { currentPage = null },
             ) {
                 SettingsGroup {
+                    UpdaterRow()
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Link, tint = ColourSystem,
+                        title = "Open supported links",
+                        subtitle = "Set StreamCloud as default for supported URLs",
+                        onClick = {
+                            runCatching {
+                                val intent = Intent(android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            }
+                        },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -1362,35 +1390,6 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         }
     }
 
-    data class HubItem(
-        val page: SettingsPage,
-        val icon: ImageVector,
-        val title: String,
-        val badge: String? = null,
-        val badgeError: Boolean = false,
-    )
-
-    val hubItems = listOf(
-        HubItem(SettingsPage.SystemUpdate,  Icons.Default.SystemUpdate, "System update",         updateLabel),
-        HubItem(SettingsPage.Appearance,    Icons.Default.Palette,      "Appearance"),
-        HubItem(SettingsPage.PlayerAudio,   Icons.Default.PlayArrow,    "Player and audio"),
-        HubItem(SettingsPage.Account,       Icons.Default.Person,       "Account"),
-        HubItem(SettingsPage.ListenTogether,Icons.Default.Group,        "Listen Together"),
-        HubItem(SettingsPage.Content,       Icons.Default.Public,       "Content"),
-        HubItem(SettingsPage.Privacy,       Icons.Default.Shield,       "Privacy"),
-        HubItem(SettingsPage.Storage,       Icons.Default.Storage,      "Storage"),
-        HubItem(SettingsPage.CsHomeSettings,Icons.Default.PlayCircle,   "Movies home plugins"),
-        HubItem(SettingsPage.BackupRestore, Icons.Default.CloudUpload,  "Backup and restore"),
-        HubItem(SettingsPage.About,         Icons.Default.Info,         "About"),
-        HubItem(
-            page = SettingsPage.Logs,
-            icon = Icons.Default.BugReport,
-            title = "App logs",
-            badge = if (errorCount > 0) "$errorCount error${if (errorCount == 1) "" else "s"}" else null,
-            badgeError = errorCount > 0,
-        ),
-    )
-
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -1407,36 +1406,27 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp),
             )
         }
-        items(hubItems) { hubItem ->
-            HubRow(
-                icon       = hubItem.icon,
-                title      = hubItem.title,
-                badge      = hubItem.badge,
-                badgeError = hubItem.badgeError,
-                onClick    = { onNavigate(hubItem.page) },
-            )
-        }
+        item { HubRow(icon = Icons.Default.Person,      title = "Account",             onClick = { onNavigate(SettingsPage.Account) }) }
+        item { HubRow(icon = Icons.Default.Palette,     title = "Appearance",          onClick = { onNavigate(SettingsPage.Appearance) }) }
+        item { HubRow(icon = Icons.Default.PlayArrow,   title = "Player and audio",    onClick = { onNavigate(SettingsPage.PlayerAudio) }) }
+        item { HubRow(icon = Icons.Default.Group,       title = "Listen Together",     onClick = { onNavigate(SettingsPage.ListenTogether) }) }
+        item { HubRow(icon = Icons.Default.Extension,   title = "Plugins & Addons",    onClick = onOpenPlugins) }
+        item { HubRow(icon = Icons.Default.PlayCircle,  title = "Movies home plugins", onClick = { onNavigate(SettingsPage.CsHomeSettings) }) }
+        item { HubRow(icon = Icons.Default.Layers,      title = "Collections",         onClick = onOpenCollections) }
+        item { HubRow(icon = Icons.Default.Storage,     title = "Storage",             onClick = { onNavigate(SettingsPage.Storage) }) }
+        item { HubRow(icon = Icons.Default.CloudUpload, title = "Backup and restore",  onClick = { onNavigate(SettingsPage.BackupRestore) }) }
+        item { HubRow(icon = Icons.Default.Shield,      title = "Privacy",             onClick = { onNavigate(SettingsPage.Privacy) }) }
+        item { HubRow(icon = Icons.Default.Public,      title = "Content",             onClick = { onNavigate(SettingsPage.Content) }) }
         item {
             HubRow(
-                icon    = Icons.Default.Group,
-                title   = "Profiles",
-                onClick = onSwitchProfile,
+                icon       = Icons.Default.BugReport,
+                title      = "App logs",
+                badge      = if (errorCount > 0) "$errorCount error${if (errorCount == 1) "" else "s"}" else null,
+                badgeError = errorCount > 0,
+                onClick    = { onNavigate(SettingsPage.Logs) },
             )
         }
-        item {
-            HubRow(
-                icon    = Icons.Default.Extension,
-                title   = "Plugins & Addons",
-                onClick = onOpenPlugins,
-            )
-        }
-        item {
-            HubRow(
-                icon    = Icons.Default.Layers,
-                title   = "Collections",
-                onClick = onOpenCollections,
-            )
-        }
+        item { HubRow(icon = Icons.Default.Info, title = "About", onClick = { onNavigate(SettingsPage.About) }) }
     }
 }
 
