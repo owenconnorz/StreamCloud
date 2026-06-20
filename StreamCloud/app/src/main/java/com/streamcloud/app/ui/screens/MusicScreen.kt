@@ -131,7 +131,7 @@ fun MusicScreen(
     ) {
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = if (nowPlaying != null) 96.dp else 12.dp),
+            contentPadding = PaddingValues(bottom = if (nowPlaying != null) 180.dp else 80.dp),
         ) {
             item {
                 MusicHeader(

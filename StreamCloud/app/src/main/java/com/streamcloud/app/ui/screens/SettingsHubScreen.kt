@@ -264,9 +264,10 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
 
 
             null -> SettingsHubList(
-                onNavigate    = { currentPage = it },
-                onOpenPlugins = onOpenPlugins,
+                onNavigate        = { currentPage = it },
+                onOpenPlugins     = onOpenPlugins,
                 onOpenCollections = onOpenCollections,
+                onSwitchProfile   = onSwitchProfile,
             )
 
 
@@ -1338,7 +1339,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
 }
 
 @Composable
-private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}) {
+private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}) {
     val context = LocalContext.current
     val checker = remember { UpdateChecker(context.applicationContext) }
     var updateLabel by remember { mutableStateOf<String?>(null) }
