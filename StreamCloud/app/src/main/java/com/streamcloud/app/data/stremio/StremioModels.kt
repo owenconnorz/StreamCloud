@@ -117,6 +117,7 @@ data class InstalledStremioAddon(
     val baseUrl: String,
     val logo: String? = null,
     val installedAt: Long,
+    val version: String? = null,
 )
 
 @Serializable

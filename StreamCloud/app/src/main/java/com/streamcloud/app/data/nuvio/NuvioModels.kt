@@ -45,6 +45,7 @@ data class InstalledNuvioProvider(
     val installedAt: Long,
     val logo: String? = null,
     val description: String? = null,
+    val version: String? = null,
 )
 
 @Serializable

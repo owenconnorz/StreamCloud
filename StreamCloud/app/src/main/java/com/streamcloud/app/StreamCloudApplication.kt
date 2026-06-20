@@ -2,12 +2,18 @@ package com.streamcloud.app
 
 import android.app.Application
 import android.os.Build
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import com.streamcloud.app.data.util.ThumbnailCache
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.updates.PluginUpdateWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +23,7 @@ import kotlinx.coroutines.launch
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
+import java.util.concurrent.TimeUnit
 
 class StreamCloudApplication : Application(), ImageLoaderFactory {
 
@@ -33,6 +40,18 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
 
 
         com.streamcloud.app.data.network.Net.init(cacheDir)
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "plugin_update_check",
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<PluginUpdateWorker>(24, TimeUnit.HOURS)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build()
+                )
+                .build(),
+        )
 
         NewPipe.init(
             com.streamcloud.app.data.newpipe.NewPipeDownloader.instance,
