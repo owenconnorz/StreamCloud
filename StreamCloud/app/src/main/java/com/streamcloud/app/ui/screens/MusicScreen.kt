@@ -62,6 +62,7 @@ fun MusicScreen(
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
     onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
     onProfileClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
@@ -116,21 +117,8 @@ fun MusicScreen(
                 MusicHeader(
                     onProfileClick = onProfileClick,
                     onHistoryClick = { showHistory = true },
+                    onSearchClick = onSearchClick,
                 )
-            }
-            item {
-                MusicSearchField(
-                    query = query,
-                    loading = state.loading,
-                    onQueryChange = { query = it },
-                )
-                LaunchedEffect(query) {
-                    vm.fetchSuggestions(query)
-                    if (query.length >= 2) {
-                        kotlinx.coroutines.delay(400)
-                        vm.search(query)
-                    }
-                }
             }
 
 
@@ -429,6 +417,7 @@ private fun playTrack(player: androidx.media3.common.Player, track: YtTrack, aud
 private fun MusicHeader(
     onProfileClick: () -> Unit,
     onHistoryClick: () -> Unit,
+    onSearchClick: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
@@ -447,6 +436,13 @@ private fun MusicHeader(
             Icon(
                 Icons.Default.History,
                 contentDescription = "Recently played",
+                tint = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+        IconButton(onClick = onSearchClick) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = "Search music",
                 tint = MaterialTheme.colorScheme.onBackground,
             )
         }
