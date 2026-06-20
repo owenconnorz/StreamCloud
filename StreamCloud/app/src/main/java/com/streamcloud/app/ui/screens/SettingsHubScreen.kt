@@ -293,15 +293,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                             }
                         },
                     )
-                    SettingDivider()
-                    SettingNav(
-                        icon = Icons.Default.Science, tint = ColourSystem,
-                        title = "Experimental settings",
-                        subtitle = "Misc developer flags",
-                        onClick = {
-                            android.widget.Toast.makeText(context, "No experimental flags yet", android.widget.Toast.LENGTH_SHORT).show()
-                        },
-                    )
                 }
             }
 

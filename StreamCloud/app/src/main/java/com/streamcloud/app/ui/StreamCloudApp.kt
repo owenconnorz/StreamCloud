@@ -595,6 +595,7 @@ fun StreamCloudApp() {
                             nav.navigate("yt-playlist/$i/$t")
                         },
                         onSearchClick = { nav.navigate("music-search") },
+                        onSearchWithQuery = { q -> nav.navigate("music-search?q=${java.net.URLEncoder.encode(q, "UTF-8")}") },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
                 }
@@ -614,8 +615,12 @@ fun StreamCloudApp() {
                         },
                     )
                 }
-                composable("music-search") {
+                composable(
+                    "music-search?q={q}",
+                    arguments = listOf(navArgument("q") { defaultValue = "" }),
+                ) { entry ->
                     MusicSearchScreen(
+                        initialQuery = entry.arguments?.getString("q") ?: "",
                         onBack = { nav.popBackStack() },
                         onArtistClick = { url, thumb ->
                             val u = URLEncoder.encode(url, "UTF-8")

@@ -1167,6 +1167,9 @@ private fun YtSongsSection(
     songs: List<YtmSong>,
     onSongClick: (YtmSong) -> Unit,
 ) {
+    var showAll by remember { mutableStateOf(false) }
+    val displayed = if (showAll) songs else songs.take(5)
+
     Text(
         title,
         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -1175,7 +1178,7 @@ private fun YtSongsSection(
     )
 
     Column {
-        songs.take(5).forEach { s ->
+        displayed.forEach { s ->
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1211,10 +1214,10 @@ private fun YtSongsSection(
         }
         if (songs.size > 5) {
             TextButton(
-                onClick = {  },
+                onClick = { showAll = !showAll },
                 modifier = Modifier.padding(horizontal = 12.dp),
             ) {
-                Text("View all ${songs.size} liked songs")
+                Text(if (showAll) "Show less" else "View all ${songs.size} liked songs")
             }
         }
     }
