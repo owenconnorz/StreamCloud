@@ -56,8 +56,13 @@ object YtMusicPlaylistRepository {
 
 
     /**
-     * Uploads [imageBytes] (JPEG recommended) to YouTube's photo store, then sets it as the
-     * thumbnail of [playlistId] via `browse/edit_playlist → ACTION_SET_PLAYLIST_THUMBNAIL`.
+     * Uploads [imageBytes] to YouTube Music's playlist image upload endpoint (resumable, 2-step),
+     * then sets it as the thumbnail of [playlistId] via edit_playlist.
+     *
+     * Follows the same flow as Metrolist / innertube:
+     *   1. POST to playlist_image_upload with X-Goog-Upload-Command: start → get upload_id
+     *   2. POST image bytes to same URL with upload_id → get encryptedBlobId
+     *   3. edit_playlist with addedCustomThumbnail.playlistScottyEncryptedBlobId
      *
      * Returns true on success, false on any network/API failure.
      */
@@ -69,32 +74,63 @@ object YtMusicPlaylistRepository {
     ): Boolean = withContext(Dispatchers.IO) {
         if (cookie.isBlank() || imageBytes.isEmpty()) return@withContext false
 
-        // ── Step 1: upload image to YouTube Photos ────────────────────────────
-        val authHeader = YtMusicAuth.sapisidHashHeader(cookie, "https://www.youtube.com")
+        val authHeader = YtMusicAuth.sapisidHashHeader(cookie)
             ?: run {
-                Log.w(TAG, "uploadAndSetPlaylistThumbnail: could not build SAPISIDHASH (no SAPISID in cookie)")
+                Log.w(TAG, "uploadAndSetPlaylistThumbnail: no SAPISID in cookie")
                 return@withContext false
             }
 
-        val uploadReq = okhttp3.Request.Builder()
-            .url("https://upload.youtube.com/upload/photos/googlephotos")
-            .post(imageBytes.toRequestBody(mimeType.toMediaType()))
-            .header("Authorization", authHeader)
-            .header("Cookie", cookie)
-            .header("X-Goog-Upload-Command", "start,upload,finalize")
-            .header("X-Goog-Upload-Protocol", "raw")
-            .header("X-Goog-Upload-Raw-Size", imageBytes.size.toString())
-            .header("Content-Type", mimeType)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            )
-            .header("Origin", YtMusicAuth.ORIGIN)
-            .header("Referer", "${YtMusicAuth.ORIGIN}/")
-            .build()
+        val uploadBase = "https://music.youtube.com/playlist_image_upload/playlist_custom_thumbnail"
+        val ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-        val datasyncId: String? = http.newCall(uploadReq).execute().use { resp ->
+        // ── Step 1: start resumable upload session ────────────────────────────
+        val uploadId: String? = http.newCall(
+            Request.Builder()
+                .url(uploadBase)
+                .post(ByteArray(0).toRequestBody(null))
+                .header("Authorization", authHeader)
+                .header("Cookie", cookie)
+                .header("Origin", YtMusicAuth.ORIGIN)
+                .header("Referer", "${YtMusicAuth.ORIGIN}/")
+                .header("User-Agent", ua)
+                .header("X-Youtube-Client-Name", "67")
+                .header("X-Youtube-Client-Version", CLIENT_VERSION)
+                .header("X-Goog-Upload-Command", "start")
+                .header("X-Goog-Upload-Protocol", "resumable")
+                .header("X-Goog-Upload-Header-Content-Length", imageBytes.size.toString())
+                .build(),
+        ).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                Log.w(TAG, "thumbnail session start HTTP ${resp.code}: ${resp.body?.string()?.take(200)}")
+                return@use null
+            }
+            resp.header("x-guploader-uploadid")
+                ?: resp.header("X-Goog-Upload-URL")
+                    ?.substringAfter("upload_id=")?.substringBefore("&")
+        }
+
+        if (uploadId.isNullOrBlank()) {
+            Log.w(TAG, "uploadAndSetPlaylistThumbnail: no upload_id from session start")
+            return@withContext false
+        }
+
+        // ── Step 2: upload the image bytes ────────────────────────────────────
+        val blobId: String? = http.newCall(
+            Request.Builder()
+                .url("$uploadBase?upload_id=$uploadId&upload_protocol=resumable")
+                .post(imageBytes.toRequestBody(mimeType.toMediaType()))
+                .header("Authorization", authHeader)
+                .header("Cookie", cookie)
+                .header("Origin", YtMusicAuth.ORIGIN)
+                .header("Referer", "${YtMusicAuth.ORIGIN}/")
+                .header("User-Agent", ua)
+                .header("X-Youtube-Client-Name", "67")
+                .header("X-Youtube-Client-Version", CLIENT_VERSION)
+                .header("X-Goog-Upload-Command", "upload, finalize")
+                .header("X-Goog-Upload-Offset", "0")
+                .build(),
+        ).execute().use { resp ->
             val text = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
                 Log.w(TAG, "thumbnail upload HTTP ${resp.code}: ${text.take(200)}")
@@ -104,20 +140,19 @@ object YtMusicPlaylistRepository {
             runCatching {
                 val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
                     .parseToJsonElement(text).jsonObject
-                json["upload_status"]?.jsonObject?.get("resource_id")?.jsonPrimitive?.contentOrNull
-                    ?: json["resource_id"]?.jsonPrimitive?.contentOrNull
+                json["encryptedBlobId"]?.jsonPrimitive?.contentOrNull
             }.getOrElse {
-                Log.w(TAG, "thumbnail upload: failed to parse response – ${it.message}")
+                Log.w(TAG, "thumbnail upload parse: ${it.message}")
                 null
             }
         }
 
-        if (datasyncId.isNullOrBlank()) {
-            Log.w(TAG, "uploadAndSetPlaylistThumbnail: no datasync_id in upload response")
+        if (blobId.isNullOrBlank()) {
+            Log.w(TAG, "uploadAndSetPlaylistThumbnail: no encryptedBlobId in upload response")
             return@withContext false
         }
 
-        // ── Step 2: set as playlist thumbnail via edit_playlist ───────────────
+        // ── Step 3: set as playlist thumbnail via edit_playlist ───────────────
         val cleanId = playlistId.removePrefix("VL")
         val body = buildJsonObject {
             putContext()
@@ -125,7 +160,9 @@ object YtMusicPlaylistRepository {
             put("actions", buildJsonArray {
                 add(buildJsonObject {
                     put("action", "ACTION_SET_PLAYLIST_THUMBNAIL")
-                    put("uploadedThumbnailViaDatasyncId", datasyncId)
+                    putJsonObject("addedCustomThumbnail") {
+                        put("playlistScottyEncryptedBlobId", blobId)
+                    }
                 })
             })
         }

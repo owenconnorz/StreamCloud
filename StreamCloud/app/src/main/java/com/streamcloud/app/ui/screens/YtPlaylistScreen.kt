@@ -133,8 +133,12 @@ fun YtPlaylistScreen(
         }
         // Save locally
         scope.launch { sl.settings.setPlaylistThumb(playlistId, uri.toString()) }
-        // Sync to YouTube Music in the background
+        // Sync to YouTube Music only when a cookie is available
         scope.launch {
+            if (cookie.isBlank()) {
+                snackbarHostState.showSnackbar("Thumbnail saved ✓")
+                return@launch
+            }
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     // Read + compress the image to JPEG ≤ 1500 px
@@ -165,7 +169,7 @@ fun YtPlaylistScreen(
             }
             snackbarHostState.showSnackbar(
                 if (ok) "Thumbnail synced to YouTube Music ✓"
-                else "Saved locally — could not sync to YouTube Music"
+                else "Thumbnail saved locally (sync to YouTube Music failed)"
             )
         }
     }
