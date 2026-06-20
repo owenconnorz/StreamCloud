@@ -46,6 +46,7 @@ fun MusicSearchScreen(
     onBack: () -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
     onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
+    initialQuery: String = "",
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
@@ -53,11 +54,18 @@ fun MusicSearchScreen(
     val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
     val state by vm.state.collectAsState()
     val searchHistory by sl.settings.musicSearchHistory.collectAsState(initial = emptyList())
-    var query by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf(initialQuery) }
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        runCatching { focusRequester.requestFocus() }
+        if (initialQuery.isBlank()) runCatching { focusRequester.requestFocus() }
+    }
+
+    LaunchedEffect(initialQuery) {
+        if (initialQuery.isNotBlank()) {
+            query = initialQuery
+            vm.search(initialQuery)
+        }
     }
 
     LaunchedEffect(query) {

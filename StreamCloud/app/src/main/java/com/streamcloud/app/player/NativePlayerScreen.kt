@@ -71,6 +71,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.media3.common.C
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.TrackSelectionOverride
 
 @OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @SuppressLint("UnsafeOptInUsageError")
@@ -305,6 +308,8 @@ fun NativePlayerScreen(
     var bufferingMs by remember { mutableStateOf(0L) }
     var controlsVisible by remember { mutableStateOf(true) }
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var resizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    var playbackSpeed by remember { mutableStateOf(1f) }
 
     LaunchedEffect(ex) {
         ex ?: return@LaunchedEffect
@@ -421,7 +426,10 @@ fun NativePlayerScreen(
                         setBackgroundColor(android.graphics.Color.BLACK)
                     }
                 },
-                update = { it.player = ex },
+                update = { view ->
+                    view.player = ex
+                    view.resizeMode = resizeMode
+                },
             )
         }
 
@@ -539,6 +547,9 @@ fun NativePlayerScreen(
 
         var locked by remember { mutableStateOf(false) }
         var showSourcesSheet by remember { mutableStateOf(false) }
+        var showSpeedSheet by remember { mutableStateOf(false) }
+        var showSubsSheet by remember { mutableStateOf(false) }
+        var showAudioSheet by remember { mutableStateOf(false) }
 
         AnimatedVisibility(
             visible = controlsVisible && !needsWebView,
@@ -667,6 +678,18 @@ fun NativePlayerScreen(
                                     isLandscape = !isLandscape
                                     bumpInteraction()
                                 },
+                                isFill = resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL,
+                                onFitClick = {
+                                    resizeMode = if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT)
+                                        AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                    else
+                                        AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    bumpInteraction()
+                                },
+                                currentSpeed = playbackSpeed,
+                                onSpeedClick = { showSpeedSheet = true; bumpInteraction() },
+                                onSubsClick = { showSubsSheet = true; bumpInteraction() },
+                                onAudioClick = { showAudioSheet = true; bumpInteraction() },
                             )
                         }
                     }
@@ -686,6 +709,134 @@ fun NativePlayerScreen(
                 onRefresh = onRefresh,
                 nuvioScanning = nuvioScanning,
             )
+        }
+
+        if (showSpeedSheet) {
+            val speeds = listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+            ModalBottomSheet(onDismissRequest = { showSpeedSheet = false }) {
+                Column(Modifier.padding(bottom = 32.dp)) {
+                    Text(
+                        "Playback Speed",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                    speeds.forEach { speed ->
+                        val label = if (speed % 1f == 0f) "${speed.toInt()}x" else "${speed}x"
+                        ListItem(
+                            headlineContent = { Text(label) },
+                            trailingContent = {
+                                if (speed == playbackSpeed) {
+                                    Icon(Icons.Default.Speed, null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            },
+                            modifier = Modifier.clickable {
+                                playbackSpeed = speed
+                                ex?.playbackParameters = PlaybackParameters(speed)
+                                showSpeedSheet = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (showSubsSheet) {
+            val textGroups = ex?.currentTracks?.groups?.filter { it.type == C.TRACK_TYPE_TEXT } ?: emptyList()
+            ModalBottomSheet(onDismissRequest = { showSubsSheet = false }) {
+                Column(Modifier.padding(bottom = 32.dp)) {
+                    Text(
+                        "Subtitles",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                    if (textGroups.isEmpty()) {
+                        Text(
+                            "No subtitle tracks available for this video",
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        val subsDisabled = ex?.trackSelectionParameters
+                            ?.disabledTrackTypes?.contains(C.TRACK_TYPE_TEXT) == true
+                        ListItem(
+                            headlineContent = { Text("Off") },
+                            leadingContent = {
+                                RadioButton(selected = subsDisabled, onClick = {
+                                    ex?.trackSelectionParameters = ex?.trackSelectionParameters
+                                        ?.buildUpon()
+                                        ?.setDisabledTrackTypes(setOf(C.TRACK_TYPE_TEXT))
+                                        ?.build() ?: return@RadioButton
+                                    showSubsSheet = false
+                                })
+                            },
+                        )
+                        textGroups.forEach { group ->
+                            repeat(group.mediaTrackGroup.length) { i ->
+                                val fmt = group.mediaTrackGroup.getFormat(i)
+                                val label = fmt.label ?: fmt.language ?: "Track ${i + 1}"
+                                ListItem(
+                                    headlineContent = { Text(label) },
+                                    leadingContent = {
+                                        RadioButton(
+                                            selected = !subsDisabled && group.isTrackSelected(i),
+                                            onClick = {
+                                                ex?.trackSelectionParameters = ex?.trackSelectionParameters
+                                                    ?.buildUpon()
+                                                    ?.setDisabledTrackTypes(emptySet())
+                                                    ?.addOverride(TrackSelectionOverride(group.mediaTrackGroup, i))
+                                                    ?.build() ?: return@RadioButton
+                                                showSubsSheet = false
+                                            },
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showAudioSheet) {
+            val audioGroups = ex?.currentTracks?.groups?.filter { it.type == C.TRACK_TYPE_AUDIO } ?: emptyList()
+            ModalBottomSheet(onDismissRequest = { showAudioSheet = false }) {
+                Column(Modifier.padding(bottom = 32.dp)) {
+                    Text(
+                        "Audio Track",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                    if (audioGroups.isEmpty() || (audioGroups.size == 1 && audioGroups[0].mediaTrackGroup.length <= 1)) {
+                        Text(
+                            "No alternate audio tracks available",
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        audioGroups.forEach { group ->
+                            repeat(group.mediaTrackGroup.length) { i ->
+                                val fmt = group.mediaTrackGroup.getFormat(i)
+                                val label = fmt.label ?: fmt.language ?: "Track ${i + 1}"
+                                ListItem(
+                                    headlineContent = { Text(label) },
+                                    leadingContent = {
+                                        RadioButton(
+                                            selected = group.isTrackSelected(i),
+                                            onClick = {
+                                                ex?.trackSelectionParameters = ex?.trackSelectionParameters
+                                                    ?.buildUpon()
+                                                    ?.addOverride(TrackSelectionOverride(group.mediaTrackGroup, i))
+                                                    ?.build() ?: return@RadioButton
+                                                showAudioSheet = false
+                                            },
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
 
@@ -832,7 +983,14 @@ private fun PlayerToolbarPill(
     onSourcesClick: (() -> Unit)?,
     isLandscape: Boolean = true,
     onRotate: (() -> Unit)? = null,
+    isFill: Boolean = false,
+    onFitClick: () -> Unit = {},
+    currentSpeed: Float = 1f,
+    onSpeedClick: () -> Unit = {},
+    onSubsClick: () -> Unit = {},
+    onAudioClick: () -> Unit = {},
 ) {
+    val speedLabel = if (currentSpeed % 1f == 0f) "${currentSpeed.toInt()}x" else "${currentSpeed}x"
     Row(
         Modifier
             .clip(RoundedCornerShape(50))
@@ -841,10 +999,10 @@ private fun PlayerToolbarPill(
         horizontalArrangement = Arrangement.spacedBy(0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ToolbarItem(Icons.Default.AspectRatio, "Fit") {  }
-        ToolbarItem(Icons.Default.Speed, "1x") {  }
-        ToolbarItem(Icons.Default.ClosedCaption, "Subs") {  }
-        ToolbarItem(Icons.Default.VolumeUp, "Audio") {  }
+        ToolbarItem(Icons.Default.AspectRatio, if (isFill) "Fill" else "Fit") { onFitClick() }
+        ToolbarItem(Icons.Default.Speed, speedLabel) { onSpeedClick() }
+        ToolbarItem(Icons.Default.ClosedCaption, "Subs") { onSubsClick() }
+        ToolbarItem(Icons.Default.VolumeUp, "Audio") { onAudioClick() }
         ToolbarItem(
             Icons.AutoMirrored.Filled.CompareArrows,
             "Sources",

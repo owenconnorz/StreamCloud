@@ -47,6 +47,7 @@ fun MusicArtistScreen(
     var page by remember(channelUrl) { mutableStateOf<NewPipeRepository.ArtistPage?>(null) }
     var loading by remember(channelUrl) { mutableStateOf(true) }
     var error by remember(channelUrl) { mutableStateOf<String?>(null) }
+    var menuTrack by remember { mutableStateOf<YtTrack?>(null) }
 
     LaunchedEffect(channelUrl) {
         loading = true; error = null; page = null
@@ -219,7 +220,7 @@ private fun ArtistPageContent(
         if (page.topTracks.isNotEmpty()) {
             item { SectionHeader("Popular") }
             items(page.topTracks.take(5), key = { "pop_${it.url}" }) { tr ->
-                TrackRow(track = tr, onPlay = { onPlay(tr) })
+                TrackRow(track = tr, onPlay = { onPlay(tr) }, onMoreClick = { menuTrack = tr })
             }
         }
 
@@ -338,6 +339,43 @@ private fun ArtistPageContent(
             }
         }
     }
+
+    val mt = menuTrack
+    if (mt != null) {
+        ModalBottomSheet(onDismissRequest = { menuTrack = null }) {
+            Column(modifier = androidx.compose.ui.Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    mt.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                )
+                ListItem(
+                    headlineContent = { Text("Play") },
+                    leadingContent = { Icon(Icons.Default.PlayArrow, null) },
+                    modifier = androidx.compose.ui.Modifier.clickable {
+                        onPlay(mt)
+                        menuTrack = null
+                    },
+                )
+                val context = androidx.compose.ui.platform.LocalContext.current
+                ListItem(
+                    headlineContent = { Text("Share") },
+                    leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Share, null) },
+                    modifier = androidx.compose.ui.Modifier.clickable {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, mt.url)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(intent, "Share track"))
+                        menuTrack = null
+                    },
+                )
+            }
+        }
+    }
 }
 
 // ── Reusable composables ──────────────────────────────────────────────────────
@@ -354,7 +392,7 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun TrackRow(track: YtTrack, onPlay: () -> Unit) {
+private fun TrackRow(track: YtTrack, onPlay: () -> Unit, onMoreClick: () -> Unit = {}) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -388,7 +426,7 @@ private fun TrackRow(track: YtTrack, onPlay: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = {}) {
+        IconButton(onClick = onMoreClick) {
             Icon(Icons.Default.MoreVert, null, tint = Color.White.copy(alpha = 0.5f))
         }
     }

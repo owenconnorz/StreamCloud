@@ -66,6 +66,7 @@ fun MusicScreen(
     onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
     onProfileClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onSearchWithQuery: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
@@ -137,6 +138,7 @@ fun MusicScreen(
                     onProfileClick = onProfileClick,
                     onHistoryClick = { showHistory = true },
                     onSearchClick = onSearchClick,
+                    onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                 )
             }
 
@@ -201,7 +203,9 @@ fun MusicScreen(
                 state.ytHome.sections.forEachIndexed { idx, section ->
                     when (section) {
                         is com.streamcloud.app.data.ytmusic.HomeSection.MoodChips -> {
-                            item(key = "yt_chips_$idx") { YtMoodChipRow(section.chips) }
+                            item(key = "yt_chips_$idx") {
+                                YtMoodChipRow(section.chips, onChipClick = { label -> onSearchWithQuery(label) })
+                            }
                         }
                         is com.streamcloud.app.data.ytmusic.HomeSection.PlaylistRail -> {
                             item(key = "yt_prail_title_$idx") { SectionTitle(section.title) }
@@ -441,6 +445,7 @@ private fun MusicHeader(
     onProfileClick: () -> Unit,
     onHistoryClick: () -> Unit,
     onSearchClick: () -> Unit = {},
+    onTrendingClick: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
@@ -470,17 +475,10 @@ private fun MusicHeader(
                 tint = MaterialTheme.colorScheme.onBackground,
             )
         }
-        IconButton(onClick = {}) {
+        IconButton(onClick = onTrendingClick) {
             Icon(
                 Icons.Default.TrendingUp,
                 contentDescription = "Trending",
-                tint = MaterialTheme.colorScheme.onBackground,
-            )
-        }
-        IconButton(onClick = {}) {
-            Icon(
-                Icons.Default.Group,
-                contentDescription = "Friends",
                 tint = MaterialTheme.colorScheme.onBackground,
             )
         }
@@ -992,14 +990,17 @@ private fun LibraryRow(
 }
 
 @Composable
-private fun YtMoodChipRow(chips: List<com.streamcloud.app.data.ytmusic.MoodChip>) {
+private fun YtMoodChipRow(
+    chips: List<com.streamcloud.app.data.ytmusic.MoodChip>,
+    onChipClick: (String) -> Unit = {},
+) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(chips, key = { "chip_${it.label}" }) { chip ->
             AssistChip(
-                onClick = {  },
+                onClick = { onChipClick(chip.label) },
                 label = { Text(chip.label) },
             )
         }
