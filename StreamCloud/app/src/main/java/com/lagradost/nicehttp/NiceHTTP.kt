@@ -20,7 +20,13 @@ import java.util.concurrent.TimeUnit
 
 // ResponseParser MUST be an interface — plugins reference it via invokeinterface.
 // Declaring it as a class causes IncompatibleClassChangeError at runtime.
+//
+// The real CloudStream NiceHTTP declares TWO methods on this interface:
+//   parse(String, KClass<T>): T?      — used by most plugins (invokeinterface descriptor)
+//   parseSafe(String, KClass<T>): T?  — legacy / null-returning fallback
+// Both must exist here so plugins compiled against either API version work.
 interface ResponseParser {
+    fun <T : Any> parse(json: String, klass: kotlin.reflect.KClass<T>): T? = null
     fun <T : Any> parseSafe(json: String, klass: kotlin.reflect.KClass<T>): T? = null
 }
 

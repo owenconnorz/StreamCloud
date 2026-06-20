@@ -146,16 +146,77 @@ object PluginRuntime {
                         }
                     }
 
+                    // Strategy 3: try every plausible parent classloader in turn.
+                    // On some devices / Android versions the Plugin::class.java.classLoader
+                    // is subtly different from context.classLoader so the first loader's
+                    // instanceof check fails even though the class IS a Plugin subclass.
+                    fun tryAllParents(): Plugin? {
+                        val parents = listOf(
+                            Thread.currentThread().contextClassLoader,
+                            context.classLoader,
+                            ClassLoader.getSystemClassLoader(),
+                        ).filterNotNull().distinct()
+                        for (p in parents) {
+                            val inst = runCatching {
+                                DexClassLoader(readOnlyFile.absolutePath, optimizedDir.absolutePath, null, p)
+                                    .loadClass(pluginClassName).getDeclaredConstructor().newInstance()
+                            }.getOrNull() ?: continue
+                            when {
+                                inst is Plugin -> return inst
+                                inst is MainAPI -> return object : Plugin() {
+                                    override fun load(ctx: android.content.Context) { registerMainAPI(inst) }
+                                }
+                            }
+                        }
+                        return null
+                    }
+
+                    // Strategy 4 (last resort): reflection bridge.
+                    // If EVERY instanceof check fails regardless of classloader, duck-type the
+                    // class: call load(Context) via reflection, then harvest its `apis` list via
+                    // the field reference.  Any api that IS our MainAPI gets registered; others
+                    // are silently ignored.
+                    fun reflectionBridge(): Plugin? {
+                        val cls = rawInstance::class.java
+                        val loadMethod = runCatching {
+                            cls.getMethod("load", android.content.Context::class.java)
+                        }.getOrNull() ?: return null
+                        return object : Plugin() {
+                            override fun load(ctx: android.content.Context) {
+                                runCatching { loadMethod.invoke(rawInstance, ctx) }
+                                // Harvest apis from the raw instance's field via reflection
+                                val apisField = generateSequence(cls as Class<*>?) { it.superclass }
+                                    .firstNotNullOfOrNull { c ->
+                                        runCatching { c.getDeclaredField("apis") }.getOrNull()
+                                    }
+                                if (apisField != null) {
+                                    apisField.isAccessible = true
+                                    @Suppress("UNCHECKED_CAST")
+                                    val rawApis = runCatching {
+                                        apisField.get(rawInstance) as? Iterable<*>
+                                    }.getOrNull()
+                                    rawApis?.forEach { api ->
+                                        if (api is MainAPI) registerMainAPI(api)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     when {
                         "com.lagradost.cloudstream3.plugins.Plugin" in hierarchy ->
                             reloadAsPlugin(fallbackParent)
+                                ?: tryAllParents()
                                 ?: error("Class `$pluginClassName` detected as Plugin by name but cast failed")
 
                         "com.lagradost.cloudstream3.MainAPI" in hierarchy ->
                             reloadAsPlugin(fallbackParent)
+                                ?: tryAllParents()
                                 ?: error("Class `$pluginClassName` detected as MainAPI by name but cast failed")
 
                         else -> resolveViaOwnClassloader()
+                            ?: tryAllParents()
+                            ?: reflectionBridge()
                             ?: error("Class `$pluginClassName` is not a subclass of `Plugin` or `MainAPI`")
                     }
                 }
@@ -268,6 +329,27 @@ object PluginRuntime {
                 }.getOrDefault(false)
             }
             if (foundApi != null) return foundApi
+
+            // Third pass (name heuristic): isAssignableFrom failed for everything — likely because
+            // loadClass throws NoClassDefFoundError (missing dependency) or returns a class whose
+            // Plugin superclass is from a different loader.  Pick the best candidate purely by name
+            // without verifying class membership.  The main loading code will handle mismatches.
+            val fileBaseName = readOnlyFile.name.removeSuffix(".cs3").removeSuffix(".jar")
+            val heuristic = candidates
+                // Prefer concrete (non-inner, non-anonymous) classes with "Plugin" in the simple name
+                .sortedWith(compareByDescending<String> { name ->
+                    val simple = name.substringAfterLast('.')
+                    when {
+                        simple.contains("Plugin") && name.contains(fileBaseName, ignoreCase = true) -> 4
+                        simple.contains("Plugin") -> 3
+                        name.contains(fileBaseName, ignoreCase = true) -> 2
+                        !simple.contains('$') -> 1
+                        else -> 0
+                    }
+                })
+                // Exclude anything that looks like a companion, anonymous, or inner class
+                .firstOrNull { name -> !name.substringAfterLast('.').let { it.contains('$') } }
+            if (heuristic != null) return heuristic
         }
 
         // Fallback: deprecated DexFile.loadDex for older Android versions
