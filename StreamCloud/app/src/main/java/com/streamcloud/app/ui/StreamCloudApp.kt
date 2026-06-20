@@ -55,8 +55,11 @@ import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
 import com.streamcloud.app.ui.screens.MovieDetailScreen
+import com.streamcloud.app.ui.screens.MovieSearchScreen
 import com.streamcloud.app.ui.screens.MoviesScreen
 import com.streamcloud.app.ui.screens.MusicScreen
+import com.streamcloud.app.ui.screens.MusicSearchScreen
+import com.streamcloud.app.ui.screens.PluginPickerScreen
 import com.streamcloud.app.ui.screens.PluginsScreen
 import com.streamcloud.app.ui.screens.SettingsHubScreen
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -264,6 +267,8 @@ fun StreamCloudApp() {
                             val n = URLEncoder.encode(internalName, "UTF-8")
                             nav.navigate("cloudstream/$n")
                         },
+                        onSearchClick = { nav.navigate("movie-search") },
+                        onPluginsClick = { nav.navigate("plugin-picker") },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                         onOpenCollections = { nav.navigate("collections") },
                         onOpenCatalog = { src, t, sub ->
@@ -575,11 +580,39 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("yt-playlist/$i/$t")
                         },
-
-
-
-
+                        onSearchClick = { nav.navigate("music-search") },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
+                    )
+                }
+                composable("movie-search") {
+                    MovieSearchScreen(
+                        onBack = { nav.popBackStack() },
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
+                    )
+                }
+                composable("plugin-picker") {
+                    PluginPickerScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenPlugin = { internalName ->
+                            val n = URLEncoder.encode(internalName, "UTF-8")
+                            nav.navigate("cloudstream/$n")
+                        },
+                    )
+                }
+                composable("music-search") {
+                    MusicSearchScreen(
+                        onBack = { nav.popBackStack() },
+                        onArtistClick = { url, thumb ->
+                            val u = URLEncoder.encode(url, "UTF-8")
+                            val t = URLEncoder.encode(thumb.orEmpty(), "UTF-8")
+                            nav.navigate("artist/$u?thumb=$t")
+                        },
+                        onOpenPlaylist = { id, title ->
+                            val i = URLEncoder.encode(id, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("yt-playlist/$i/$t")
+                        },
                     )
                 }
                 composable(

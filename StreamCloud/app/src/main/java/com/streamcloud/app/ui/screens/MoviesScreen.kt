@@ -63,6 +63,8 @@ fun MoviesScreen(
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit = {},
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
+    onSearchClick: () -> Unit = {},
+    onPluginsClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onOpenCollections: () -> Unit = {},
     onOpenCatalog: (source: String, title: String, subtitle: String) -> Unit = { _, _, _ -> },
@@ -108,23 +110,10 @@ fun MoviesScreen(
                 MoviesHeader(
                     onProfileClick = onProfileClick,
                     onOpenCollections = onOpenCollections,
-                    searchExpanded = searchExpanded,
-                    onSearchToggle = {
-                        searchExpanded = !searchExpanded
-                        if (!searchExpanded) { query = ""; vm.search("") }
-                    },
-                    plugins = state.installedPlugins,
-                    onPluginOpen = onOpenCloudStreamPlugin,
+                    onSearchClick = onSearchClick,
+                    onPluginsClick = onPluginsClick,
+                    hasPlugins = state.installedPlugins.isNotEmpty(),
                 )
-            }
-            if (searchExpanded) {
-                item {
-                    MoviesSearchField(
-                        query = query,
-                        loading = state.loading,
-                        onQueryChange = { query = it; vm.search(it) },
-                    )
-                }
             }
             state.notice?.let {
                 item { NoticeBanner(it, onDismiss = vm::clearNotice) }
@@ -473,13 +462,10 @@ fun MoviesScreen(
 private fun MoviesHeader(
     onProfileClick: () -> Unit,
     onOpenCollections: () -> Unit = {},
-    searchExpanded: Boolean = false,
-    onSearchToggle: () -> Unit = {},
-    plugins: List<InstalledPlugin> = emptyList(),
-    onPluginOpen: (String) -> Unit = {},
+    onSearchClick: () -> Unit = {},
+    onPluginsClick: () -> Unit = {},
+    hasPlugins: Boolean = false,
 ) {
-    var pluginMenuOpen by remember { mutableStateOf(false) }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -494,62 +480,21 @@ private fun MoviesHeader(
             modifier = Modifier.weight(1f),
         )
 
-        IconButton(onClick = onSearchToggle) {
+        IconButton(onClick = onSearchClick) {
             Icon(
                 Icons.Default.Search,
                 contentDescription = "Search",
-                tint = if (searchExpanded) MaterialTheme.colorScheme.primary
-                       else MaterialTheme.colorScheme.onBackground,
+                tint = MaterialTheme.colorScheme.onBackground,
             )
         }
 
-        if (plugins.isNotEmpty()) {
-            Box {
-                IconButton(onClick = { pluginMenuOpen = true }) {
-                    Icon(
-                        Icons.Default.Extension,
-                        contentDescription = "Switch Plugin",
-                        tint = MaterialTheme.colorScheme.onBackground,
-                    )
-                }
-                DropdownMenu(
-                    expanded = pluginMenuOpen,
-                    onDismissRequest = { pluginMenuOpen = false },
-                ) {
-                    plugins.forEach { p ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    p.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            },
-                            onClick = {
-                                pluginMenuOpen = false
-                                onPluginOpen(p.internalName)
-                            },
-                            leadingIcon = {
-                                if (!p.iconUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = p.iconUrl,
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .clip(RoundedCornerShape(4.dp)),
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Default.Extension,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = Color(0xFF7C5CFF),
-                                    )
-                                }
-                            },
-                        )
-                    }
-                }
+        if (hasPlugins) {
+            IconButton(onClick = onPluginsClick) {
+                Icon(
+                    Icons.Default.Extension,
+                    contentDescription = "Switch Plugin",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                )
             }
         }
 
