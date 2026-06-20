@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +35,7 @@ import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -198,25 +200,32 @@ fun StreamCloudApp() {
                     if (showBar) Box(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                            .background(MaterialTheme.colorScheme.surface),
+                            .navigationBarsPadding()
+                            .padding(horizontal = 20.dp, bottom = 12.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically,
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 10.dp,
+                            tonalElevation = 4.dp,
                         ) {
-                            tabs.forEach { tab ->
-                                val selected = currentRoute == tab.route
-                                ScrollableNavBarItem(
-                                    icon = tab.icon,
-                                    label = tab.label,
-                                    selected = selected,
-                                    onClick = { navigateToTab(nav, tab.route) },
-                                )
+                            Row(
+                                Modifier
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                tabs.forEach { tab ->
+                                    val selected = currentRoute == tab.route
+                                    ScrollableNavBarItem(
+                                        icon = tab.icon,
+                                        label = tab.label,
+                                        selected = selected,
+                                        onClick = { navigateToTab(nav, tab.route) },
+                                    )
+                                }
                             }
                         }
                     }
