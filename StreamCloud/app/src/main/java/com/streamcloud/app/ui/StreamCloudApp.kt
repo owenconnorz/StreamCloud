@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmarks
@@ -195,17 +196,18 @@ fun StreamCloudApp() {
 
 
 
-                    androidx.compose.material3.Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp,
-                        modifier = Modifier.fillMaxWidth(),
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                            .background(MaterialTheme.colorScheme.surface),
                     ) {
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             tabs.forEach { tab ->
@@ -889,37 +891,57 @@ private fun ScrollableNavBarItem(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val indicator = MaterialTheme.colorScheme.primary
-    val onIndicator = MaterialTheme.colorScheme.onPrimary
-    val unselectedTint = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(
+    val primaryColor   = MaterialTheme.colorScheme.primary
+    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
+    val mutedColor     = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .clip(RoundedCornerShape(50))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            Modifier
-                .height(32.dp)
-                .width(64.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(if (selected) indicator else androidx.compose.ui.graphics.Color.Transparent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                icon,
-                contentDescription = label,
-                tint = if (selected) onIndicator else unselectedTint,
-                modifier = Modifier.size(22.dp),
-            )
+        if (selected) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(primaryColor)
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    tint = onPrimaryColor,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = onPrimaryColor,
+                )
+            }
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    tint = mutedColor,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = mutedColor,
+                )
+            }
         }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) MaterialTheme.colorScheme.primary else unselectedTint,
-        )
     }
 }
 
