@@ -77,8 +77,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.media3.common.util.UnstableApi
+import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -90,6 +95,7 @@ private sealed class Tab(val route: String, val label: String, val icon: ImageVe
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings)
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 fun StreamCloudApp() {
     val nav = rememberNavController()
@@ -170,10 +176,25 @@ fun StreamCloudApp() {
         }
     }
 
-    // Show miniplayer on any non-media, non-music-tab route (including search, artist, playlist)
-    val showMiniPlayer = currentRoute != null &&
-        currentRoute != Tab.Music.route &&
-        !isMediaRoute
+    // Dynamic album-art theme — same source as GlobalMiniPlayer
+    val accentSecondary by AlbumArtThemeBus.accentSecondary.collectAsState()
+    val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
+    val navPillColor by animateColorAsState(
+        targetValue = if (dynamicMiniTheme) {
+            Color(
+                red   = accentSecondary.red   * 0.38f,
+                green = accentSecondary.green * 0.38f,
+                blue  = accentSecondary.blue  * 0.38f,
+            )
+        } else {
+            Color(0xFF1C1C1E)
+        },
+        animationSpec = tween(600),
+        label = "navPillBg",
+    )
+
+    // Show miniplayer on all non-media routes (including music home)
+    val showMiniPlayer = currentRoute != null && !isMediaRoute
 
     Scaffold(
         modifier = Modifier
@@ -845,7 +866,7 @@ fun StreamCloudApp() {
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(50),
-                                color = MaterialTheme.colorScheme.surface,
+                                color = navPillColor,
                                 shadowElevation = 10.dp,
                                 tonalElevation = 4.dp,
                             ) {
