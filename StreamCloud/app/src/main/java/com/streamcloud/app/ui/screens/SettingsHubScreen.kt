@@ -464,7 +464,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                     )
                     SettingDivider()
                     SettingToggle(
-                        icon = Icons.Default.Label, tint = ColourAppearance,
+                        icon = Icons.Default.TextFields, tint = ColourAppearance,
                         title = "Navigation labels",
                         subtitle = "Show text labels below icons in the navigation bar",
                         checked = navLabels,
