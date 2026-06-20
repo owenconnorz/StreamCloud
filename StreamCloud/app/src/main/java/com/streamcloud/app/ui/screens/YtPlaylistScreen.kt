@@ -287,9 +287,6 @@ fun YtPlaylistScreen(
                 },
             )
         },
-        bottomBar = {
-            com.streamcloud.app.ui.player.GlobalMiniPlayer()
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         val list = tracks
