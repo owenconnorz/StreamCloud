@@ -261,6 +261,17 @@ internal fun JsonElement?.bestThumbnail(): String? {
     return raw.upgradeToHqSize()
 }
 
+/** Searches the whole JSON tree for the first "thumbnails" array and returns the best URL. */
+internal fun JsonElement.bestThumbnailAnywhere(): String? {
+    for (arr in findAll("thumbnails")) {
+        val url = (arr as? JsonArray)
+            ?.mapNotNull { it.jsonObject["url"]?.jsonPrimitive?.contentOrNull }
+            ?.lastOrNull() ?: continue
+        return url.upgradeToHqSize()
+    }
+    return null
+}
+
 private fun String.upgradeToHqSize(): String {
     val cut = indexOf('=')
     if (cut < 0) return this
