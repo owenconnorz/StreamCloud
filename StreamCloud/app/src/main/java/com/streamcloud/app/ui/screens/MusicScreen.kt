@@ -27,7 +27,7 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -112,22 +112,23 @@ fun MusicScreen(
         ?: state.tracks.firstOrNull { it.url == state.nowPlayingUrl }
         ?: state.homeFeed.firstOrNull { it.url == state.nowPlayingUrl }
 
+    var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
-    if (pullRefreshState.isRefreshing) {
-        LaunchedEffect(Unit) {
-            vm.loadYtHome()
-            vm.loadHomeFeed()
-        }
-    }
     LaunchedEffect(state.ytHomeLoading, state.homeLoading) {
-        if (!state.ytHomeLoading && !state.homeLoading) pullRefreshState.endRefresh()
+        if (!state.ytHomeLoading && !state.homeLoading) isRefreshing = false
     }
 
-    Box(
-        Modifier
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            isRefreshing = true
+            vm.loadYtHome()
+            vm.loadHomeFeed()
+        },
+        state = pullRefreshState,
+        modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .nestedScroll(pullRefreshState.nestedScrollConnection)
+            .background(MaterialTheme.colorScheme.background),
     ) {
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -364,11 +365,6 @@ fun MusicScreen(
             }
         }
 
-        PullToRefreshContainer(
-            state = pullRefreshState,
-            modifier = Modifier.align(Alignment.TopCenter),
-            contentColor = MaterialTheme.colorScheme.primary,
-        )
 
 
 
