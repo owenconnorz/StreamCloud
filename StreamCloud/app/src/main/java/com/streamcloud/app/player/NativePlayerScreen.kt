@@ -562,7 +562,7 @@ fun NativePlayerScreen(
                     Column(
                         Modifier
                             .align(Alignment.TopStart)
-                            .padding(start = 28.dp, top = 22.dp, end = 220.dp),
+                            .padding(start = 28.dp, top = 22.dp, end = if (isLandscape) 220.dp else 90.dp),
                     ) {
                         Text(
                             title,
@@ -991,10 +991,13 @@ private fun PlayerToolbarPill(
     onAudioClick: () -> Unit = {},
 ) {
     val speedLabel = if (currentSpeed % 1f == 0f) "${currentSpeed.toInt()}x" else "${currentSpeed}x"
+    val scrollState = androidx.compose.foundation.rememberScrollState()
     Row(
         Modifier
+            .fillMaxWidth(if (isLandscape) 0.75f else 1f)
             .clip(RoundedCornerShape(50))
             .background(Color.Black.copy(alpha = 0.55f))
+            .horizontalScroll(scrollState)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(0.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1063,7 +1066,7 @@ private fun ToolbarItem(
     ) {
         Icon(icon, label, tint = tint, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(6.dp))
-        Text(label, color = tint, style = MaterialTheme.typography.titleMedium)
+        Text(label, color = tint, style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
     }
 }
 
