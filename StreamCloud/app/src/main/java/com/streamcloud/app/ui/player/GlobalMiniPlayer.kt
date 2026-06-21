@@ -268,7 +268,7 @@ fun GlobalMiniPlayer(
                             .fillMaxSize()
                             .clip(CircleShape),
                     )
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = showPlayHint,
                         enter = fadeIn(tween(120)),
                         exit = fadeOut(tween(450)),
