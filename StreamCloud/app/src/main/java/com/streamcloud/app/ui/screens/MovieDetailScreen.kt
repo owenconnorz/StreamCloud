@@ -50,6 +50,7 @@ import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import android.util.Log
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
@@ -80,6 +81,10 @@ fun MovieDetailScreen(
     var resolving by remember { mutableStateOf(false) }
     var resolverMessage by remember { mutableStateOf<String?>(null) }
 
+    // Nuvio pre-fetch: started as soon as imdbId resolves so streams are ready before Play is pressed.
+    var nuvioPrefetchJob by remember { mutableStateOf<Deferred<List<PlayerSource>>?>(null) }
+    var nuvioPrefetching by remember { mutableStateOf(false) }
+
     // CS source picker sheet
     var csPickerPlugin by remember { mutableStateOf<InstalledPlugin?>(null) }
     var csPickerSources by remember { mutableStateOf<List<ExtractorLink>>(emptyList()) }
@@ -103,6 +108,31 @@ fun MovieDetailScreen(
         } catch (e: Exception) {
             error = "Failed to load: ${e.message}"
         }
+    }
+
+    // Pre-fetch Nuvio streams the moment imdbId is resolved — before the user presses Play.
+    // This hides the Nuvio latency (JS execution + network) behind the time the user spends
+    // reading the movie description. The Deferred is reused in playMovie() so no duplicate work.
+    LaunchedEffect(imdbId, installedNuvio.size) {
+        val tt = imdbId ?: return@LaunchedEffect
+        if (installedNuvio.isEmpty()) return@LaunchedEffect
+        // Cancel any stale job (e.g. imdbId changed unexpectedly)
+        nuvioPrefetchJob?.takeIf { !it.isCompleted }?.cancel()
+        Log.d("StreamCloud", "Nuvio pre-fetch: starting for tmdbId=$movieId imdbId=$tt (${installedNuvio.size} providers)")
+        nuvioPrefetching = true
+        val job = scope.async {
+            runCatching {
+                sl.nuvio.resolveAll(movieId.toString(), mediaType, imdbId = tt)
+                    .map { (provider, stream) -> stream.toPlayerSource(provider) }
+            }.getOrElse { e ->
+                Log.d("StreamCloud", "Nuvio pre-fetch error: ${e.message}")
+                emptyList()
+            }
+        }
+        nuvioPrefetchJob = job
+        job.await()
+        nuvioPrefetching = false
+        Log.d("StreamCloud", "Nuvio pre-fetch: complete (${nuvioPrefetchJob?.await()?.size ?: 0} streams ready)")
     }
 
     fun playMovie() {
@@ -178,19 +208,28 @@ fun MovieDetailScreen(
                     }.awaitAll().flatten()
                 }
 
-                // Nuvio: start immediately in parallel — pass imdbId so providers can use params.imdbId
-                val nuvioJob = async {
-                    if (installedNuvio.isEmpty()) emptyList<PlayerSource>()
-                    else {
-                        Log.d("StreamCloud", "Nuvio: starting ${installedNuvio.size} providers for tmdbId=$movieId imdbId=$tt")
-                        runCatching {
-                            sl.nuvio.resolveAll(movieId.toString(), mediaType, imdbId = tt)
-                                .map { (provider, stream) -> stream.toPlayerSource(provider) }
-                        }.getOrElse { e ->
-                            Log.d("StreamCloud", "Nuvio resolveAll error: ${e.message}")
-                            emptyList()
+                // Nuvio: reuse the pre-fetch job started when imdbId first resolved.
+                // If the user pressed Play fast, the job may still be running — we just await it
+                // without duplicating any work.  If they waited, the result is already cached.
+                val nuvioJob: Deferred<List<PlayerSource>> = if (installedNuvio.isNotEmpty()) {
+                    val existing = nuvioPrefetchJob
+                    if (existing != null) {
+                        Log.d("StreamCloud", "Nuvio: reusing pre-fetch job (completed=${existing.isCompleted}) for tmdbId=$movieId imdbId=$tt")
+                        existing
+                    } else {
+                        Log.d("StreamCloud", "Nuvio: no pre-fetch job found, starting fresh for tmdbId=$movieId imdbId=$tt")
+                        async {
+                            runCatching {
+                                sl.nuvio.resolveAll(movieId.toString(), mediaType, imdbId = tt)
+                                    .map { (provider, stream) -> stream.toPlayerSource(provider) }
+                            }.getOrElse { e ->
+                                Log.d("StreamCloud", "Nuvio resolveAll error: ${e.message}")
+                                emptyList()
+                            }
                         }
                     }
+                } else {
+                    async { emptyList() }
                 }
 
                 val m = movie
@@ -350,6 +389,25 @@ fun MovieDetailScreen(
                 val moviesVm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
                 val watchlistIds = moviesVm.state.collectAsState().value.watchlist.map { it.tmdbId }.toSet()
                 val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
+                // Show a subtle "fetching sources" pulse while Nuvio pre-fetch is in flight
+                if (nuvioPrefetching && !resolving) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.5.dp,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Fetching sources…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f)) {
                         PlayMovieCta(
