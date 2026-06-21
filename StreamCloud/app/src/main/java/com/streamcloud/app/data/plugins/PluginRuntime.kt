@@ -246,6 +246,7 @@ object PluginRuntime {
                     }
                 }
             }
+            instance.__initContext(context)
             instance.beforeLoad()
             instance.load(context)
             instance.afterLoad()
