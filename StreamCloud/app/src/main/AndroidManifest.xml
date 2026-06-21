@@ -50,6 +50,12 @@
         </activity>
 
         <activity
+            android:name=".ui.screens.PluginSettingsActivity"
+            android:exported="false"
+            android:label="Plugin Settings"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
+        <activity
             android:name=".ui.account.YtMusicLoginActivity"
             android:exported="false"
             android:label="YouTube Music Sign-In"
