@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
+import com.streamcloud.app.data.network.BrowserCookieJar
+import com.streamcloud.app.data.network.BrowserHeaders
+import com.streamcloud.app.data.network.CloudflareKiller
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -24,6 +27,7 @@ private val KEY_ADDONS = stringPreferencesKey("addons_json")
 class StremioRepository(private val context: Context) {
 
     private val http = OkHttpClient.Builder()
+        .cookieJar(BrowserCookieJar)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -189,15 +193,32 @@ class StremioRepository(private val context: Context) {
         }.getOrNull()
     }
 
-    private fun httpGet(url: String): String {
+    private suspend fun httpGet(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "StreamCloud/1.0 (Stremio addon client)")
-            .header("Accept", "application/json")
+            .header("User-Agent", BrowserHeaders.USER_AGENT)
+            .header("Accept", BrowserHeaders.ACCEPT_JSON)
+            .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
             .build()
+        var code: Int
+        var body: String
+        var hdrs: Map<String, List<String>>
         http.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) error("HTTP ${resp.code} from $url")
-            return resp.body?.string().orEmpty()
+            code = resp.code
+            body = resp.body?.string().orEmpty()
+            hdrs = resp.headers.toMultimap()
         }
+        if (CloudflareKiller.isCfChallenge(code, hdrs, body)) {
+            val bypassed = CloudflareKiller.bypass(context, url, BrowserHeaders.USER_AGENT, BrowserCookieJar)
+            if (bypassed) {
+                http.newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) error("HTTP ${r.code} from $url (after CF bypass)")
+                    return r.body?.string().orEmpty()
+                }
+            }
+            error("Cloudflare challenge unresolved for $url")
+        }
+        if (code !in 200..299) error("HTTP $code from $url")
+        return body
     }
 
     private fun normalize(input: String): String {

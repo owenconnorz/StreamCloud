@@ -27,11 +27,18 @@ object Net {
 
     private fun client(): OkHttpClient = OkHttpClient.Builder()
         .cache(httpCache)
+        .cookieJar(BrowserCookieJar)
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
-
-
+        .addInterceptor { chain ->
+            chain.proceed(
+                chain.request().newBuilder()
+                    .header("User-Agent", BrowserHeaders.USER_AGENT)
+                    .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
+                    .build()
+            )
+        }
 
 
 
