@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -118,19 +119,28 @@ fun NativePlayerScreen(
     val torrentService = remember { TorrentService(context.applicationContext) }
     val torrentState by torrentService.state.collectAsState()
 
-    LaunchedEffect(streamUrl, restartKey) {
+    // ── Auto source-switching state ────────────────────────────────────────
+    val failedSourceUrls = remember(streamUrl, restartKey) { mutableStateOf<Set<String>>(emptySet()) }
+    val autoSwitchIdx    = remember(streamUrl, restartKey) { mutableStateOf(-1) }
+    var autoSwitchBanner by remember { mutableStateOf<String?>(null) }
+    // -1 = use the original streamUrl; >= 0 = use sources[autoSwitchIdx]
+    val activeAutoSource = if (autoSwitchIdx.value >= 0) sources.getOrNull(autoSwitchIdx.value) else null
+    val effectiveUrl     = activeAutoSource?.url ?: streamUrl
+    val effectiveHeaders = activeAutoSource?.headers?.takeIf { it.isNotEmpty() } ?: headers
+
+    LaunchedEffect(effectiveUrl, restartKey) {
         resolvedUrl = null
         resolveError = null
 
-        val isTorrent = streamUrl.startsWith("magnet:", true) ||
-            streamUrl.contains("&_sc_fidx=", ignoreCase = true) ||
-            streamUrl.endsWith(".torrent", true)
+        val isTorrent = effectiveUrl.startsWith("magnet:", true) ||
+            effectiveUrl.contains("&_sc_fidx=", ignoreCase = true) ||
+            effectiveUrl.endsWith(".torrent", true)
 
         if (isTorrent) {
             var lastError: String? = null
             val proxied = withContext(Dispatchers.IO) {
                 try {
-                    torrentService.startStreamFromMagnet(streamUrl)
+                    torrentService.startStreamFromMagnet(effectiveUrl)
                 } catch (e: Throwable) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     lastError = "${e.javaClass.simpleName}: ${e.message}"
@@ -143,8 +153,13 @@ fun NativePlayerScreen(
             else
                 resolvedUrl = proxied
         } else {
-            resolvedUrl = streamUrl
+            resolvedUrl = effectiveUrl
         }
+    }
+
+    // Auto-dismiss banner after 3 s
+    LaunchedEffect(autoSwitchBanner) {
+        if (autoSwitchBanner != null) { delay(3_000); autoSwitchBanner = null }
     }
 
 
@@ -187,7 +202,7 @@ fun NativePlayerScreen(
         val httpFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("StreamCloud/1.0 (ExoPlayer)")
-            .also { f -> if (headers.isNotEmpty()) f.setDefaultRequestProperties(headers) }
+            .also { f -> if (effectiveHeaders.isNotEmpty()) f.setDefaultRequestProperties(effectiveHeaders) }
         val dsFactory: DataSource.Factory = httpFactory
 
         val mediaItem = MediaItem.fromUri(url)
@@ -319,6 +334,21 @@ fun NativePlayerScreen(
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
             override fun onPlaybackStateChanged(state: Int) {
                 durationMs = ex.duration.coerceAtLeast(0L)
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                if (sources.size <= 1) return
+                // Mark the current URL as failed
+                val failedUrl = activeAutoSource?.url ?: streamUrl
+                failedSourceUrls.value = failedSourceUrls.value + failedUrl
+                val failed = failedSourceUrls.value
+                // Pick next source whose URL hasn't been tried yet
+                val nextIdx = sources.indexOfFirst { it.url !in failed }
+                if (nextIdx >= 0) {
+                    autoSwitchBanner = "Source failed · trying ${sources[nextIdx].label}…"
+                    autoSwitchIdx.value = nextIdx
+                } else {
+                    autoSwitchBanner = "All sources failed"
+                }
             }
         }
         ex.addListener(listener)
@@ -546,6 +576,24 @@ fun NativePlayerScreen(
             }
         }
 
+        // Auto-switch banner
+        val banner = autoSwitchBanner
+        if (banner != null) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 22.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    banner,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
 
         var locked by remember { mutableStateOf(false) }
         var showSourcesSheet by remember { mutableStateOf(false) }
