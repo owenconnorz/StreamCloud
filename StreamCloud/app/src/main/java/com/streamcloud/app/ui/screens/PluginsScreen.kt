@@ -269,6 +269,7 @@ private fun CloudStreamPluginsPage(
     var addUrl  by remember { mutableStateOf("") }
 
     var pluginHasSettings by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(state.installed) {
         state.installed.forEach { plugin ->
@@ -283,6 +284,7 @@ private fun CloudStreamPluginsPage(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("CloudStream") },
@@ -321,7 +323,16 @@ private fun CloudStreamPluginsPage(
                         p          = p,
                         onUninstall = { vm.uninstall(p) },
                         onSettings  = if (pluginHasSettings[p.filePath] == true) {
-                            { PluginRuntime.openSettings(context, p.filePath) }
+                            {
+                                val err = PluginRuntime.openSettings(context, p.filePath)
+                                if (err != null) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            "Couldn't open settings: ${err.message ?: err::class.simpleName}"
+                                        )
+                                    }
+                                }
+                            }
                         } else null,
                     )
                 }
