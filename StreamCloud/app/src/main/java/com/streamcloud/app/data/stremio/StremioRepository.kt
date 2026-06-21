@@ -100,6 +100,27 @@ class StremioRepository(private val context: Context) {
                 }
         }
 
+    suspend fun searchAllAddons(
+        addons: List<InstalledStremioAddon>,
+        query: String,
+    ): List<Pair<InstalledStremioAddon, StremioMetaPreview>> = coroutineScope {
+        addons.map { addon ->
+            async(Dispatchers.IO) {
+                runCatching {
+                    val mf = fetchManifest(addon.manifestUrl)
+                    val searchable = mf.catalogs.filter { c ->
+                        c.extra?.any { it.name.lowercase() == "search" } == true
+                    }
+                    searchable.flatMap { cat ->
+                        runCatching {
+                            fetchCatalog(addon, cat.type, cat.id, search = query)
+                        }.getOrDefault(emptyList()).map { addon to it }
+                    }
+                }.getOrDefault(emptyList())
+            }
+        }.awaitAll().flatten()
+    }
+
     suspend fun fetchAllHomeCatalogs(addon: InstalledStremioAddon): List<StremioHomeRow> =
         withContext(Dispatchers.IO) {
             val mf = runCatching { fetchManifest(addon.manifestUrl) }.getOrNull()

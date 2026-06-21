@@ -16,6 +16,7 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioHomeRow
+import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.stremio.StremioRepository
 import com.lagradost.cloudstream3.SearchResponse
 import com.streamcloud.app.data.plugins.PinnedCsSection
@@ -42,6 +43,19 @@ data class CsPluginRow(
     val items: List<SearchResponse>,
 )
 
+data class CsSearchResult(
+    val pluginName: String,
+    val pluginInternalName: String,
+    val filePath: String,
+    val item: SearchResponse,
+)
+
+data class StremioSearchResult(
+    val addonName: String,
+    val addonId: String,
+    val item: StremioMetaPreview,
+)
+
 data class CollectionRow(
     val id: String,
     val title: String,
@@ -64,6 +78,8 @@ data class MoviesState(
     val heroBanner: List<TmdbMovie> = emptyList(),
     val continueWatching: List<WatchProgressEntity> = emptyList(),
     val searchResults: List<TmdbMovie> = emptyList(),
+    val csSearchResults: List<CsSearchResult> = emptyList(),
+    val stremioSearchResults: List<StremioSearchResult> = emptyList(),
     val installedPlugins: List<InstalledPlugin> = emptyList(),
     val installedStremioAddons: List<InstalledStremioAddon> = emptyList(),
     val stremioRows: List<StremioHomeRow> = emptyList(),
@@ -281,16 +297,41 @@ class MoviesViewModel(
     fun search(query: String) {
         searchJob?.cancel()
         if (query.isBlank()) {
-            _state.update { it.copy(searchResults = emptyList()) }
+            _state.update { it.copy(searchResults = emptyList(), csSearchResults = emptyList(), stremioSearchResults = emptyList()) }
             return
         }
         searchJob = viewModelScope.launch {
             delay(350)
+            _state.update { it.copy(loading = true, error = null) }
             try {
-                val res = sl.tmdb.search(sl.tmdbApiKey, query).results
-                _state.update { it.copy(searchResults = res, error = null) }
+                val tmdbJob = async {
+                    runCatching { sl.tmdb.search(sl.tmdbApiKey, query).results }.getOrDefault(emptyList())
+                }
+                val csJob = async {
+                    val plugins = pluginRepo.installed.first()
+                    plugins.flatMap { plugin ->
+                        runCatching {
+                            PluginRuntime.search(appContext, plugin.filePath, query)
+                                .map { CsSearchResult(plugin.name, plugin.internalName, plugin.filePath, it) }
+                        }.getOrDefault(emptyList())
+                    }
+                }
+                val stremioJob = async {
+                    val addons = stremioRepo.addons.first()
+                    stremioRepo.searchAllAddons(addons, query)
+                        .map { (addon, meta) -> StremioSearchResult(addon.name, addon.id, meta) }
+                }
+                _state.update {
+                    it.copy(
+                        searchResults = tmdbJob.await(),
+                        csSearchResults = csJob.await(),
+                        stremioSearchResults = stremioJob.await(),
+                        loading = false,
+                        error = null,
+                    )
+                }
             } catch (e: Exception) {
-                _state.update { it.copy(error = "Search failed: ${e.message}") }
+                _state.update { it.copy(error = "Search failed: ${e.message}", loading = false) }
             }
         }
     }
