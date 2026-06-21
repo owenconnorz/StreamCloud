@@ -54,6 +54,7 @@ import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import android.util.Log
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
@@ -86,6 +87,7 @@ fun MovieDetailScreen(
     val installedCsPlugins by sl.plugins.installed.collectAsState(initial = emptyList())
     var resolving by remember { mutableStateOf(false) }
     var resolverMessage by remember { mutableStateOf<String?>(null) }
+    var resolutionJob by remember { mutableStateOf<Job?>(null) }
 
     // Nuvio pre-fetch: started as soon as imdbId resolves so streams are ready before Play is pressed.
     var nuvioPrefetchJob by remember { mutableStateOf<Deferred<List<PlayerSource>>?>(null) }
@@ -217,7 +219,7 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed. Add some from Settings → Plugins."
             return
         }
-        scope.launch {
+        resolutionJob = scope.launch {
             resolving = true
             val totalSources = installedAddons.size + installedNuvio.size + installedCsPlugins.size
             resolverMessage = "Scanning $totalSources sources…"
@@ -390,7 +392,7 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons or Nuvio providers installed. Add some from Settings → Plugins."
             return
         }
-        scope.launch {
+        resolutionJob = scope.launch {
             resolving = true
             val epLabel = "S${seasonNum}E${episodeNum}"
             resolverMessage = "Finding streams for $epLabel…"
@@ -1037,6 +1039,17 @@ fun MovieDetailScreen(
                     }
                 }
             }
+        }
+        if (resolving) {
+            StreamingLoadingOverlay(
+                title = movie?.displayTitle ?: "",
+                backdropUrl = movie?.backdropUrl ?: movie?.posterUrl,
+                onBack = {
+                    resolutionJob?.cancel()
+                    resolving = false
+                    resolverMessage = null
+                },
+            )
         }
     }
 }
