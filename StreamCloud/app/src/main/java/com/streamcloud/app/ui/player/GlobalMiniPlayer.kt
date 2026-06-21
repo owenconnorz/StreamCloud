@@ -3,8 +3,6 @@ package com.streamcloud.app.ui.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -110,7 +108,7 @@ fun GlobalMiniPlayer(
         label = "miniRingColor",
     )
 
-    var playbackProgress by remember(nowMediaId) { mutableStateOf(0f) }
+    var playbackProgress by remember { mutableStateOf(0f) }
     LaunchedEffect(controller) {
         while (true) {
             val c = controller
@@ -120,14 +118,9 @@ fun GlobalMiniPlayer(
                     playbackProgress = (c.currentPosition.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
                 }
             }
-            delay(250L)
+            delay(100L)
         }
     }
-    val animatedProgress by animateFloatAsState(
-        targetValue = playbackProgress,
-        animationSpec = tween(durationMillis = 250, easing = LinearEasing),
-        label = "miniProgress",
-    )
 
     LaunchedEffect(Unit) {
         runCatching { MusicController.get(context.applicationContext) }
@@ -238,11 +231,11 @@ fun GlobalMiniPlayer(
                         size = arcSize,
                         style = Stroke(width = strokePx, cap = StrokeCap.Round),
                     )
-                    if (animatedProgress > 0f) {
+                    if (playbackProgress > 0f) {
                         drawArc(
                             color = ringColor,
                             startAngle = -90f,
-                            sweepAngle = 360f * animatedProgress,
+                            sweepAngle = 360f * playbackProgress,
                             useCenter = false,
                             topLeft = arcOffset,
                             size = arcSize,
