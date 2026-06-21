@@ -589,4 +589,13 @@ object PluginRuntime {
         cache.remove(filePath)
         lastErrors.remove(filePath)
     }
+
+    suspend fun hasSettings(context: Context, filePath: String): Boolean = withContext(Dispatchers.IO) {
+        load(context, filePath)
+        cache[filePath]?.plugin?.openSettings != null
+    }
+
+    fun openSettings(context: Context, filePath: String) {
+        cache[filePath]?.plugin?.openSettings?.invoke(context)
+    }
 }

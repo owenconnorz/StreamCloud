@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,6 +43,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamcloud.app.data.plugins.CloudStreamPlugin
 import com.streamcloud.app.data.plugins.CloudStreamRepo
 import com.streamcloud.app.data.plugins.InstalledPlugin
+import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.ui.viewmodel.PluginsState
 import com.streamcloud.app.ui.viewmodel.PluginsViewModel
 
@@ -258,9 +260,25 @@ private fun CloudStreamPluginsPage(
     state: PluginsState,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope   = rememberCoroutineScope()
+
     var showAdd by remember { mutableStateOf(false) }
     var addName by remember { mutableStateOf("") }
     var addUrl  by remember { mutableStateOf("") }
+
+    var pluginHasSettings by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+
+    LaunchedEffect(state.installed) {
+        state.installed.forEach { plugin ->
+            if (!pluginHasSettings.containsKey(plugin.filePath)) {
+                scope.launch {
+                    val has = runCatching { PluginRuntime.hasSettings(context, plugin.filePath) }.getOrDefault(false)
+                    pluginHasSettings = pluginHasSettings + (plugin.filePath to has)
+                }
+            }
+        }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -298,7 +316,13 @@ private fun CloudStreamPluginsPage(
                     state.installed,
                     key = { p -> "inst_${p.sourceRepoId}_${p.internalName}_${p.installedAt}" },
                 ) { p ->
-                    InstalledRow(p, onUninstall = { vm.uninstall(p) })
+                    InstalledRow(
+                        p          = p,
+                        onUninstall = { vm.uninstall(p) },
+                        onSettings  = if (pluginHasSettings[p.filePath] == true) {
+                            { PluginRuntime.openSettings(context, p.filePath) }
+                        } else null,
+                    )
                 }
                 item { Spacer(Modifier.height(8.dp)) }
             }
@@ -724,7 +748,11 @@ private fun StatusBanner(text: String, isError: Boolean, onDismiss: () -> Unit) 
 }
 
 @Composable
-private fun InstalledRow(p: InstalledPlugin, onUninstall: () -> Unit) {
+private fun InstalledRow(
+    p: InstalledPlugin,
+    onUninstall: () -> Unit,
+    onSettings: (() -> Unit)? = null,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -763,6 +791,15 @@ private fun InstalledRow(p: InstalledPlugin, onUninstall: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+        if (onSettings != null) {
+            IconButton(onClick = onSettings) {
+                Icon(
+                    Icons.Default.Tune,
+                    contentDescription = "Plugin settings",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
         IconButton(onClick = onUninstall) {
             Icon(Icons.Default.Delete, "Uninstall", tint = MaterialTheme.colorScheme.error)
