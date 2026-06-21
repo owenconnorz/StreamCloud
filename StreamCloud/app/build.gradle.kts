@@ -122,8 +122,11 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
 
-    // Compose BOM
-    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+    // Compose BOM — 2024.09.03 ships Runtime 1.7.x which is required by the
+    // Kotlin 2.0 Compose Compiler Plugin (kotlin.plugin.compose). Runtime 1.6.x
+    // (shipped by 2024.06.00) is missing Composer APIs the new compiler generates
+    // calls to, causing AbstractMethodError / NoSuchMethodError on first composable.
+    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
