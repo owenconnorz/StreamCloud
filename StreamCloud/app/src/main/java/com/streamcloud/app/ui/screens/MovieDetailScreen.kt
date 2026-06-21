@@ -51,10 +51,14 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import android.util.Log
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +89,10 @@ fun MovieDetailScreen(
     var nuvioPrefetchJob by remember { mutableStateOf<Deferred<List<PlayerSource>>?>(null) }
     var nuvioPrefetching by remember { mutableStateOf(false) }
 
+    // CloudStream pre-fetch: started as soon as movie title is known (no imdbId required).
+    var csPrefetchJob by remember { mutableStateOf<Deferred<List<PlayerSource>>?>(null) }
+    var csPrefetching by remember { mutableStateOf(false) }
+
     // CS source picker sheet
     var csPickerPlugin by remember { mutableStateOf<InstalledPlugin?>(null) }
     var csPickerSources by remember { mutableStateOf<List<ExtractorLink>>(emptyList()) }
@@ -108,6 +116,48 @@ fun MovieDetailScreen(
         } catch (e: Exception) {
             error = "Failed to load: ${e.message}"
         }
+    }
+
+    // Pre-fetch CloudStream plugin streams as soon as movie title is available.
+    // CS resolution (search → detail → loadLinks) is the slowest single step; hiding it
+    // behind the time the user spends reading the description removes it from the Play latency.
+    LaunchedEffect(movie?.id, installedCsPlugins.size) {
+        val m = movie ?: return@LaunchedEffect
+        val title = m.displayTitle.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val year  = m.year()
+        // Mirror the same relevance filter used in playMovie()
+        val relevant = if (mediaType == "tv") {
+            installedCsPlugins.filter { !it.isAdultPlugin() }
+        } else {
+            installedCsPlugins.filter { plugin ->
+                !plugin.isAdultPlugin() && run {
+                    val types = plugin.tvTypes
+                    types == null || types.any { t ->
+                        val lt = t.lowercase()
+                        lt.contains("movie") || lt == "others" || lt == "live"
+                    }
+                }
+            }
+        }
+        if (relevant.isEmpty()) return@LaunchedEffect
+        csPrefetchJob?.takeIf { !it.isCompleted }?.cancel()
+        Log.d("StreamCloud", "CS pre-fetch: starting ${relevant.size} plugins for '$title' ($year)")
+        csPrefetching = true
+        val job = scope.async {
+            relevant.map { plugin ->
+                async {
+                    val sources = withTimeoutOrNull(30_000L) {
+                        resolveCsPluginForMovie(context, plugin, title, year)
+                    } ?: emptyList()
+                    Log.d("StreamCloud", "CS pre-fetch ${plugin.name}: ${sources.size} streams")
+                    sources
+                }
+            }.awaitAll().flatten()
+        }
+        csPrefetchJob = job
+        job.await()
+        csPrefetching = false
+        Log.d("StreamCloud", "CS pre-fetch: complete (${csPrefetchJob?.getCompleted()?.size ?: 0} streams ready)")
     }
 
     // Pre-fetch Nuvio streams the moment imdbId is resolved — before the user presses Play.
@@ -195,17 +245,29 @@ fun MovieDetailScreen(
                     }
                 }
                 Log.d("StreamCloud", "CS plugins eligible: ${relevantCsPlugins.size}/${installedCsPlugins.size} — title='$csTitle' year=$csYear")
-                val csJob = async {
-                    if (csTitle.isBlank()) emptyList<PlayerSource>()
-                    else relevantCsPlugins.map { plugin ->
+                // Reuse the pre-fetch job started when the movie title first loaded.
+                // If it completed already the result is instant; if still running we join it.
+                val csJob: Deferred<List<PlayerSource>> = if (csTitle.isNotBlank() && relevantCsPlugins.isNotEmpty()) {
+                    val existing = csPrefetchJob
+                    if (existing != null) {
+                        Log.d("StreamCloud", "CS: reusing pre-fetch job (completed=${existing.isCompleted})")
+                        existing
+                    } else {
+                        Log.d("StreamCloud", "CS: no pre-fetch job found, starting fresh")
                         async {
-                            val sources = withTimeoutOrNull(30_000L) {
-                                resolveCsPluginForMovie(context, plugin, csTitle, csYear)
-                            } ?: emptyList()
-                            Log.d("StreamCloud", "CS ${plugin.name} (tvTypes=${plugin.tvTypes}): ${sources.size} streams")
-                            sources
+                            relevantCsPlugins.map { plugin ->
+                                async {
+                                    val sources = withTimeoutOrNull(30_000L) {
+                                        resolveCsPluginForMovie(context, plugin, csTitle, csYear)
+                                    } ?: emptyList()
+                                    Log.d("StreamCloud", "CS ${plugin.name}: ${sources.size} streams")
+                                    sources
+                                }
+                            }.awaitAll().flatten()
                         }
-                    }.awaitAll().flatten()
+                    }
+                } else {
+                    async { emptyList() }
                 }
 
                 // Nuvio: reuse the pre-fetch job started when imdbId first resolved.
@@ -247,7 +309,12 @@ fun MovieDetailScreen(
                 Log.d("StreamCloud", "Fast sources: Stremio=${stremioSources.size} CS=${csSources.size}")
 
                 if (fastSources.isNotEmpty()) {
-                    val sorted = fastSources.sortedByDescending { it.qualityScore() }
+                    // Speed-probe: fire a quick parallel HEAD/GET to each non-magnet URL (2 s
+                    // timeout). Dead or unresponsive servers are pushed to the bottom so the
+                    // player auto-selects a live source first.
+                    Log.d("StreamCloud", "Speed probe: testing ${fastSources.size} sources")
+                    val probed = speedProbeAndReorder(fastSources)
+                    val sorted = probed
                     if (installedNuvio.isNotEmpty()) {
                         com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
                     }
@@ -389,8 +456,8 @@ fun MovieDetailScreen(
                 val moviesVm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
                 val watchlistIds = moviesVm.state.collectAsState().value.watchlist.map { it.tmdbId }.toSet()
                 val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
-                // Show a subtle "fetching sources" pulse while Nuvio pre-fetch is in flight
-                if (nuvioPrefetching && !resolving) {
+                // Show a subtle "fetching sources" pulse while any pre-fetch is in flight
+                if ((nuvioPrefetching || csPrefetching) && !resolving) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(bottom = 6.dp),
@@ -401,8 +468,13 @@ fun MovieDetailScreen(
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                         )
                         Spacer(Modifier.width(6.dp))
+                        val who = buildString {
+                            if (csPrefetching) append("CloudStream")
+                            if (csPrefetching && nuvioPrefetching) append(" + ")
+                            if (nuvioPrefetching) append("Nuvio")
+                        }
                         Text(
-                            "Fetching sources…",
+                            "Fetching sources ($who)…",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1082,3 +1154,67 @@ private fun csQualityLabel(q: Int): String? = when {
 
 private fun com.streamcloud.app.data.api.TmdbMovie.year(): Int? =
     releaseDate?.takeIf { it.isNotBlank() }?.substringBefore('-')?.toIntOrNull()
+
+/**
+ * Speed-probes all non-magnet sources in parallel (2 s connect timeout) and returns them
+ * reordered so that live/fast servers appear first.
+ *
+ * Strategy:
+ *  - Send a lightweight GET with "Range: bytes=0-0" (works for video CDNs without downloading
+ *    the full file).  Fall back to HEAD if the server rejects Range.
+ *  - Sources that respond within the timeout are treated as "alive" and sorted by ascending
+ *    latency × quality weight so the fastest *good-quality* source wins.
+ *  - Sources that time out or error are pushed to the bottom (still available as fallback).
+ *  - Magnets and blank URLs are left in their original position (no probing possible).
+ */
+private suspend fun speedProbeAndReorder(sources: List<PlayerSource>): List<PlayerSource> {
+    if (sources.size <= 1) return sources
+
+    val probeClient = OkHttpClient.Builder()
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
+
+    data class ProbeResult(val source: PlayerSource, val latencyMs: Long, val alive: Boolean)
+
+    val results: List<ProbeResult> = kotlinx.coroutines.coroutineScope {
+        sources.map { src ->
+            async(Dispatchers.IO) {
+                if (src.isMagnet || src.url.isBlank()) {
+                    return@async ProbeResult(src, Long.MAX_VALUE, false)
+                }
+                val start = System.currentTimeMillis()
+                val ok = runCatching {
+                    // Prefer Range request — fetches only 1 byte, avoids buffering the body
+                    val req = Request.Builder()
+                        .url(src.url)
+                        .header("Range", "bytes=0-0")
+                        .apply { src.headers.forEach { (k, v) -> header(k, v) } }
+                        .build()
+                    probeClient.newCall(req).execute().use { resp ->
+                        resp.code in 200..299 || resp.code == 206 || resp.code == 302
+                    }
+                }.getOrElse { false }
+                val latency = System.currentTimeMillis() - start
+                Log.d("StreamCloud", "Speed probe ${src.addonName}/${src.qualityTag}: alive=$ok latency=${latency}ms url=${src.url.take(60)}")
+                ProbeResult(src, if (ok) latency else Long.MAX_VALUE, ok)
+            }
+        }.awaitAll()
+    }
+
+    // Quality weight: higher quality = lower effective latency penalty so we prefer 1080p@300ms
+    // over 720p@50ms only when 1080p is clearly faster (not just marginally).
+    fun effectiveScore(r: ProbeResult): Long {
+        if (!r.alive) return Long.MAX_VALUE
+        val qualityBonus = when (r.source.qualityTag) {
+            "4K" -> 800L; "1440p" -> 600L; "1080p" -> 400L
+            "720p" -> 200L; "480p" -> 100L
+            else -> 0L
+        }
+        // Lower is better: faster latency with quality bonus subtracted
+        return r.latencyMs - qualityBonus
+    }
+
+    return results.sortedBy { effectiveScore(it) }.map { it.source }
+}
