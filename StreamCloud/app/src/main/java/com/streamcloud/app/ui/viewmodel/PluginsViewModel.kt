@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
 import com.streamcloud.app.data.nuvio.NuvioProviderEntry
 import com.streamcloud.app.data.nuvio.NuvioRepoManifest
+import com.streamcloud.app.data.nuvio.NuvioSavedRepo
 import com.streamcloud.app.data.nuvio.NuvioRepository
 import com.streamcloud.app.data.plugins.CloudStreamPlugin
 import com.streamcloud.app.data.plugins.CloudStreamRepo
@@ -30,6 +31,7 @@ data class PluginsState(
     val stremioAddons: List<InstalledStremioAddon> = emptyList(),
     val addingStremio: Boolean = false,
     val nuvioProviders: List<InstalledNuvioProvider> = emptyList(),
+    val nuvioSavedRepos: List<NuvioSavedRepo> = emptyList(),
     val nuvioRepoUrl: String = "",
     val nuvioRepoManifest: NuvioRepoManifest? = null,
     val loadingNuvioRepo: Boolean = false,
@@ -48,8 +50,8 @@ class PluginsViewModel(
 
     init {
         viewModelScope.launch {
-            combine(repo.repos, repo.installed, stremio.addons, nuvio.installed) { r, i, s, n ->
-                arrayOf(r, i, s, n)
+            combine(repo.repos, repo.installed, stremio.addons, nuvio.installed, nuvio.savedRepos) { r, i, s, n, sr ->
+                arrayOf(r, i, s, n, sr)
             }.collect { arr ->
                 @Suppress("UNCHECKED_CAST")
                 _state.update { it.copy(
@@ -57,6 +59,7 @@ class PluginsViewModel(
                     installed = arr[1] as List<InstalledPlugin>,
                     stremioAddons = arr[2] as List<InstalledStremioAddon>,
                     nuvioProviders = arr[3] as List<InstalledNuvioProvider>,
+                    nuvioSavedRepos = arr[4] as List<NuvioSavedRepo>,
                 ) }
             }
         }
@@ -153,10 +156,15 @@ class PluginsViewModel(
         _state.update { it.copy(loadingNuvioRepo = true, nuvioRepoUrl = url, nuvioRepoManifest = null, error = null) }
         try {
             val mf = nuvio.fetchManifest(url)
+            nuvio.addSavedRepo(url, mf.name)
             _state.update { it.copy(loadingNuvioRepo = false, nuvioRepoManifest = mf) }
         } catch (e: Exception) {
             _state.update { it.copy(loadingNuvioRepo = false, error = "Nuvio: ${e.message}") }
         }
+    }
+
+    fun removeNuvioSavedRepo(id: String) = viewModelScope.launch {
+        nuvio.removeSavedRepo(id)
     }
 
     fun installNuvioProvider(entry: NuvioProviderEntry) = viewModelScope.launch {

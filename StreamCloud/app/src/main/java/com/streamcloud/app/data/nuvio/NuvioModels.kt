@@ -49,6 +49,14 @@ data class InstalledNuvioProvider(
 )
 
 @Serializable
+data class NuvioSavedRepo(
+    val id: String,
+    val url: String,
+    val name: String? = null,
+    val addedAt: Long = 0L,
+)
+
+@Serializable
 data class NuvioStream(
     val name: String? = null,
     val title: String? = null,
