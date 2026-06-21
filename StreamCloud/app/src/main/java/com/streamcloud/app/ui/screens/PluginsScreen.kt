@@ -323,16 +323,7 @@ private fun CloudStreamPluginsPage(
                         p          = p,
                         onUninstall = { vm.uninstall(p) },
                         onSettings  = if (pluginHasSettings[p.filePath] == true) {
-                            {
-                                val err = PluginRuntime.openSettings(context, p.filePath)
-                                if (err != null) {
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar(
-                                            "Couldn't open settings: ${err.message ?: err::class.simpleName}"
-                                        )
-                                    }
-                                }
-                            }
+                            { PluginSettingsActivity.start(context, p.filePath, p.name) }
                         } else null,
                     )
                 }

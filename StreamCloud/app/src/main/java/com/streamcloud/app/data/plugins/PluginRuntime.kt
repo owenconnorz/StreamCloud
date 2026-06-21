@@ -595,20 +595,16 @@ object PluginRuntime {
         cache[filePath]?.plugin?.openSettings != null
     }
 
-    /** Returns an exception if the plugin's settings callback threw, null on success/no-op. */
-    fun openSettings(context: Context, filePath: String): Exception? = try {
-        // Walk the ContextWrapper chain to find the real Activity, which plugins need
-        // to show dialogs or access the FragmentManager.
-        val activityContext: Context = run {
-            var ctx: Context = context
-            while (ctx is android.content.ContextWrapper && ctx !is android.app.Activity) {
-                ctx = ctx.baseContext
-            }
-            ctx
-        }
-        cache[filePath]?.plugin?.openSettings?.invoke(activityContext)
+    /**
+     * Invokes the plugin's openSettings callback.
+     * Returns a Throwable if the callback threw (covers Error subclasses like
+     * NoClassDefFoundError and LinkageError, not just Exception), null on success/no-op.
+     * Must be called on the main thread with a valid Activity context.
+     */
+    fun openSettings(context: Context, filePath: String): Throwable? = try {
+        cache[filePath]?.plugin?.openSettings?.invoke(context)
         null
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
         e
     }
 }
