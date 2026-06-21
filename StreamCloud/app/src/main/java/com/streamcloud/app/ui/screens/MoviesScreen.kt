@@ -357,6 +357,9 @@ fun MoviesScreen(
                         }
                     }
                     item(key = "cshome_${row.pluginInternalName}_${row.sectionName}") {
+                        val csLandscape = posterStyle == "landscape"
+                        val csCardWidth = if (csLandscape) 200.dp else 120.dp
+                        val csAspect    = if (csLandscape) 16f / 9f else 2f / 3f
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -367,7 +370,7 @@ fun MoviesScreen(
                             ) { sr ->
                                 Column(
                                     Modifier
-                                        .width(120.dp)
+                                        .width(csCardWidth)
                                         .clip(RoundedCornerShape(12.dp))
                                         .clickable {
                                             onOpenCsItem(row.pluginInternalName, sr.url, sr.name, sr.posterUrl)
@@ -378,7 +381,8 @@ fun MoviesScreen(
                                         contentDescription = sr.name,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
-                                            .fillMaxWidth().aspectRatio(2f / 3f)
+                                            .fillMaxWidth()
+                                            .aspectRatio(csAspect)
                                             .clip(RoundedCornerShape(12.dp))
                                             .background(MaterialTheme.colorScheme.surface),
                                     )
