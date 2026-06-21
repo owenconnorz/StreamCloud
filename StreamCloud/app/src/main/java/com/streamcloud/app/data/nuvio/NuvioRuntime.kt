@@ -212,7 +212,7 @@ object NuvioRuntime {
         }
     }
 
-    private fun performFetch(
+    private suspend fun performFetch(
         url: String,
         method: String,
         headersJson: String,
