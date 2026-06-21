@@ -138,6 +138,7 @@ class NuvioRepository(private val context: Context) {
                     season = season,
                     episode = episode,
                     scriptKey = provider.id,
+                    context = context,
                 )
                 streams.map { provider to it }
             }
