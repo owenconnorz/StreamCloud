@@ -40,6 +40,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import com.streamcloud.app.data.plugins.CloudStreamPlugin
 import com.streamcloud.app.data.plugins.CloudStreamRepo
 import com.streamcloud.app.data.plugins.InstalledPlugin
