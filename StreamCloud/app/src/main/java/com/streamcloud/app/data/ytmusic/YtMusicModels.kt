@@ -36,3 +36,4 @@ data class YtMusicLibrary(
     val syncedAt: Long = System.currentTimeMillis(),
     val failureReason: String? = null,
 )
+
