@@ -131,3 +131,13 @@ data class StremioHomeRow(
 ) {
     val rowKey: String get() = "$addonId:$type:$catalogId"
 }
+
+data class StremioCatalogMeta(
+    val addonId: String,
+    val addonName: String,
+    val catalogId: String,
+    val catalogName: String,
+    val type: String,
+) {
+    val rowKey: String get() = "$addonId:$type:$catalogId"
+}

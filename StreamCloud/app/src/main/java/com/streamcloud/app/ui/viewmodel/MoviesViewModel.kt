@@ -116,6 +116,9 @@ class MoviesViewModel(
                 .collectLatest { loadCsPluginRows() }
         }
         viewModelScope.launch {
+            sl.settings.stremioDisabledCatalogsCsv.collectLatest { applyStremioFilter() }
+        }
+        viewModelScope.launch {
             try {
                 LibraryDb.get(appContext).userCollections().pinned().collectLatest { pinned ->
                     try {
@@ -202,8 +205,11 @@ class MoviesViewModel(
         }
     }
 
+    private var allFetchedStremioRows: List<StremioHomeRow> = emptyList()
+
     private fun refreshStremioRows(addons: List<InstalledStremioAddon>) {
         if (addons.isEmpty()) {
+            allFetchedStremioRows = emptyList()
             _state.update { it.copy(stremioRows = emptyList()) }
             return
         }
@@ -211,7 +217,18 @@ class MoviesViewModel(
             val rows = addons.map { addon ->
                 async { runCatching { stremioRepo.fetchAllHomeCatalogs(addon) }.getOrDefault(emptyList()) }
             }.awaitAll().flatten()
-            _state.update { it.copy(stremioRows = rows) }
+            allFetchedStremioRows = rows
+            applyStremioFilter()
+        }
+    }
+
+    private fun applyStremioFilter() {
+        viewModelScope.launch {
+            val csv = sl.settings.stremioDisabledCatalogsCsv.first()
+            val disabled = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet() ?: emptySet()
+            val filtered = if (disabled.isEmpty()) allFetchedStremioRows
+                           else allFetchedStremioRows.filter { it.rowKey !in disabled }
+            _state.update { it.copy(stremioRows = filtered) }
         }
     }
 

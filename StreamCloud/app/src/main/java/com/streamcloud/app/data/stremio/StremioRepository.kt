@@ -82,6 +82,24 @@ class StremioRepository(private val context: Context) {
         }
 
 
+    suspend fun fetchCatalogMetas(addon: InstalledStremioAddon): List<StremioCatalogMeta> =
+        withContext(Dispatchers.IO) {
+            val mf = runCatching { fetchManifest(addon.manifestUrl) }.getOrNull()
+                ?: return@withContext emptyList()
+            mf.catalogs
+                .filter { c -> c.extra?.none { it.isRequired } ?: true }
+                .take(8)
+                .map { c ->
+                    StremioCatalogMeta(
+                        addonId = addon.id,
+                        addonName = addon.name,
+                        catalogId = c.id,
+                        catalogName = c.name?.takeIf { it.isNotBlank() } ?: c.id,
+                        type = c.type,
+                    )
+                }
+        }
+
     suspend fun fetchAllHomeCatalogs(addon: InstalledStremioAddon): List<StremioHomeRow> =
         withContext(Dispatchers.IO) {
             val mf = runCatching { fetchManifest(addon.manifestUrl) }.getOrNull()

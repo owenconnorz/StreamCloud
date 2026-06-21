@@ -86,6 +86,7 @@ import com.streamcloud.app.data.downloads.DownloadCaches
 import com.streamcloud.app.data.util.ThumbnailCache
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.plugins.InstalledPlugin
+import com.streamcloud.app.data.stremio.StremioCatalogMeta
 import com.streamcloud.app.data.plugins.PinnedCsSection
 import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.plugins.PluginRuntime
@@ -116,7 +117,8 @@ private val ColourSonos      = Color(0xFF56C8D8)
 private enum class SettingsPage {
     SystemUpdate, Appearance, PlayerAudio, Account,
     ListenTogether, Content, Privacy,
-    Storage, BackupRestore, About, Logs, CsHomeSettings
+    Storage, BackupRestore, About, Logs, CsHomeSettings,
+    TmdbHomeSettings, StremioHomeSettings
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -714,9 +716,16 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                     SettingDivider()
                     SettingNav(
                         icon = Icons.Default.PlayCircle, tint = ColourContent,
-                        title = "Home collections",
-                        value = "${enabledCollections.size} of ${HomeCollections.ALL.size}",
-                        onClick = { showCollectionsDialog = true },
+                        title = "TMDB categories",
+                        value = "${enabledCollections.size} of ${HomeCollections.ALL.size} rows",
+                        onClick = { currentPage = SettingsPage.TmdbHomeSettings },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.PlayArrow, tint = ColourContent,
+                        title = "Stremio home categories",
+                        value = "Choose which catalogs appear",
+                        onClick = { currentPage = SettingsPage.StremioHomeSettings },
                     )
                     SettingDivider()
                     SettingToggle(
@@ -1151,6 +1160,20 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                 onBack = { currentPage = null },
             ) {
                 CsHomeSettingsPage(sl = sl, pluginRepo = pluginRepo)
+            }
+
+            SettingsPage.TmdbHomeSettings -> SubPageScaffold(
+                title = "TMDB categories",
+                onBack = { currentPage = null },
+            ) {
+                TmdbHomeSettingsPage(sl = sl)
+            }
+
+            SettingsPage.StremioHomeSettings -> SubPageScaffold(
+                title = "Stremio home categories",
+                onBack = { currentPage = null },
+            ) {
+                StremioHomeSettingsPage(sl = sl)
             }
         }
     }
@@ -2659,6 +2682,170 @@ private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository)
                             title = sectionName,
                             checked = isPinned,
                             onChange = { toggleSection(plugin, sectionName, it) },
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun TmdbHomeSettingsPage(sl: ServiceLocator) {
+    val scope = rememberCoroutineScope()
+    var enabledIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    LaunchedEffect(Unit) {
+        val csv = sl.settings.homeCollectionsCsv.first()
+        enabledIds = if (csv.isNullOrBlank()) {
+            HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
+        } else {
+            csv.split(",").map { it.trim() }.toSet()
+        }
+    }
+
+    Text(
+        "Choose which TMDB rows appear on the Movies home page.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 16.dp),
+    )
+
+    SettingsGroup {
+        HomeCollections.ALL.forEachIndexed { idx, collection ->
+            if (idx > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+            SettingToggle(
+                icon = Icons.Default.PlayCircle,
+                tint = MaterialTheme.colorScheme.secondary,
+                title = collection.title,
+                subtitle = collection.subtitle,
+                checked = collection.id in enabledIds,
+                onChange = { checked ->
+                    val updated = if (checked) enabledIds + collection.id else enabledIds - collection.id
+                    enabledIds = updated
+                    scope.launch { sl.settings.setHomeCollections(updated.toList()) }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun StremioHomeSettingsPage(sl: ServiceLocator) {
+    val scope = rememberCoroutineScope()
+    val stremioRepo = remember { sl.stremio }
+    val stremioAddons by sl.stremio.addons.collectAsState(initial = emptyList())
+    var disabledKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var catalogsMap by remember { mutableStateOf<Map<String, List<StremioCatalogMeta>>>(emptyMap()) }
+    var loadingSet by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    LaunchedEffect(Unit) {
+        val csv = sl.settings.stremioDisabledCatalogsCsv.first()
+        disabledKeys = csv?.takeIf { it.isNotBlank() }?.split(",")?.map { it.trim() }?.toSet() ?: emptySet()
+    }
+
+    LaunchedEffect(stremioAddons) {
+        stremioAddons.forEach { addon ->
+            if (catalogsMap.containsKey(addon.id)) return@forEach
+            loadingSet = loadingSet + addon.id
+            scope.launch {
+                val metas = runCatching { stremioRepo.fetchCatalogMetas(addon) }.getOrDefault(emptyList())
+                catalogsMap = catalogsMap + (addon.id to metas)
+                loadingSet = loadingSet - addon.id
+            }
+        }
+    }
+
+    if (stremioAddons.isEmpty()) {
+        Text(
+            "No Stremio addons installed. Install addons from the Plugins & Addons page.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        return
+    }
+
+    Text(
+        "Choose which Stremio catalog rows appear on the Movies home page.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 16.dp),
+    )
+
+    stremioAddons.forEach { addon ->
+        SettingsGroup {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    addon.name,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            val metas = catalogsMap[addon.id]
+            val loading = addon.id in loadingSet
+            when {
+                loading -> {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            "Loading catalogs…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                metas == null -> {
+                    Text(
+                        "Catalogs not yet loaded.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+                    )
+                }
+                metas.isEmpty() -> {
+                    Text(
+                        "No home catalogs found for this addon.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+                    )
+                }
+                else -> {
+                    metas.forEachIndexed { idx, meta ->
+                        if (idx > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                        val isEnabled = meta.rowKey !in disabledKeys
+                        SettingToggle(
+                            icon = Icons.Default.PlayCircle,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            title = meta.catalogName,
+                            subtitle = "${meta.type} · ${meta.catalogId}",
+                            checked = isEnabled,
+                            onChange = { checked ->
+                                val updated = if (checked) disabledKeys - meta.rowKey else disabledKeys + meta.rowKey
+                                disabledKeys = updated
+                                scope.launch { sl.settings.setStremioDisabledCatalogs(updated) }
+                            },
                         )
                     }
                 }

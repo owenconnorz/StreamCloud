@@ -82,6 +82,7 @@ object SettingsKeys {
     val SPOTIFY_USER_NAME = stringPreferencesKey("spotify_user_name")
 
     val CS_HOME_SECTIONS  = stringPreferencesKey("cs_home_sections")
+    val STREMIO_HOME_CATALOGS = stringPreferencesKey("stremio_home_catalogs")
 
     val SMART_TRIMMER          = booleanPreferencesKey("smart_trimmer")
     val VIDEO_CACHE_MAX_MB     = stringPreferencesKey("video_cache_max_mb")
@@ -120,6 +121,8 @@ class SettingsRepository(private val context: Context) {
 
 
     val homeCollectionsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.HOME_COLLECTIONS] }
+
+    val stremioDisabledCatalogsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.STREMIO_HOME_CATALOGS] }
 
 
     val ytMusicCookie: Flow<String> = context.dataStore.data.map { it[SettingsKeys.YT_MUSIC_COOKIE] ?: "" }
@@ -160,6 +163,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setHomeCollections(ids: List<String>) =
         context.dataStore.edit { it[SettingsKeys.HOME_COLLECTIONS] = ids.joinToString(",") }
+
+    suspend fun setStremioDisabledCatalogs(keys: Set<String>) =
+        context.dataStore.edit { it[SettingsKeys.STREMIO_HOME_CATALOGS] = keys.joinToString(",") }
 
     suspend fun setNavTabOrder(ids: List<String>) =
         context.dataStore.edit { it[SettingsKeys.NAV_TAB_ORDER] = ids.joinToString(",") }
