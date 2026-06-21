@@ -572,6 +572,21 @@ fun StreamCloudApp() {
                         onBack = { nav.popBackStack() },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
+                        onOpenCsItem = { plugin, itemUrl, itemName, poster ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val u = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster ?: "", "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                        onOpenStremio = { addonId, type, metaId, title, poster ->
+                            val a = URLEncoder.encode(addonId, "UTF-8")
+                            val ty = URLEncoder.encode(type, "UTF-8")
+                            val m = URLEncoder.encode(metaId, "UTF-8")
+                            val tt = URLEncoder.encode(title, "UTF-8")
+                            val p = URLEncoder.encode(poster ?: "", "UTF-8")
+                            nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
+                        },
                     )
                 }
                 composable("plugin-picker") {
