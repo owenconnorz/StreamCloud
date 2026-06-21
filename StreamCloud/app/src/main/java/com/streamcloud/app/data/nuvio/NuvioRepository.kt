@@ -23,7 +23,8 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 private val Context.nuvioStore by preferencesDataStore("streamcloud_nuvio")
-private val KEY_INSTALLED = stringPreferencesKey("installed_json")
+private val KEY_INSTALLED   = stringPreferencesKey("installed_json")
+private val KEY_SAVED_REPOS = stringPreferencesKey("saved_repos_json")
 
 class NuvioRepository(private val context: Context) {
 
@@ -43,6 +44,37 @@ class NuvioRepository(private val context: Context) {
                 Net.json.decodeFromString(ListSerializer(InstalledNuvioProvider.serializer()), it)
             }.getOrDefault(emptyList())
         } ?: emptyList()
+    }
+
+    val savedRepos: Flow<List<NuvioSavedRepo>> = context.nuvioStore.data.map { prefs ->
+        prefs[KEY_SAVED_REPOS]?.let {
+            runCatching {
+                Net.json.decodeFromString(ListSerializer(NuvioSavedRepo.serializer()), it)
+            }.getOrDefault(emptyList())
+        } ?: emptyList()
+    }
+
+    suspend fun addSavedRepo(url: String, name: String?) {
+        val normalised = normaliseRepoUrl(url)
+        val existing = savedRepos.first()
+        if (existing.any { it.url == normalised }) return
+        val repo = NuvioSavedRepo(
+            id = normalised.hashCode().toString(),
+            url = normalised,
+            name = name,
+            addedAt = System.currentTimeMillis(),
+        )
+        val updated = existing + repo
+        context.nuvioStore.edit {
+            it[KEY_SAVED_REPOS] = Net.json.encodeToString(ListSerializer(NuvioSavedRepo.serializer()), updated)
+        }
+    }
+
+    suspend fun removeSavedRepo(id: String) {
+        val updated = savedRepos.first().filterNot { it.id == id }
+        context.nuvioStore.edit {
+            it[KEY_SAVED_REPOS] = Net.json.encodeToString(ListSerializer(NuvioSavedRepo.serializer()), updated)
+        }
     }
 
     suspend fun fetchManifest(repoUrl: String): NuvioRepoManifest = withContext(Dispatchers.IO) {

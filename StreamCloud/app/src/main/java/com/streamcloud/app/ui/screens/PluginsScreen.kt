@@ -586,6 +586,22 @@ private fun NuvioProvidersPage(
             state.info?.let  { item { StatusBanner(it, isError = false) { vm.clearMessages() } } }
             state.error?.let { item { StatusBanner(it, isError = true)  { vm.clearMessages() } } }
 
+            if (state.nuvioSavedRepos.isNotEmpty()) {
+                item { SectionLabel("Repos (${state.nuvioSavedRepos.size})") }
+                items(state.nuvioSavedRepos, key = { "repo_${it.id}" }) { savedRepo ->
+                    NuvioSavedRepoRow(
+                        repo     = savedRepo,
+                        onBrowse = {
+                            nuvioRepoInput = savedRepo.url
+                            showBrowse = true
+                            vm.loadNuvioRepo(savedRepo.url)
+                        },
+                        onDelete = { vm.removeNuvioSavedRepo(savedRepo.id) },
+                    )
+                }
+                item { Spacer(Modifier.height(4.dp)) }
+            }
+
             item { SectionLabel("Installed providers (${state.nuvioProviders.size})") }
 
             if (state.nuvioProviders.isEmpty()) {
@@ -885,6 +901,65 @@ private fun NuvioProviderRow(
         }
         IconButton(onClick = onRemove) {
             Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+@Composable
+private fun NuvioSavedRepoRow(
+    repo: com.streamcloud.app.data.nuvio.NuvioSavedRepo,
+    onBrowse: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val host = remember(repo.url) {
+        runCatching { java.net.URI(repo.url).host }.getOrElse { repo.url }
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onBrowse)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(ColourNuvio.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.CloudDownload, null,
+                tint = ColourNuvio,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                repo.name ?: host ?: repo.url,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (repo.name != null) {
+                Text(
+                    host ?: repo.url,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Default.Delete, "Remove repo",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            )
         }
     }
 }
