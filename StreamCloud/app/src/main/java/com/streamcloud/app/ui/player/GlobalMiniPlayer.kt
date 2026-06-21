@@ -3,6 +3,7 @@ package com.streamcloud.app.ui.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -119,12 +120,12 @@ fun GlobalMiniPlayer(
                     playbackProgress = (c.currentPosition.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
                 }
             }
-            delay(500L)
+            delay(250L)
         }
     }
     val animatedProgress by animateFloatAsState(
         targetValue = playbackProgress,
-        animationSpec = tween(500),
+        animationSpec = tween(durationMillis = 250, easing = LinearEasing),
         label = "miniProgress",
     )
 
