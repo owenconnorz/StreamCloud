@@ -2,12 +2,44 @@
 package com.lagradost.cloudstream3.plugins
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.content.res.Resources
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.utils.ExtractorApi
 
 abstract class Plugin {
 
     val apis: MutableList<MainAPI> = mutableListOf()
+
+    // ── Context delegation ───────────────────────────────────────────────────
+    // The original CloudStream Plugin base exposes context methods directly on
+    // the Plugin instance so plugins can call this.getResources(), etc.
+    // We store the Context set by PluginRuntime after instantiation and delegate.
+    @Volatile private var __pluginContext: Context? = null
+
+    /** Called by PluginRuntime immediately after instantiation, before load(). */
+    fun __initContext(ctx: Context) { __pluginContext = ctx }
+
+    fun getResources(): Resources =
+        __pluginContext?.resources
+            ?: Resources.getSystem()
+
+    fun getSystemService(name: String): Any? =
+        __pluginContext?.getSystemService(name)
+
+    fun getPackageName(): String =
+        __pluginContext?.packageName ?: ""
+
+    fun getSharedPreferences(name: String, mode: Int): SharedPreferences? =
+        __pluginContext?.getSharedPreferences(name, mode)
+
+    fun getString(resId: Int): String =
+        runCatching { __pluginContext?.getString(resId) }.getOrNull() ?: ""
+
+    fun getString(resId: Int, vararg formatArgs: Any?): String =
+        runCatching { __pluginContext?.getString(resId, *formatArgs) }.getOrNull() ?: ""
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
 
     open fun load(context: Context) {}
 
