@@ -111,9 +111,10 @@ fun CloudStreamDetailScreen(
     var sourcesState by remember { mutableStateOf<SourcesState>(SourcesState.Idle) }
     var pluginFilePath by remember { mutableStateOf<String?>(null) }
     var pluginDisplayName by remember { mutableStateOf<String?>(null) }
-    var resolving by remember { mutableStateOf(false) }
-    var resolveError by remember { mutableStateOf<String?>(null) }
+    // null = idle, non-null = the `data` string of the episode/movie currently resolving
+    var resolvingData by remember { mutableStateOf<String?>(null) }
     var cachedSources by remember { mutableStateOf<List<ExtractorLink>>(emptyList()) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(pluginInternalName, url) {
         val installed = repo.installed.first().firstOrNull { it.internalName == pluginInternalName }
@@ -160,9 +161,9 @@ fun CloudStreamDetailScreen(
 
     fun resolveAndPlay(data: String, episodeTitle: String?) {
         val path = pluginFilePath ?: return
+        if (resolvingData != null) return          // already resolving — ignore double-tap
         scope.launch {
-            resolving = true
-            resolveError = null
+            resolvingData = data
             try {
                 val links = if (data == (state as? CsDetailState.Ready)?.let {
                         (it.response as? MovieLoadResponse)?.dataUrl } && cachedSources.isNotEmpty()
@@ -174,12 +175,13 @@ fun CloudStreamDetailScreen(
                 }
                 if (links.isEmpty()) {
                     val internalErr = PluginRuntime.lastErrorFor(path)
-                    resolveError = buildString {
+                    val msg = buildString {
                         append("No streams found")
                         if (!pluginDisplayName.isNullOrBlank()) append(" — $pluginDisplayName")
                         val friendly = friendlyPluginError(internalErr)
-                        if (!friendly.isNullOrBlank()) append("\n$friendly")
+                        if (!friendly.isNullOrBlank()) append(": $friendly")
                     }
+                    snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Long)
                     return@launch
                 }
                 val sources = links.toPlayerSources(pluginDisplayName ?: pluginInternalName)
@@ -190,15 +192,16 @@ fun CloudStreamDetailScreen(
                     tmdbId = -((pluginInternalName + "|" + url + "|" + (episodeTitle ?: "")).hashCode().toLong()),
                     title = displayTitle,
                     posterUrl = poster,
-                    mediaType = "movie",
+                    mediaType = if (episodeTitle != null) "tv" else "movie",
                     sourceRoute = "cs:$pluginInternalName|||$url|||$displayTitle|||${poster ?: ""}",
                 )
                 onPlay(sorted.first().url, displayTitle, sorted, progressKey)
             } catch (e: Throwable) {
                 val raw = "${e::class.simpleName}: ${e.message}"
-                resolveError = friendlyPluginError(raw) ?: "Failed to load streams: $raw"
+                val msg = friendlyPluginError(raw) ?: "Failed to load streams: $raw"
+                snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Long)
             } finally {
-                resolving = false
+                resolvingData = null
             }
         }
     }
@@ -212,16 +215,15 @@ fun CloudStreamDetailScreen(
             is CsDetailState.Loading -> CsLoadingScreen(initialTitle)
             is CsDetailState.Error  -> CsErrorScreen(s.message, onBack)
             is CsDetailState.Ready  -> CsReadyContent(
-                lr              = s.response,
-                initialTitle    = initialTitle,
-                initialPoster   = initialPoster,
-                pluginName      = pluginDisplayName.orEmpty(),
-                sourcesState    = sourcesState,
-                resolving       = resolving,
-                resolveError    = resolveError,
-                isWatchlisted   = isWatchlisted,
-                onPlayMovie     = { resolveAndPlay((s.response as MovieLoadResponse).dataUrl, null) },
-                onPlayEpisode   = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
+                lr                = s.response,
+                initialTitle      = initialTitle,
+                initialPoster     = initialPoster,
+                pluginName        = pluginDisplayName.orEmpty(),
+                sourcesState      = sourcesState,
+                resolvingData     = resolvingData,
+                isWatchlisted     = isWatchlisted,
+                onPlayMovie       = { resolveAndPlay((s.response as MovieLoadResponse).dataUrl, null) },
+                onPlayEpisode     = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
                 onToggleWatchlist = {
                     scope.launch {
                         if (isWatchlisted) {
@@ -256,6 +258,12 @@ fun CloudStreamDetailScreen(
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White,
                 modifier = Modifier.size(22.dp))
         }
+
+        // Snackbar — anchored to the bottom so it's always visible
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 
@@ -303,13 +311,13 @@ private fun CsReadyContent(
     initialPoster: String?,
     pluginName: String,
     sourcesState: SourcesState,
-    resolving: Boolean,
-    resolveError: String?,
+    resolvingData: String?,
     isWatchlisted: Boolean,
     onPlayMovie: () -> Unit,
     onPlayEpisode: (Episode) -> Unit,
     onToggleWatchlist: () -> Unit,
 ) {
+    val resolving = resolvingData != null
     val isSeries = lr is TvSeriesLoadResponse
     val episodes = (lr as? TvSeriesLoadResponse)?.episodes.orEmpty()
     val displayTitle = lr.name.ifBlank { initialTitle }
@@ -459,13 +467,6 @@ private fun CsReadyContent(
                     Spacer(Modifier.height(6.dp))
                 }
 
-                // Resolve error
-                resolveError?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall)
-                }
-
                 // ── Tags ───────────────────────────────────────────────────
                 val tags = lr.tags
                 if (!tags.isNullOrEmpty()) {
@@ -514,7 +515,12 @@ private fun CsReadyContent(
             items(episodes,
                 key = { ep -> ep.season.toString() + ":" + ep.episode + ":" + ep.data.hashCode() }
             ) { ep ->
-                EpisodeRow(ep = ep, loading = resolving, onClick = { onPlayEpisode(ep) })
+                EpisodeRow(
+                    ep = ep,
+                    isResolving = resolvingData == ep.data,
+                    disabled = resolving,
+                    onClick = { onPlayEpisode(ep) },
+                )
             }
             item { Spacer(Modifier.height(24.dp)) }
         }
@@ -522,15 +528,20 @@ private fun CsReadyContent(
 }
 
 @Composable
-private fun EpisodeRow(ep: Episode, loading: Boolean, onClick: () -> Unit) {
+private fun EpisodeRow(
+    ep: Episode,
+    isResolving: Boolean,
+    disabled: Boolean,
+    onClick: () -> Unit,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceColor)
-            .clickable(enabled = !loading, onClick = onClick)
+            .background(if (isResolving) SurfaceColor.copy(alpha = 0.6f) else SurfaceColor)
+            .clickable(enabled = !disabled, onClick = onClick)
             .padding(12.dp),
     ) {
         if (!ep.posterUrl.isNullOrBlank()) {
@@ -552,8 +563,16 @@ private fun EpisodeRow(ep: Episode, loading: Boolean, onClick: () -> Unit) {
                     .background(BgColor),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.PlayArrow, null, tint = TextSecondary,
-                    modifier = Modifier.size(22.dp))
+                if (isResolving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        strokeWidth = 2.dp,
+                        color = AccentColor,
+                    )
+                } else {
+                    Icon(Icons.Default.PlayArrow, null, tint = TextSecondary,
+                        modifier = Modifier.size(22.dp))
+                }
             }
             Spacer(Modifier.width(12.dp))
         }
@@ -561,17 +580,31 @@ private fun EpisodeRow(ep: Episode, loading: Boolean, onClick: () -> Unit) {
             Text(
                 ep.displayLabel(),
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = TextPrimary,
+                color = if (isResolving) TextPrimary.copy(alpha = 0.6f) else TextPrimary,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
-            ep.description?.takeIf { it.isNotBlank() }?.let {
+            if (isResolving) {
                 Spacer(Modifier.height(3.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Finding streams…", style = MaterialTheme.typography.bodySmall,
+                    color = AccentColor.copy(alpha = 0.8f))
+            } else {
+                ep.description?.takeIf { it.isNotBlank() }?.let {
+                    Spacer(Modifier.height(3.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
-        Icon(Icons.Default.PlayArrow, null, tint = AccentColor,
-            modifier = Modifier.size(20.dp))
+        if (isResolving) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = AccentColor,
+            )
+        } else {
+            Icon(Icons.Default.PlayArrow, null, tint = AccentColor,
+                modifier = Modifier.size(20.dp))
+        }
     }
 }
 
