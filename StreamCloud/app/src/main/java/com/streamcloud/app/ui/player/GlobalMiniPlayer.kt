@@ -18,8 +18,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -76,6 +79,20 @@ fun GlobalMiniPlayer(
     val nowMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
 
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
+    var showPlayHint by remember { mutableStateOf(false) }
+    var showSonosPicker by remember { mutableStateOf(false) }
+    val videoId = remember(nowMediaId) {
+        nowMediaId?.let { id ->
+            id.substringAfter("v=").substringBefore("&").takeIf { it.length in 6..15 } ?: id
+        } ?: ""
+    }
+
+    LaunchedEffect(showPlayHint) {
+        if (showPlayHint) {
+            delay(1300L)
+            showPlayHint = false
+        }
+    }
 
     val accent by AlbumArtThemeBus.accent.collectAsState()
     val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
@@ -240,6 +257,7 @@ fun GlobalMiniPlayer(
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clickable {
                             controller?.let { if (it.isPlaying) it.pause() else it.play() }
+                            showPlayHint = true
                         },
                 ) {
                     AsyncImage(
@@ -250,6 +268,25 @@ fun GlobalMiniPlayer(
                             .fillMaxSize()
                             .clip(CircleShape),
                     )
+                    AnimatedVisibility(
+                        visible = showPlayHint,
+                        enter = fadeIn(tween(120)),
+                        exit = fadeOut(tween(450)),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.50f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -307,6 +344,33 @@ fun GlobalMiniPlayer(
                     modifier = Modifier.size(20.dp),
                 )
             }
+
+            Spacer(Modifier.width(6.dp))
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2C2C2E))
+                    .clickable { showSonosPicker = true },
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Cast,
+                    contentDescription = "Cast to Sonos",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
+    }
+
+    if (showSonosPicker) {
+        SonosDevicePickerSheet(
+            videoId  = videoId,
+            title    = title.orEmpty(),
+            watchUrl = nowMediaId ?: "",
+            onDismiss = { showSonosPicker = false },
+        )
     }
 }
