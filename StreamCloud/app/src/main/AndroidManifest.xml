@@ -53,6 +53,7 @@
             android:name=".ui.screens.PluginSettingsActivity"
             android:exported="false"
             android:label="Plugin Settings"
+            android:theme="@style/Theme.StreamCloud.AppCompat"
             android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
 
         <activity
