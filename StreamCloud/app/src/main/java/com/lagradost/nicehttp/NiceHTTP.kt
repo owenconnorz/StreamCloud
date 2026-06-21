@@ -47,6 +47,7 @@ object Requests {
 
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .cookieJar(com.streamcloud.app.data.network.BrowserCookieJar)
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
@@ -56,8 +57,8 @@ object Requests {
     }
 
     private const val DEFAULT_UA =
-        "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
 
     // Signature matches real NiceHTTP exactly so plugins' invokestatic descriptor resolves.
     // Order: url, headers, referer, params, cookies, allowRedirects,
