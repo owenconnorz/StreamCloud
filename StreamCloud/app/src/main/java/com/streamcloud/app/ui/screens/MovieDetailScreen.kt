@@ -45,6 +45,7 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
+import com.streamcloud.app.player.StreamCacheRepository
 import com.streamcloud.app.player.WatchProgressKey
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.ExtractorLink
@@ -219,6 +220,20 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed. Add some from Settings → Plugins."
             return
         }
+        val movieCacheKey = StreamCacheRepository.movieKey(tt)
+        val cachedMovie = StreamCacheRepository.get(context, movieCacheKey)
+        if (cachedMovie != null) {
+            val m = movie
+            val displayTitle = m?.displayTitle ?: "Playback"
+            val progressKey = WatchProgressKey(
+                tmdbId = movieId,
+                title = displayTitle,
+                posterUrl = m?.posterUrl ?: m?.backdropUrl,
+                mediaType = mediaType,
+            )
+            onPlay(cachedMovie.first().url, displayTitle, cachedMovie, progressKey)
+            return
+        }
         resolutionJob = scope.launch {
             resolving = true
             val totalSources = installedAddons.size + installedNuvio.size + installedCsPlugins.size
@@ -339,6 +354,7 @@ fun MovieDetailScreen(
                     Log.d("StreamCloud", "Speed probe: testing ${fastSources.size} sources")
                     val probed = speedProbeAndReorder(fastSources)
                     val sorted = probed
+                    StreamCacheRepository.put(context, movieCacheKey, sorted)
                     if (installedNuvio.isNotEmpty()) {
                         com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
                     }
@@ -362,6 +378,7 @@ fun MovieDetailScreen(
                     Log.d("StreamCloud", "Nuvio (fallback): ${nuvioSources.size} streams")
                     if (nuvioSources.isNotEmpty()) {
                         val sorted = nuvioSources.sortedByDescending { it.qualityScore() }
+                        StreamCacheRepository.put(context, movieCacheKey, sorted)
                         onPlay(sorted.first().url, displayTitle, sorted, progressKey)
                     } else {
                         resolverMessage = buildString {
@@ -390,6 +407,23 @@ fun MovieDetailScreen(
         }
         if (installedAddons.isEmpty() && installedNuvio.isEmpty()) {
             resolverMessage = "No Stremio addons or Nuvio providers installed. Add some from Settings → Plugins."
+            return
+        }
+        val epCacheKey = StreamCacheRepository.episodeKey(tt, seasonNum, episodeNum)
+        val cachedEp = StreamCacheRepository.get(context, epCacheKey)
+        if (cachedEp != null) {
+            val m = movie
+            val displayTitle = buildString {
+                append(m?.displayTitle ?: "")
+                if (seasonNum > 0 || episodeNum > 0) append(" S${seasonNum}E${episodeNum}")
+            }
+            val progressKey = WatchProgressKey(
+                tmdbId = movieId,
+                title = displayTitle,
+                posterUrl = m?.posterUrl ?: m?.backdropUrl,
+                mediaType = mediaType,
+            )
+            onPlay(cachedEp.first().url, displayTitle, cachedEp, progressKey)
             return
         }
         resolutionJob = scope.launch {
@@ -448,6 +482,7 @@ fun MovieDetailScreen(
                 Log.d("StreamCloud", "playEpisode $epLabel: total ${allSources.size} streams (${stremioSources.size} Stremio, ${nuvioSources.size} Nuvio)")
                 if (allSources.isNotEmpty()) {
                     val autoPlay = speedProbeAndReorder(allSources)
+                    StreamCacheRepository.put(context, epCacheKey, autoPlay)
                     onPlay(autoPlay.first().url, displayTitle, autoPlay, progressKey)
                 } else {
                     resolverMessage = "No streams found for $epLabel. Try a different episode or add more addons."
