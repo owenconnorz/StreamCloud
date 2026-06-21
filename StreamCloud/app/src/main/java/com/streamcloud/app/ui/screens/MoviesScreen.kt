@@ -109,28 +109,8 @@ fun MoviesScreen(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
-            item {
-                MoviesHeader(
-                    onProfileClick = onProfileClick,
-                    onOpenCollections = onOpenCollections,
-                    onSearchClick = onSearchClick,
-                    onPluginsClick = onPluginsClick,
-                    hasPlugins = state.installedPlugins.isNotEmpty(),
-                )
-            }
-            state.notice?.let {
-                item { NoticeBanner(it, onDismiss = vm::clearNotice) }
-            }
-            state.error?.let {
-                item {
-                    Text(
-                        it, color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(20.dp),
-                    )
-                }
-            }
-
             if (query.isNotBlank()) {
+                item { Spacer(Modifier.statusBarsPadding().height(56.dp)) }
                 item { SectionTitle("Search results") }
                 item {
                     PosterGrid(
@@ -148,6 +128,20 @@ fun MoviesScreen(
                         HeroPager(
                             items = state.heroBanner,
                             onClick = { onMovieClick(it) },
+                        )
+                    }
+                } else {
+                    item { Spacer(Modifier.statusBarsPadding().height(56.dp)) }
+                }
+
+                state.notice?.let {
+                    item { NoticeBanner(it, onDismiss = vm::clearNotice) }
+                }
+                state.error?.let {
+                    item {
+                        Text(
+                            it, color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(20.dp),
                         )
                     }
                 }
@@ -462,6 +456,13 @@ fun MoviesScreen(
             }
         }
 
+        MoviesHeader(
+            onProfileClick = onProfileClick,
+            onOpenCollections = onOpenCollections,
+            onSearchClick = onSearchClick,
+            onPluginsClick = onPluginsClick,
+            hasPlugins = state.installedPlugins.isNotEmpty(),
+        )
     }
 }
 
@@ -483,7 +484,7 @@ private fun MoviesHeader(
         Text(
             "StreamCloud",
             style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = Color.White,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
         )
@@ -492,7 +493,7 @@ private fun MoviesHeader(
             Icon(
                 Icons.Default.Search,
                 contentDescription = "Search",
-                tint = MaterialTheme.colorScheme.onBackground,
+                tint = Color.White,
             )
         }
 
@@ -501,7 +502,7 @@ private fun MoviesHeader(
                 Icon(
                     Icons.Default.Extension,
                     contentDescription = "Switch Plugin",
-                    tint = MaterialTheme.colorScheme.onBackground,
+                    tint = Color.White,
                 )
             }
         }
@@ -516,6 +517,7 @@ private fun HeroPager(
     items: List<TmdbMovie>,
     onClick: (Long) -> Unit,
 ) {
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val pagerState = rememberPagerState(pageCount = { items.size })
 
     LaunchedEffect(items.size) {
@@ -530,7 +532,7 @@ private fun HeroPager(
     Column(Modifier.fillMaxWidth()) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxWidth().height(520.dp),
+            modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight),
             pageSpacing = 0.dp,
         ) { page ->
             val m = items[page]
@@ -575,7 +577,7 @@ private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
                     listOf(
-                        Color.Black.copy(alpha = 0.45f),
+                        Color.Black.copy(alpha = 0.65f),
                         Color.Transparent,
                         Color.Black.copy(alpha = 0.92f),
                     ),

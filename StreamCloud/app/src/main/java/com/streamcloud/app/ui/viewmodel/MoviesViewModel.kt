@@ -196,10 +196,11 @@ class MoviesViewModel(
                 topRated   = byId["top_rated"]?.items  ?: emptyList(),
                 nowPlaying = byId["now_playing"]?.items ?: emptyList(),
                 collections = rows,
-                heroBanner  = (byId["trending"]?.items
-                    ?: byId["now_playing"]?.items
-                    ?: rows.firstOrNull()?.items
-                    ?: emptyList()).take(7),
+                heroBanner  = rows
+                    .flatMap { row -> row.items.take(2) }
+                    .distinctBy { it.id }
+                    .filter { !it.backdropUrl.isNullOrBlank() || !it.posterUrl.isNullOrBlank() }
+                    .take(12),
                 loading = loading,
             )
         }
