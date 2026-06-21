@@ -33,7 +33,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.lagradost.cloudstream3.SubtitleFile
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.api.TmdbEpisode
 import com.streamcloud.app.data.api.TmdbMovie
+import com.streamcloud.app.data.api.TmdbTvSeasonSummary
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.data.api.TmdbVideo
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
@@ -93,6 +95,12 @@ fun MovieDetailScreen(
     var csPrefetchJob by remember { mutableStateOf<Deferred<List<PlayerSource>>?>(null) }
     var csPrefetching by remember { mutableStateOf(false) }
 
+    // TV series state
+    var tvSeasons by remember { mutableStateOf<List<TmdbTvSeasonSummary>>(emptyList()) }
+    var selectedSeason by remember { mutableStateOf<Int?>(null) }
+    var tvEpisodes by remember { mutableStateOf<List<TmdbEpisode>>(emptyList()) }
+    var loadingEpisodes by remember { mutableStateOf(false) }
+
     // CS source picker sheet
     var csPickerPlugin by remember { mutableStateOf<InstalledPlugin?>(null) }
     var csPickerSources by remember { mutableStateOf<List<ExtractorLink>>(emptyList()) }
@@ -105,9 +113,16 @@ fun MovieDetailScreen(
     LaunchedEffect(movieId) {
         try {
             if (mediaType == "tv") {
-                movie = sl.tmdb.tvDetails(movieId, sl.tmdbApiKey)
+                val tvMovie = sl.tmdb.tvDetails(movieId, sl.tmdbApiKey)
+                movie = tvMovie
                 videos = sl.tmdb.tvVideos(movieId, sl.tmdbApiKey).results
                 imdbId = sl.tmdb.tvExternalIds(movieId, sl.tmdbApiKey).imdbId
+                // seasons come embedded in the tvDetails response
+                val seasons = tvMovie.seasons.filter { it.seasonNumber > 0 }
+                tvSeasons = seasons
+                if (seasons.isNotEmpty() && selectedSeason == null) {
+                    selectedSeason = seasons.first().seasonNumber
+                }
             } else {
                 movie = sl.tmdb.details(movieId, sl.tmdbApiKey)
                 videos = sl.tmdb.videos(movieId, sl.tmdbApiKey).results
@@ -118,24 +133,31 @@ fun MovieDetailScreen(
         }
     }
 
+    // Load episodes whenever the selected season changes
+    LaunchedEffect(selectedSeason) {
+        val s = selectedSeason ?: return@LaunchedEffect
+        if (mediaType != "tv") return@LaunchedEffect
+        loadingEpisodes = true
+        tvEpisodes = runCatching {
+            sl.tmdb.tvSeasonDetail(movieId, s, sl.tmdbApiKey).episodes
+        }.getOrDefault(emptyList())
+        loadingEpisodes = false
+    }
+
     // Pre-fetch CloudStream plugin streams as soon as movie title is available.
-    // CS resolution (search → detail → loadLinks) is the slowest single step; hiding it
-    // behind the time the user spends reading the description removes it from the Play latency.
+    // Only for movies — CS plugins can't resolve TV episodes without season/episode selection,
+    // so pre-fetching for TV would waste time and return empty results.
     LaunchedEffect(movie?.id, installedCsPlugins.size) {
+        if (mediaType == "tv") return@LaunchedEffect      // TV series handled via episode picker
         val m = movie ?: return@LaunchedEffect
         val title = m.displayTitle.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val year  = m.year()
-        // Mirror the same relevance filter used in playMovie()
-        val relevant = if (mediaType == "tv") {
-            installedCsPlugins.filter { !it.isAdultPlugin() }
-        } else {
-            installedCsPlugins.filter { plugin ->
-                !plugin.isAdultPlugin() && run {
-                    val types = plugin.tvTypes
-                    types == null || types.any { t ->
-                        val lt = t.lowercase()
-                        lt.contains("movie") || lt == "others" || lt == "live"
-                    }
+        val relevant = installedCsPlugins.filter { plugin ->
+            !plugin.isAdultPlugin() && run {
+                val types = plugin.tvTypes
+                types == null || types.any { t ->
+                    val lt = t.lowercase()
+                    lt.contains("movie") || lt == "others" || lt == "live"
                 }
             }
         }
@@ -155,9 +177,9 @@ fun MovieDetailScreen(
             }.awaitAll().flatten()
         }
         csPrefetchJob = job
-        job.await()
+        val result = job.await()
         csPrefetching = false
-        Log.d("StreamCloud", "CS pre-fetch: complete (${csPrefetchJob?.getCompleted()?.size ?: 0} streams ready)")
+        Log.d("StreamCloud", "CS pre-fetch: complete (${result.size} streams ready)")
     }
 
     // Pre-fetch Nuvio streams the moment imdbId is resolved — before the user presses Play.
@@ -180,9 +202,9 @@ fun MovieDetailScreen(
             }
         }
         nuvioPrefetchJob = job
-        job.await()
+        val nuvioResult = job.await()
         nuvioPrefetching = false
-        Log.d("StreamCloud", "Nuvio pre-fetch: complete (${nuvioPrefetchJob?.await()?.size ?: 0} streams ready)")
+        Log.d("StreamCloud", "Nuvio pre-fetch: complete (${nuvioResult.size} streams ready)")
     }
 
     fun playMovie() {
@@ -359,6 +381,83 @@ fun MovieDetailScreen(
         }
     }
 
+    fun playEpisode(seasonNum: Int, episodeNum: Int, episodeTitle: String?) {
+        val tt = imdbId ?: run {
+            resolverMessage = "Loading IMDB id… try again in a second."
+            return
+        }
+        if (installedAddons.isEmpty() && installedNuvio.isEmpty()) {
+            resolverMessage = "No Stremio addons or Nuvio providers installed. Add some from Settings → Plugins."
+            return
+        }
+        scope.launch {
+            resolving = true
+            val epLabel = "S${seasonNum}E${episodeNum}"
+            resolverMessage = "Finding streams for $epLabel…"
+            Log.d("StreamCloud", "playEpisode: $epLabel imdbId=$tt tmdbId=$movieId — ${installedAddons.size} Stremio, ${installedNuvio.size} Nuvio")
+            try {
+                // Stremio episode format: {imdbId}:{season}:{episode}  e.g. tt0944947:1:1
+                val stremioEpisodeId = "$tt:$seasonNum:$episodeNum"
+                val stremioJob = async {
+                    installedAddons.map { addon ->
+                        async {
+                            val seen = mutableSetOf<String>()
+                            val sources = buildList {
+                                // Try imdb episode id first, then tmdb variant
+                                for (id in listOf(stremioEpisodeId, "tmdb:$movieId:$seasonNum:$episodeNum")) {
+                                    val res = withTimeoutOrNull(20_000L) {
+                                        runCatching { sl.stremio.fetchStreams(addon, "series", id) }
+                                            .getOrElse { emptyList() }
+                                    } ?: emptyList()
+                                    addAll(res.mapNotNull { it.toPlayerSource(addon) }
+                                        .filter { ps -> seen.add(ps.url) })
+                                }
+                            }
+                            Log.d("StreamCloud", "Stremio ${addon.name} $epLabel: ${sources.size} streams")
+                            sources
+                        }
+                    }.awaitAll().flatten()
+                }
+                // Nuvio: pass season + episode numbers
+                val nuvioJob = async {
+                    if (installedNuvio.isEmpty()) return@async emptyList<PlayerSource>()
+                    runCatching {
+                        sl.nuvio.resolveAll(
+                            movieId.toString(), "tv",
+                            season = seasonNum, episode = episodeNum, imdbId = tt,
+                        ).map { (provider, stream) -> stream.toPlayerSource(provider) }
+                    }.getOrElse { e ->
+                        Log.d("StreamCloud", "Nuvio $epLabel error: ${e.message}")
+                        emptyList()
+                    }
+                }
+                val displayTitle = buildString {
+                    append(movie?.displayTitle ?: "")
+                    append(" · $epLabel")
+                    episodeTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                }
+                val progressKey = WatchProgressKey(
+                    tmdbId = movieId, title = displayTitle,
+                    posterUrl = movie?.posterUrl ?: movie?.backdropUrl, mediaType = "tv",
+                )
+                val stremioSources = stremioJob.await()
+                val nuvioSources = nuvioJob.await()
+                val allSources = (stremioSources + nuvioSources).sortedByDescending { it.qualityScore() }
+                Log.d("StreamCloud", "playEpisode $epLabel: total ${allSources.size} streams (${stremioSources.size} Stremio, ${nuvioSources.size} Nuvio)")
+                if (allSources.isNotEmpty()) {
+                    val autoPlay = speedProbeAndReorder(allSources)
+                    onPlay(autoPlay.first().url, displayTitle, autoPlay, progressKey)
+                } else {
+                    resolverMessage = "No streams found for $epLabel. Try a different episode or add more addons."
+                }
+            } catch (e: Throwable) {
+                resolverMessage = "Error finding streams: ${e.message}"
+            } finally {
+                resolving = false
+            }
+        }
+    }
+
     fun openCsSourcePicker(plugin: InstalledPlugin) {
         val title = movie?.displayTitle ?: return
         val year = movie?.year()
@@ -481,15 +580,17 @@ fun MovieDetailScreen(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) {
-                        PlayMovieCta(
-                            addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size,
-                            enabled = imdbId != null && (installedAddons.isNotEmpty() || installedNuvio.isNotEmpty() || installedCsPlugins.isNotEmpty()) && !resolving,
-                            loading = resolving,
-                            onClick = { playMovie() },
-                        )
+                    if (mediaType != "tv") {
+                        Box(Modifier.weight(1f)) {
+                            PlayMovieCta(
+                                addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size,
+                                enabled = imdbId != null && (installedAddons.isNotEmpty() || installedNuvio.isNotEmpty() || installedCsPlugins.isNotEmpty()) && !resolving,
+                                loading = resolving,
+                                onClick = { playMovie() },
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
                     }
-                    Spacer(Modifier.width(10.dp))
                     IconButton(
                         onClick = {
                             movie?.let {
@@ -497,7 +598,7 @@ fun MovieDetailScreen(
                                     tmdbId = it.id,
                                     title = it.displayTitle,
                                     posterUrl = it.posterUrl,
-                                    mediaType = "movie",
+                                    mediaType = mediaType,
                                 )
                             }
                         },
@@ -519,7 +620,7 @@ fun MovieDetailScreen(
                 }
 
                 val csTitle = movie?.displayTitle.orEmpty()
-                if (installedCsPlugins.isNotEmpty() && csTitle.isNotBlank()) {
+                if (mediaType != "tv" && installedCsPlugins.isNotEmpty() && csTitle.isNotBlank()) {
                     val safePlugins = remember(installedCsPlugins) { installedCsPlugins.filter { !it.isAdultPlugin() } }
                     if (safePlugins.isNotEmpty()) {
                         Spacer(Modifier.height(16.dp))
@@ -563,6 +664,82 @@ fun MovieDetailScreen(
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // ── TV series: season tabs + episode list ──────────────────
+                if (mediaType == "tv" && tvSeasons.isNotEmpty()) {
+                    Spacer(Modifier.height(28.dp))
+                    Text(
+                        "Seasons",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        tvSeasons.filter { it.seasonNumber > 0 }.forEach { season ->
+                            val isSelected = selectedSeason == season.seasonNumber
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.surface
+                                    )
+                                    .clickable { selectedSeason = season.seasonNumber }
+                                    .padding(horizontal = 16.dp, vertical = 9.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "Season ${season.seasonNumber}",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    ),
+                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    when {
+                        loadingEpisodes -> {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(80.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(28.dp),
+                                    strokeWidth = 2.5.dp,
+                                )
+                            }
+                        }
+                        tvEpisodes.isEmpty() -> {
+                            Text(
+                                "No episodes found for this season.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        else -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                tvEpisodes.forEach { ep ->
+                                    TmdbEpisodeRow(
+                                        ep = ep,
+                                        loading = resolving,
+                                        onClick = {
+                                            playEpisode(ep.seasonNumber, ep.episodeNumber, ep.name)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(40.dp))
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -1104,6 +1281,84 @@ private fun pickBestMatch(results: List<SearchResponse>, title: String, year: In
         .sortedByDescending { it.second }
         .firstOrNull()
         ?.first
+}
+
+@Composable
+private fun TmdbEpisodeRow(
+    ep: TmdbEpisode,
+    loading: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(enabled = !loading, onClick = onClick)
+            .padding(12.dp),
+    ) {
+        if (ep.stillUrl != null) {
+            AsyncImage(
+                model = ep.stillUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(width = 112.dp, height = 65.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.background),
+            )
+        } else {
+            Box(
+                Modifier
+                    .size(width = 56.dp, height = 56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.background),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.PlayArrow, null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                ep.displayLabel(),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+            ep.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    overview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            ep.runtime?.let { rt ->
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "${rt}m",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+            )
+        } else {
+            Icon(Icons.Default.PlayArrow, null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp))
+        }
+    }
 }
 
 private fun String.normalizedTitle(): String =

@@ -6,6 +6,37 @@ import retrofit2.http.GET
 import retrofit2.http.Query
 
 @Serializable
+data class TmdbTvSeasonSummary(
+    @SerialName("season_number") val seasonNumber: Int = 0,
+    @SerialName("episode_count") val episodeCount: Int = 0,
+    val name: String? = null,
+)
+
+@Serializable
+data class TmdbEpisode(
+    @SerialName("episode_number") val episodeNumber: Int = 0,
+    @SerialName("season_number") val seasonNumber: Int = 0,
+    val name: String? = null,
+    val overview: String? = null,
+    @SerialName("still_path") val stillPath: String? = null,
+    val runtime: Int? = null,
+) {
+    val stillUrl: String? get() = stillPath?.let { "https://image.tmdb.org/t/p/w300$it" }
+    fun displayLabel(): String {
+        val parts = mutableListOf<String>()
+        if (seasonNumber > 0 && episodeNumber > 0) parts += "S${seasonNumber}E${episodeNumber}"
+        name?.takeIf { it.isNotBlank() }?.let { parts += it }
+        return parts.joinToString(" · ").ifBlank { "Episode $episodeNumber" }
+    }
+}
+
+@Serializable
+data class TmdbSeasonDetail(
+    @SerialName("season_number") val seasonNumber: Int = 0,
+    val episodes: List<TmdbEpisode> = emptyList(),
+)
+
+@Serializable
 data class TmdbMovie(
     val id: Long,
     val title: String? = null,
@@ -15,6 +46,9 @@ data class TmdbMovie(
     @SerialName("vote_average") val voteAverage: Double = 0.0,
     @SerialName("release_date") val releaseDate: String? = null,
     val overview: String? = null,
+    // TV-series fields — populated by /3/tv/{id} but absent on /3/movie/{id}
+    @SerialName("number_of_seasons") val numberOfSeasons: Int = 0,
+    val seasons: List<TmdbTvSeasonSummary> = emptyList(),
 ) {
     val displayTitle: String get() = title ?: name ?: "Untitled"
     val posterUrl: String? get() = posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
@@ -124,6 +158,13 @@ interface TmdbApi {
         @retrofit2.http.Path("id") id: Long,
         @Query("api_key") apiKey: String,
     ): TmdbExternalIds
+
+    @GET("3/tv/{id}/season/{seasonNumber}")
+    suspend fun tvSeasonDetail(
+        @retrofit2.http.Path("id") id: Long,
+        @retrofit2.http.Path("seasonNumber") seasonNumber: Int,
+        @Query("api_key") apiKey: String,
+    ): TmdbSeasonDetail
 
     @GET("3/find/{externalId}")
     suspend fun find(
