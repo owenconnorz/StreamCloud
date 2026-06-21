@@ -36,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -178,7 +180,10 @@ fun LibraryScreen(
         )
     }
 
-    val bgTintColor by AlbumArtThemeBus.bgTint.collectAsState()
+    val bgTintColorRaw by AlbumArtThemeBus.bgTint.collectAsState()
+    val bgTintColor by animateColorAsState(bgTintColorRaw, animationSpec = tween(700), label = "libBgTint")
+    val vibrantRaw by AlbumArtThemeBus.vibrant.collectAsState()
+    val animVibrant by animateColorAsState(vibrantRaw, animationSpec = tween(700), label = "libVibrant")
     Column(Modifier.fillMaxSize().background(bgTintColor)) {
         Row(
             modifier = Modifier
@@ -298,6 +303,7 @@ fun LibraryScreen(
                 LibFilterChip(
                     label = t.label,
                     selected = tab == t,
+                    accentColor = animVibrant,
                     onClick = { tab = t },
                 )
             }
@@ -452,12 +458,17 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun LibFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun LibFilterChip(
+    label: String,
+    selected: Boolean,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+    onClick: () -> Unit,
+) {
     Box(
         Modifier
             .clip(RoundedCornerShape(50))
             .background(
-                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                if (selected) accentColor.copy(alpha = 0.22f)
                 else MaterialTheme.colorScheme.surface
             )
             .clickable(onClick = onClick)
@@ -465,7 +476,7 @@ private fun LibFilterChip(label: String, selected: Boolean, onClick: () -> Unit)
     ) {
         Text(
             label,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            color = if (selected) accentColor else MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 1,
             softWrap = false,

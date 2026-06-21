@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -154,6 +155,7 @@ private fun PluginsHubPage(
                 description = "Install plugins from community repositories. " +
                     "Supports movies, shows, anime and more.",
                 badgeText   = if (csCount > 0) "$csCount installed" else null,
+                logoUrl     = "https://raw.githubusercontent.com/recloudstream/cloudstream/master/app/src/main/ic_launcher-playstore.png",
                 onClick     = onCloudStream,
             )
 
@@ -164,6 +166,7 @@ private fun PluginsHubPage(
                 description = "Add Stremio-compatible addons via manifest URL. " +
                     "Works with Torrentio, Cinemeta, and more.",
                 badgeText   = if (stremioCount > 0) "$stremioCount addons" else null,
+                logoUrl     = "https://www.stremio.com/website/stremio-logo-small.png",
                 onClick     = onStremio,
             )
 
@@ -174,6 +177,7 @@ private fun PluginsHubPage(
                 description = "Browse and install Nuvio JavaScript providers " +
                     "from community repositories.",
                 badgeText   = if (nuvioCount > 0) "$nuvioCount providers" else null,
+                logoUrl     = "https://raw.githubusercontent.com/Nuvio-Streams/nuvio-streams/main/app/src/main/ic_launcher-playstore.png",
                 onClick     = onNuvio,
             )
         }
@@ -187,6 +191,7 @@ private fun AddonHubCard(
     title: String,
     description: String,
     badgeText: String?,
+    logoUrl: String? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -205,7 +210,16 @@ private fun AddonHubCard(
                 .background(AddonIconBg),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, null, tint = iconTint, modifier = Modifier.size(28.dp))
+            if (logoUrl != null) {
+                coil.compose.AsyncImage(
+                    model = logoUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
+                )
+            } else {
+                Icon(icon, null, tint = iconTint, modifier = Modifier.size(28.dp))
+            }
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
