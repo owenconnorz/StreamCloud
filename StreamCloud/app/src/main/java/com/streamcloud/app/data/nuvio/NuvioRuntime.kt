@@ -1,5 +1,6 @@
 package com.streamcloud.app.data.nuvio
 
+import android.content.Context
 import android.util.Log
 import com.dokar.quickjs.QuickJsException
 import com.dokar.quickjs.binding.JsObject
@@ -8,6 +9,9 @@ import com.dokar.quickjs.binding.define
 import com.dokar.quickjs.binding.function
 import com.dokar.quickjs.binding.toJsObject
 import com.dokar.quickjs.quickJs
+import com.streamcloud.app.data.network.BrowserCookieJar
+import com.streamcloud.app.data.network.BrowserHeaders
+import com.streamcloud.app.data.network.CloudflareKiller
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -32,6 +36,7 @@ object NuvioRuntime {
     private val lastErrorByScript = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private val http = OkHttpClient.Builder()
+        .cookieJar(BrowserCookieJar)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -48,6 +53,7 @@ object NuvioRuntime {
         season: Int? = null,
         episode: Int? = null,
         scriptKey: String = "default",
+        context: Context? = null,
     ): List<NuvioStream> {
         val documentCache = mutableMapOf<String, Document>()
         val elementCache = mutableMapOf<String, Element>()
@@ -59,7 +65,7 @@ object NuvioRuntime {
             withTimeoutOrNull(60_000L) {
             quickJs(Dispatchers.IO) {
                 installConsole(scriptKey)
-                installFetchBridge()
+                installFetchBridge(context)
                 installCryptoBindings()
                 installUrlBinding()
                 installCheerioBindings(documentCache, elementCache, idCounter)
@@ -195,18 +201,14 @@ object NuvioRuntime {
 
 
 
-    private fun com.dokar.quickjs.QuickJs.installFetchBridge() {
-
-
-
-
+    private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?) {
         asyncFunction("__native_fetch") { args ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
             val headersJson = args.getOrNull(2)?.toString() ?: "{}"
             val body = args.getOrNull(3)?.toString().orEmpty()
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
-            performFetch(url, method, headersJson, body, followRedirects)
+            performFetch(url, method, headersJson, body, followRedirects, context)
         }
     }
 
@@ -216,15 +218,20 @@ object NuvioRuntime {
         headersJson: String,
         body: String,
         followRedirects: Boolean,
+        context: Context? = null,
     ): String {
         return try {
             val headers = parseHeaders(headersJson).toMutableMap()
             if (headers.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
-                headers["User-Agent"] =
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+                headers["User-Agent"] = BrowserHeaders.USER_AGENT
+            }
+            if (headers.keys.none { it.equals("Accept", ignoreCase = true) }) {
+                headers["Accept"] = BrowserHeaders.ACCEPT_JSON
+            }
+            if (headers.keys.none { it.equals("Accept-Language", ignoreCase = true) }) {
+                headers["Accept-Language"] = BrowserHeaders.ACCEPT_LANGUAGE
             }
             val client = if (followRedirects) http else http.newBuilder().followRedirects(false).build()
-
 
             val requestBody = when {
                 method == "GET" || method == "HEAD" -> null
@@ -235,14 +242,40 @@ object NuvioRuntime {
                 headers.forEach { (k, v) -> header(k, v) }
                 method(method, requestBody)
             }.build()
+
             client.newCall(req).execute().use { resp ->
-                val text = resp.body?.string().orEmpty().let {
+                val respCode = resp.code
+                val respBody = resp.body?.string().orEmpty()
+                val respMultimap = resp.headers.toMultimap()
+
+                // Cloudflare challenge — try WebView bypass and retry once
+                if (context != null && CloudflareKiller.isCfChallenge(respCode, respMultimap, respBody)) {
+                    val ua = headers["User-Agent"] ?: BrowserHeaders.USER_AGENT
+                    val bypassed = CloudflareKiller.bypass(context, url, ua, BrowserCookieJar)
+                    if (bypassed) {
+                        return client.newCall(req).execute().use { r2 ->
+                            val text2 = r2.body?.string().orEmpty().let {
+                                if (it.length > MAX_FETCH_BODY_CHARS) it.substring(0, MAX_FETCH_BODY_CHARS) else it
+                            }
+                            buildJson {
+                                put("ok", r2.isSuccessful)
+                                put("status", r2.code)
+                                put("statusText", r2.message)
+                                put("url", r2.request.url.toString())
+                                put("body", text2)
+                                put("headers", r2.headers.associate { (n, v) -> n.lowercase() to v })
+                            }
+                        }
+                    }
+                }
+
+                val text = respBody.let {
                     if (it.length > MAX_FETCH_BODY_CHARS) it.substring(0, MAX_FETCH_BODY_CHARS) else it
                 }
                 val hdrs = resp.headers.associate { (n, v) -> n.lowercase() to v }
                 buildJson {
                     put("ok", resp.isSuccessful)
-                    put("status", resp.code)
+                    put("status", respCode)
                     put("statusText", resp.message)
                     put("url", resp.request.url.toString())
                     put("body", text)
