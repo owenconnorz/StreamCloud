@@ -169,7 +169,7 @@ fun NativePlayerScreen(
 
 
 
-    com.streamcloud.app.cast.rememberCastController(
+    val isCastConnected by com.streamcloud.app.cast.rememberCastController(
         streamUrl = resolvedUrl.orEmpty(),
         title = title,
         artworkUrl = artworkUrl,
@@ -362,10 +362,10 @@ fun NativePlayerScreen(
     }
 
 
-    LaunchedEffect(controlsVisible, lastInteractionTs) {
-        if (controlsVisible) {
-            delay(3000)
-            if (System.currentTimeMillis() - lastInteractionTs >= 2900) controlsVisible = false
+    LaunchedEffect(controlsVisible, lastInteractionTs, isCastConnected) {
+        if (controlsVisible && !isCastConnected) {
+            delay(5_000)
+            if (System.currentTimeMillis() - lastInteractionTs >= 4_900) controlsVisible = false
         }
     }
 
@@ -595,6 +595,17 @@ fun NativePlayerScreen(
             }
         }
 
+        // Cast button — always pinned at top-end while a Cast session is active
+        if (isCastConnected) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 14.dp, top = 14.dp),
+            ) {
+                com.streamcloud.app.cast.CastButton(modifier = Modifier)
+            }
+        }
+
         var locked by remember { mutableStateOf(false) }
         var showSourcesSheet by remember { mutableStateOf(false) }
         var showSpeedSheet by remember { mutableStateOf(false) }
@@ -638,9 +649,7 @@ fun NativePlayerScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (!locked) {
-
-
+                    if (!locked && !isCastConnected) {
                         com.streamcloud.app.cast.CastButton(modifier = Modifier)
                     }
                     PlayerCapsuleIcon(
