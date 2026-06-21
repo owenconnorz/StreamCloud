@@ -618,7 +618,15 @@ private fun NuvioProvidersPage(
             }
 
             items(state.nuvioProviders, key = { it.id }) { p ->
-                NuvioProviderRow(p, onRemove = { vm.uninstallNuvioProvider(p.id) })
+                NuvioProviderRow(
+                    p         = p,
+                    onRemove  = { vm.uninstallNuvioProvider(p.id) },
+                    onBrowseRepo = {
+                        nuvioRepoInput = p.repoUrl
+                        showBrowse = true
+                        vm.loadNuvioRepo(p.repoUrl)
+                    },
+                )
             }
         }
     }
@@ -814,8 +822,12 @@ private fun InstalledRow(
 private fun NuvioProviderRow(
     p: com.streamcloud.app.data.nuvio.InstalledNuvioProvider,
     onRemove: () -> Unit,
+    onBrowseRepo: () -> Unit,
 ) {
     val lastError = com.streamcloud.app.data.nuvio.NuvioRuntime.lastError(p.id)
+    val repoHost = remember(p.repoUrl) {
+        runCatching { java.net.URI(p.repoUrl).host }.getOrElse { p.repoUrl }
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -860,13 +872,16 @@ private fun NuvioProviderRow(
                 )
             } else {
                 Text(
-                    "Nuvio provider · JS",
+                    repoHost ?: p.repoUrl,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+        IconButton(onClick = onBrowseRepo) {
+            Icon(Icons.Default.CloudDownload, "Browse repo", tint = ColourNuvio)
         }
         IconButton(onClick = onRemove) {
             Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error)
