@@ -35,7 +35,10 @@ import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import com.streamcloud.app.data.ytmusic.StreamUrlCache
+import com.streamcloud.app.data.ytmusic.HomeSection
 import com.streamcloud.app.data.ytmusic.YtMusicArtistRepository
+import com.streamcloud.app.data.ytmusic.YtMusicHomeFeed
+import com.streamcloud.app.data.ytmusic.YtMusicHomeRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
@@ -89,7 +92,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
-
+    @Volatile private var ytHomeFeed: YtMusicHomeFeed = YtMusicHomeFeed()
 
     @Volatile private var ytMusicCookieForStream: String = ""
     @Volatile private var isCurrentLiked: Boolean = false
@@ -338,6 +341,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 YtPlayerUtils.ytMusicCookie = cookie
                 if (cookie.isNotBlank()) {
                     ytLibrary = YtMusicLibraryRepository.sync(cookie)
+                    ytHomeFeed = YtMusicHomeRepository.load(cookie)
                 }
             }
         }
@@ -669,9 +673,10 @@ class MusicPlaybackService : MediaLibraryService() {
                     parentId == ON_REPEAT_ID -> roomTracks { it.mostPlayed().first() }
                     parentId == LIKED_ID     -> likedChildren()
                     parentId == DOWNLOADED_ID -> roomTracks { it.downloaded().first() }
-                    parentId == PLAYLISTS_ID -> playlistsFolderChildren()
-                    parentId == ALBUMS_ID    -> albumsFolderChildren()
-                    parentId == ARTISTS_ID   -> artistsFolderChildren()
+                    parentId == PLAYLISTS_ID  -> playlistsFolderChildren()
+                    parentId == ALBUMS_ID     -> albumsFolderChildren()
+                    parentId == ARTISTS_ID    -> artistsFolderChildren()
+                    parentId == HOME_FEED_ID  -> homeFeedChildren()
                     parentId.startsWith(YT_PLAYLIST_PREFIX) -> ytPlaylistTracks(
                         parentId.removePrefix(YT_PLAYLIST_PREFIX),
                     )
@@ -680,6 +685,10 @@ class MusicPlaybackService : MediaLibraryService() {
                     )
                     parentId.startsWith(YT_ARTIST_PREFIX) -> ytArtistTopSongs(
                         parentId.removePrefix(YT_ARTIST_PREFIX),
+                    )
+                    parentId.startsWith(YT_HOME_SECTION_PREFIX) -> homeSectionItems(parentId)
+                    parentId.startsWith(YT_HOME_BROWSE_PREFIX) -> ytPlaylistTracks(
+                        parentId.removePrefix(YT_HOME_BROWSE_PREFIX),
                     )
                     else -> emptyList()
                 }
@@ -805,19 +814,17 @@ class MusicPlaybackService : MediaLibraryService() {
     private fun buildRoot(): MediaItem = folder(ROOT_ID, "StreamCloud")
 
     private fun rootChildren(): List<MediaItem> {
-        val fixed = mutableListOf(
-            playlist(RECENT_ID,    "Recently Played"),
-            playlist(LIKED_ID,     "Liked Songs"),
-            playlist(ON_REPEAT_ID, "On Repeat"),
-            playlist(DOWNLOADED_ID,"Downloads"),
-        )
-        if (ytLibrary.playlists.isNotEmpty())
-            fixed += folder(PLAYLISTS_ID, "My Playlists")
-        if (ytLibrary.albums.isNotEmpty())
-            fixed += folder(ALBUMS_ID, "Albums")
-        if (ytLibrary.artists.isNotEmpty())
-            fixed += folder(ARTISTS_ID, "Artists")
-        return fixed
+        val items = mutableListOf<MediaItem>()
+        if (ytHomeFeed.sections.isNotEmpty())
+            items += folder(HOME_FEED_ID, "YT Music Home")
+        items += playlist(RECENT_ID,    "Recently Played")
+        items += playlist(LIKED_ID,     "Liked Songs")
+        items += playlist(ON_REPEAT_ID, "On Repeat")
+        items += playlist(DOWNLOADED_ID,"Downloads")
+        if (ytLibrary.playlists.isNotEmpty()) items += folder(PLAYLISTS_ID, "My Playlists")
+        if (ytLibrary.albums.isNotEmpty())    items += folder(ALBUMS_ID,    "Albums")
+        if (ytLibrary.artists.isNotEmpty())   items += folder(ARTISTS_ID,   "Artists")
+        return items
     }
 
     private fun homeChildren(): List<MediaItem> = listOf(
@@ -887,6 +894,47 @@ class MusicPlaybackService : MediaLibraryService() {
                 )
                 .build()
         }
+
+    private fun homeFeedChildren(): List<MediaItem> =
+        ytHomeFeed.sections.mapIndexedNotNull { idx, section ->
+            val title = when (section) {
+                is HomeSection.PlaylistRail -> section.title
+                is HomeSection.SongRail     -> section.title
+                is HomeSection.MoodChips    -> return@mapIndexedNotNull null
+            }
+            if (title.isBlank()) return@mapIndexedNotNull null
+            folder("$YT_HOME_SECTION_PREFIX$idx", title)
+        }
+
+    private fun homeSectionItems(sectionId: String): List<MediaItem> {
+        val idx = sectionId.removePrefix(YT_HOME_SECTION_PREFIX).toIntOrNull() ?: return emptyList()
+        return when (val section = ytHomeFeed.sections.getOrNull(idx) ?: return emptyList()) {
+            is HomeSection.SongRail -> section.items.map(::ytmSongItem)
+            is HomeSection.PlaylistRail -> section.items.mapNotNull { pl ->
+                val isVideoId = pl.id.length == 11 && pl.id.matches(Regex("[a-zA-Z0-9_-]+"))
+                    && !pl.id.startsWith("VL") && !pl.id.startsWith("MPREb_") && !pl.id.startsWith("PL")
+                if (isVideoId) {
+                    val url = "https://music.youtube.com/watch?v=${pl.id}"
+                    ytmSong(pl.id, pl.title, pl.subtitle ?: "", null, pl.thumbnail, url)
+                } else {
+                    MediaItem.Builder()
+                        .setMediaId("$YT_HOME_BROWSE_PREFIX${pl.id}")
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle(pl.title)
+                                .setSubtitle(pl.subtitle)
+                                .setArtworkUri(pl.thumbnail?.let(Uri::parse))
+                                .setIsBrowsable(true)
+                                .setIsPlayable(false)
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
+                                .build(),
+                        )
+                        .build()
+                }
+            }
+            is HomeSection.MoodChips -> emptyList()
+        }
+    }
 
 
     private suspend fun likedChildren(): List<MediaItem> {
@@ -1004,15 +1052,26 @@ class MusicPlaybackService : MediaLibraryService() {
 
     private fun staticBrowsable(id: String): MediaItem? = when {
         id == ROOT_ID       -> buildRoot()
-        id == HOME_ID       -> folder(HOME_ID,      "Home")
-        id == LIBRARY_ID    -> folder(LIBRARY_ID,   "Your Library")
-        id == PLAYLISTS_ID  -> folder(PLAYLISTS_ID, "My Playlists")
-        id == ALBUMS_ID     -> folder(ALBUMS_ID,    "Albums")
-        id == ARTISTS_ID    -> folder(ARTISTS_ID,   "Artists")
+        id == HOME_ID       -> folder(HOME_ID,       "Home")
+        id == LIBRARY_ID    -> folder(LIBRARY_ID,    "Your Library")
+        id == PLAYLISTS_ID  -> folder(PLAYLISTS_ID,  "My Playlists")
+        id == ALBUMS_ID     -> folder(ALBUMS_ID,     "Albums")
+        id == ARTISTS_ID    -> folder(ARTISTS_ID,    "Artists")
+        id == HOME_FEED_ID  -> folder(HOME_FEED_ID,  "YT Music Home")
         id == RECENT_ID     -> playlist(RECENT_ID,    "Recently Played")
         id == ON_REPEAT_ID  -> playlist(ON_REPEAT_ID, "On Repeat")
         id == LIKED_ID      -> playlist(LIKED_ID,     "Liked Songs")
         id == DOWNLOADED_ID -> playlist(DOWNLOADED_ID,"Downloads")
+        id.startsWith(YT_HOME_SECTION_PREFIX) -> {
+            val idx = id.removePrefix(YT_HOME_SECTION_PREFIX).toIntOrNull() ?: return null
+            val section = ytHomeFeed.sections.getOrNull(idx) ?: return null
+            val title = when (section) {
+                is HomeSection.PlaylistRail -> section.title
+                is HomeSection.SongRail     -> section.title
+                is HomeSection.MoodChips    -> return null
+            }
+            folder(id, title)
+        }
         id.startsWith(YT_PLAYLIST_PREFIX) -> {
             val plId = id.removePrefix(YT_PLAYLIST_PREFIX)
             val pl = ytLibrary.playlists.find { it.id == plId }
@@ -1076,9 +1135,12 @@ class MusicPlaybackService : MediaLibraryService() {
         const val PLAYLISTS_ID   = "streamcloud_playlists"
         const val ALBUMS_ID      = "streamcloud_albums"
         const val ARTISTS_ID     = "streamcloud_artists"
-        const val YT_PLAYLIST_PREFIX = "ytpl_"
-        const val YT_ALBUM_PREFIX    = "ytalbum_"
-        const val YT_ARTIST_PREFIX   = "ytartist_"
+        const val HOME_FEED_ID   = "streamcloud_home_feed"
+        const val YT_PLAYLIST_PREFIX     = "ytpl_"
+        const val YT_ALBUM_PREFIX        = "ytalbum_"
+        const val YT_ARTIST_PREFIX       = "ytartist_"
+        const val YT_HOME_SECTION_PREFIX = "yths_"
+        const val YT_HOME_BROWSE_PREFIX  = "ythbr_"
 
         const val ACTION_LIKE   = "com.streamcloud.app.action.like"
         const val ACTION_REPEAT = "com.streamcloud.app.action.repeat"
