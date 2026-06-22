@@ -125,7 +125,7 @@ fun StreamPickerOverlay(
     // not just on explicit refresh.  Previously keying only on `revision` meant
     // a picker opened for movie A would keep showing A's results when the composable
     // was reused or the movie changed underneath it.
-    LaunchedEffect(revision, tmdbId, mediaType, season ?: -1, episode ?: -1) {
+    LaunchedEffect(revision, tmdbId, imdbId, mediaType, season ?: -1, episode ?: -1) {
         scanStartMs = System.currentTimeMillis()
         scanElapsedSecs = 0
         groups = groupOrder.associate { (key, name) -> key to PickerGroupState(name) }
