@@ -910,10 +910,18 @@ object NuvioRuntime {
             };
             XMLHttpRequest.prototype.send = function(body) {
                 var self = this;
-                // Run async so caller's synchronous code completes before callbacks fire —
-                // matches browser behaviour and allows providers to register onload before
-                // the response arrives.
-                Promise.resolve().then(function() {
+                // SYNCHRONOUS send: __native_fetch is a blocking Kotlin bridge (runs on
+                // the QuickJS IO thread), so we call it directly and fire all callbacks
+                // before send() returns.  This matches synchronous XHR patterns used by
+                // many providers:
+                //   xhr.onload = function() { streams = parse(this.responseText); };
+                //   xhr.send();
+                //   return streams;  // ← populated correctly with sync callbacks
+                //
+                // For Promise-based providers the synchronous resolve() still works:
+                // onload fires → resolve(data) → Promise resolves as a microtask →
+                // the outer await picks it up correctly.
+                var _doSend = function() {
                     try {
                         var result = __native_fetch(
                             self._url, self._method,
@@ -957,7 +965,11 @@ object NuvioRuntime {
                             try { self.onerror({ type: 'error', target: self }); } catch(e) {}
                         }
                     }
-                });
+                };
+                // If we are inside an async context, run sync immediately (no microtask hop).
+                // If we are at the top level of a sync function, still run sync — the caller's
+                // result variable will be populated before send() returns.
+                _doSend();
             };
             XMLHttpRequest.prototype.abort = function() { this.readyState = 0; this.status = 0; };
             XMLHttpRequest.prototype.addEventListener = function(type, fn) {
