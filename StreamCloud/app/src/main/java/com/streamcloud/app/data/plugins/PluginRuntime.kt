@@ -263,10 +263,14 @@ object PluginRuntime {
     @Serializable
     private data class PluginManifest(
         val pluginClassName: String? = null,
+        // Some plugin repos use "className" instead of "pluginClassName"
+        val className: String? = null,
         val name: String? = null,
         val version: Int? = null,
         val requiresResources: Boolean = false,
-    )
+    ) {
+        val resolvedClassName: String? get() = (pluginClassName ?: className)?.takeIf { it.isNotBlank() }
+    }
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -278,7 +282,7 @@ object PluginRuntime {
                 zf.getEntry("manifest.json")?.let { entry ->
                     val body = zf.getInputStream(entry).bufferedReader().use { it.readText() }
                     json.decodeFromString(PluginManifest.serializer(), body)
-                        .pluginClassName?.takeIf { it.isNotBlank() }?.let { return it }
+                        .resolvedClassName?.let { return it }
                 }
                 zf.getEntry("META-INF/MANIFEST.MF")?.let { entry ->
                     zf.getInputStream(entry).bufferedReader().useLines { lines ->
@@ -297,7 +301,7 @@ object PluginRuntime {
                     if (name == "manifest.json") {
                         val body = zis.readBytes().toString(Charsets.UTF_8)
                         json.decodeFromString(PluginManifest.serializer(), body)
-                            .pluginClassName?.takeIf { it.isNotBlank() }?.let { return it }
+                            .resolvedClassName?.let { return it }
                     } else if (name == "META-INF/MANIFEST.MF") {
                         zis.readBytes().toString(Charsets.UTF_8).lineSequence()
                             .firstOrNull { it.startsWith("Plugin-Class:", ignoreCase = true) }
@@ -373,8 +377,10 @@ object PluginRuntime {
                         else -> 0
                     }
                 })
-                // Exclude anything that looks like a companion, anonymous, or inner class
-                .firstOrNull { name -> !name.substringAfterLast('.').let { it.contains('$') } }
+                // Take the highest-scored candidate. The $ filter is intentionally removed:
+            // if every class in the DEX has '$' in its simple name, the old filter
+            // returned null and caused "Could not find plugin class" for valid plugins.
+                .firstOrNull()
             if (heuristic != null) return heuristic
         }
 
