@@ -579,6 +579,37 @@ object NuvioRuntime {
         // Real AES-CBC / AES-CTR / AES-GCM decryption via Android javax.crypto.
         // Called from the crypto.subtle.decrypt polyfill.  All buffers passed as hex strings.
         // Returns decrypted bytes as hex, or "" on error (provider will then get empty ArrayBuffer).
+        // 3DES (TripleDES) decryption — used by ShowBox and similar providers.
+        function("__crypto_3des_decrypt") { args ->
+            val algorithm = args.getOrNull(0)?.toString() ?: "DESede/CBC/PKCS5Padding"
+            val keyHex    = args.getOrNull(1)?.toString() ?: ""
+            val ivHex     = args.getOrNull(2)?.toString() ?: ""
+            val dataHex   = args.getOrNull(3)?.toString() ?: ""
+            if (keyHex.isEmpty() || dataHex.isEmpty()) return@function ""
+            fun hex2bytes(h: String) = runCatching {
+                ByteArray(h.length / 2) { h.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+            }.getOrNull() ?: ByteArray(0)
+            runCatching {
+                val keyBytes  = hex2bytes(keyHex).let { k ->
+                    // 3DES requires 16 or 24 byte key; extend 16->24 by repeating first 8 bytes
+                    when { k.size == 24 -> k; k.size == 16 -> k + k.copyOfRange(0, 8); else -> k }
+                }
+                val ivBytes   = if (ivHex.isNotEmpty()) hex2bytes(ivHex) else ByteArray(8)
+                val dataBytes = hex2bytes(dataHex)
+                val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, "DESede")
+                val cipher = when {
+                    algorithm.contains("ECB", ignoreCase = true) ->
+                        javax.crypto.Cipher.getInstance("DESede/ECB/PKCS5Padding").also {
+                            it.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey) }
+                    else ->
+                        javax.crypto.Cipher.getInstance("DESede/CBC/PKCS5Padding").also {
+                            it.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey,
+                                javax.crypto.spec.IvParameterSpec(ivBytes)) }
+                }
+                cipher.doFinal(dataBytes).joinToString("") { "%02x".format(it) }
+            }.onFailure { Log.w(TAG, "3DES decrypt error: ${it.message}") }
+             .getOrDefault("")
+        }
         function("__crypto_aes_decrypt") { args ->
             val algorithm = args.getOrNull(0)?.toString() ?: "AES-CBC"
             val keyHex    = args.getOrNull(1)?.toString() ?: ""
@@ -1095,24 +1126,37 @@ object NuvioRuntime {
             globalThis.setTimeout = function(fn, ms) {
                 var id = ++__timerSeq;
                 if (typeof fn !== 'function') return id;
-                if (!ms || ms <= 0) {
-                    // Zero / no delay — yield to next microtask tick.
-                    __pendingTimers[id] = fn;
-                    Promise.resolve().then(function() {
-                        var f = __pendingTimers[id];
-                        if (f) { delete __pendingTimers[id]; try { f(); } catch(e) {} }
-                    });
-                } else {
-                    // Non-zero delay — store without firing.  clearTimeout() removes
-                    // it; if never cleared it is simply never called (the QuickJS
-                    // coroutine loop has no real timer mechanism).
-                    __pendingTimers[id] = fn;
-                }
+                // Fire ALL callbacks as a Promise.resolve().then() microtask,
+                // regardless of the requested delay.
+                //
+                // WHY: Many Nuvio providers use sleep() patterns to rate-limit:
+                //   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+                //   await sleep(1500);  // delay between path resolutions
+                // With the old "store but never fire" approach, sleep() Promises
+                // never resolved and the provider hung for 90 seconds returning [].
+                //
+                // ABORT-SIGNAL SAFETY: Our __native_fetch bridge is synchronous and
+                // blocking.  When `await fetch(url, {signal})` executes, the entire
+                // HTTP round-trip completes before any microtask (including an abort
+                // callback) can run.  Therefore signal.aborted is always false during
+                // the active fetch call.  Abort callbacks that fire as microtasks after
+                // the await only matter for the NEXT fetch() call — but standard Nuvio
+                // plugins do not pass abort signals to their inner-loop fetch calls
+                // (signals are only on the outer guard request which has already returned).
+                //
+                // setInterval is still a no-op (providers should not poll in scrapers).
+                __pendingTimers[id] = fn;
+                Promise.resolve().then(function() {
+                    var f = __pendingTimers[id];
+                    if (f) { delete __pendingTimers[id]; try { f(); } catch(e) {} }
+                });
                 return id;
             };
             globalThis.clearTimeout  = function(id) { if (id) delete __pendingTimers[id]; };
             globalThis.setInterval   = function(fn, ms) { return ++__timerSeq; };
             globalThis.clearInterval = function(id) { if (id) delete __pendingTimers[id]; };
+            globalThis.setImmediate  = function(fn) { return globalThis.setTimeout(fn, 0); };
+            globalThis.clearImmediate= function(id) { if (id) delete __pendingTimers[id]; };
         }
 
         if (typeof AbortSignal === 'undefined') {
@@ -1126,6 +1170,40 @@ object NuvioRuntime {
             var AbortController = function() { this.signal = new AbortSignal(); };
             AbortController.prototype.abort = function(reason) { this.signal.aborted = true; };
             globalThis.AbortController = AbortController;
+        }
+
+        // ── WebSocket stub ────────────────────────────────────────────────────
+        // Providers that open WebSocket connections (e.g. StreamFlix for live TV
+        // episode tracking) will crash with ReferenceError without this stub.
+        // Our runtime has no real network-layer WS support; we return a closed
+        // socket immediately so providers can catch the error and fall back to
+        // their HTTP code path (which works correctly with our fetch polyfill).
+        if (typeof WebSocket === 'undefined') {
+            globalThis.WebSocket = function WebSocket(url, protocols) {
+                var self = this;
+                self.url = url || ''; self.readyState = 3; // CLOSED
+                self.onopen = null; self.onclose = null; self.onerror = null; self.onmessage = null;
+                self.bufferedAmount = 0; self.extensions = ''; self.protocol = '';
+                self.send = function() {};
+                self.close = function() { self.readyState = 3; };
+                self.addEventListener = function(type, fn) {
+                    if (type === 'open')    self.onopen = fn;
+                    else if (type === 'close')  self.onclose = fn;
+                    else if (type === 'error')  self.onerror = fn;
+                    else if (type === 'message')self.onmessage = fn;
+                };
+                // Fire error/close asynchronously so the provider can attach listeners first.
+                Promise.resolve().then(function() {
+                    var err = new Error('WebSocket is not supported in the Nuvio native runtime');
+                    err.type = 'error';
+                    if (typeof self.onerror === 'function') try { self.onerror(err); } catch(e) {}
+                    if (typeof self.onclose === 'function') try {
+                        self.onclose({ type: 'close', code: 1006, reason: 'No WS support', wasClean: false });
+                    } catch(e) {}
+                });
+            };
+            WebSocket.CONNECTING = 0; WebSocket.OPEN = 1; WebSocket.CLOSING = 2; WebSocket.CLOSED = 3;
+            globalThis.WebSocket = WebSocket;
         }
         if (typeof atob === 'undefined') {
             globalThis.atob = function(input) { return __crypto_base64_decode(input); };
@@ -1623,6 +1701,104 @@ object NuvioRuntime {
             HmacSHA256: function(m, k) { return __hexWrap(__crypto_hmac_hex('SHA-256', __normUtf8(k), __normUtf8(m))); },
             HmacSHA512: function(m, k) { return __hexWrap(__crypto_hmac_hex('SHA-512', __normUtf8(k), __normUtf8(m))); },
         };
+        // Mode and padding stubs (objects only — our AES impl ignores mode/pad args)
+        CryptoJS.mode = { CBC: {name:'CBC'}, ECB: {name:'ECB'}, CTR: {name:'CTR'}, OFB: {name:'OFB'}, CFB: {name:'CFB'} };
+        CryptoJS.pad  = { Pkcs7: {}, ZeroPadding: {}, NoPadding: {}, AnsiX923: {}, Iso10126: {}, Iso97971: {} };
+        // WordArray / lib stubs
+        CryptoJS.lib  = {
+            WordArray: {
+                create: function(words, sigBytes) {
+                    var hex = '';
+                    if (words) {
+                        for (var i = 0; i < words.length; i++) hex += ('00000000' + ((words[i] >>> 0).toString(16))).slice(-8);
+                        if (sigBytes !== undefined) hex = hex.substring(0, sigBytes * 2);
+                    }
+                    return __hexWrap(hex);
+                },
+                random: function(nBytes) {
+                    var hex = '';
+                    for (var i = 0; i < nBytes; i++) hex += ('00' + Math.floor(Math.random()*256).toString(16)).slice(-2);
+                    return __hexWrap(hex);
+                }
+            }
+        };
+        // Helper: extract hex string from a CryptoJS key argument (string or WordArray)
+        function __cjsKeyToHex(key) {
+            if (!key) return '';
+            if (typeof key === 'string') {
+                // CryptoJS EVP_BytesToKey approximation: MD5 hash of passphrase
+                return __crypto_digest_hex('MD5', key);
+            }
+            if (key.__hex) return key.__hex;
+            if (key.words) {
+                var h = '';
+                for (var i = 0; i < key.words.length; i++) h += ('00000000' + (key.words[i] >>> 0).toString(16)).slice(-8);
+                return key.sigBytes != null ? h.substring(0, key.sigBytes * 2) : h;
+            }
+            return __normUtf8(key) ? __crypto_utf8_to_hex(__normUtf8(key)) : '';
+        }
+        // Helper: extract hex from ciphertext argument (base64 string, CipherParams, or WordArray)
+        function __cjsCipherToHex(ct) {
+            if (!ct) return '';
+            if (typeof ct === 'string') return __crypto_base64_to_hex(ct);
+            if (ct.ciphertext) return ct.ciphertext.__hex || '';
+            if (ct.__hex) return ct.__hex;
+            if (ct.words) {
+                var h = '';
+                for (var i = 0; i < ct.words.length; i++) h += ('00000000' + (ct.words[i] >>> 0).toString(16)).slice(-8);
+                return ct.sigBytes != null ? h.substring(0, ct.sigBytes * 2) : h;
+            }
+            return '';
+        }
+        // Helper: extract IV hex
+        function __cjsIvToHex(opts) {
+            if (!opts || !opts.iv) return '';
+            var iv = opts.iv;
+            if (iv.__hex) return iv.__hex;
+            if (typeof iv === 'string') return __crypto_utf8_to_hex(iv);
+            if (iv.words) {
+                var h = '';
+                for (var i = 0; i < iv.words.length; i++) h += ('00000000' + (iv.words[i] >>> 0).toString(16)).slice(-8);
+                return iv.sigBytes != null ? h.substring(0, iv.sigBytes * 2) : h;
+            }
+            return '';
+        }
+        // CryptoJS.AES — real decryption via __crypto_aes_decrypt native (AES-CBC/CTR/GCM)
+        CryptoJS.AES = {
+            encrypt: function(message, key, opts) {
+                return { toString: function() { return ''; }, ciphertext: __hexWrap('') };
+            },
+            decrypt: function(ciphertext, key, opts) {
+                opts = opts || {};
+                var modeName = (opts.mode && opts.mode.name) || 'CBC';
+                var alg = 'AES-' + modeName;
+                var keyHex = __cjsKeyToHex(key);
+                var ivHex  = __cjsIvToHex(opts);
+                var dataHex = __cjsCipherToHex(ciphertext);
+                var resultHex = __crypto_aes_decrypt(alg, keyHex, ivHex, dataHex);
+                return __hexWrap(resultHex);
+            },
+        };
+        // CryptoJS.TripleDES — real decryption via __crypto_3des_decrypt native
+        CryptoJS.TripleDES = {
+            encrypt: function(message, key, opts) {
+                return { toString: function() { return ''; }, ciphertext: __hexWrap('') };
+            },
+            decrypt: function(ciphertext, key, opts) {
+                opts = opts || {};
+                var modeName = (opts.mode && opts.mode.name) || 'CBC';
+                var alg = 'DESede/' + modeName + '/PKCS5Padding';
+                var keyHex  = __cjsKeyToHex(key);
+                var ivHex   = __cjsIvToHex(opts);
+                var dataHex = __cjsCipherToHex(ciphertext);
+                var resultHex = __crypto_3des_decrypt(alg, keyHex, ivHex, dataHex);
+                return __hexWrap(resultHex);
+            },
+        };
+        // CryptoJS.RC4 stub
+        CryptoJS.RC4  = { encrypt: function() { return { toString: function() { return ''; } }; }, decrypt: function() { return __hexWrap(''); } };
+        // CryptoJS.PBKDF2 stub
+        CryptoJS.PBKDF2 = function(password, salt, cfg) { return __hexWrap(__crypto_digest_hex('SHA-256', __normUtf8(password) + __normUtf8(salt))); };
         globalThis.CryptoJS = CryptoJS;
 
         // Full-featured axios / ky / got shim.
