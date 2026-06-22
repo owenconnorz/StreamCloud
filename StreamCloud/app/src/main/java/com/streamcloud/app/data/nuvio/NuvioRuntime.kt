@@ -1167,63 +1167,65 @@ object NuvioRuntime {
                     var h = function(n) { return ('00' + n.toString(16)).slice(-2); };
                     return h(b[0])+h(b[1])+h(b[2])+h(b[3])+'-'+h(b[4])+h(b[5])+'-'+h(b[6])+h(b[7])+'-'+h(b[8])+h(b[9])+'-'+h(b[10])+h(b[11])+h(b[12])+h(b[13])+h(b[14])+h(b[15]);
                 },
-                subtle: (function() {
-                    // Key store: importKey saves hex-encoded key bytes so decrypt() can use them.
-                    var __keyStore = {}, __kid = 0;
-                    function __bufToHex(buf) {
-                        if (!buf) return '';
-                        // Buffer shim from our polyfill: toString('hex') returns hex directly.
-                        if (typeof buf.toString === 'function') {
-                            try { var h = buf.toString('hex'); if (h && /^[0-9a-fA-F]*$/.test(h)) return h.toLowerCase(); } catch(e) {}
+                subtle: {
+                    // importKey: store key material as hex in the returned CryptoKey object.
+                    // decode helper inlined — converts Buffer shim / Uint8Array / ArrayBuffer to hex.
+                    importKey: function(format, keyData, algorithm, extractable, usages) {
+                        var alg = (typeof algorithm === 'string') ? algorithm : ((algorithm && algorithm.name) || 'AES-CBC');
+                        var kh = '';
+                        if (keyData) {
+                            try { var tmp0 = keyData.toString('hex'); if (tmp0 && /^[0-9a-fA-F]+$/.test(tmp0)) kh = tmp0.toLowerCase(); } catch(_e) {}
+                            if (!kh) {
+                                var ksrc = (keyData.buffer && keyData.buffer.byteLength !== undefined) ? new Uint8Array(keyData.buffer) : (keyData.byteLength !== undefined ? new Uint8Array(keyData) : null);
+                                if (ksrc) { for (var ki = 0; ki < ksrc.length; ki++) kh += ('00' + (ksrc[ki] & 0xff).toString(16)).slice(-2); }
+                            }
                         }
-                        // Uint8Array / ArrayBuffer / array-like
-                        var b = (buf.buffer instanceof ArrayBuffer) ? new Uint8Array(buf.buffer) : (buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf);
-                        if (b && typeof b.length === 'number') {
-                            var r = '';
-                            for (var i = 0; i < b.length; i++) r += ('00' + ((b[i] || 0) & 0xff).toString(16)).slice(-2);
-                            return r;
+                        return Promise.resolve({ _keyHex: kh, _alg: alg, type: 'secret', extractable: !!extractable, algorithm: { name: alg } });
+                    },
+                    // decrypt: real AES via native __crypto_aes_decrypt (AES-CBC/CTR/GCM).
+                    decrypt: function(algorithm, key, data) {
+                        var alg = (typeof algorithm === 'string') ? algorithm : ((algorithm && algorithm.name) || 'AES-CBC');
+                        var ivHex = '';
+                        if (algorithm && algorithm.iv) {
+                            try { var tmp1 = algorithm.iv.toString('hex'); if (tmp1 && /^[0-9a-fA-F]+$/.test(tmp1)) ivHex = tmp1.toLowerCase(); } catch(_e) {}
+                            if (!ivHex) {
+                                var ivsrc = (algorithm.iv.buffer && algorithm.iv.buffer.byteLength !== undefined) ? new Uint8Array(algorithm.iv.buffer) : (algorithm.iv.byteLength !== undefined ? new Uint8Array(algorithm.iv) : null);
+                                if (ivsrc) { for (var ii = 0; ii < ivsrc.length; ii++) ivHex += ('00' + (ivsrc[ii] & 0xff).toString(16)).slice(-2); }
+                            }
                         }
-                        return '';
-                    }
-                    return {
-                        importKey: function(format, keyData, algorithm, extractable, usages) {
-                            var id = 'k' + (++__kid);
-                            var kh = __bufToHex(keyData);
-                            __keyStore[id] = kh;
-                            var alg = (typeof algorithm === 'string') ? algorithm : ((algorithm && algorithm.name) || 'AES-CBC');
-                            return Promise.resolve({ _id: id, _keyHex: kh, _alg: alg });
-                        },
-                        decrypt: function(algorithm, key, data) {
-                            var alg = (typeof algorithm === 'string') ? algorithm : ((algorithm && algorithm.name) || 'AES-CBC');
-                            var ivHex  = (algorithm && algorithm.iv) ? __bufToHex(algorithm.iv) : '';
-                            var keyHex = (key && key._keyHex) ? key._keyHex : (key ? __bufToHex(key) : '');
-                            var dataHex = __bufToHex(data);
-                            var resultHex = __crypto_aes_decrypt(alg, keyHex, ivHex, dataHex);
-                            if (!resultHex) return Promise.resolve(new ArrayBuffer(0));
-                            var len = resultHex.length >>> 1;
-                            var arr = new Uint8Array(len);
-                            for (var i = 0; i < len; i++) arr[i] = parseInt(resultHex.substr(i * 2, 2), 16);
-                            return Promise.resolve(arr.buffer);
-                        },
-                        encrypt: function(algorithm, key, data) { return Promise.resolve(new ArrayBuffer(0)); },
-                        digest:  function(algo, data) { return Promise.resolve(new ArrayBuffer(32)); },
-                        sign:    function() { return Promise.resolve(new ArrayBuffer(32)); },
-                        verify:  function() { return Promise.resolve(true); },
-                        generateKey: function(algorithm, extractable, usages) {
-                            var id = 'k' + (++__kid), alg = (typeof algorithm === 'string') ? algorithm : ((algorithm && algorithm.name) || 'AES-CBC');
-                            __keyStore[id] = '';
-                            return Promise.resolve({ _id: id, _keyHex: '', _alg: alg });
-                        },
-                        exportKey:  function() { return Promise.resolve(new ArrayBuffer(0)); },
-                        wrapKey:    function() { return Promise.resolve(new ArrayBuffer(0)); },
-                        unwrapKey:  function() { return Promise.resolve(new ArrayBuffer(0)); },
-                        deriveBits: function() { return Promise.resolve(new ArrayBuffer(32)); },
-                        deriveKey:  function(algorithm, baseKey, derivedKeyAlgorithm, extractable, usages) {
-                            var id = 'k' + (++__kid), alg = (typeof derivedKeyAlgorithm === 'string') ? derivedKeyAlgorithm : ((derivedKeyAlgorithm && derivedKeyAlgorithm.name) || 'AES-CBC');
-                            return Promise.resolve({ _id: id, _keyHex: '', _alg: alg });
-                        },
-                    };
-                })(),
+                        var keyHex = (key && key._keyHex) ? key._keyHex : '';
+                        var dataHex = '';
+                        if (data) {
+                            try { var tmp2 = data.toString('hex'); if (tmp2 && /^[0-9a-fA-F]+$/.test(tmp2)) dataHex = tmp2.toLowerCase(); } catch(_e) {}
+                            if (!dataHex) {
+                                var dsrc = (data.buffer && data.buffer.byteLength !== undefined) ? new Uint8Array(data.buffer) : (data.byteLength !== undefined ? new Uint8Array(data) : null);
+                                if (dsrc) { for (var di = 0; di < dsrc.length; di++) dataHex += ('00' + (dsrc[di] & 0xff).toString(16)).slice(-2); }
+                            }
+                        }
+                        var resultHex = __crypto_aes_decrypt(alg, keyHex, ivHex, dataHex);
+                        if (!resultHex) return Promise.resolve(new ArrayBuffer(0));
+                        var dlen = resultHex.length >>> 1;
+                        var darr = new Uint8Array(dlen);
+                        for (var ri = 0; ri < dlen; ri++) darr[ri] = parseInt(resultHex.substr(ri * 2, 2), 16);
+                        return Promise.resolve(darr.buffer);
+                    },
+                    encrypt:    function() { return Promise.resolve(new ArrayBuffer(0)); },
+                    digest:     function(algo, data) { return Promise.resolve(new ArrayBuffer(32)); },
+                    sign:       function() { return Promise.resolve(new ArrayBuffer(32)); },
+                    verify:     function() { return Promise.resolve(true); },
+                    generateKey: function(algorithm, extractable, usages) {
+                        var alg = (typeof algorithm === 'string') ? algorithm : ((algorithm && algorithm.name) || 'AES-CBC');
+                        return Promise.resolve({ _keyHex: '', _alg: alg, type: 'secret', extractable: !!extractable, algorithm: { name: alg } });
+                    },
+                    exportKey:  function() { return Promise.resolve(new ArrayBuffer(0)); },
+                    wrapKey:    function() { return Promise.resolve(new ArrayBuffer(0)); },
+                    unwrapKey:  function() { return Promise.resolve(new ArrayBuffer(0)); },
+                    deriveBits: function() { return Promise.resolve(new ArrayBuffer(32)); },
+                    deriveKey:  function(algorithm, baseKey, derivedKeyAlgorithm, extractable, usages) {
+                        var alg = (typeof derivedKeyAlgorithm === 'string') ? derivedKeyAlgorithm : ((derivedKeyAlgorithm && derivedKeyAlgorithm.name) || 'AES-CBC');
+                        return Promise.resolve({ _keyHex: '', _alg: alg, type: 'secret', extractable: !!extractable, algorithm: { name: alg } });
+                    },
+                },
             };
         }
 
