@@ -139,6 +139,7 @@ class NuvioRepository(private val context: Context) {
                     episode = episode,
                     scriptKey = provider.id,
                     context = context,
+                    filePath = provider.filePath,
                 )
                 streams.map { provider to it }
             }
@@ -216,6 +217,7 @@ class NuvioRepository(private val context: Context) {
             episode = episode,
             scriptKey = provider.id,
             context = context,
+            filePath = provider.filePath,
         )
     }
 
@@ -239,6 +241,7 @@ class NuvioRepository(private val context: Context) {
                 episode = null,
                 scriptKey = "test__${provider.id}",
                 context = context,
+                filePath = provider.filePath,
             )
             streams.size to null
         } catch (e: Exception) {
