@@ -189,7 +189,13 @@ fun StreamPickerOverlay(
                         val streams = byProvider[provider.id]
                             ?.map { (prov, stream) -> stream.pickerToPlayerSource(prov) }
                             ?: emptyList()
-                        val err = if (streams.isEmpty()) NuvioRuntime.lastError(provider.id) else null
+                        val fetchCount = NuvioRuntime.lastFetchCount(provider.id)
+                        val lastErr    = NuvioRuntime.lastError(provider.id)
+                        val lastLog    = NuvioRuntime.lastLog(provider.id)
+                        val err = if (streams.isEmpty()) {
+                            val base = lastErr ?: lastLog ?: "No streams found"
+                            "$base ($fetchCount req)"
+                        } else null
                         updateGroup("nuvio:${provider.id}", streams = streams, error = err)
                     }
                 }
