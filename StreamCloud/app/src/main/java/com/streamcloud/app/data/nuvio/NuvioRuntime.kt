@@ -179,13 +179,28 @@ object NuvioRuntime {
                     //     which previously received the whole params object → "[object Object]".
                     appendLine("    var __arr;")
                     appendLine("    var __p = globalThis.params;")
-                    appendLine("    if (__fn.length >= 2) {")
+                    appendLine("    var __src = '';")
+                    appendLine("    try { __src = __fn.toString(); } catch(__se) {}")
+                    appendLine("    if (__fn.length >= 3) {")
+                    // ≥3 params → classic full positional: getStreams(tmdbId, imdbId, mediaType, season, episode)
                     appendLine("      __arr = await __fn(__p.tmdbId, __p.imdbId, __p.mediaType, __p.season, __p.episode);")
+                    appendLine("    } else if (__fn.length === 2) {")
+                    // 2 params → either (tmdbId, imdbId) OR (tmdbId, type/mediaType).
+                    // Inspect the second parameter name: if it looks like a media-type word
+                    // (type, mediaType, contentType, …) pass mediaType as arg[1]; otherwise imdbId.
+                    // VidFast declares: function getStreams(tmdbId, type) — without this check it
+                    // received imdbId = "tt0427340" as `type`, which didn't match "movie"/"series"
+                    // so the provider always defaulted its internal path to "tv".
+                    appendLine("      var __pm2 = __src.match(/\\(\\s*[^,]+,\\s*([a-zA-Z_\$]\\w*)/);")
+                    appendLine("      var __p2 = __pm2 ? __pm2[1] : '';")
+                    appendLine("      var __p2isType = /^(type|mediaType|media_type|contentType|content_type|kind|category|mediatype)$/.test(__p2);")
+                    appendLine("      __arr = await __fn(__p.tmdbId, __p2isType ? __p.mediaType : __p.imdbId);")
                     appendLine("    } else if (__fn.length === 0) {")
+                    // 0 params → provider reads entirely from globals (tmdbId/imdbId already set above).
                     appendLine("      __arr = await __fn();")
                     appendLine("    } else {")
-                    appendLine("      var __src = '';")
-                    appendLine("      try { __src = __fn.toString(); } catch(__se) {}")
+                    // 1 param → ambiguous: destructured ({tmdbId,…}), named bag (params/options),
+                    // or single ID string (tmdbId/id).  Inspect first parameter.
                     appendLine("      var __isDestr = /\\(\\s*\\{/.test(__src);")
                     appendLine("      var __pm = __src.match(/\\(\\s*([a-zA-Z_\$]\\w*)/);")
                     appendLine("      var __pname = __pm ? __pm[1] : '';")
