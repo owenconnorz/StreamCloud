@@ -5,9 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -50,7 +47,6 @@ fun MovieSearchScreen(
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
-    var selectedTab by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         runCatching { focusRequester.requestFocus() }
@@ -63,102 +59,58 @@ fun MovieSearchScreen(
         }
     }
 
-    val tabs = listOf("TMDB", "Addons")
-
     Scaffold(
         topBar = {
-            Column {
-                TopAppBar(
-                    title = {
-                        TextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequester),
-                            placeholder = { Text("Search all sources…") },
-                            singleLine = true,
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Search,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            trailingIcon = {
-                                when {
-                                    state.loading -> CircularProgressIndicator(
-                                        Modifier.size(20.dp), strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                    query.isNotEmpty() -> IconButton(onClick = { query = "" }) {
-                                        Icon(Icons.Default.Close, "Clear")
-                                    }
-                                }
-                            },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            shape = RoundedCornerShape(28.dp),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent,
-                                cursorColor = MaterialTheme.colorScheme.primary,
-                            ),
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-                    ),
-                )
-                if (query.length >= 2) {
-                    TabRow(
-                        selectedTabIndex = selectedTab,
-                        containerColor = MaterialTheme.colorScheme.background,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                    ) {
-                        tabs.forEachIndexed { index, title ->
-                            val badge = when (index) {
-                                0 -> state.searchResults.size
-                                1 -> state.csSearchResults.size + state.stremioSearchResults.size
-                                else -> 0
-                            }.takeIf { it > 0 }
-                            Tab(
-                                selected = selectedTab == index,
-                                onClick = { selectedTab = index },
-                                text = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        Text(title, fontWeight = FontWeight.Medium)
-                                        if (badge != null) {
-                                            Surface(
-                                                shape = RoundedCornerShape(10.dp),
-                                                color = MaterialTheme.colorScheme.primaryContainer,
-                                            ) {
-                                                Text(
-                                                    "$badge",
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                )
-                                            }
-                                        }
-                                    }
-                                },
+            TopAppBar(
+                title = {
+                    TextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        placeholder = { Text("Search all sources…") },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        }
+                        },
+                        trailingIcon = {
+                            when {
+                                state.loading -> CircularProgressIndicator(
+                                    Modifier.size(20.dp), strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                query.isNotEmpty() -> IconButton(onClick = { query = "" }) {
+                                    Icon(Icons.Default.Close, "Clear")
+                                }
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent,
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
-            }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
+            )
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
@@ -177,22 +129,15 @@ fun MovieSearchScreen(
                     )
                 }
             }
-            selectedTab == 0 -> {
-                TmdbResultsTab(
-                    results = state.searchResults,
-                    loading = state.loading,
-                    query = query,
-                    padding = padding,
-                    onMovieClick = onMovieClick,
-                )
-            }
             else -> {
-                AddonsResultsTab(
+                CombinedResultsList(
+                    tmdbResults = state.searchResults,
                     csResults = state.csSearchResults,
                     stremioResults = state.stremioSearchResults,
                     loading = state.loading,
                     query = query,
                     padding = padding,
+                    onMovieClick = onMovieClick,
                     onOpenCsItem = onOpenCsItem,
                     onOpenStremio = onOpenStremio,
                 )
@@ -202,63 +147,129 @@ fun MovieSearchScreen(
 }
 
 @Composable
-private fun TmdbResultsTab(
-    results: List<com.streamcloud.app.data.api.TmdbMovie>,
+private fun CombinedResultsList(
+    tmdbResults: List<com.streamcloud.app.data.api.TmdbMovie>,
+    csResults: List<CsSearchResult>,
+    stremioResults: List<StremioSearchResult>,
     loading: Boolean,
     query: String,
     padding: PaddingValues,
     onMovieClick: (Long) -> Unit,
+    onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit,
+    onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit,
 ) {
-    when {
-        results.isEmpty() && !loading -> {
-            Box(
-                Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "No TMDB results for \"$query\"",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    val csGrouped = remember(csResults) { csResults.groupBy { it.pluginName } }
+    val stremioGrouped = remember(stremioResults) { stremioResults.groupBy { it.addonName } }
+    val hasAny = tmdbResults.isNotEmpty() || csResults.isNotEmpty() || stremioResults.isNotEmpty()
+
+    if (!hasAny && !loading) {
+        Box(
+            Modifier.fillMaxSize().padding(padding),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "No results for \"$query\"",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        contentPadding = PaddingValues(
+            top = padding.calculateTopPadding() + 8.dp,
+            bottom = 24.dp,
+        ),
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        // ── TMDB ──────────────────────────────────────────────────────────────
+        if (tmdbResults.isNotEmpty()) {
+            item(key = "tmdb-header") {
+                SectionHeader("TMDB")
+            }
+            item(key = "tmdb-row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(tmdbResults, key = { "tmdb-${it.id}" }) { m ->
+                        PosterCard(
+                            posterUrl = m.posterUrl ?: m.backdropUrl,
+                            title = m.displayTitle,
+                            onClick = { onMovieClick(m.id) },
+                        )
+                    }
+                }
             }
         }
-        else -> {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(110.dp),
-                contentPadding = PaddingValues(
-                    start = 12.dp, end = 12.dp,
-                    top = padding.calculateTopPadding() + 8.dp,
-                    bottom = 16.dp,
-                ),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(results, key = { it.id }) { m ->
-                    Column(
-                        Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onMovieClick(m.id) },
+
+        // ── CloudStream ────────────────────────────────────────────────────────
+        if (csGrouped.isNotEmpty()) {
+            item(key = "cs-header") {
+                SectionHeader(
+                    "CloudStream",
+                    topPadding = if (tmdbResults.isNotEmpty()) 16.dp else 0.dp,
+                )
+            }
+            csGrouped.forEach { (pluginName, results) ->
+                item(key = "cs-plugin-$pluginName") {
+                    Text(
+                        pluginName,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp, end = 16.dp),
+                    )
+                }
+                item(key = "cs-row-$pluginName") {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        AsyncImage(
-                            model = m.posterUrl ?: m.backdropUrl,
-                            contentDescription = m.displayTitle,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(2f / 3f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surface),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            m.displayTitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        items(results, key = { "cs-${it.pluginInternalName}-${it.item.url}" }) { r ->
+                            PosterCard(
+                                posterUrl = r.item.posterUrl,
+                                title = r.item.name,
+                                onClick = { onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Stremio ────────────────────────────────────────────────────────────
+        if (stremioGrouped.isNotEmpty()) {
+            item(key = "stremio-header") {
+                SectionHeader(
+                    "Stremio",
+                    topPadding = if (tmdbResults.isNotEmpty() || csGrouped.isNotEmpty()) 16.dp else 0.dp,
+                )
+            }
+            stremioGrouped.forEach { (addonName, results) ->
+                item(key = "stremio-addon-$addonName") {
+                    Text(
+                        addonName,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp, end = 16.dp),
+                    )
+                }
+                item(key = "stremio-row-$addonName") {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(results, key = { "stremio-${it.addonId}-${it.item.id}" }) { r ->
+                            PosterCard(
+                                posterUrl = r.item.poster,
+                                title = r.item.name,
+                                onClick = { onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster) },
+                            )
+                        }
                     }
                 }
             }
@@ -267,124 +278,14 @@ private fun TmdbResultsTab(
 }
 
 @Composable
-private fun AddonsResultsTab(
-    csResults: List<CsSearchResult>,
-    stremioResults: List<StremioSearchResult>,
-    loading: Boolean,
-    query: String,
-    padding: PaddingValues,
-    onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit,
-    onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit,
-) {
-    val csGrouped = remember(csResults) { csResults.groupBy { it.pluginName } }
-    val stremioGrouped = remember(stremioResults) { stremioResults.groupBy { it.addonName } }
-    val hasAny = csResults.isNotEmpty() || stremioResults.isNotEmpty()
-
-    when {
-        !hasAny && !loading -> {
-            Box(
-                Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "No addon results for \"$query\"",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        else -> {
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding() + 8.dp,
-                    bottom = 24.dp,
-                ),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                if (csGrouped.isNotEmpty()) {
-                    item {
-                        Text(
-                            "CloudStream",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                    }
-                    csGrouped.forEach { (pluginName, results) ->
-                        item(key = "cs-header-$pluginName") {
-                            Text(
-                                pluginName,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp, end = 16.dp),
-                            )
-                        }
-                        item(key = "cs-row-$pluginName") {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                items(results, key = { "${it.pluginInternalName}-${it.item.url}" }) { r ->
-                                    PosterCard(
-                                        posterUrl = r.item.posterUrl,
-                                        title = r.item.name,
-                                        onClick = {
-                                            onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl)
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (stremioGrouped.isNotEmpty()) {
-                    item {
-                        Text(
-                            "Stremio",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(
-                                start = 16.dp, end = 16.dp,
-                                top = if (csGrouped.isNotEmpty()) 16.dp else 4.dp,
-                                bottom = 4.dp,
-                            ),
-                        )
-                    }
-                    stremioGrouped.forEach { (addonName, results) ->
-                        item(key = "stremio-header-$addonName") {
-                            Text(
-                                addonName,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp, end = 16.dp),
-                            )
-                        }
-                        item(key = "stremio-row-$addonName") {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                items(results, key = { "${it.addonId}-${it.item.id}" }) { r ->
-                                    PosterCard(
-                                        posterUrl = r.item.poster,
-                                        title = r.item.name,
-                                        onClick = {
-                                            onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster)
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+private fun SectionHeader(title: String, topPadding: androidx.compose.ui.unit.Dp = 0.dp) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = topPadding, bottom = 4.dp),
+    )
 }
 
 @Composable
