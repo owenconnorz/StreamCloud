@@ -946,9 +946,12 @@ object NuvioRuntime {
                 this.timeout     = 0;
                 this.onreadystatechange = null;
                 this.onload      = null;
+                this.onloadend   = null;
                 this.onerror     = null;
                 this.ontimeout   = null;
                 this.onprogress  = null;
+                this.onloadstart = null;
+                this.responseXML = null;
                 this._method     = 'GET';
                 this._url        = '';
                 this._headers    = {};
@@ -1022,14 +1025,18 @@ object NuvioRuntime {
                         if (typeof self.onreadystatechange === 'function') {
                             try { self.onreadystatechange(); } catch(e) {}
                         }
-                        if (parsed.ok !== false) {
-                            if (typeof self.onload === 'function') {
-                                try { self.onload({ type: 'load', target: self, currentTarget: self }); } catch(e) {}
-                            }
-                        } else {
-                            if (typeof self.onerror === 'function') {
-                                try { self.onerror({ type: 'error', target: self }); } catch(e) {}
-                            }
+                        // Browser spec: onload fires for ALL completed HTTP responses
+                        // (200, 301, 404, 500…). onerror fires ONLY for network failures
+                        // (no connection, DNS fail) where status === 0.
+                        // Many providers check xhr.status / xhr.responseText inside onload.
+                        if (typeof self.onload === 'function') {
+                            try { self.onload({ type: 'load', target: self, currentTarget: self }); } catch(e) {}
+                        }
+                        if (parsed.status === 0 && typeof self.onerror === 'function') {
+                            try { self.onerror({ type: 'error', target: self }); } catch(e) {}
+                        }
+                        if (typeof self.onloadend === 'function') {
+                            try { self.onloadend({ type: 'loadend', target: self }); } catch(e) {}
                         }
                     } catch(err) {
                         self.status    = 0;
@@ -1051,8 +1058,10 @@ object NuvioRuntime {
             XMLHttpRequest.prototype.abort = function() { this.readyState = 0; this.status = 0; };
             XMLHttpRequest.prototype.addEventListener = function(type, fn) {
                 if (!fn || typeof fn !== 'function') return;
-                if (type === 'load')             this.onload  = fn;
-                else if (type === 'error')       this.onerror = fn;
+                if (type === 'load')             this.onload     = fn;
+                else if (type === 'loadend')     this.onloadend  = fn;
+                else if (type === 'loadstart')   this.onloadstart= fn;
+                else if (type === 'error')       this.onerror    = fn;
                 else if (type === 'readystatechange') this.onreadystatechange = fn;
                 else if (type === 'progress')    this.onprogress = fn;
                 else if (type === 'timeout')     this.ontimeout  = fn;
@@ -1923,72 +1932,7 @@ object NuvioRuntime {
                 return iter;
             };
         }
-        // Promise.allSettled polyfill (ES2020) — QuickJS provides this natively in recent
-        // builds but older bindings may not. Safety net for providers that race multiple fetches.
-        if (typeof Promise.allSettled === 'undefined') {
-            Promise.allSettled = function(promises) {
-                return Promise.all((promises || []).map(function(p) {
-                    return Promise.resolve(p).then(
-                        function(v)  { return { status: 'fulfilled', value: v }; },
-                        function(e)  { return { status: 'rejected',  reason: e }; }
-                    );
-                }));
-            };
-        }
-        // Promise.any polyfill (ES2021) — resolves on first fulfillment, rejects if all reject.
-        if (typeof Promise.any === 'undefined') {
-            Promise.any = function(promises) {
-                return new Promise(function(resolve, reject) {
-                    var arr = Array.isArray(promises) ? promises : [];
-                    if (arr.length === 0) { reject(new Error('All promises were rejected')); return; }
-                    var errors = new Array(arr.length);
-                    var remaining = arr.length;
-                    arr.forEach(function(p, i) {
-                        Promise.resolve(p).then(resolve, function(e) {
-                            errors[i] = e;
-                            if (--remaining === 0) reject(new Error('All promises were rejected'));
-                        });
-                    });
-                });
-            };
-        }
-        // Array.prototype.flat / flatMap polyfills (ES2019)
-        if (!Array.prototype.flat) {
-            Array.prototype.flat = function(depth) {
-                depth = (depth === undefined) ? 1 : Math.floor(depth);
-                if (depth < 1) return Array.prototype.slice.call(this);
-                return Array.prototype.reduce.call(this, function(acc, val) {
-                    if (Array.isArray(val) && depth > 0) {
-                        var sub = val.flat(depth - 1);
-                        for (var i = 0; i < sub.length; i++) acc.push(sub[i]);
-                    } else { acc.push(val); }
-                    return acc;
-                }, []);
-            };
-        }
-        if (!Array.prototype.flatMap) {
-            Array.prototype.flatMap = function(fn, thisArg) {
-                return Array.prototype.map.call(this, fn, thisArg).flat(1);
-            };
-        }
-        // Object.entries polyfill
-        if (typeof Object.entries === 'undefined') {
-            Object.entries = function(o) {
-                return Object.keys(o).map(function(k) { return [k, o[k]]; });
-            };
-        }
-        // Object.fromEntries polyfill (ES2019)
-        if (typeof Object.fromEntries === 'undefined') {
-            Object.fromEntries = function(iter) {
-                var o = {};
-                if (Array.isArray(iter)) {
-                    iter.forEach(function(p) { if (p && p.length >= 2) o[p[0]] = p[1]; });
-                } else if (iter && typeof iter.forEach === 'function') {
-                    iter.forEach(function(v, k) { o[k] = v; });
-                }
-                return o;
-            };
-        }
+        // (Promise.allSettled / Promise.any / Array.flat / Object.entries — defined above)
     """.trimIndent()
 
 
