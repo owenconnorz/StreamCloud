@@ -144,17 +144,24 @@ fun StreamPickerOverlay(
 
             if (installedNuvio.isNotEmpty()) {
                 launch {
+                    // Give providers up to 95s (slightly more than the per-provider 90s
+                    // timeout in NuvioRuntime) before giving up on the whole resolveAll.
                     val allNuvio = withContext(Dispatchers.IO) {
-                        runCatching {
-                            sl.nuvio.resolveAll(
-                                tmdbId = tmdbId.toString(),
-                                mediaType = mediaType,
-                                season = season,
-                                episode = episode,
-                                imdbId = imdbId,
-                            )
-                        }.getOrElse { e ->
-                            Log.d("StreamPicker", "Nuvio resolveAll error: ${e.message}")
+                        withTimeoutOrNull(95_000L) {
+                            runCatching {
+                                sl.nuvio.resolveAll(
+                                    tmdbId = tmdbId.toString(),
+                                    mediaType = mediaType,
+                                    season = season,
+                                    episode = episode,
+                                    imdbId = imdbId,
+                                )
+                            }.getOrElse { e ->
+                                Log.d("StreamPicker", "Nuvio resolveAll error: ${e.message}")
+                                emptyList()
+                            }
+                        } ?: run {
+                            Log.d("StreamPicker", "Nuvio resolveAll timed out after 95s")
                             emptyList()
                         }
                     }
