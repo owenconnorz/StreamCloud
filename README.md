@@ -22,6 +22,9 @@ Native Android music & media streaming app built with Kotlin and Jetpack Compose
 - 🎤 Lyrics display
 - 💾 Offline downloads with ExoPlayer cache
 - 🎚️ Equalizer / audio effects
+- Youtube login
+- Spotify login
+- Spotify canvas media screen
 
 ### 📺 Movies & TV
 
@@ -32,9 +35,9 @@ Native Android music & media streaming app built with Kotlin and Jetpack Compose
 
 ### 🔌 Plugins
 
-- CloudStream support
-- Nuvio support
-- Stremio support
+- CloudStream support (some wbat working)
+- Nuvio support (in a fix now)
+- Stremio support ( i think it works)
 
 ### 🚗 Android
 
@@ -43,7 +46,7 @@ Native Android music & media streaming app built with Kotlin and Jetpack Compose
 
 ### 🤖 Extras
 
-- AI Assistant screen
+- coming soon
 
 ---
 
