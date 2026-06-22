@@ -159,20 +159,40 @@ object NuvioRuntime {
                     appendLine("    return '[]';")
                     appendLine("  }")
                     appendLine("  try {")
-                    // Dual calling convention:
-                    // • NEW style: function getStreams({ tmdbId, imdbId, mediaType, season, episode })
-                    //   fn.length === 1 → pass the params object so destructuring works.
-                    // • OLD style: function getStreams(tmdbId, imdbId, mediaType, season, episode)
-                    //   fn.length >= 2 → pass individual string values positionally.
-                    //   Without this, tmdbId receives the whole params object and ends up
-                    //   as "[object Object]" in every URL the provider builds.
-                    appendLine("    var arr;")
+                    // Three-way calling convention detection:
+                    //
+                    // fn.length >= 2 → OLD positional: getStreams(tmdbId, imdbId, mediaType, ...)
+                    //   Pass individual string values. Without this, tmdbId = the whole params
+                    //   object → "[object Object]" in every URL.
+                    //
+                    // fn.length === 0 → no declared parameters; provider reads from globals.
+                    //   Call with no args — globalThis.tmdbId / imdbId / mediaType are already set.
+                    //
+                    // fn.length === 1 → ambiguous; inspect the source text:
+                    //   • First param is `{...}` (destructured)  → pass params object
+                    //   • First param is a common "bag" name      → pass params object
+                    //     (params, options, args, data, opts, …)
+                    //   • First param is an ID name               → pass just __p.tmdbId string
+                    //     (tmdbId, id, movieId, imdbId, …)
+                    //     This fixes providers like StreamFlix:
+                    //       function getStreams(tmdbId) { fetch(`…/${tmdbId}`) }
+                    //     which previously received the whole params object → "[object Object]".
+                    appendLine("    var __arr;")
                     appendLine("    var __p = globalThis.params;")
                     appendLine("    if (__fn.length >= 2) {")
-                    appendLine("      arr = await __fn(__p.tmdbId, __p.imdbId, __p.mediaType, __p.season, __p.episode);")
+                    appendLine("      __arr = await __fn(__p.tmdbId, __p.imdbId, __p.mediaType, __p.season, __p.episode);")
+                    appendLine("    } else if (__fn.length === 0) {")
+                    appendLine("      __arr = await __fn();")
                     appendLine("    } else {")
-                    appendLine("      arr = await __fn(__p);")
+                    appendLine("      var __src = '';")
+                    appendLine("      try { __src = __fn.toString(); } catch(__se) {}")
+                    appendLine("      var __isDestr = /\\(\\s*\\{/.test(__src);")
+                    appendLine("      var __pm = __src.match(/\\(\\s*([a-zA-Z_\$]\\w*)/);")
+                    appendLine("      var __pname = __pm ? __pm[1] : '';")
+                    appendLine("      var __isObjArg = __isDestr || /^(params|options|args|data|config|info|details|meta|query|input|opts|p|o|req|request|payload|context|ctx)$/.test(__pname);")
+                    appendLine("      __arr = await __fn(__isObjArg ? __p : __p.tmdbId);")
                     appendLine("    }")
+                    appendLine("    var arr = __arr;")
                     appendLine("    var result = JSON.stringify(arr || []);")
                     appendLine("    __capture_result(result);")
                     appendLine("    return result;")
