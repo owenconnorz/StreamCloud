@@ -159,24 +159,6 @@ object NuvioRuntime {
                     appendLine("    return '[]';")
                     appendLine("  }")
                     appendLine("  try {")
-                    // Three-way calling convention detection:
-                    //
-                    // fn.length >= 2 → OLD positional: getStreams(tmdbId, imdbId, mediaType, ...)
-                    //   Pass individual string values. Without this, tmdbId = the whole params
-                    //   object → "[object Object]" in every URL.
-                    //
-                    // fn.length === 0 → no declared parameters; provider reads from globals.
-                    //   Call with no args — globalThis.tmdbId / imdbId / mediaType are already set.
-                    //
-                    // fn.length === 1 → ambiguous; inspect the source text:
-                    //   • First param is `{...}` (destructured)  → pass params object
-                    //   • First param is a common "bag" name      → pass params object
-                    //     (params, options, args, data, opts, …)
-                    //   • First param is an ID name               → pass just __p.tmdbId string
-                    //     (tmdbId, id, movieId, imdbId, …)
-                    //     This fixes providers like StreamFlix:
-                    //       function getStreams(tmdbId) { fetch(`…/${tmdbId}`) }
-                    //     which previously received the whole params object → "[object Object]".
                     // Official NuvioMobile calling convention (verified from pluginService.ts):
                     //   getStreams(params.tmdbId, params.mediaType, params.season, params.episode)
                     // All providers in tapframe/nuvio-providers use this exact 4-arg signature:
