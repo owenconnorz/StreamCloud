@@ -48,12 +48,15 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.ui.viewmodel.PluginsState
 import com.streamcloud.app.ui.viewmodel.PluginsViewModel
+import com.streamcloud.app.ui.viewmodel.ProviderTestResult
+import com.streamcloud.app.ui.viewmodel.TestStatus
 
-private enum class PluginsPage { CloudStream, Stremio, Nuvio }
+private enum class PluginsPage { CloudStream, Stremio, Nuvio, Tester }
 
 private val ColourCloudStream = Color(0xFF5B8DEF)
 private val ColourStremio     = Color(0xFF9B6CE0)
 private val ColourNuvio       = Color(0xFF4CAF88)
+private val ColourTester      = Color(0xFFE8974F)
 private val AddonIconBg       = Color(0xFF1B2D52)
 
 @Composable
@@ -84,6 +87,7 @@ fun PluginsScreen(onBack: () -> Unit) {
                 onCloudStream = { currentPage = PluginsPage.CloudStream },
                 onStremio     = { currentPage = PluginsPage.Stremio },
                 onNuvio       = { currentPage = PluginsPage.Nuvio },
+                onTester      = { currentPage = PluginsPage.Tester },
             )
             PluginsPage.CloudStream -> CloudStreamPluginsPage(
                 vm     = vm,
@@ -96,6 +100,11 @@ fun PluginsScreen(onBack: () -> Unit) {
                 onBack = { currentPage = null },
             )
             PluginsPage.Nuvio -> NuvioProvidersPage(
+                vm     = vm,
+                state  = state,
+                onBack = { currentPage = null },
+            )
+            PluginsPage.Tester -> ProviderTesterPage(
                 vm     = vm,
                 state  = state,
                 onBack = { currentPage = null },
@@ -116,6 +125,7 @@ private fun PluginsHubPage(
     onCloudStream: () -> Unit,
     onStremio: () -> Unit,
     onNuvio: () -> Unit,
+    onTester: () -> Unit,
 ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -179,6 +189,19 @@ private fun PluginsHubPage(
                 badgeText   = if (nuvioCount > 0) "$nuvioCount providers" else null,
                 logoUrl     = "https://raw.githubusercontent.com/Nuvio-Streams/nuvio-streams/main/app/src/main/ic_launcher-playstore.png",
                 onClick     = onNuvio,
+            )
+
+            AddonHubCard(
+                icon        = Icons.Default.Tune,
+                iconTint    = ColourTester,
+                title       = "Provider Tester",
+                description = "Test all installed providers against The Dark Knight (2008). " +
+                    "Instantly see which ones return streams.",
+                badgeText   = run {
+                    val total = csCount + stremioCount + nuvioCount
+                    if (total > 0) "$total to test" else null
+                },
+                onClick     = onTester,
             )
         }
     }
@@ -1144,6 +1167,7 @@ private fun PluginRow(
             Text(
                 "v${plugin.version} · ${plugin.language ?: "?"} · ${plugin.tvTypes?.joinToString() ?: ""}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -1154,6 +1178,347 @@ private fun PluginRow(
             }
             else -> IconButton(onClick = onInstall) {
                 Icon(Icons.Default.CloudDownload, "Install", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+// ─── Provider Tester ──────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProviderTesterPage(
+    vm: PluginsViewModel,
+    state: PluginsState,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("Provider Tester") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = padding.calculateBottomPadding() + 24.dp,
+                start = 16.dp,
+                end = 16.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                TesterHeaderCard(
+                    running = state.testRunning,
+                    results = state.testResults,
+                    onRun = { vm.runAllProviderTests(context) },
+                )
+            }
+
+            if (state.installed.isNotEmpty()) {
+                item { TesterSectionHeader("CloudStream", ColourCloudStream, state.installed.size) }
+                items(state.installed, key = { it.internalName }) { plugin ->
+                    ProviderTestRow(
+                        logo = plugin.iconUrl,
+                        name = plugin.name,
+                        ecosystemColor = ColourCloudStream,
+                        result = state.testResults.find { it.id == plugin.internalName },
+                    )
+                }
+            }
+
+            if (state.stremioAddons.isNotEmpty()) {
+                item { TesterSectionHeader("Stremio", ColourStremio, state.stremioAddons.size) }
+                items(state.stremioAddons, key = { it.manifestUrl }) { addon ->
+                    ProviderTestRow(
+                        logo = addon.logo,
+                        name = addon.name,
+                        ecosystemColor = ColourStremio,
+                        result = state.testResults.find { it.id == addon.manifestUrl },
+                    )
+                }
+            }
+
+            if (state.nuvioProviders.isNotEmpty()) {
+                item { TesterSectionHeader("Nuvio", ColourNuvio, state.nuvioProviders.size) }
+                items(state.nuvioProviders, key = { it.id }) { provider ->
+                    ProviderTestRow(
+                        logo = provider.logo,
+                        name = provider.name,
+                        ecosystemColor = ColourNuvio,
+                        result = state.testResults.find { it.id == provider.id },
+                    )
+                }
+            }
+
+            if (state.installed.isEmpty() && state.stremioAddons.isEmpty() && state.nuvioProviders.isEmpty()) {
+                item {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No providers installed yet.\n" +
+                                "Install plugins from CloudStream, Stremio, or Nuvio first.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TesterHeaderCard(
+    running: Boolean,
+    results: List<ProviderTestResult>,
+    onRun: () -> Unit,
+) {
+    val passed    = results.count { it.status == TestStatus.Success && it.streamCount > 0 }
+    val empty     = results.count { it.status == TestStatus.Success && it.streamCount == 0 }
+    val failed    = results.count { it.status == TestStatus.Error }
+    val pending   = results.count { it.status == TestStatus.Idle || it.status == TestStatus.Running }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(46.dp, 66.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(AddonIconBg),
+            ) {
+                coil.compose.AsyncImage(
+                    model = "https://image.tmdb.org/t/p/w92/qJ2tW6WMkB347Fnh0o5Iq7fWZFY.jpg",
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                )
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "TEST FILM",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "The Dark Knight",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                )
+                Text(
+                    "2008 · tt0468569 · TMDB 155",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "A provider passes if it returns ≥ 1 stream.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        if (results.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (passed  > 0) TesterScorePill("$passed passed",  Color(0xFF4CAF50))
+                if (empty   > 0) TesterScorePill("$empty empty",    Color(0xFFFF9800))
+                if (failed  > 0) TesterScorePill("$failed failed",  MaterialTheme.colorScheme.error)
+                if (pending > 0) TesterScorePill("$pending pending", MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+
+        Button(
+            onClick = onRun,
+            enabled = !running,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = ColourTester),
+        ) {
+            if (running) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Running tests…")
+            } else {
+                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (results.isEmpty()) "Run All Tests" else "Run Again")
+            }
+        }
+    }
+}
+
+@Composable
+private fun TesterScorePill(label: String, color: Color) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.15f))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = color,
+        )
+    }
+}
+
+@Composable
+private fun TesterSectionHeader(name: String, color: Color, count: Int) {
+    Row(
+        Modifier.padding(top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(50))
+                .background(color),
+        )
+        Text(
+            name.uppercase(),
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = color,
+        )
+        Text(
+            "$count",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ProviderTestRow(
+    logo: String?,
+    name: String,
+    ecosystemColor: Color,
+    result: ProviderTestResult?,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(AddonIconBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!logo.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = logo,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                )
+            } else {
+                Text(
+                    name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = ecosystemColor,
+                )
+            }
+        }
+
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                name,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            when (result?.status) {
+                TestStatus.Error -> Text(
+                    result.error ?: "Error",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                TestStatus.Success -> Text(
+                    "${result.durationMs}ms",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                else -> {}
+            }
+        }
+
+        Box(Modifier.widthIn(min = 56.dp), contentAlignment = Alignment.CenterEnd) {
+            when (result?.status) {
+                TestStatus.Running ->
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                TestStatus.Success -> {
+                    val passing = result.streamCount > 0
+                    val tint    = if (passing) Color(0xFF4CAF50) else Color(0xFFFF9800)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = tint,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            "${result.streamCount}",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = tint,
+                        )
+                    }
+                }
+                TestStatus.Error ->
+                    Text(
+                        "✗",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                else ->
+                    Text(
+                        "—",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    )
             }
         }
     }
