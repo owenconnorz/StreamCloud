@@ -43,7 +43,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.ui.unit.sp
 
 private data class PickerGroupState(
     val addonName: String,
@@ -100,6 +102,9 @@ fun StreamPickerOverlay(
     }
     var selectedTab by remember { mutableStateOf(0) }
     var revision by remember { mutableStateOf(0) }
+    // Tracks when the current scan started so we can display elapsed seconds.
+    var scanStartMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var scanElapsedSecs by remember { mutableIntStateOf(0) }
 
     fun updateGroup(key: String, streams: List<PlayerSource>, error: String? = null) {
         groups = groups.toMutableMap().apply {
@@ -108,7 +113,21 @@ fun StreamPickerOverlay(
         }
     }
 
-    LaunchedEffect(revision) {
+    // Tick every second so the elapsed-time counter in the header stays current.
+    LaunchedEffect(scanStartMs) {
+        while (true) {
+            delay(1_000L)
+            scanElapsedSecs = ((System.currentTimeMillis() - scanStartMs) / 1_000L).toInt()
+        }
+    }
+
+    // Restart the scan whenever the movie, season, or episode changes —
+    // not just on explicit refresh.  Previously keying only on `revision` meant
+    // a picker opened for movie A would keep showing A's results when the composable
+    // was reused or the movie changed underneath it.
+    LaunchedEffect(revision, tmdbId, mediaType, season ?: -1, episode ?: -1) {
+        scanStartMs = System.currentTimeMillis()
+        scanElapsedSecs = 0
         groups = groupOrder.associate { (key, name) -> key to PickerGroupState(name) }
         selectedTab = 0
 
@@ -283,11 +302,20 @@ fun StreamPickerOverlay(
                         .padding(4.dp),
                 ) {
                     if (isAnyLoading) {
-                        CircularProgressIndicator(
-                            Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = Color.White,
-                        )
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(36.dp)) {
+                            CircularProgressIndicator(
+                                Modifier.size(28.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White,
+                            )
+                            if (scanElapsedSecs > 0) {
+                                Text(
+                                    "${scanElapsedSecs}s",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.sp),
+                                    color = Color.White,
+                                )
+                            }
+                        }
                     } else {
                         Icon(Icons.Default.Refresh, "Refresh", tint = Color.White)
                     }
