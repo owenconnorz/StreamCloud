@@ -152,6 +152,13 @@ object NuvioRuntime {
                     appendLine("  globalThis.type    = __mediaType;")
                     appendLine("  globalThis.season  = __season;")
                     appendLine("  globalThis.episode = __episode;")
+                    // Override the polyfill's hardcoded TMDB key with the app's own valid key.
+                    // Many providers call TMDB internally (e.g. to resolve imdb_id from tmdbId)
+                    // and use the TMDB_API_KEY global for this.  The polyfill hardcodes a
+                    // different key that may be expired or rate-limited.
+                    appendLine("  globalThis.TMDB_API_KEY = ${jsString(com.streamcloud.app.BuildConfig.TMDB_API_KEY)};")
+                    appendLine("  if (!globalThis.SCRAPER_SETTINGS) globalThis.SCRAPER_SETTINGS = {};")
+                    appendLine("  globalThis.SCRAPER_SETTINGS.tmdb_api_key = ${jsString(com.streamcloud.app.BuildConfig.TMDB_API_KEY)};")
                     appendLine("  // ── Provider code — wrapped in try-catch to survive init errors ──────")
                     appendLine("  // function declarations inside a try block are still hoisted to the IIFE")
                     appendLine("  // scope in QuickJS, so 'function getStreams(){}' is visible below.")
@@ -851,6 +858,12 @@ object NuvioRuntime {
             // so providers that use .then() chaining still get a proper Promise from fetch().
             var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
+            // Compact response trace (same format as XHR so the picker shows real API output).
+            try {
+                var _fPath = String(url || '').replace(/^https?:\/\/[^\/]+/, '').substring(0, 50);
+                var _fBody = String(parsed.body || '').substring(0, 55);
+                console.log('[rsp] ' + method + ' ' + _fPath + ' \u2192 ' + parsed.status + ' ' + _fBody);
+            } catch(_fErr) {}
             return {
                 ok: parsed.ok, status: parsed.status, statusText: parsed.statusText,
                 url: parsed.url, redirected: parsed.redirected || false, type: 'basic',
@@ -999,6 +1012,13 @@ object NuvioRuntime {
                         }
                         self.responseText = rawBody;
                         self.readyState   = 4; // DONE
+                        // Compact HTTP response trace — visible as lastLog in the stream picker.
+                        // Format: "[rsp] METHOD /path/... → STATUS body_preview"
+                        try {
+                            var _rspPath = String(self._url || '').replace(/^https?:\/\/[^\/]+/, '').substring(0, 50);
+                            var _rspBody = String(rawBody || '').substring(0, 55);
+                            console.log('[rsp] ' + (self._method||'?') + ' ' + _rspPath + ' \u2192 ' + self.status + ' ' + _rspBody);
+                        } catch(_rspErr) {}
                         if (typeof self.onreadystatechange === 'function') {
                             try { self.onreadystatechange(); } catch(e) {}
                         }
