@@ -193,7 +193,16 @@ fun StreamPickerOverlay(
                         val lastErr    = NuvioRuntime.lastError(provider.id)
                         val lastLog    = NuvioRuntime.lastLog(provider.id)
                         val err = if (streams.isEmpty()) {
-                            val base = lastErr ?: lastLog ?: "No streams found"
+                            // Prefer the specific console.log message when the only "error"
+                            // is the generic catch-all set after an empty return.  Real errors
+                            // (HTTP status codes, JS exceptions, timeouts) take priority.
+                            val genericFallback = "No streams found (provider returned empty list)"
+                            val base = when {
+                                lastErr != null && lastErr != genericFallback -> lastErr
+                                lastLog != null -> lastLog
+                                lastErr != null -> lastErr
+                                else            -> "No streams found"
+                            }
                             "$base ($fetchCount req)"
                         } else null
                         updateGroup("nuvio:${provider.id}", streams = streams, error = err)
