@@ -98,6 +98,12 @@ fun MovieDetailScreen(
     var csPrefetchJob by remember { mutableStateOf<Deferred<List<PlayerSource>>?>(null) }
     var csPrefetching by remember { mutableStateOf(false) }
 
+    // Stream picker overlay
+    var showStreamPicker by remember { mutableStateOf(false) }
+    var pickerSeason by remember { mutableStateOf<Int?>(null) }
+    var pickerEpisode by remember { mutableStateOf<Int?>(null) }
+    var pickerEpTitle by remember { mutableStateOf<String?>(null) }
+
     // TV series state
     var tvSeasons by remember { mutableStateOf<List<TmdbTvSeasonSummary>>(emptyList()) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
@@ -211,8 +217,7 @@ fun MovieDetailScreen(
     }
 
     fun playMovie() {
-        val tt = imdbId
-        if (tt == null) {
+        imdbId ?: run {
             resolverMessage = "Loading IMDB id… try again in a second."
             return
         }
@@ -220,188 +225,14 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed. Add some from Settings → Plugins."
             return
         }
-        val movieCacheKey = StreamCacheRepository.movieKey(tt)
-        val cachedMovie = StreamCacheRepository.get(context, movieCacheKey)
-        if (cachedMovie != null) {
-            val m = movie
-            val displayTitle = m?.displayTitle ?: "Playback"
-            val progressKey = WatchProgressKey(
-                tmdbId = movieId,
-                title = displayTitle,
-                posterUrl = m?.posterUrl ?: m?.backdropUrl,
-                mediaType = mediaType,
-            )
-            onPlay(cachedMovie.first().url, displayTitle, cachedMovie, progressKey)
-            return
-        }
-        resolutionJob = scope.launch {
-            resolving = true
-            val totalSources = installedAddons.size + installedNuvio.size + installedCsPlugins.size
-            resolverMessage = "Scanning $totalSources sources…"
-            Log.d("StreamCloud", "playMovie: imdbId=$tt tmdbId=$movieId title=${movie?.displayTitle} year=${movie?.year()} — $totalSources sources (${installedAddons.size} Stremio, ${installedCsPlugins.size} CS, ${installedNuvio.size} Nuvio)")
-            try {
-                val stremioType = if (mediaType == "tv") "series" else "movie"
-
-                // Stremio: try IMDB ID (tt…) and tmdb:{id} — many addons support both
-                val stremioJob = async {
-                    installedAddons.map { addon ->
-                        async {
-                            val ids = buildList {
-                                add(tt)
-                                if (!tt.startsWith("tmdb:")) add("tmdb:$movieId")
-                            }
-                            val seen = mutableSetOf<String>()
-                            val sources = ids.flatMap { id ->
-                                val result = withTimeoutOrNull(20_000L) {
-                                    runCatching { sl.stremio.fetchStreams(addon, stremioType, id) }
-                                        .getOrElse { e ->
-                                            Log.d("StreamCloud", "Stremio ${addon.name} id=$id error: ${e.message}")
-                                            emptyList()
-                                        }
-                                } ?: emptyList()
-                                result.mapNotNull { it.toPlayerSource(addon) }
-                            }.filter { ps -> seen.add(ps.url) }
-                            Log.d("StreamCloud", "Stremio ${addon.name}: ${sources.size} streams")
-                            sources
-                        }
-                    }.awaitAll().flatten()
-                }
-
-                // CloudStream: skip TV-only plugins when resolving a movie
-                val csTitle = movie?.displayTitle.orEmpty()
-                val csYear  = movie?.year()
-                val relevantCsPlugins = if (mediaType == "tv") {
-                    installedCsPlugins.filter { !it.isAdultPlugin() }
-                } else {
-                    installedCsPlugins.filter { plugin ->
-                        !plugin.isAdultPlugin() && run {
-                            val types = plugin.tvTypes
-                            types == null || types.any { t ->
-                                val lt = t.lowercase()
-                                lt.contains("movie") || lt == "others" || lt == "live"
-                            }
-                        }
-                    }
-                }
-                Log.d("StreamCloud", "CS plugins eligible: ${relevantCsPlugins.size}/${installedCsPlugins.size} — title='$csTitle' year=$csYear")
-                // Reuse the pre-fetch job started when the movie title first loaded.
-                // If it completed already the result is instant; if still running we join it.
-                val csJob: Deferred<List<PlayerSource>> = if (csTitle.isNotBlank() && relevantCsPlugins.isNotEmpty()) {
-                    val existing = csPrefetchJob
-                    if (existing != null) {
-                        Log.d("StreamCloud", "CS: reusing pre-fetch job (completed=${existing.isCompleted})")
-                        existing
-                    } else {
-                        Log.d("StreamCloud", "CS: no pre-fetch job found, starting fresh")
-                        async {
-                            relevantCsPlugins.map { plugin ->
-                                async {
-                                    val sources = withTimeoutOrNull(30_000L) {
-                                        resolveCsPluginForMovie(context, plugin, csTitle, csYear)
-                                    } ?: emptyList()
-                                    Log.d("StreamCloud", "CS ${plugin.name}: ${sources.size} streams")
-                                    sources
-                                }
-                            }.awaitAll().flatten()
-                        }
-                    }
-                } else {
-                    async { emptyList() }
-                }
-
-                // Nuvio: reuse the pre-fetch job started when imdbId first resolved.
-                // If the user pressed Play fast, the job may still be running — we just await it
-                // without duplicating any work.  If they waited, the result is already cached.
-                val nuvioJob: Deferred<List<PlayerSource>> = if (installedNuvio.isNotEmpty()) {
-                    val existing = nuvioPrefetchJob
-                    if (existing != null) {
-                        Log.d("StreamCloud", "Nuvio: reusing pre-fetch job (completed=${existing.isCompleted}) for tmdbId=$movieId imdbId=$tt")
-                        existing
-                    } else {
-                        Log.d("StreamCloud", "Nuvio: no pre-fetch job found, starting fresh for tmdbId=$movieId imdbId=$tt")
-                        async {
-                            runCatching {
-                                sl.nuvio.resolveAll(movieId.toString(), mediaType, imdbId = tt)
-                                    .map { (provider, stream) -> stream.toPlayerSource(provider) }
-                            }.getOrElse { e ->
-                                Log.d("StreamCloud", "Nuvio resolveAll error: ${e.message}")
-                                emptyList()
-                            }
-                        }
-                    }
-                } else {
-                    async { emptyList() }
-                }
-
-                val m = movie
-                val displayTitle = m?.displayTitle ?: "Playback"
-                val progressKey = WatchProgressKey(
-                    tmdbId = movieId,
-                    title = displayTitle,
-                    posterUrl = m?.posterUrl ?: m?.backdropUrl,
-                    mediaType = mediaType,
-                )
-
-                val stremioSources = stremioJob.await()
-                val csSources = csJob.await()
-                val fastSources = stremioSources + csSources
-                Log.d("StreamCloud", "Fast sources: Stremio=${stremioSources.size} CS=${csSources.size}")
-
-                if (fastSources.isNotEmpty()) {
-                    // Speed-probe: fire a quick parallel HEAD/GET to each non-magnet URL (2 s
-                    // timeout). Dead or unresponsive servers are pushed to the bottom so the
-                    // player auto-selects a live source first.
-                    Log.d("StreamCloud", "Speed probe: testing ${fastSources.size} sources")
-                    val probed = speedProbeAndReorder(fastSources)
-                    val sorted = probed
-                    StreamCacheRepository.put(context, movieCacheKey, sorted)
-                    if (installedNuvio.isNotEmpty()) {
-                        com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
-                    }
-                    onPlay(sorted.first().url, displayTitle, sorted, progressKey)
-
-                    if (installedNuvio.isNotEmpty()) {
-                        scope.launch {
-                            try {
-                                val nuvioSources = nuvioJob.await()
-                                Log.d("StreamCloud", "Nuvio (background): ${nuvioSources.size} streams")
-                                if (nuvioSources.isNotEmpty()) {
-                                    com.streamcloud.app.player.MoviePlayerSession.mergeSources(nuvioSources)
-                                }
-                            } finally {
-                                com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(false)
-                            }
-                        }
-                    }
-                } else {
-                    val nuvioSources = nuvioJob.await()
-                    Log.d("StreamCloud", "Nuvio (fallback): ${nuvioSources.size} streams")
-                    if (nuvioSources.isNotEmpty()) {
-                        val sorted = nuvioSources.sortedByDescending { it.qualityScore() }
-                        StreamCacheRepository.put(context, movieCacheKey, sorted)
-                        onPlay(sorted.first().url, displayTitle, sorted, progressKey)
-                    } else {
-                        resolverMessage = buildString {
-                            append("No streams found. ")
-                            if (installedAddons.isNotEmpty())
-                                append("Stremio: 0/${installedAddons.size}  ")
-                            if (relevantCsPlugins.isNotEmpty())
-                                append("CloudStream: 0/${relevantCsPlugins.size}  ")
-                            if (installedNuvio.isNotEmpty())
-                                append("Nuvio: 0/${installedNuvio.size}")
-                            if (relevantCsPlugins.size < installedCsPlugins.size)
-                                append("\n(${installedCsPlugins.size - relevantCsPlugins.size} TV-only CS plugins skipped)")
-                        }
-                    }
-                }
-            } finally {
-                resolving = false
-            }
-        }
+        pickerSeason = null
+        pickerEpisode = null
+        pickerEpTitle = null
+        showStreamPicker = true
     }
 
     fun playEpisode(seasonNum: Int, episodeNum: Int, episodeTitle: String?) {
-        val tt = imdbId ?: run {
+        imdbId ?: run {
             resolverMessage = "Loading IMDB id… try again in a second."
             return
         }
@@ -409,90 +240,10 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons or Nuvio providers installed. Add some from Settings → Plugins."
             return
         }
-        val epCacheKey = StreamCacheRepository.episodeKey(tt, seasonNum, episodeNum)
-        val cachedEp = StreamCacheRepository.get(context, epCacheKey)
-        if (cachedEp != null) {
-            val m = movie
-            val displayTitle = buildString {
-                append(m?.displayTitle ?: "")
-                if (seasonNum > 0 || episodeNum > 0) append(" S${seasonNum}E${episodeNum}")
-            }
-            val progressKey = WatchProgressKey(
-                tmdbId = movieId,
-                title = displayTitle,
-                posterUrl = m?.posterUrl ?: m?.backdropUrl,
-                mediaType = mediaType,
-            )
-            onPlay(cachedEp.first().url, displayTitle, cachedEp, progressKey)
-            return
-        }
-        resolutionJob = scope.launch {
-            resolving = true
-            val epLabel = "S${seasonNum}E${episodeNum}"
-            resolverMessage = "Finding streams for $epLabel…"
-            Log.d("StreamCloud", "playEpisode: $epLabel imdbId=$tt tmdbId=$movieId — ${installedAddons.size} Stremio, ${installedNuvio.size} Nuvio")
-            try {
-                // Stremio episode format: {imdbId}:{season}:{episode}  e.g. tt0944947:1:1
-                val stremioEpisodeId = "$tt:$seasonNum:$episodeNum"
-                val stremioJob = async {
-                    installedAddons.map { addon ->
-                        async {
-                            val seen = mutableSetOf<String>()
-                            val sources = buildList {
-                                // Try imdb episode id first, then tmdb variant
-                                for (id in listOf(stremioEpisodeId, "tmdb:$movieId:$seasonNum:$episodeNum")) {
-                                    val res = withTimeoutOrNull(20_000L) {
-                                        runCatching { sl.stremio.fetchStreams(addon, "series", id) }
-                                            .getOrElse { emptyList() }
-                                    } ?: emptyList()
-                                    addAll(res.mapNotNull { it.toPlayerSource(addon) }
-                                        .filter { ps -> seen.add(ps.url) })
-                                }
-                            }
-                            Log.d("StreamCloud", "Stremio ${addon.name} $epLabel: ${sources.size} streams")
-                            sources
-                        }
-                    }.awaitAll().flatten()
-                }
-                // Nuvio: pass season + episode numbers
-                val nuvioJob = async {
-                    if (installedNuvio.isEmpty()) return@async emptyList<PlayerSource>()
-                    runCatching {
-                        sl.nuvio.resolveAll(
-                            movieId.toString(), "tv",
-                            season = seasonNum, episode = episodeNum, imdbId = tt,
-                        ).map { (provider, stream) -> stream.toPlayerSource(provider) }
-                    }.getOrElse { e ->
-                        Log.d("StreamCloud", "Nuvio $epLabel error: ${e.message}")
-                        emptyList()
-                    }
-                }
-                val displayTitle = buildString {
-                    append(movie?.displayTitle ?: "")
-                    append(" · $epLabel")
-                    episodeTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
-                }
-                val progressKey = WatchProgressKey(
-                    tmdbId = movieId, title = displayTitle,
-                    posterUrl = movie?.posterUrl ?: movie?.backdropUrl, mediaType = "tv",
-                )
-                val stremioSources = stremioJob.await()
-                val nuvioSources = nuvioJob.await()
-                val allSources = (stremioSources + nuvioSources).sortedByDescending { it.qualityScore() }
-                Log.d("StreamCloud", "playEpisode $epLabel: total ${allSources.size} streams (${stremioSources.size} Stremio, ${nuvioSources.size} Nuvio)")
-                if (allSources.isNotEmpty()) {
-                    val autoPlay = speedProbeAndReorder(allSources)
-                    StreamCacheRepository.put(context, epCacheKey, autoPlay)
-                    onPlay(autoPlay.first().url, displayTitle, autoPlay, progressKey)
-                } else {
-                    resolverMessage = "No streams found for $epLabel. Try a different episode or add more addons."
-                }
-            } catch (e: Throwable) {
-                resolverMessage = "Error finding streams: ${e.message}"
-            } finally {
-                resolving = false
-            }
-        }
+        pickerSeason = seasonNum
+        pickerEpisode = episodeNum
+        pickerEpTitle = episodeTitle
+        showStreamPicker = true
     }
 
     fun openCsSourcePicker(plugin: InstalledPlugin) {
@@ -1075,14 +826,35 @@ fun MovieDetailScreen(
                 }
             }
         }
-        if (resolving) {
-            StreamingLoadingOverlay(
-                title = movie?.displayTitle ?: "",
-                backdropUrl = movie?.backdropUrl ?: movie?.posterUrl,
-                onBack = {
-                    resolutionJob?.cancel()
-                    resolving = false
-                    resolverMessage = null
+        if (showStreamPicker) {
+            StreamPickerOverlay(
+                movie = movie,
+                mediaType = mediaType,
+                tmdbId = movieId,
+                imdbId = imdbId,
+                season = pickerSeason,
+                episode = pickerEpisode,
+                episodeTitle = pickerEpTitle,
+                installedAddons = installedAddons,
+                installedNuvio = installedNuvio,
+                installedCsPlugins = installedCsPlugins,
+                onBack = { showStreamPicker = false },
+                onPlay = { url, sources ->
+                    showStreamPicker = false
+                    val m = movie
+                    val displayTitle = buildString {
+                        append(m?.displayTitle ?: "Playback")
+                        val s = pickerSeason; val e = pickerEpisode
+                        if (s != null && e != null) append(" S${s}E${e}")
+                        pickerEpTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                    }
+                    val progressKey = WatchProgressKey(
+                        tmdbId = movieId,
+                        title = displayTitle,
+                        posterUrl = m?.posterUrl ?: m?.backdropUrl,
+                        mediaType = mediaType,
+                    )
+                    onPlay(url, displayTitle, sources, progressKey)
                 },
             )
         }

@@ -196,6 +196,29 @@ class NuvioRepository(private val context: Context) {
             else -> "movie"
         }
 
+    suspend fun resolveSingle(
+        provider: InstalledNuvioProvider,
+        tmdbId: String,
+        mediaType: String = "movie",
+        season: Int? = null,
+        episode: Int? = null,
+        imdbId: String? = null,
+    ): List<NuvioStream> = withContext(Dispatchers.IO) {
+        val js = runCatching { File(provider.filePath).readText() }.getOrNull()
+            ?: return@withContext emptyList()
+        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        NuvioRuntime.runProvider(
+            scriptText = js,
+            tmdbId = resolvedTmdb,
+            imdbId = imdbId,
+            mediaType = nuvioMediaType(mediaType),
+            season = season,
+            episode = episode,
+            scriptKey = provider.id,
+            context = context,
+        )
+    }
+
     suspend fun testSingleProvider(
         provider: InstalledNuvioProvider,
         tmdbId: String = "155",
