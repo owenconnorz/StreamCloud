@@ -62,7 +62,7 @@ object NuvioRuntime {
 
         var capturedJson = "[]"
         return try {
-            withTimeoutOrNull(60_000L) {
+            withTimeoutOrNull(90_000L) {
             quickJs(Dispatchers.IO) {
                 installConsole(scriptKey)
                 installFetchBridge(context, scriptKey)
@@ -194,8 +194,8 @@ object NuvioRuntime {
                 streams
             }
             } ?: run {
-                Log.w(TAG, "Provider $scriptKey timed out after 60s")
-                lastErrorByScript[scriptKey] = "Timed out after 60s"
+                Log.w(TAG, "Provider $scriptKey timed out after 90s")
+                lastErrorByScript[scriptKey] = "Timed out after 90s"
                 emptyList()
             }
         } catch (e: QuickJsException) {
@@ -237,15 +237,12 @@ object NuvioRuntime {
 
 
     private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?, scriptKey: String) {
-        // Use a synchronous blocking function instead of asyncFunction.
-        // asyncFunction returns a JS Promise; evaluate() drains the job queue and
-        // returns as soon as the queue is empty — which happens the moment the IIFE
-        // hits "await __native_fetch(...)" and the HTTP coroutine is still pending.
-        // capturedJson therefore never gets updated and parseStreams always sees "[]".
-        // By making __native_fetch blocking (runBlocking on an IO thread), the HTTP
-        // call completes synchronously from JS's perspective, the full __async
-        // generator / Promise chain resolves within the microtask queue, and
-        // __capture_result is called before evaluate() returns.
+        // performFetchSync is a fully blocking, non-suspend function — it calls
+        // OkHttp's .execute() directly so no coroutine or runBlocking wrapper is
+        // needed here.  Keeping this as a plain function() (not asyncFunction) means
+        // QuickJS sees __native_fetch as synchronous: the IIFE's async generator
+        // chain resolves entirely within the microtask job queue, __capture_result
+        // is called before evaluate() returns, and capturedJson has real data.
         function("__native_fetch") { args ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
@@ -253,9 +250,7 @@ object NuvioRuntime {
             val body = args.getOrNull(3)?.toString().orEmpty()
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
             Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
-            val result = runBlocking {
-                performFetch(url, method, headersJson, body, followRedirects, context)
-            }
+            val result = performFetchSync(url, method, headersJson, body, followRedirects, context)
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
             // Providers that silently return [] on !response.ok would otherwise show only the
             // generic "provider returned empty list" message — with this we show the real cause.
@@ -349,6 +344,99 @@ object NuvioRuntime {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "fetch($url) failed: ${t.message}")
+            buildJson {
+                put("ok", false)
+                put("status", 0)
+                put("statusText", t.message ?: "Fetch failed")
+                put("url", url)
+                put("body", "")
+                put("headers", emptyMap<String, String>())
+            }
+        }
+    }
+
+    // Non-suspend variant used by the synchronous __native_fetch JS bridge.
+    // OkHttp's .execute() is already blocking so no coroutine wrapper is needed;
+    // the only suspend work (CloudflareKiller WebView bypass) is handled by
+    // spinning a new coroutine scope on Dispatchers.Main and joining it via
+    // runBlocking(Dispatchers.Main) — safe because this always runs on an IO thread.
+    private fun performFetchSync(
+        url: String,
+        method: String,
+        headersJson: String,
+        body: String,
+        followRedirects: Boolean,
+        context: Context? = null,
+    ): String {
+        return try {
+            val headers = parseHeaders(headersJson).toMutableMap()
+            if (headers.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
+                headers["User-Agent"] = BrowserHeaders.USER_AGENT
+            }
+            if (headers.keys.none { it.equals("Accept", ignoreCase = true) }) {
+                headers["Accept"] = BrowserHeaders.ACCEPT_JSON
+            }
+            if (headers.keys.none { it.equals("Accept-Language", ignoreCase = true) }) {
+                headers["Accept-Language"] = BrowserHeaders.ACCEPT_LANGUAGE
+            }
+            val client = if (followRedirects) http else http.newBuilder().followRedirects(false).build()
+
+            val requestBody = when {
+                method == "GET" || method == "HEAD" -> null
+                body.isEmpty() -> ByteArray(0).toRequestBody()
+                else -> body.toRequestBody()
+            }
+            val req = Request.Builder().url(url).apply {
+                headers.forEach { (k, v) -> header(k, v) }
+                method(method, requestBody)
+            }.build()
+
+            client.newCall(req).execute().use { resp ->
+                val respCode = resp.code
+                val respBody = resp.body?.string().orEmpty()
+                val respMultimap = resp.headers.toMultimap()
+
+                // Cloudflare challenge — WebView bypass requires Dispatchers.Main.
+                // runBlocking(Dispatchers.Main) is safe here: we are on an IO thread
+                // (called from within quickJs(Dispatchers.IO) {}), so blocking it
+                // while the main thread runs the WebView does not deadlock.
+                if (context != null && CloudflareKiller.isCfChallenge(respCode, respMultimap, respBody)) {
+                    val ua = headers["User-Agent"] ?: BrowserHeaders.USER_AGENT
+                    val bypassed = runBlocking(Dispatchers.Main) {
+                        CloudflareKiller.bypass(context, url, ua, BrowserCookieJar)
+                    }
+                    if (bypassed) {
+                        return client.newCall(req).execute().use { r2 ->
+                            val text2 = r2.body?.string().orEmpty().let {
+                                if (it.length > MAX_FETCH_BODY_CHARS) it.substring(0, MAX_FETCH_BODY_CHARS) else it
+                            }
+                            buildJson {
+                                put("ok", r2.isSuccessful)
+                                put("status", r2.code)
+                                put("statusText", r2.message)
+                                put("url", r2.request.url.toString())
+                                put("body", text2)
+                                put("headers", r2.headers.associate { (n, v) -> n.lowercase() to v })
+                            }
+                        }
+                    }
+                }
+
+                val text = respBody.let {
+                    if (it.length > MAX_FETCH_BODY_CHARS) it.substring(0, MAX_FETCH_BODY_CHARS) else it
+                }
+                val hdrs = resp.headers.associate { (n, v) -> n.lowercase() to v }
+                buildJson {
+                    put("ok", resp.isSuccessful)
+                    put("status", respCode)
+                    put("statusText", resp.message)
+                    put("url", resp.request.url.toString())
+                    put("body", text)
+                    put("headers", hdrs)
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "fetchSync($url) failed: ${t.message}")
             buildJson {
                 put("ok", false)
                 put("status", 0)
