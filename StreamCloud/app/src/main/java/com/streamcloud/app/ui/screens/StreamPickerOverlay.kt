@@ -32,6 +32,7 @@ import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
+import com.streamcloud.app.data.nuvio.NuvioRuntime
 import com.streamcloud.app.data.nuvio.NuvioStream
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
@@ -162,7 +163,8 @@ fun StreamPickerOverlay(
                         val streams = byProvider[provider.id]
                             ?.map { (prov, stream) -> stream.pickerToPlayerSource(prov) }
                             ?: emptyList()
-                        updateGroup("nuvio:${provider.id}", streams = streams)
+                        val err = if (streams.isEmpty()) NuvioRuntime.lastError(provider.id) else null
+                        updateGroup("nuvio:${provider.id}", streams = streams, error = err)
                     }
                 }
             }
@@ -342,14 +344,14 @@ fun StreamPickerOverlay(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 visibleGroups.forEach { (key, addonName, groupState) ->
-                    if (safeTab == 0 && (groupState.isLoading || groupState.streams.isNotEmpty())) {
+                    if (safeTab == 0) {
                         item(key = "hdr:$key") {
                             PickerSectionHeader(
                                 name = addonName,
                                 isLoading = groupState.isLoading,
                             )
                         }
-                    } else if (safeTab != 0 && groupState.isLoading) {
+                    } else if (groupState.isLoading) {
                         item(key = "hdr:$key") {
                             PickerSectionHeader(name = addonName, isLoading = true)
                         }
@@ -368,8 +370,12 @@ fun StreamPickerOverlay(
                     } else if (groupState.streams.isEmpty()) {
                         if (safeTab == 0) {
                             item(key = "empty:$key") {
+                                val msg = groupState.error
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?.let { "No streams — $it" }
+                                    ?: "No streams found"
                                 Text(
-                                    "No streams found",
+                                    msg,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
                                     modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
