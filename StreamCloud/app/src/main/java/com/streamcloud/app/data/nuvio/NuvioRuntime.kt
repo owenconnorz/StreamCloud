@@ -182,6 +182,8 @@ object NuvioRuntime {
                     // We also expose `params` as a local var (mirrors the official new Function
                     // named-parameter) so providers that access params.tmdbId from scope work too.
                     appendLine("    var params = globalThis.params;")
+                    // Pre-call trace: only stays visible if provider never calls console.log itself.
+                    appendLine("    console.log('[runtime] calling ' + (__fn.name || 'getStreams') + ' tmdb=' + params.tmdbId + ' imdb=' + (params.imdbId || 'null') + ' type=' + params.mediaType);")
                     appendLine("    var arr = await __fn(params.tmdbId, params.mediaType, params.season, params.episode);")
                     appendLine("    var result = JSON.stringify(arr || []);")
                     appendLine("    __capture_result(result);")
@@ -1431,6 +1433,14 @@ object NuvioRuntime {
         })();
         globalThis.axios = __axiosShim;
 
+        // ESBuild __async passes null as argsArray to generator.apply(ctx, null).
+        // Spec says null == no-args; patch for QuickJS safety.
+        (function() {
+            var _origApply = Function.prototype.apply;
+            Function.prototype.apply = function(thisArg, args) {
+                return _origApply.call(this, thisArg, args == null ? [] : args);
+            };
+        })();
         var __module_cache__ = {};
         var require = function(name) {
             if (name === 'cheerio' || name === 'cheerio-without-node-native' || name === 'react-native-cheerio') return cheerio;
