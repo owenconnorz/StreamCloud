@@ -857,6 +857,121 @@ object NuvioRuntime {
         }
         globalThis.fetchv2 = fetchv2;
 
+        // ── XMLHttpRequest polyfill ──────────────────────────────────────────────
+        // Many Nuvio providers (Cineby, MovieBox, Dahmermovies, VidLink, MoviesMod,
+        // AllMovieLand and others) use XHR instead of fetch(). Without this shim,
+        // any `new XMLHttpRequest()` throws a ReferenceError which is silently caught
+        // inside the provider's try-catch, causing getStreams to return [] with 0 req.
+        // This shim delegates to the same __native_fetch Kotlin bridge used by fetch().
+        if (typeof XMLHttpRequest === 'undefined') {
+            globalThis.XMLHttpRequest = function XMLHttpRequest() {
+                this.readyState  = 0;   // UNSENT
+                this.status      = 0;
+                this.statusText  = '';
+                this.responseText= '';
+                this.response    = '';
+                this.responseURL = '';
+                this.responseType= '';
+                this.withCredentials = false;
+                this.timeout     = 0;
+                this.onreadystatechange = null;
+                this.onload      = null;
+                this.onerror     = null;
+                this.ontimeout   = null;
+                this.onprogress  = null;
+                this._method     = 'GET';
+                this._url        = '';
+                this._headers    = {};
+                this._responseHeaders = {};
+            };
+            XMLHttpRequest.UNSENT           = 0;
+            XMLHttpRequest.OPENED           = 1;
+            XMLHttpRequest.HEADERS_RECEIVED = 2;
+            XMLHttpRequest.LOADING          = 3;
+            XMLHttpRequest.DONE             = 4;
+            XMLHttpRequest.prototype.open = function(method, url, async) {
+                this._method  = (method || 'GET').toUpperCase();
+                this._url     = url;
+                this._headers = {};
+                this.readyState = 1; // OPENED
+                if (typeof this.onreadystatechange === 'function') {
+                    try { this.onreadystatechange(); } catch(e) {}
+                }
+            };
+            XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+                if (name != null) this._headers[name] = String(value == null ? '' : value);
+            };
+            XMLHttpRequest.prototype.getResponseHeader = function(name) {
+                return (name && this._responseHeaders) ? (this._responseHeaders[name.toLowerCase()] || null) : null;
+            };
+            XMLHttpRequest.prototype.getAllResponseHeaders = function() {
+                if (!this._responseHeaders) return '';
+                return Object.entries(this._responseHeaders).map(function(e) { return e[0] + ': ' + e[1]; }).join('\r\n');
+            };
+            XMLHttpRequest.prototype.send = function(body) {
+                var self = this;
+                // Run async so caller's synchronous code completes before callbacks fire —
+                // matches browser behaviour and allows providers to register onload before
+                // the response arrives.
+                Promise.resolve().then(function() {
+                    try {
+                        var result = __native_fetch(
+                            self._url, self._method,
+                            JSON.stringify(self._headers),
+                            (body == null ? '' : String(body)),
+                            true   // followRedirects
+                        );
+                        var parsed = JSON.parse(result);
+                        self.status      = parsed.status      || 0;
+                        self.statusText  = parsed.statusText  || '';
+                        self.responseURL = parsed.url         || self._url;
+                        self._responseHeaders = parsed.headers || {};
+                        var rawBody = parsed.body || '';
+                        if (self.responseType === 'json') {
+                            try { self.response = JSON.parse(rawBody); } catch(e) { self.response = null; }
+                        } else {
+                            self.response = rawBody;
+                        }
+                        self.responseText = rawBody;
+                        self.readyState   = 4; // DONE
+                        if (typeof self.onreadystatechange === 'function') {
+                            try { self.onreadystatechange(); } catch(e) {}
+                        }
+                        if (parsed.ok !== false) {
+                            if (typeof self.onload === 'function') {
+                                try { self.onload({ type: 'load', target: self, currentTarget: self }); } catch(e) {}
+                            }
+                        } else {
+                            if (typeof self.onerror === 'function') {
+                                try { self.onerror({ type: 'error', target: self }); } catch(e) {}
+                            }
+                        }
+                    } catch(err) {
+                        self.status    = 0;
+                        self.statusText= (err && err.message) || 'Network Error';
+                        self.readyState= 4;
+                        if (typeof self.onreadystatechange === 'function') {
+                            try { self.onreadystatechange(); } catch(e) {}
+                        }
+                        if (typeof self.onerror === 'function') {
+                            try { self.onerror({ type: 'error', target: self }); } catch(e) {}
+                        }
+                    }
+                });
+            };
+            XMLHttpRequest.prototype.abort = function() { this.readyState = 0; this.status = 0; };
+            XMLHttpRequest.prototype.addEventListener = function(type, fn) {
+                if (!fn || typeof fn !== 'function') return;
+                if (type === 'load')             this.onload  = fn;
+                else if (type === 'error')       this.onerror = fn;
+                else if (type === 'readystatechange') this.onreadystatechange = fn;
+                else if (type === 'progress')    this.onprogress = fn;
+                else if (type === 'timeout')     this.ontimeout  = fn;
+            };
+            XMLHttpRequest.prototype.removeEventListener = function() {};
+            globalThis.XMLHttpRequest = XMLHttpRequest;
+        }
+
         // setTimeout / clearTimeout stubs.
         //
         // IMPORTANT: do NOT fire non-zero-delay callbacks synchronously.
