@@ -133,11 +133,20 @@ object NuvioRuntime {
                     appendLine("    return '[]';")
                     appendLine("  }")
                     appendLine("  try {")
-                    // Official Nuvio app passes the params object as the first (and only) argument.
-                    // All modern providers use destructuring: function getStreams({ tmdbId, imdbId, mediaType, season, episode })
-                    // Passing positional args (old behaviour) gave 'undefined' for every field because
-                    // JS cannot destructure named properties out of a bare string argument.
-                    appendLine("    var arr = await __fn(globalThis.params);")
+                    // Dual calling convention:
+                    // • NEW style: function getStreams({ tmdbId, imdbId, mediaType, season, episode })
+                    //   fn.length === 1 → pass the params object so destructuring works.
+                    // • OLD style: function getStreams(tmdbId, imdbId, mediaType, season, episode)
+                    //   fn.length >= 2 → pass individual string values positionally.
+                    //   Without this, tmdbId receives the whole params object and ends up
+                    //   as "[object Object]" in every URL the provider builds.
+                    appendLine("    var arr;")
+                    appendLine("    var __p = globalThis.params;")
+                    appendLine("    if (__fn.length >= 2) {")
+                    appendLine("      arr = await __fn(__p.tmdbId, __p.imdbId, __p.mediaType, __p.season, __p.episode);")
+                    appendLine("    } else {")
+                    appendLine("      arr = await __fn(__p);")
+                    appendLine("    }")
                     appendLine("    var result = JSON.stringify(arr || []);")
                     appendLine("    __capture_result(result);")
                     appendLine("    return result;")
