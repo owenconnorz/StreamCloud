@@ -222,8 +222,8 @@ object NuvioRuntime {
             try {
                 val J = kotlinx.serialization.json.Json
                 val obj = J.parseToJsonElement(result) as? kotlinx.serialization.json.JsonObject
-                val ok = (obj?.get("ok") as? kotlinx.serialization.json.JsonPrimitive)?.boolean ?: true
-                val status = (obj?.get("status") as? kotlinx.serialization.json.JsonPrimitive)?.int ?: 0
+                val ok = (obj?.get("ok") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toBoolean() ?: true
+                val status = (obj?.get("status") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0
                 if (!ok) {
                     val shortUrl = url.take(120)
                     // Only set if no provider-supplied console.error already exists for this key.
