@@ -134,7 +134,7 @@ class NuvioRepository(private val context: Context) {
                     scriptText = js,
                     tmdbId = resolvedTmdb,
                     imdbId = imdbId,
-                    mediaType = normaliseMediaType(mediaType),
+                    mediaType = nuvioMediaType(mediaType),
                     season = season,
                     episode = episode,
                     scriptKey = provider.id,
@@ -188,6 +188,12 @@ class NuvioRepository(private val context: Context) {
             "movie", "film" -> "movie"
             "tv", "series", "show", "tvshow" -> "tv"
             else -> mediaType.trim().lowercase()
+        }
+
+    private fun nuvioMediaType(mediaType: String): String =
+        when (normaliseMediaType(mediaType)) {
+            "tv" -> "series"
+            else -> "movie"
         }
 
     private suspend fun save(list: List<InstalledNuvioProvider>) {
