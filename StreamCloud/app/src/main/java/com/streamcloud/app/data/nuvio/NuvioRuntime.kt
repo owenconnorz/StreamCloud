@@ -204,8 +204,17 @@ object NuvioRuntime {
                     ?: capturedJson
                 val streams = parseStreams(finalJson)
                 Log.i(TAG, "$scriptKey returned ${streams.size} stream(s)")
+                if (streams.isEmpty()) Log.d(TAG, "$scriptKey raw json (first 500): ${finalJson.take(500)}")
                 if (streams.isEmpty() && !lastErrorByScript.containsKey(scriptKey)) {
-                    lastErrorByScript[scriptKey] = "No streams found (provider returned empty list)"
+                    // Show a preview of what the provider actually returned.
+                    // If finalJson is non-trivial (not "[]") it means parseStreams
+                    // failed to recognise the format — visible in the stream picker.
+                    val rawPreview = finalJson.trim().let {
+                        if (it.isNotBlank() && it != "[]" && it != "null") {
+                            " · raw: " + it.take(300)
+                        } else ""
+                    }
+                    lastErrorByScript[scriptKey] = "No streams found (provider returned empty list)$rawPreview"
                 } else if (streams.isNotEmpty()) {
                     lastErrorByScript.remove(scriptKey)
                 }
