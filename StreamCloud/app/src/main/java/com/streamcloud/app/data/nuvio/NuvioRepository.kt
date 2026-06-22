@@ -192,7 +192,7 @@ class NuvioRepository(private val context: Context) {
 
     private fun nuvioMediaType(mediaType: String): String =
         when (normaliseMediaType(mediaType)) {
-            "tv" -> "series"
+            "tv" -> "tv"
             else -> "movie"
         }
 
