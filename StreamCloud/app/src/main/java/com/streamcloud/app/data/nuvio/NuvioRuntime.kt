@@ -237,14 +237,25 @@ object NuvioRuntime {
 
 
     private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?, scriptKey: String) {
-        asyncFunction("__native_fetch") { args ->
+        // Use a synchronous blocking function instead of asyncFunction.
+        // asyncFunction returns a JS Promise; evaluate() drains the job queue and
+        // returns as soon as the queue is empty — which happens the moment the IIFE
+        // hits "await __native_fetch(...)" and the HTTP coroutine is still pending.
+        // capturedJson therefore never gets updated and parseStreams always sees "[]".
+        // By making __native_fetch blocking (runBlocking on an IO thread), the HTTP
+        // call completes synchronously from JS's perspective, the full __async
+        // generator / Promise chain resolves within the microtask queue, and
+        // __capture_result is called before evaluate() returns.
+        function("__native_fetch") { args ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
             val headersJson = args.getOrNull(2)?.toString() ?: "{}"
             val body = args.getOrNull(3)?.toString().orEmpty()
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
             Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
-            val result = performFetch(url, method, headersJson, body, followRedirects, context)
+            val result = runBlocking {
+                performFetch(url, method, headersJson, body, followRedirects, context)
+            }
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
             // Providers that silently return [] on !response.ok would otherwise show only the
             // generic "provider returned empty list" message — with this we show the real cause.
@@ -637,9 +648,10 @@ object NuvioRuntime {
             }
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
-            // __native_fetch is now an asyncFunction (returns a Promise); await it so
-            // QuickJS processes it through the proper coroutine → Promise mechanism.
-            var result = await __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
+            // __native_fetch is a synchronous blocking function (returns a String directly).
+            // Do NOT await it — it is not a Promise. The fetch shim itself is still async
+            // so providers that use .then() chaining still get a proper Promise from fetch().
+            var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             return {
                 ok: parsed.ok, status: parsed.status, statusText: parsed.statusText,
@@ -1675,3 +1687,4 @@ object NuvioRuntime {
         }
     }
 }
+
