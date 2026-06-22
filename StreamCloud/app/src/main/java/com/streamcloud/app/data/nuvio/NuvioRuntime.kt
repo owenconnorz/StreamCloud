@@ -152,14 +152,19 @@ object NuvioRuntime {
                     appendLine("  globalThis.type    = __mediaType;")
                     appendLine("  globalThis.season  = __season;")
                     appendLine("  globalThis.episode = __episode;")
-                    appendLine("  // ── Provider code (runs directly — no try-catch wrapper) ──────────────")
-                    appendLine("  // Exactly mirrors official NuvioMobile new Function() body: provider")
-                    appendLine("  // code is NOT wrapped in any inner scope, so function declarations")
-                    appendLine("  // (e.g. function getStreams() {}) are hoisted into the async IIFE's")
-                    appendLine("  // own scope and are visible to the 3-way lookup that follows.")
-                    appendLine("  // If the provider throws at init time the QuickJsException bubbles")
-                    appendLine("  // up to the Kotlin catch block and is surfaced via lastError().")
+                    appendLine("  // ── Provider code — wrapped in try-catch to survive init errors ──────")
+                    appendLine("  // function declarations inside a try block are still hoisted to the IIFE")
+                    appendLine("  // scope in QuickJS, so 'function getStreams(){}' is visible below.")
+                    appendLine("  // Without this wrapper, top-level await failures (API key fetch, config")
+                    appendLine("  // load, etc.) reject the whole IIFE Promise and swallow every result as")
+                    appendLine("  // the silent 'Promise { <state>: rejected }' we were seeing.")
+                    appendLine("  var __initErr = null;")
+                    appendLine("  try {")
                     append(scriptText)
+                    appendLine("  } catch (__e) {")
+                    appendLine("    __initErr = __e;")
+                    appendLine("    console.error('[provider init] threw:', (__e && __e.message) || String(__e));")
+                    appendLine("  }")
                     appendLine()
                     appendLine("  // ── Locate getStreams (official NuvioMobile lookup order) ──────────────")
                     appendLine("  var __fn =")
@@ -199,9 +204,11 @@ object NuvioRuntime {
 
 
 
-                val finalJson = (directResult as? String)
-                    ?.takeIf { it.isNotBlank() && it != "null" }
-                    ?: capturedJson
+                // evaluate() returns the rejected-Promise string repr ("Promise { <state>: ... }")
+                // when the IIFE Promise rejects before our capture.  Discard it.
+                val directStr = (directResult as? String)
+                    ?.takeIf { it.isNotBlank() && it != "null" && !it.trimStart().startsWith("Promise ") }
+                val finalJson = directStr ?: capturedJson
                 val streams = parseStreams(finalJson)
                 Log.i(TAG, "$scriptKey returned ${streams.size} stream(s)")
                 if (streams.isEmpty()) Log.d(TAG, "$scriptKey raw json (first 500): ${finalJson.take(500)}")
