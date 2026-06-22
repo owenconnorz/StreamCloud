@@ -34,6 +34,14 @@ object NuvioRuntime {
 
     private const val MAX_FETCH_BODY_CHARS = 5 * 1024 * 1024
     private val lastErrorByScript = java.util.concurrent.ConcurrentHashMap<String, String>()
+    // Last console.log/info/warn message per provider (non-error progress messages).
+    // Used in the picker to explain WHY a provider found no streams even when
+    // it did not call console.error (e.g. "[Vixsrc] No stream data found").
+    private val lastLogByScript   = java.util.concurrent.ConcurrentHashMap<String, String>()
+    // Number of __native_fetch calls made during a provider's execution.
+    // 0 = provider returned early without touching the network (init crash / guard clause).
+    // N = provider ran but APIs returned empty / error.
+    private val fetchCountByScript = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
 
     private val http = OkHttpClient.Builder()
         .cookieJar(BrowserCookieJar)
@@ -44,6 +52,8 @@ object NuvioRuntime {
 
 
     fun lastError(scriptKey: String): String? = lastErrorByScript[scriptKey]
+    fun lastLog(scriptKey: String): String?   = lastLogByScript[scriptKey]
+    fun lastFetchCount(scriptKey: String): Int = fetchCountByScript[scriptKey]?.get() ?: 0
 
     suspend fun runProvider(
         scriptText: String,
@@ -60,6 +70,10 @@ object NuvioRuntime {
         val idCounter = AtomicInteger()
 
 
+        // Clear per-provider diagnostic state so a previous run's data never bleeds in.
+        lastLogByScript.remove(scriptKey)
+        lastErrorByScript.remove(scriptKey)
+        fetchCountByScript[scriptKey] = java.util.concurrent.atomic.AtomicInteger(0)
         var capturedJson = "[]"
         return try {
             withTimeoutOrNull(90_000L) {
@@ -220,13 +234,19 @@ object NuvioRuntime {
                 function(level) { args ->
                     val msg = args.joinToString(" ") { it?.toString() ?: "null" }
                     when (level) {
-                        "warn" -> Log.w("$TAG/$scriptKey", msg)
+                        "warn" -> {
+                            Log.w("$TAG/$scriptKey", msg)
+                            lastLogByScript[scriptKey] = "⚠ $msg"
+                        }
                         "error" -> {
                             Log.e("$TAG/$scriptKey", msg)
                             lastErrorByScript[scriptKey] = msg
                         }
                         "debug" -> Log.d("$TAG/$scriptKey", msg)
-                        else -> Log.i("$TAG/$scriptKey", msg)
+                        else -> {
+                            Log.i("$TAG/$scriptKey", msg)
+                            lastLogByScript[scriptKey] = msg
+                        }
                     }
                     null
                 }
@@ -250,6 +270,7 @@ object NuvioRuntime {
             val body = args.getOrNull(3)?.toString().orEmpty()
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
             Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
+            fetchCountByScript.getOrPut(scriptKey) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
             val result = performFetchSync(url, method, headersJson, body, followRedirects, context)
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
             // Providers that silently return [] on !response.ok would otherwise show only the
