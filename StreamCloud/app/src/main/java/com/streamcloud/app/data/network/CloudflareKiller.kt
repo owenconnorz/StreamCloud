@@ -14,13 +14,23 @@ import kotlinx.coroutines.withTimeoutOrNull
 object CloudflareKiller {
 
     fun isCfChallenge(code: Int, headers: Map<String, List<String>>, body: String): Boolean {
-        if (code != 403 && code != 503) return false
         val hasCfRay = headers.any { it.key.equals("cf-ray", ignoreCase = true) }
+        val hasCfMitigated = headers.any { it.key.equals("cf-mitigated", ignoreCase = true) }
         val hasCfBody =
             body.contains("_cf_chl_opt", ignoreCase = true) ||
             body.contains("cf-browser-verification", ignoreCase = true) ||
-            body.contains("Just a moment", ignoreCase = true)
-        return hasCfRay || hasCfBody
+            body.contains("Just a moment", ignoreCase = true) ||
+            body.contains("cf-turnstile", ignoreCase = true) ||
+            body.contains("turnstile.cloudflare.com", ignoreCase = true) ||
+            body.contains("challenges.cloudflare.com", ignoreCase = true)
+        return when (code) {
+            // Legacy CF JS challenge (HTTP 403/503): any CF signal is sufficient
+            403, 503 -> hasCfRay || hasCfBody
+            // Modern Cloudflare Turnstile / JS challenge (HTTP 200): require a CF
+            // body marker to avoid false-positives (cf-ray is present on all CF sites).
+            200 -> hasCfBody || hasCfMitigated
+            else -> false
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
