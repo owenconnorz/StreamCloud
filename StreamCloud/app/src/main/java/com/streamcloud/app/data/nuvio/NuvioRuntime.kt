@@ -64,6 +64,7 @@ object NuvioRuntime {
         episode: Int? = null,
         scriptKey: String = "default",
         context: Context? = null,
+        filePath: String? = null,
     ): List<NuvioStream> {
         val documentCache = mutableMapOf<String, Document>()
         val elementCache = mutableMapOf<String, Element>()
@@ -83,6 +84,7 @@ object NuvioRuntime {
                 installCryptoBindings()
                 installUrlBinding()
                 installCheerioBindings(documentCache, elementCache, idCounter)
+                installModuleLoader(filePath)
 
 
                 function("__capture_result") { args ->
@@ -290,6 +292,34 @@ object NuvioRuntime {
                 }
             } catch (_: Exception) {}
             result
+        }
+    }
+
+    private fun com.dokar.quickjs.QuickJs.installModuleLoader(providerFilePath: String?) {
+        if (providerFilePath == null) return
+        val providerDir = java.io.File(providerFilePath).parentFile ?: return
+        function("__native_load_module") { args ->
+            val relPath = args.getOrNull(0)?.toString() ?: return@function null
+            // Extract the meaningful module name from a relative path.
+            // e.g.  "../guardahd/index"  → "guardahd"
+            //       "./utils"            → "utils"
+            // Segments that are navigation artefacts (.., .) or the generic "index"
+            // are skipped; the first real segment becomes the module file name.
+            val segments = relPath.split("/")
+                .filter { it.isNotEmpty() && it != "." && it != ".." && it != "index" }
+            val moduleName = segments.firstOrNull() ?: return@function null
+            // Installed providers all live in the same flat directory, so a sibling
+            // module like "../guardahd/index" maps to "$providerDir/guardahd.js".
+            val candidates = listOf(
+                java.io.File(providerDir, "$moduleName.js"),
+                java.io.File(providerDir, moduleName),
+            )
+            val src = candidates.firstNotNullOfOrNull { f ->
+                if (f.exists() && f.isFile) runCatching { f.readText() }.getOrNull() else null
+            }
+            Log.d(TAG, "Module '$relPath' → '$moduleName' in ${providerDir.name}: " +
+                    if (src != null) "found (${src.length} chars)" else "NOT FOUND")
+            src
         }
     }
 
@@ -1401,6 +1431,7 @@ object NuvioRuntime {
         })();
         globalThis.axios = __axiosShim;
 
+        var __module_cache__ = {};
         var require = function(name) {
             if (name === 'cheerio' || name === 'cheerio-without-node-native' || name === 'react-native-cheerio') return cheerio;
             if (name === 'crypto-js' || name === 'crypto-js/core') return CryptoJS;
@@ -1487,6 +1518,23 @@ object NuvioRuntime {
                 return makeKy({});
             }
             if (name === 'superagent' || name === 'request' || name === 'needle') return __axiosShim;
+            // Relative path (e.g. "../guardahd/index") — attempt to load the sibling
+            // provider module from disk via the Kotlin __native_load_module bridge.
+            // This fixes cross-provider dependencies like VixSrc → guardahd.
+            if (name.charAt(0) === '.' && typeof __native_load_module === 'function') {
+                if (__module_cache__[name] !== undefined) return __module_cache__[name];
+                var __src = __native_load_module(name);
+                if (__src) {
+                    var __mod = { exports: {} };
+                    try {
+                        (new Function('module', 'exports', 'require', __src))(__mod, __mod.exports, require);
+                    } catch(__modErr) {
+                        console.warn('Nuvio runtime: error evaluating module "' + name + '": ' + (__modErr.message || __modErr));
+                    }
+                    __module_cache__[name] = __mod.exports;
+                    return __mod.exports;
+                }
+            }
             // Unknown module — return a stub instead of throwing so the provider
             // script does not crash during initialisation.
             console.warn('Nuvio runtime: require("' + name + '") is not available, returning empty stub.');
