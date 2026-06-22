@@ -13,14 +13,33 @@ import com.streamcloud.app.data.plugins.CloudStreamPlugin
 import com.streamcloud.app.data.plugins.CloudStreamRepo
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRepository
+import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+
+enum class TestStatus { Idle, Running, Success, Error }
+
+data class ProviderTestResult(
+    val id: String,
+    val name: String,
+    val ecosystem: String,
+    val logo: String? = null,
+    val status: TestStatus = TestStatus.Idle,
+    val streamCount: Int = 0,
+    val error: String? = null,
+    val durationMs: Long = 0L,
+)
 
 data class PluginsState(
     val repos: List<CloudStreamRepo> = emptyList(),
@@ -38,6 +57,8 @@ data class PluginsState(
     val installingNuvioIds: Set<String> = emptySet(),
     val error: String? = null,
     val info: String? = null,
+    val testResults: List<ProviderTestResult> = emptyList(),
+    val testRunning: Boolean = false,
 )
 
 class PluginsViewModel(
@@ -192,7 +213,103 @@ class PluginsViewModel(
         _state.update { it.copy(error = null, info = null) }
     }
 
+    private fun updateTestResult(id: String, block: ProviderTestResult.() -> ProviderTestResult) {
+        _state.update { s ->
+            s.copy(testResults = s.testResults.map { if (it.id == id) it.block() else it })
+        }
+    }
+
+    fun runAllProviderTests(context: Context) = viewModelScope.launch {
+        if (_state.value.testRunning) return@launch
+        val s = _state.value
+
+        val initialResults = buildList {
+            s.installed.forEach { add(ProviderTestResult(it.internalName, it.name, "CloudStream", it.iconUrl)) }
+            s.stremioAddons.forEach { add(ProviderTestResult(it.manifestUrl, it.name, "Stremio", it.logo)) }
+            s.nuvioProviders.forEach { add(ProviderTestResult(it.id, it.name, "Nuvio", it.logo)) }
+        }
+        _state.update { it.copy(testResults = initialResults, testRunning = true) }
+
+        try {
+            coroutineScope {
+                val jobs = buildList {
+                    s.installed.forEach { plugin ->
+                        add(async(Dispatchers.IO) {
+                            updateTestResult(plugin.internalName) { copy(status = TestStatus.Running) }
+                            val t0 = System.currentTimeMillis()
+                            try {
+                                val count = withTimeoutOrNull(30_000L) {
+                                    val results = PluginRuntime.search(context, plugin.filePath, TEST_TITLE)
+                                    val best = results.firstOrNull() ?: return@withTimeoutOrNull 0
+                                    val detail = PluginRuntime.loadDetail(context, plugin.filePath, best.url)
+                                    val dataUrl = when (detail) {
+                                        is com.lagradost.cloudstream3.MovieLoadResponse -> detail.dataUrl
+                                        else -> null
+                                    } ?: return@withTimeoutOrNull 0
+                                    val (links, _) = PluginRuntime.loadLinks(context, plugin.filePath, dataUrl, false)
+                                    links.size
+                                } ?: 0
+                                updateTestResult(plugin.internalName) {
+                                    copy(status = TestStatus.Success, streamCount = count, durationMs = System.currentTimeMillis() - t0)
+                                }
+                            } catch (e: Exception) {
+                                updateTestResult(plugin.internalName) {
+                                    copy(status = TestStatus.Error, error = e.message ?: "Error", durationMs = System.currentTimeMillis() - t0)
+                                }
+                            }
+                        })
+                    }
+
+                    s.stremioAddons.forEach { addon ->
+                        add(async(Dispatchers.IO) {
+                            updateTestResult(addon.manifestUrl) { copy(status = TestStatus.Running) }
+                            val t0 = System.currentTimeMillis()
+                            try {
+                                val count = withTimeoutOrNull(15_000L) {
+                                    stremio.fetchStreams(addon, "movie", TEST_IMDB).size
+                                } ?: 0
+                                updateTestResult(addon.manifestUrl) {
+                                    copy(status = TestStatus.Success, streamCount = count, durationMs = System.currentTimeMillis() - t0)
+                                }
+                            } catch (e: Exception) {
+                                updateTestResult(addon.manifestUrl) {
+                                    copy(status = TestStatus.Error, error = e.message ?: "Error", durationMs = System.currentTimeMillis() - t0)
+                                }
+                            }
+                        })
+                    }
+
+                    s.nuvioProviders.forEach { provider ->
+                        add(async(Dispatchers.IO) {
+                            updateTestResult(provider.id) { copy(status = TestStatus.Running) }
+                            val t0 = System.currentTimeMillis()
+                            try {
+                                val (count, err) = nuvio.testSingleProvider(provider)
+                                val elapsed = System.currentTimeMillis() - t0
+                                if (err != null) {
+                                    updateTestResult(provider.id) { copy(status = TestStatus.Error, error = err, durationMs = elapsed) }
+                                } else {
+                                    updateTestResult(provider.id) { copy(status = TestStatus.Success, streamCount = count, durationMs = elapsed) }
+                                }
+                            } catch (e: Exception) {
+                                updateTestResult(provider.id) {
+                                    copy(status = TestStatus.Error, error = e.message ?: "Error", durationMs = System.currentTimeMillis() - t0)
+                                }
+                            }
+                        })
+                    }
+                }
+                jobs.awaitAll()
+            }
+        } finally {
+            _state.update { it.copy(testRunning = false) }
+        }
+    }
+
     companion object {
+        private const val TEST_TITLE = "The Dark Knight"
+        private const val TEST_IMDB  = "tt0468569"
+
         fun factory(context: Context) = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 @Suppress("UNCHECKED_CAST")

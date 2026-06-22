@@ -196,6 +196,33 @@ class NuvioRepository(private val context: Context) {
             else -> "movie"
         }
 
+    suspend fun testSingleProvider(
+        provider: InstalledNuvioProvider,
+        tmdbId: String = "155",
+        mediaType: String = "movie",
+        imdbId: String? = "tt0468569",
+    ): Pair<Int, String?> = withContext(Dispatchers.IO) {
+        val js = runCatching { File(provider.filePath).readText() }.getOrElse {
+            return@withContext 0 to "Could not read provider file"
+        }
+        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        try {
+            val streams = NuvioRuntime.runProvider(
+                scriptText = js,
+                tmdbId = resolvedTmdb,
+                imdbId = imdbId,
+                mediaType = nuvioMediaType(mediaType),
+                season = null,
+                episode = null,
+                scriptKey = "test__${provider.id}",
+                context = context,
+            )
+            streams.size to null
+        } catch (e: Exception) {
+            0 to (e.message ?: "Unknown error")
+        }
+    }
+
     private suspend fun save(list: List<InstalledNuvioProvider>) {
         val text = Net.json.encodeToString(ListSerializer(InstalledNuvioProvider.serializer()), list)
         context.nuvioStore.edit { it[KEY_INSTALLED] = text }
