@@ -617,6 +617,33 @@ object NuvioRuntime {
         // Make fetch reachable via every global alias providers might use.
         globalThis.fetch = fetch;
 
+        // ── Headers constructor ──────────────────────────────────────────────
+        // Many providers use `new Headers({ 'Content-Type': 'application/json' })`.
+        // Without this, the constructor throws and the provider's first fetch call
+        // crashes, returning an empty stream list.
+        if (typeof globalThis.Headers === 'undefined') {
+            globalThis.Headers = function Headers(init) {
+                this._h = {};
+                var self = this;
+                if (init) {
+                    if (Array.isArray(init)) {
+                        init.forEach(function(pair) { if (pair.length >= 2) self._h[pair[0].toLowerCase()] = pair[1]; });
+                    } else if (typeof init === 'object') {
+                        Object.keys(init).forEach(function(k) { self._h[k.toLowerCase()] = init[k]; });
+                    }
+                }
+            };
+            globalThis.Headers.prototype.get    = function(k) { return this._h[k.toLowerCase()] || null; };
+            globalThis.Headers.prototype.has    = function(k) { return k.toLowerCase() in this._h; };
+            globalThis.Headers.prototype.set    = function(k, v) { this._h[k.toLowerCase()] = v; };
+            globalThis.Headers.prototype.append = function(k, v) { this._h[k.toLowerCase()] = v; };
+            globalThis.Headers.prototype.delete = function(k) { delete this._h[k.toLowerCase()]; };
+            globalThis.Headers.prototype.entries= function() { return Object.entries(this._h); };
+            globalThis.Headers.prototype.keys   = function() { return Object.keys(this._h); };
+            globalThis.Headers.prototype.values = function() { return Object.values(this._h); };
+            globalThis.Headers.prototype.forEach= function(cb) { var h = this._h; Object.keys(h).forEach(function(k) { cb(h[k], k); }); };
+        }
+
         // Legacy positional signature used by D3adlyRocket / phisher98 forks.
         async function fetchv2(url, headers, method, body, encodeUrl, encoding) {
             return await fetch(url, { method: method || 'GET', headers: headers || {}, body: body });
@@ -1474,6 +1501,33 @@ object NuvioRuntime {
                     NuvioStream(url = u)
                 }
                 is kotlinx.serialization.json.JsonObject -> {
+                    // ── Stremio / Torrentio torrent format: infoHash + sources ──
+                    // Providers like Torrentio and NoTorrent return torrent streams
+                    // using the Stremio addon format ({infoHash, sources, name, title})
+                    // rather than a direct URL. Build a magnet: URI from infoHash so
+                    // they are not silently dropped.
+                    val infoHash = prim(item, "infoHash", "info_hash", "infohash")
+                    if (infoHash != null && infoHash.length >= 20) {
+                        val magnetUrl = buildString {
+                            append("magnet:?xt=urn:btih:$infoHash")
+                            val sources = item["sources"] as? kotlinx.serialization.json.JsonArray
+                            sources?.forEach { s ->
+                                val tracker = (s as? kotlinx.serialization.json.JsonPrimitive)?.content
+                                if (tracker != null && tracker.startsWith("tracker:")) {
+                                    append("&tr=").append(java.net.URLEncoder.encode(tracker.removePrefix("tracker:"), "UTF-8"))
+                                }
+                            }
+                            val dn = prim(item, "name", "title")?.substringBefore('\n')?.trim()
+                            if (!dn.isNullOrBlank()) {
+                                append("&dn=").append(java.net.URLEncoder.encode(dn, "UTF-8"))
+                            }
+                        }
+                        val name    = prim(item, "name", "label")
+                        val title   = prim(item, "title")
+                        val quality = prim(item, "quality", "resolution", "res")
+                        return@mapNotNull NuvioStream(name = name, title = title, url = magnetUrl, quality = quality)
+                    }
+
                     val url = prim(item, "url", "stream_url", "streamUrl", "link", "href")
                         ?.takeIf { it.looksLikeUrl() }
                         ?: return@mapNotNull null
