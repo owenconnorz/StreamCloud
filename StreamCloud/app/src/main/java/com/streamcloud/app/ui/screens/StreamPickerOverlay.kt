@@ -141,24 +141,29 @@ fun StreamPickerOverlay(
                 }
             }
 
-            installedNuvio.forEach { provider ->
+            if (installedNuvio.isNotEmpty()) {
                 launch {
-                    val sources = withContext(Dispatchers.IO) {
+                    val allNuvio = withContext(Dispatchers.IO) {
                         runCatching {
-                            sl.nuvio.resolveSingle(
-                                provider = provider,
+                            sl.nuvio.resolveAll(
                                 tmdbId = tmdbId.toString(),
                                 mediaType = mediaType,
                                 season = season,
                                 episode = episode,
                                 imdbId = imdbId,
-                            ).map { it.pickerToPlayerSource(provider) }
+                            )
                         }.getOrElse { e ->
-                            Log.d("StreamPicker", "Nuvio ${provider.name}: ${e.message}")
+                            Log.d("StreamPicker", "Nuvio resolveAll error: ${e.message}")
                             emptyList()
                         }
                     }
-                    updateGroup("nuvio:${provider.id}", streams = sources)
+                    val byProvider = allNuvio.groupBy { (provider, _) -> provider.id }
+                    installedNuvio.forEach { provider ->
+                        val streams = byProvider[provider.id]
+                            ?.map { (prov, stream) -> stream.pickerToPlayerSource(prov) }
+                            ?: emptyList()
+                        updateGroup("nuvio:${provider.id}", streams = streams)
+                    }
                 }
             }
 
