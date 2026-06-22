@@ -826,38 +826,38 @@ fun MovieDetailScreen(
                 }
             }
         }
-        if (showStreamPicker) {
-            StreamPickerOverlay(
-                movie = movie,
-                mediaType = mediaType,
-                tmdbId = movieId,
-                imdbId = imdbId,
-                season = pickerSeason,
-                episode = pickerEpisode,
-                episodeTitle = pickerEpTitle,
-                installedAddons = installedAddons,
-                installedNuvio = installedNuvio,
-                installedCsPlugins = installedCsPlugins,
-                onBack = { showStreamPicker = false },
-                onPlay = { url, sources ->
-                    showStreamPicker = false
-                    val m = movie
-                    val displayTitle = buildString {
-                        append(m?.displayTitle ?: "Playback")
-                        val s = pickerSeason; val e = pickerEpisode
-                        if (s != null && e != null) append(" S${s}E${e}")
-                        pickerEpTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
-                    }
-                    val progressKey = WatchProgressKey(
-                        tmdbId = movieId,
-                        title = displayTitle,
-                        posterUrl = m?.posterUrl ?: m?.backdropUrl,
-                        mediaType = mediaType,
-                    )
-                    onPlay(url, displayTitle, sources, progressKey)
-                },
-            )
-        }
+    }
+    if (showStreamPicker) {
+        StreamPickerOverlay(
+            movie = movie,
+            mediaType = mediaType,
+            tmdbId = movieId,
+            imdbId = imdbId,
+            season = pickerSeason,
+            episode = pickerEpisode,
+            episodeTitle = pickerEpTitle,
+            installedAddons = installedAddons,
+            installedNuvio = installedNuvio,
+            installedCsPlugins = installedCsPlugins,
+            onBack = { showStreamPicker = false },
+            onPlay = { url, sources ->
+                showStreamPicker = false
+                val m = movie
+                val displayTitle = buildString {
+                    append(m?.displayTitle ?: "Playback")
+                    val s = pickerSeason; val e = pickerEpisode
+                    if (s != null && e != null) append(" S${s}E${e}")
+                    pickerEpTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                }
+                val progressKey = WatchProgressKey(
+                    tmdbId = movieId,
+                    title = displayTitle,
+                    posterUrl = m?.posterUrl ?: m?.backdropUrl,
+                    mediaType = mediaType,
+                )
+                onPlay(url, displayTitle, sources, progressKey)
+            },
+        )
     }
 }
 
