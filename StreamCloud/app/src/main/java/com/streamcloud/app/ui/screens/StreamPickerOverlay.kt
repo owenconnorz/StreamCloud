@@ -634,34 +634,36 @@ private suspend fun resolveCsForPicker(
     plugin: InstalledPlugin,
     title: String,
     year: Int?,
-): List<PlayerSource> = try {
-    if (title.isBlank()) return emptyList()
-    val results: List<SearchResponse> = runCatching {
-        PluginRuntime.search(context, plugin.filePath, title)
-    }.getOrDefault(emptyList())
-    val best = pickerBestMatch(results, title, year) ?: return emptyList()
-    val detail = runCatching {
-        PluginRuntime.loadDetail(context, plugin.filePath, best.url)
-    }.getOrNull() ?: return emptyList()
-    val dataStr: String? = when (detail) {
-        is MovieLoadResponse -> detail.dataUrl
-        is TvSeriesLoadResponse -> {
-            val eps = detail.episodes
-            if (eps.size == 1) eps.first().data else null
+): List<PlayerSource> {
+    return try {
+        if (title.isBlank()) return emptyList()
+        val results: List<SearchResponse> = runCatching {
+            PluginRuntime.search(context, plugin.filePath, title)
+        }.getOrDefault(emptyList())
+        val best = pickerBestMatch(results, title, year) ?: return emptyList()
+        val detail = runCatching {
+            PluginRuntime.loadDetail(context, plugin.filePath, best.url)
+        }.getOrNull() ?: return emptyList()
+        val dataStr: String? = when (detail) {
+            is MovieLoadResponse -> detail.dataUrl
+            is TvSeriesLoadResponse -> {
+                val eps = detail.episodes
+                if (eps.size == 1) eps.first().data else null
+            }
+            is AnimeLoadResponse -> {
+                val eps = detail.episodes.values.flatten()
+                if (eps.size == 1) eps.first().data else null
+            }
+            else -> null
         }
-        is AnimeLoadResponse -> {
-            val eps = detail.episodes.values.flatten()
-            if (eps.size == 1) eps.first().data else null
-        }
-        else -> null
+        val data = dataStr ?: return emptyList()
+        val (links, _) = runCatching {
+            PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
+        }.getOrElse { return emptyList() }
+        links.pickerToCsSources(plugin.name)
+    } catch (_: Throwable) {
+        emptyList()
     }
-    val data = dataStr ?: return emptyList()
-    val (links, _) = runCatching {
-        PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
-    }.getOrElse { return emptyList() }
-    links.pickerToCsSources(plugin.name)
-} catch (_: Throwable) {
-    emptyList()
 }
 
 private fun pickerBestMatch(results: List<SearchResponse>, title: String, year: Int?): SearchResponse? {
