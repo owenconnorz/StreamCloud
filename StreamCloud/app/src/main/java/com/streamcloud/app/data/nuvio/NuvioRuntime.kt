@@ -65,7 +65,7 @@ object NuvioRuntime {
             withTimeoutOrNull(60_000L) {
             quickJs(Dispatchers.IO) {
                 installConsole(scriptKey)
-                installFetchBridge(context)
+                installFetchBridge(context, scriptKey)
                 installCryptoBindings()
                 installUrlBinding()
                 installCheerioBindings(documentCache, elementCache, idCounter)
@@ -207,14 +207,33 @@ object NuvioRuntime {
 
 
 
-    private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?) {
+    private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?, scriptKey: String) {
         asyncFunction("__native_fetch") { args ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
             val headersJson = args.getOrNull(2)?.toString() ?: "{}"
             val body = args.getOrNull(3)?.toString().orEmpty()
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
-            performFetch(url, method, headersJson, body, followRedirects, context)
+            Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
+            val result = performFetch(url, method, headersJson, body, followRedirects, context)
+            // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
+            // Providers that silently return [] on !response.ok would otherwise show only the
+            // generic "provider returned empty list" message — with this we show the real cause.
+            try {
+                val J = kotlinx.serialization.json.Json
+                val obj = J.parseToJsonElement(result) as? kotlinx.serialization.json.JsonObject
+                val ok = (obj?.get("ok") as? kotlinx.serialization.json.JsonPrimitive)?.boolean ?: true
+                val status = (obj?.get("status") as? kotlinx.serialization.json.JsonPrimitive)?.int ?: 0
+                if (!ok) {
+                    val shortUrl = url.take(120)
+                    // Only set if no provider-supplied console.error already exists for this key.
+                    // Provider errors are more specific; HTTP errors are the fallback.
+                    if (!lastErrorByScript.containsKey(scriptKey) || lastErrorByScript[scriptKey]?.startsWith("No streams") == true) {
+                        lastErrorByScript[scriptKey] = if (status == 0) "Network error reaching $shortUrl" else "HTTP $status from $shortUrl"
+                    }
+                }
+            } catch (_: Exception) {}
+            result
         }
     }
 
@@ -1438,6 +1457,72 @@ object NuvioRuntime {
                 var iter = { next: function() { return i < results.length ? { value: results[i++], done: false } : { done: true }; } };
                 try { iter[Symbol.iterator] = function() { return iter; }; } catch(e) {}
                 return iter;
+            };
+        }
+        // Promise.allSettled polyfill (ES2020) — QuickJS provides this natively in recent
+        // builds but older bindings may not. Safety net for providers that race multiple fetches.
+        if (typeof Promise.allSettled === 'undefined') {
+            Promise.allSettled = function(promises) {
+                return Promise.all((promises || []).map(function(p) {
+                    return Promise.resolve(p).then(
+                        function(v)  { return { status: 'fulfilled', value: v }; },
+                        function(e)  { return { status: 'rejected',  reason: e }; }
+                    );
+                }));
+            };
+        }
+        // Promise.any polyfill (ES2021) — resolves on first fulfillment, rejects if all reject.
+        if (typeof Promise.any === 'undefined') {
+            Promise.any = function(promises) {
+                return new Promise(function(resolve, reject) {
+                    var arr = Array.isArray(promises) ? promises : [];
+                    if (arr.length === 0) { reject(new Error('All promises were rejected')); return; }
+                    var errors = new Array(arr.length);
+                    var remaining = arr.length;
+                    arr.forEach(function(p, i) {
+                        Promise.resolve(p).then(resolve, function(e) {
+                            errors[i] = e;
+                            if (--remaining === 0) reject(new Error('All promises were rejected'));
+                        });
+                    });
+                });
+            };
+        }
+        // Array.prototype.flat / flatMap polyfills (ES2019)
+        if (!Array.prototype.flat) {
+            Array.prototype.flat = function(depth) {
+                depth = (depth === undefined) ? 1 : Math.floor(depth);
+                if (depth < 1) return Array.prototype.slice.call(this);
+                return Array.prototype.reduce.call(this, function(acc, val) {
+                    if (Array.isArray(val) && depth > 0) {
+                        var sub = val.flat(depth - 1);
+                        for (var i = 0; i < sub.length; i++) acc.push(sub[i]);
+                    } else { acc.push(val); }
+                    return acc;
+                }, []);
+            };
+        }
+        if (!Array.prototype.flatMap) {
+            Array.prototype.flatMap = function(fn, thisArg) {
+                return Array.prototype.map.call(this, fn, thisArg).flat(1);
+            };
+        }
+        // Object.entries polyfill
+        if (typeof Object.entries === 'undefined') {
+            Object.entries = function(o) {
+                return Object.keys(o).map(function(k) { return [k, o[k]]; });
+            };
+        }
+        // Object.fromEntries polyfill (ES2019)
+        if (typeof Object.fromEntries === 'undefined') {
+            Object.fromEntries = function(iter) {
+                var o = {};
+                if (Array.isArray(iter)) {
+                    iter.forEach(function(p) { if (p && p.length >= 2) o[p[0]] = p[1]; });
+                } else if (iter && typeof iter.forEach === 'function') {
+                    iter.forEach(function(v, k) { o[k] = v; });
+                }
+                return o;
             };
         }
     """.trimIndent()
