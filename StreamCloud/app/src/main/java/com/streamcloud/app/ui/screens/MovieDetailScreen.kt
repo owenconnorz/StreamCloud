@@ -120,6 +120,12 @@ fun MovieDetailScreen(
     var csPickerSelSub by remember { mutableStateOf<SubtitleFile?>(null) }
 
     LaunchedEffect(movieId) {
+        // Clear stale data from the previous movie immediately so that imdbId / movie
+        // from an earlier navigation can NEVER leak into the stream picker.
+        // Without this, navigating A→B could pass A's imdbId to providers (which then
+        // resolve it via their own proxy and get A's TMDB ID back instead of B's).
+        imdbId = null
+        movie  = null
         try {
             if (mediaType == "tv") {
                 val tvMovie = sl.tmdb.tvDetails(movieId, sl.tmdbApiKey)
