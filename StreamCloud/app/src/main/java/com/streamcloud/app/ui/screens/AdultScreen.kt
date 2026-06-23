@@ -38,11 +38,15 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdultScreen(onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit) {
+fun AdultScreen(
+    onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
+    onOpenRedditLogin: () -> Unit = {},
+) {
     val context = LocalContext.current
     val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(context))
     val state by vm.state.collectAsState()
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
+    val redditUsername by sl.settings.redditUsername.collectAsState(initial = "")
 
 
 
@@ -55,6 +59,13 @@ fun AdultScreen(onPlay: (videoId: String, fallbackEmbed: String, title: String) 
         com.streamcloud.app.ui.screens.adult.RedditFeedView(
             vm = vm,
             customSubs = customSubs,
+            redditUsername = redditUsername,
+            onLoginClick  = onOpenRedditLogin,
+            onLogoutClick = {
+                scope.launch { sl.settings.clearRedditUsername() }
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                android.webkit.CookieManager.getInstance().flush()
+            },
             onAddSub = { sub ->
                 scope.launch {
                     val cleaned = sub.removePrefix("r/").trim()
