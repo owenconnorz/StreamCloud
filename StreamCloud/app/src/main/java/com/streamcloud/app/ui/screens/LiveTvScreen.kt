@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.SignalWifiStatusbarConnectedNoInternet4
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -219,12 +220,17 @@ fun LiveTvScreen(onPlayChannel: (url: String, title: String, subtitle: String?) 
             containerColor   = MaterialTheme.colorScheme.surface,
         ) {
             SourcesContent(
-                sources      = state.sources,
-                englishOnly  = state.englishOnly,
-                onToggleEnglish = { vm.toggleEnglishOnly() },
-                onRemove     = { vm.removeSource(it) },
-                onRefresh    = { scope.launch { vm.refreshChannels() }; showSourcesSheet = false },
-                onDismiss    = { showSourcesSheet = false },
+                sources          = state.sources,
+                englishOnly      = state.englishOnly,
+                onToggleEnglish  = { vm.toggleEnglishOnly() },
+                hideDeadStreams  = state.hideDeadStreams,
+                onToggleDeadStreams = { vm.toggleHideDeadStreams() },
+                probing          = state.probing,
+                probedCount      = state.probedCount,
+                totalChannels    = state.channels.size,
+                onRemove         = { vm.removeSource(it) },
+                onRefresh        = { scope.launch { vm.refreshChannels() }; showSourcesSheet = false },
+                onDismiss        = { showSourcesSheet = false },
             )
         }
     }
@@ -676,6 +682,11 @@ private fun SourcesContent(
     sources: List<LiveTvSource>,
     englishOnly: Boolean,
     onToggleEnglish: () -> Unit,
+    hideDeadStreams: Boolean,
+    onToggleDeadStreams: () -> Unit,
+    probing: Boolean,
+    probedCount: Int,
+    totalChannels: Int,
     onRemove: (LiveTvSource) -> Unit,
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
@@ -742,6 +753,47 @@ private fun SourcesContent(
                 colors          = SwitchDefaults.colors(
                     checkedThumbColor      = MaterialTheme.colorScheme.onPrimary,
                     checkedTrackColor      = MaterialTheme.colorScheme.primary,
+                ),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+
+        // ── Hide dead streams toggle ────────────────────────────────────────
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.SignalWifiStatusbarConnectedNoInternet4,
+                contentDescription = null,
+                tint     = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Hide dead streams",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    if (probing) "Checking $probedCount / $totalChannels streams…"
+                    else if (hideDeadStreams && totalChannels > 0) "Checked — unreachable channels hidden"
+                    else "Probes each stream when loading",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked         = hideDeadStreams,
+                onCheckedChange = { onToggleDeadStreams() },
+                colors          = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                    checkedTrackColor = MaterialTheme.colorScheme.primary,
                 ),
             )
         }
