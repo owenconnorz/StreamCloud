@@ -1,19 +1,12 @@
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.streamcloud.app.ui.screens
 
-import android.graphics.SurfaceTexture
-import android.view.Surface
-import android.view.TextureView
-import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -33,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -45,15 +37,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.livetv.LiveTvChannel
+import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.data.livetv.LiveTvSource
 import com.streamcloud.app.data.livetv.SourceType
 import com.streamcloud.app.ui.viewmodel.LiveTvViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,12 +73,14 @@ fun LiveTvScreen() {
                 )
             },
             floatingActionButton = {
-                FloatingActionButton(
-                    onClick = { showAddSheet = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    shape = CircleShape,
-                ) {
-                    Icon(Icons.Default.Add, "Add source", tint = MaterialTheme.colorScheme.onPrimary)
+                Box(Modifier.navigationBarsPadding().padding(bottom = 72.dp)) {
+                    FloatingActionButton(
+                        onClick = { showAddSheet = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        shape = CircleShape,
+                    ) {
+                        Icon(Icons.Default.Add, "Add source", tint = MaterialTheme.colorScheme.onPrimary)
+                    }
                 }
             },
         ) { padding ->
@@ -192,7 +183,12 @@ fun LiveTvScreen() {
             exit    = slideOutVertically(tween(300)) { it },
         ) {
             state.selectedChannel?.let { ch ->
-                LiveTvPlayerScreen(channel = ch, onClose = { vm.selectChannel(null) })
+                NativePlayerScreen(
+                    streamUrl = ch.url,
+                    title     = ch.name,
+                    subtitle  = ch.currentProgram.ifBlank { null },
+                    onBack    = { vm.selectChannel(null) },
+                )
             }
         }
     }
@@ -766,174 +762,6 @@ private fun SourcesContent(
         Spacer(Modifier.height(12.dp))
         TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
             Text("Close")
-        }
-    }
-}
-
-// ── Fullscreen Player ─────────────────────────────────────────────────────────
-
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-@Composable
-private fun LiveTvPlayerScreen(channel: LiveTvChannel, onClose: () -> Unit) {
-    val context = LocalContext.current
-
-    val player = remember(channel.url) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(channel.url))
-            prepare()
-            playWhenReady = true
-        }
-    }
-    DisposableEffect(channel.url) { onDispose { player.release() } }
-
-    var isPlaying    by remember { mutableStateOf(true) }
-    var showControls by remember { mutableStateOf(true) }
-    val hideKey      = remember { mutableStateOf(0) }
-
-    // Auto-hide controls after 4 s
-    LaunchedEffect(hideKey.value, showControls) {
-        if (!showControls) return@LaunchedEffect
-        delay(4_000)
-        showControls = false
-    }
-
-    // Mirror player play state
-    DisposableEffect(player) {
-        val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
-        }
-        player.addListener(listener)
-        onDispose { player.removeListener(listener) }
-    }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .pointerInput(Unit) {
-                detectTapGestures {
-                    showControls = !showControls
-                    hideKey.value++
-                }
-            }
-    ) {
-        // Video surface
-        androidx.compose.ui.viewinterop.AndroidView(
-            factory = { ctx ->
-                TextureView(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                    )
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                            player.setVideoSurface(Surface(st))
-                        }
-                        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
-                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                            player.setVideoSurface(null); return true
-                        }
-                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        // Controls overlay
-        AnimatedVisibility(
-            visible = showControls,
-            enter   = fadeIn(tween(200)),
-            exit    = fadeOut(tween(400)),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f    to Color.Black.copy(alpha = 0.70f),
-                            0.25f to Color.Transparent,
-                            0.75f to Color.Transparent,
-                            1f    to Color.Black.copy(alpha = 0.70f),
-                        )
-                    )
-            ) {
-                // Top bar
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.TopStart)
-                        .statusBarsPadding()
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Default.KeyboardArrowDown, "Close",
-                             tint = Color.White, modifier = Modifier.size(32.dp))
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            channel.name,
-                            color      = Color.White,
-                            style      = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            maxLines   = 1,
-                            overflow   = TextOverflow.Ellipsis,
-                        )
-                        if (channel.currentProgram.isNotBlank())
-                            Text(
-                                "Now: ${channel.currentProgram}",
-                                color  = Color.White.copy(alpha = 0.75f),
-                                style  = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                            )
-                    }
-                    // LIVE pill
-                    Row(
-                        Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFCC0000))
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.size(6.dp).background(Color.White, CircleShape))
-                        Spacer(Modifier.width(4.dp))
-                        Text("LIVE", color = Color.White, fontSize = 11.sp,
-                             fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                }
-
-                // Centre play / pause
-                IconButton(
-                    onClick  = { if (player.isPlaying) player.pause() else player.play(); hideKey.value++ },
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(72.dp)
-                        .background(Color.Black.copy(alpha = 0.40f), CircleShape),
-                ) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        "Play/Pause",
-                        tint     = Color.White,
-                        modifier = Modifier.size(40.dp),
-                    )
-                }
-
-                // Bottom: channel group
-                if (channel.group.isNotBlank()) {
-                    Text(
-                        channel.group,
-                        color    = Color.White.copy(alpha = 0.6f),
-                        style    = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .navigationBarsPadding()
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
-                    )
-                }
-            }
         }
     }
 }
