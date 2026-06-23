@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -81,15 +82,33 @@ fun LiveTvScreen(onPlayChannel: (url: String, title: String, subtitle: String?) 
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
 
-                // ── Group filter chips ──────────────────────────────────────
-                if (state.groups.isNotEmpty()) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
+                // ── Filter chips (English toggle + group chips) ─────────────
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // English-only toggle — always visible
+                    FilterChip(
+                        selected = state.englishOnly,
+                        onClick  = { vm.toggleEnglishOnly() },
+                        label    = { Text("English") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Outlined.Language,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor     = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor         = MaterialTheme.colorScheme.onPrimary,
+                            selectedLeadingIconColor   = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    )
+                    if (state.groups.isNotEmpty()) {
                         FilterChip(
                             selected  = state.selectedGroup == null,
                             onClick   = { vm.selectGroup(null) },
@@ -200,10 +219,12 @@ fun LiveTvScreen(onPlayChannel: (url: String, title: String, subtitle: String?) 
             containerColor   = MaterialTheme.colorScheme.surface,
         ) {
             SourcesContent(
-                sources   = state.sources,
-                onRemove  = { vm.removeSource(it) },
-                onRefresh = { scope.launch { vm.refreshChannels() }; showSourcesSheet = false },
-                onDismiss = { showSourcesSheet = false },
+                sources      = state.sources,
+                englishOnly  = state.englishOnly,
+                onToggleEnglish = { vm.toggleEnglishOnly() },
+                onRemove     = { vm.removeSource(it) },
+                onRefresh    = { scope.launch { vm.refreshChannels() }; showSourcesSheet = false },
+                onDismiss    = { showSourcesSheet = false },
             )
         }
     }
@@ -653,6 +674,8 @@ private fun SourceTypeChip(
 @Composable
 private fun SourcesContent(
     sources: List<LiveTvSource>,
+    englishOnly: Boolean,
+    onToggleEnglish: () -> Unit,
     onRemove: (LiveTvSource) -> Unit,
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
@@ -682,6 +705,45 @@ private fun SourcesContent(
                 Icon(Icons.Default.Refresh, "Refresh",
                      tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        Spacer(Modifier.height(4.dp))
+
+        // ── English-only toggle ─────────────────────────────────────────────
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.Language,
+                contentDescription = null,
+                tint     = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "English channels only",
+                    style      = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color      = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "Hides channels in other languages",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked         = englishOnly,
+                onCheckedChange = { onToggleEnglish() },
+                colors          = SwitchDefaults.colors(
+                    checkedThumbColor      = MaterialTheme.colorScheme.onPrimary,
+                    checkedTrackColor      = MaterialTheme.colorScheme.primary,
+                ),
+            )
         }
         Spacer(Modifier.height(12.dp))
 
