@@ -26,4 +26,6 @@ data class LiveTvChannel(
     val sourceId: String = "",
     val currentProgram: String = "",
     val nextProgram: String    = "",
+    /** null = not yet probed, true = stream responded OK, false = stream dead/unreachable */
+    val isAlive: Boolean? = null,
 )
