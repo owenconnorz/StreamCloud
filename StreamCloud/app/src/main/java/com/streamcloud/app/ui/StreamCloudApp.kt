@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Theaters
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -59,6 +60,7 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
+import com.streamcloud.app.ui.screens.LiveTvScreen
 import com.streamcloud.app.ui.screens.MovieDetailScreen
 import com.streamcloud.app.ui.screens.MovieSearchScreen
 import com.streamcloud.app.ui.screens.MoviesScreen
@@ -93,6 +95,7 @@ private sealed class Tab(val route: String, val label: String, val icon: ImageVe
     data object Music    : Tab("music",    "Music",    Icons.Filled.MusicNote)
     data object Library  : Tab("library",  "Library",  Icons.Filled.Bookmarks)
     data object Adult    : Tab("adult",    "Adult",    Icons.Filled.Whatshot)
+    data object LiveTv   : Tab("live_tv",  "Live TV",  Icons.Filled.LiveTv)
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings)
 }
 
@@ -133,6 +136,7 @@ fun StreamCloudApp() {
             put(Tab.Movies.route, Tab.Movies)
             put(Tab.Music.route, Tab.Music)
             put(Tab.Library.route, Tab.Library)
+            put(Tab.LiveTv.route, Tab.LiveTv)
             if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
         }
 
@@ -707,6 +711,10 @@ fun StreamCloudApp() {
                         },
                     )
                 }
+                composable(Tab.LiveTv.route) {
+                    LiveTvScreen()
+                }
+
                 composable(Tab.Adult.route) {
                     AdultScreen(onPlay = { videoId, embed, title ->
                         val v = URLEncoder.encode(videoId, "UTF-8")
