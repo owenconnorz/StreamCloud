@@ -942,13 +942,23 @@ private fun LibraryRow(
                 .size(48.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
         ) {
-            AsyncImage(
-                model = entity.thumbnail,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (entity.thumbnail != null) {
+                AsyncImage(
+                    model = entity.thumbnail,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -999,15 +1009,29 @@ private fun YtHomePlaylistCard(
             .width(150.dp)
             .clickable(onClick = onClick),
     ) {
-        AsyncImage(
-            model = pl.thumbnail,
-            contentDescription = pl.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
+        Box(
+            Modifier
                 .size(150.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
+            contentAlignment = Alignment.Center,
+        ) {
+            if (pl.thumbnail != null) {
+                AsyncImage(
+                    model = pl.thumbnail,
+                    contentDescription = pl.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(52.dp),
+                )
+            }
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             pl.title,
@@ -1053,15 +1077,29 @@ private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            model = s.thumbnail,
-            contentDescription = s.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
+        Box(
+            Modifier
                 .size(54.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
+            contentAlignment = Alignment.Center,
+        ) {
+            if (s.thumbnail != null) {
+                AsyncImage(
+                    model = s.thumbnail,
+                    contentDescription = s.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
