@@ -767,11 +767,26 @@ fun StreamCloudApp() {
                     val scope = rememberCoroutineScope()
                     RedditLoginScreen(
                         onLoginSuccess = { username ->
+                            // Seed BrowserCookieJar so OkHttp manages the session
+                            // from here on (handles Reddit's token rotation).
+                            val rawCookies = android.webkit.CookieManager.getInstance()
+                                .getCookie("https://www.reddit.com").orEmpty()
+                            if (rawCookies.isNotBlank()) {
+                                rawCookies.split("; ").forEach { part ->
+                                    val eq = part.indexOf('=')
+                                    if (eq > 0) {
+                                        val n = part.substring(0, eq).trim()
+                                        val v = part.substring(eq + 1).trim()
+                                        com.streamcloud.app.data.network.BrowserCookieJar
+                                            .setCookie("www.reddit.com", n, v)
+                                        com.streamcloud.app.data.network.BrowserCookieJar
+                                            .setCookie("reddit.com", n, v)
+                                    }
+                                }
+                            }
                             scope.launch {
                                 sl.settings.setRedditUsername(username)
-                                val cookies = android.webkit.CookieManager.getInstance()
-                                    .getCookie("https://www.reddit.com").orEmpty()
-                                if (cookies.isNotBlank()) sl.settings.addRedditAccount(username, cookies)
+                                if (rawCookies.isNotBlank()) sl.settings.addRedditAccount(username, rawCookies)
                             }
                             nav.popBackStack()
                         },
