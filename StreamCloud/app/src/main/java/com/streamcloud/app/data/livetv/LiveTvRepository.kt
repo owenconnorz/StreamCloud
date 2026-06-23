@@ -49,6 +49,11 @@ class LiveTvRepository(context: Context) {
         prefs.edit().putString("sources", arr.toString()).apply()
     }
 
+    // ── English-only preference ─────────────────────────────────────────────
+
+    fun loadEnglishOnly(): Boolean = prefs.getBoolean("english_only", false)
+    fun saveEnglishOnly(v: Boolean) { prefs.edit().putBoolean("english_only", v).apply() }
+
     // ── Channel fetching ────────────────────────────────────────────────────
 
     suspend fun fetchChannels(source: LiveTvSource): List<LiveTvChannel> =
@@ -67,6 +72,7 @@ class LiveTvRepository(context: Context) {
         val logoRe  = Regex("""tvg-logo="([^"]*)"""")
         val groupRe = Regex("""group-title="([^"]*)"""")
         val epgRe   = Regex("""tvg-id="([^"]*)"""")
+        val langRe  = Regex("""tvg-language="([^"]*)"""")
         val channels = mutableListOf<LiveTvChannel>()
         val lines = content.lines()
         var i = 0
@@ -77,6 +83,7 @@ class LiveTvRepository(context: Context) {
                 val logo  = logoRe.find(line)?.groupValues?.getOrNull(1) ?: ""
                 val group = groupRe.find(line)?.groupValues?.getOrNull(1)?.ifBlank { "General" } ?: "General"
                 val epgId = epgRe.find(line)?.groupValues?.getOrNull(1) ?: ""
+                val lang  = langRe.find(line)?.groupValues?.getOrNull(1) ?: ""
                 var j = i + 1
                 while (j < lines.size && lines[j].isBlank()) j++
                 val url = if (j < lines.size) lines[j].trim() else ""
@@ -84,7 +91,7 @@ class LiveTvRepository(context: Context) {
                     channels += LiveTvChannel(
                         id = "${sourceId}_${channels.size}",
                         name = name, url = url, logo = logo,
-                        group = group, epgId = epgId, sourceId = sourceId,
+                        group = group, epgId = epgId, language = lang, sourceId = sourceId,
                     )
                     i = j + 1
                     continue
@@ -112,32 +119,12 @@ class LiveTvRepository(context: Context) {
                     logo     = o.optString("stream_icon", ""),
                     group    = o.optString("category_name", "General"),
                     epgId    = o.optString("epg_channel_id", ""),
+                    language = "",   // Xtream API doesn't expose language per stream
                     sourceId = source.id,
                 )
             }
         } catch (e: Exception) { emptyList() }
     }
-
-    /** Fetch short EPG (current + next) for a single channel from an Xtream server. */
-    suspend fun fetchShortEpg(source: LiveTvSource, streamId: String): Pair<String, String> =
-        withContext(Dispatchers.IO) {
-            if (source.type != SourceType.XTREAM) return@withContext Pair("", "")
-            try {
-                val sid  = streamId.substringAfterLast("_")
-                val base = source.xtreamServer.trimEnd('/')
-                val raw  = fetchUrl(
-                    "$base/player_api.php?username=${source.xtreamUser}" +
-                    "&password=${source.xtreamPass}&action=get_short_epg&stream_id=$sid&limit=2"
-                )
-                val listings = JSONObject(raw).optJSONArray("epg_listings")
-                    ?: return@withContext Pair("", "")
-                val current = if (listings.length() > 0)
-                    listings.getJSONObject(0).optString("title", "") else ""
-                val next = if (listings.length() > 1)
-                    listings.getJSONObject(1).optString("title", "") else ""
-                Pair(current, next)
-            } catch (e: Exception) { Pair("", "") }
-        }
 
     // ── HTTP helper ─────────────────────────────────────────────────────────
 
