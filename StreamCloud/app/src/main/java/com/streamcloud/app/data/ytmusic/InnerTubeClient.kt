@@ -250,8 +250,20 @@ internal fun JsonElement?.bestThumbnail(): String? {
         // Album pages use croppedSquareThumbnailRenderer inside the header thumbnail
         val croppedInner = o["croppedSquareThumbnailRenderer"] as? JsonObject
         if (croppedInner != null) thumbs(croppedInner)?.let { return it }
+        // richThumbnail: used for video-style playlist cards
+        val richInner = o["richThumbnail"] as? JsonObject
+        if (richInner != null) thumbs(richInner)?.let { return it }
         val rendererOuter = o["thumbnailRenderer"] as? JsonObject
         if (rendererOuter != null) thumbs(rendererOuter)?.let { return it }
+        // musicMultiThumbnailRenderer: each entry in "thumbnails" is itself a renderer
+        val multiInner = o["musicMultiThumbnailRenderer"] as? JsonObject
+        if (multiInner != null) {
+            val outerArr = multiInner["thumbnails"] as? JsonArray
+            outerArr?.forEach { t ->
+                val tObj = t as? JsonObject ?: return@forEach
+                thumbs(tObj)?.let { return it }
+            }
+        }
         return null
     }
     val list = thumbs(this) ?: return null
@@ -261,16 +273,43 @@ internal fun JsonElement?.bestThumbnail(): String? {
     return raw.upgradeToHqSize()
 }
 
-/** Searches the whole JSON tree for the best "thumbnails" array and returns the largest URL.
- *  Picks the array with the most entries (more sizes = main card art, not a small icon). */
+/**
+ * Searches the entire JSON tree for thumbnail URLs.
+ *
+ * Handles two structure variants used by YouTube Music:
+ *
+ * 1. Simple (albums, artists, most playlists):
+ *      thumbnails: [ {url, width, height}, … ]
+ *
+ * 2. Composite / mosaic (auto-generated mixes: "My Supermix", "Discover Mix",
+ *    "Archive Mix", "Modern Pop Hits", podcast shows, etc.):
+ *      thumbnailRenderer → musicMultiThumbnailRenderer → thumbnails: [
+ *        { musicThumbnailRenderer → thumbnail → thumbnails: [{url,w,h}] },
+ *        …  (one object per quadrant, NOT a raw url-object)
+ *      ]
+ *
+ * The old implementation called `maxByOrNull { it.size }` which incorrectly
+ * preferred the outer composite array (4 renderer-objects) over the inner
+ * direct-url arrays (1–2 entries each), then found no "url" keys in the
+ * renderer objects and returned null — causing grey boxes for those sections.
+ *
+ * New approach: flatten every "thumbnails" array anywhere in the tree, collect
+ * only elements that have a direct "url" key, and return the last URL found
+ * (depth-first order means deepest / latest = generally the highest quality).
+ */
 internal fun JsonElement.bestThumbnailAnywhere(): String? {
-    val url = findAll("thumbnails")
-        .mapNotNull { it as? JsonArray }
-        .maxByOrNull { it.size }
-        ?.mapNotNull { it.jsonObject["url"]?.jsonPrimitive?.contentOrNull }
-        ?.lastOrNull()
-        ?: return null
-    return url.upgradeToHqSize()
+    val urls = mutableListOf<String>()
+    findAll("thumbnails")
+        .filterIsInstance<JsonArray>()
+        .forEach { arr ->
+            arr.filterIsInstance<JsonObject>()
+                .forEach { obj ->
+                    obj["url"]?.jsonPrimitive?.contentOrNull
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { urls += it }
+                }
+        }
+    return urls.lastOrNull()?.upgradeToHqSize()
 }
 
 private fun String.upgradeToHqSize(): String {
