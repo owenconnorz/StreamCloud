@@ -7,13 +7,10 @@ data class LiveTvSource(
     val id: String,
     val name: String,
     val type: SourceType,
-    // M3U_URL + SINGLE
     val url: String = "",
-    // XTREAM
     val xtreamServer: String = "",
     val xtreamUser: String   = "",
     val xtreamPass: String   = "",
-    // Optional XMLTV EPG URL (M3U sources)
     val epgUrl: String = "",
 )
 
@@ -22,9 +19,10 @@ data class LiveTvChannel(
     val id: String,
     val name: String,
     val url: String,
-    val logo: String  = "",
-    val group: String = "General",
-    val epgId: String = "",
+    val logo: String     = "",
+    val group: String    = "General",
+    val epgId: String    = "",
+    val language: String = "",   // tvg-language attribute, e.g. "English", "Arabic"
     val sourceId: String = "",
     val currentProgram: String = "",
     val nextProgram: String    = "",
