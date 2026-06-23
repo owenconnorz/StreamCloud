@@ -60,6 +60,7 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.EpornerPlayerScreen
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
+import com.streamcloud.app.ui.screens.PornPopScreen
 import com.streamcloud.app.ui.screens.adult.RedditLoginScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
 import com.streamcloud.app.ui.screens.LiveTvScreen
@@ -775,19 +776,9 @@ fun StreamCloudApp() {
                     )
                 }
 
-                // ── PornPop tab — same features as Adult, PornPop branding ──
+                // ── PornPop AI Studio tab ────────────────────────────────────
                 composable(Tab.PornPop.route) {
-                    AdultScreen(
-                        screenTitle    = "PornPop",
-                        screenSubtitle = "18+ · AI-Powered by PornPop.AI",
-                        onPlay = { videoId, embed, title ->
-                            val v = URLEncoder.encode(videoId, "UTF-8")
-                            val e = URLEncoder.encode(embed, "UTF-8")
-                            val t = URLEncoder.encode(title, "UTF-8")
-                            nav.navigate("player/eporner/$v/$e/$t")
-                        },
-                        onOpenRedditLogin = { nav.navigate("reddit-login") },
-                    )
+                    PornPopScreen()
                 }
 
 
