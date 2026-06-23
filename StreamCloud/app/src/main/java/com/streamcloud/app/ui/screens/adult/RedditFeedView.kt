@@ -49,6 +49,8 @@ import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.RedditAdultSubs
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.ExitToApp
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -58,6 +60,9 @@ fun RedditFeedView(
     onAddSub: (String) -> Unit,
     onRemoveSub: (String) -> Unit,
     onSwitchSource: () -> Unit,
+    redditUsername: String = "",
+    onLoginClick: () -> Unit = {},
+    onLogoutClick: () -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
@@ -124,6 +129,67 @@ fun RedditFeedView(
                 )
                 IconButton(onClick = { showAdd = true }) {
                     Icon(Icons.Default.Add, "Add subreddit", tint = Color.White)
+                }
+            }
+            // ── Reddit account status row ──────────────────────────────
+            if (redditUsername.isEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .clickable(onClick = onLoginClick)
+                        .background(
+                            Color(0xFFFF4500).copy(alpha = 0.18f),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        Icons.Default.AccountCircle,
+                        contentDescription = null,
+                        tint = Color(0xFFFF4500),
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        "Connect Reddit account to load NSFW content",
+                        color = Color(0xFFFF7A50),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            } else {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.AccountCircle,
+                        contentDescription = null,
+                        tint = Color(0xFFFF4500),
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "u/$redditUsername",
+                        color = Color(0xFFFF7A50),
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = onLogoutClick,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.ExitToApp,
+                            "Logout",
+                            tint = Color.White.copy(alpha = 0.55f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
             }
             LazyRow(
