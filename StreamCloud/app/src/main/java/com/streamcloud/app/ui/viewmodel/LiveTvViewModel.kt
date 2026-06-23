@@ -7,6 +7,9 @@ import androidx.lifecycle.viewModelScope
 import com.streamcloud.app.data.livetv.LiveTvChannel
 import com.streamcloud.app.data.livetv.LiveTvRepository
 import com.streamcloud.app.data.livetv.LiveTvSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,11 +25,14 @@ class LiveTvViewModel(private val context: Context) : ViewModel() {
         val sources: List<LiveTvSource>   = emptyList(),
         val channels: List<LiveTvChannel> = emptyList(),
         val loading: Boolean              = false,
+        val probing: Boolean              = false,
+        val probedCount: Int              = 0,
         val error: String?                = null,
         val selectedGroup: String?        = null,
         val searchQuery: String           = "",
         val selectedChannel: LiveTvChannel? = null,
         val englishOnly: Boolean          = false,
+        val hideDeadStreams: Boolean       = false,
     ) {
         val groups: List<String>
             get() = channels.map { it.group }.distinct().filter { it.isNotBlank() }.sorted()
@@ -34,7 +40,8 @@ class LiveTvViewModel(private val context: Context) : ViewModel() {
         val filteredChannels: List<LiveTvChannel>
             get() {
                 var list = channels
-                if (englishOnly)       list = list.filter { isLikelyEnglish(it) }
+                if (hideDeadStreams)        list = list.filter { it.isAlive != false }
+                if (englishOnly)           list = list.filter { isLikelyEnglish(it) }
                 if (selectedGroup != null) list = list.filter { it.group == selectedGroup }
                 if (searchQuery.isNotBlank())
                     list = list.filter { it.name.contains(searchQuery, ignoreCase = true) }
@@ -46,7 +53,10 @@ class LiveTvViewModel(private val context: Context) : ViewModel() {
     val state: StateFlow<State> = _state.asStateFlow()
 
     init {
-        _state.update { it.copy(englishOnly = repo.loadEnglishOnly()) }
+        _state.update { it.copy(
+            englishOnly    = repo.loadEnglishOnly(),
+            hideDeadStreams = repo.loadHideDeadStreams(),
+        )}
         loadSources()
     }
 
@@ -66,6 +76,35 @@ class LiveTvViewModel(private val context: Context) : ViewModel() {
                 catch (e: Exception) { lastErr = "Could not load \"${src.name}\": ${e.message}" }
             }
             _state.update { it.copy(loading = false, channels = all, error = lastErr) }
+            if (_state.value.hideDeadStreams) startProbing()
+        }
+    }
+
+    /**
+     * Probes all channels concurrently (max 8 at a time) and updates isAlive per channel.
+     * Results trickle in — the UI re-renders as each batch completes.
+     */
+    private fun startProbing() {
+        viewModelScope.launch {
+            val channels = _state.value.channels
+            if (channels.isEmpty()) return@launch
+            _state.update { it.copy(probing = true, probedCount = 0) }
+
+            val ioPool = Dispatchers.IO.limitedParallelism(8)
+            // Work in chunks so we can flush progress to the UI
+            channels.chunked(8).forEach { batch ->
+                batch.map { ch ->
+                    async(ioPool) { ch.id to repo.probeStream(ch.url) }
+                }.awaitAll().forEach { (id, alive) ->
+                    _state.update { s ->
+                        s.copy(
+                            probedCount = s.probedCount + 1,
+                            channels = s.channels.map { if (it.id == id) it.copy(isAlive = alive) else it }
+                        )
+                    }
+                }
+            }
+            _state.update { it.copy(probing = false) }
         }
     }
 
@@ -91,24 +130,25 @@ class LiveTvViewModel(private val context: Context) : ViewModel() {
         _state.update { it.copy(englishOnly = next) }
     }
 
+    fun toggleHideDeadStreams() {
+        val next = !_state.value.hideDeadStreams
+        repo.saveHideDeadStreams(next)
+        _state.update { it.copy(hideDeadStreams = next) }
+        // Kick off probing when user enables the feature (if not already probed)
+        if (next && _state.value.channels.any { it.isAlive == null }) startProbing()
+    }
+
     fun selectGroup(g: String?)           = _state.update { it.copy(selectedGroup = g) }
     fun setSearch(q: String)              = _state.update { it.copy(searchQuery = q) }
     fun selectChannel(ch: LiveTvChannel?) = _state.update { it.copy(selectedChannel = ch) }
     fun newSourceId()                     = UUID.randomUUID().toString()
 
     companion object {
-        /**
-         * A channel is considered English if:
-         *  1. Its tvg-language tag starts with "en" (e.g. "English", "en", "EN"), OR
-         *  2. No language tag is set AND the name/group contain <15% non-Latin characters
-         *     (catches Arabic, Cyrillic, Chinese, etc. while keeping most unnamed EN channels).
-         */
         fun isLikelyEnglish(ch: LiveTvChannel): Boolean {
             if (ch.language.isNotBlank()) {
                 val lang = ch.language.trim().lowercase()
                 return lang.startsWith("en") || lang.contains("english")
             }
-            // Heuristic fallback when no language tag is present
             val combined = "${ch.name} ${ch.group}"
             val total    = combined.length.coerceAtLeast(1)
             val nonLatin = combined.count { it.code > 127 }
