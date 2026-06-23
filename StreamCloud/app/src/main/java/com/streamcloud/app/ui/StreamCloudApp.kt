@@ -769,6 +769,9 @@ fun StreamCloudApp() {
                         onLoginSuccess = { username ->
                             scope.launch {
                                 sl.settings.setRedditUsername(username)
+                                val cookies = android.webkit.CookieManager.getInstance()
+                                    .getCookie("https://www.reddit.com").orEmpty()
+                                if (cookies.isNotBlank()) sl.settings.addRedditAccount(username, cookies)
                             }
                             nav.popBackStack()
                         },
