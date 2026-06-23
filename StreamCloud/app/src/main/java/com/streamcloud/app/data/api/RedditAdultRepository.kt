@@ -41,12 +41,8 @@ object RedditAdultRepository {
         after: String? = null,
     ): Pair<List<AdultItem>, String?> {
         val clean = subreddit.removePrefix("r/").trim()
-        // Forward any Reddit session cookies stored by the WebView login so
-        // authenticated (NSFW) subreddits don't return 404.
-        val cookie = runCatching {
-            android.webkit.CookieManager.getInstance().getCookie("https://www.reddit.com")
-        }.getOrNull()
-        val resp = api.listing(subreddit = clean, sort = sort, after = after, cookie = cookie)
+        // Cookies are managed automatically by BrowserCookieJar (seeded on login).
+        val resp = api.listing(subreddit = clean, sort = sort, after = after)
         val children = resp.data?.children.orEmpty()
         val items = children.mapNotNull { it.data?.toAdultItem() }
         return items to resp.data?.after
