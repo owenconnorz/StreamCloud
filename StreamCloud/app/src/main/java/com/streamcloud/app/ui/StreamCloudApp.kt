@@ -97,6 +97,7 @@ private sealed class Tab(val route: String, val label: String, val icon: ImageVe
     data object Music    : Tab("music",    "Music",    Icons.Filled.MusicNote)
     data object Library  : Tab("library",  "Library",  Icons.Filled.Bookmarks)
     data object Adult    : Tab("adult",    "Adult",    Icons.Filled.Whatshot)
+    data object PornPop  : Tab("pornpop",  "PornPop",  Icons.Filled.AutoAwesome)
     data object LiveTv   : Tab("live_tv",  "Live TV",  Icons.Filled.LiveTv)
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings)
 }
@@ -141,6 +142,7 @@ fun StreamCloudApp() {
             put(Tab.Library.route, Tab.Library)
             put(Tab.LiveTv.route, Tab.LiveTv)
             if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
+            if (nsfwEnabled) put(Tab.PornPop.route, Tab.PornPop)
         }
 
 
@@ -172,6 +174,7 @@ fun StreamCloudApp() {
             add(Tab.Music.route)
             add(Tab.Library.route)
             if (nsfw) add(Tab.Adult.route)
+            if (nsfw) add(Tab.PornPop.route)
         }
 
         resolvedStartRoute = if (!csv.isNullOrBlank()) {
@@ -769,6 +772,21 @@ fun StreamCloudApp() {
                             nav.popBackStack()
                         },
                         onBack = { nav.popBackStack() },
+                    )
+                }
+
+                // ── PornPop tab — same features as Adult, PornPop branding ──
+                composable(Tab.PornPop.route) {
+                    AdultScreen(
+                        screenTitle    = "PornPop",
+                        screenSubtitle = "18+ · AI-Powered by PornPop.AI",
+                        onPlay = { videoId, embed, title ->
+                            val v = URLEncoder.encode(videoId, "UTF-8")
+                            val e = URLEncoder.encode(embed, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/eporner/$v/$e/$t")
+                        },
+                        onOpenRedditLogin = { nav.navigate("reddit-login") },
                     )
                 }
 
