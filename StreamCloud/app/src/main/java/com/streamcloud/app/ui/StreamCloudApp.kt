@@ -111,7 +111,8 @@ fun StreamCloudApp() {
         currentRoute.startsWith("cs-detail/") ||
         currentRoute.startsWith("cs-section/") ||
         currentRoute.startsWith("movie/") ||
-        currentRoute.startsWith("tv/")
+        currentRoute.startsWith("tv/") ||
+        currentRoute.startsWith("live-tv-player")
     )
 
     val context = LocalContext.current
@@ -712,7 +713,33 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(Tab.LiveTv.route) {
-                    LiveTvScreen()
+                    LiveTvScreen(
+                        onPlayChannel = { url, title, subtitle ->
+                            val u = URLEncoder.encode(url,   "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            val s = if (subtitle != null) URLEncoder.encode(subtitle, "UTF-8") else ""
+                            nav.navigate("live-tv-player/$u/$t/$s")
+                        }
+                    )
+                }
+
+                composable(
+                    "live-tv-player/{url}/{title}/{subtitle}",
+                    arguments = listOf(
+                        navArgument("url")      { type = NavType.StringType },
+                        navArgument("title")    { type = NavType.StringType },
+                        navArgument("subtitle") { type = NavType.StringType; defaultValue = "" },
+                    )
+                ) { entry ->
+                    val url      = URLDecoder.decode(entry.arguments!!.getString("url")!!,      "UTF-8")
+                    val title    = URLDecoder.decode(entry.arguments!!.getString("title")!!,    "UTF-8")
+                    val subtitle = URLDecoder.decode(entry.arguments!!.getString("subtitle")!!, "UTF-8").ifBlank { null }
+                    NativePlayerScreen(
+                        streamUrl = url,
+                        title     = title,
+                        subtitle  = subtitle,
+                        onBack    = { nav.popBackStack() },
+                    )
                 }
 
                 composable(Tab.Adult.route) {
