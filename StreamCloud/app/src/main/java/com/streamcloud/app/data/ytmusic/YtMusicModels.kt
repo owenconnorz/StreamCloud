@@ -8,6 +8,9 @@ data class YtmPlaylist(
 
     val subtitle: String?,
     val isAlbum: Boolean = false,
+    /** True when this item is a standalone music video (videoId only, no browse/playlist ID).
+     *  Clicking it should play the video directly, not open a playlist page. */
+    val isVideo: Boolean = false,
 
     val cachedTrackCount: Int? = null,
 )
