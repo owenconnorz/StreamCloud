@@ -41,6 +41,7 @@ object SettingsKeys {
     val UI_MODE = stringPreferencesKey("ui_mode")
     val ADULT_REDDIT_SUBS = stringPreferencesKey("adult_reddit_subs")
     val REDDIT_USERNAME     = stringPreferencesKey("reddit_username")
+    val REDDIT_ACCOUNTS_RAW = stringPreferencesKey("reddit_accounts_raw")
     val COLOR_PALETTE = stringPreferencesKey("color_palette")
 
 
@@ -377,4 +378,42 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun clearRedditUsername() =
         context.dataStore.edit { it.remove(SettingsKeys.REDDIT_USERNAME) }
+
+    // ── Reddit multi-account support ──────────────────────────────────
+    // Stored as: "user1|@|cookies1|||user2|@|cookies2"
+    private fun parseRedditAccounts(raw: String): List<Pair<String, String>> {
+        if (raw.isBlank()) return emptyList()
+        return raw.split("|||").mapNotNull { entry ->
+            val idx = entry.indexOf("|@|")
+            if (idx < 0) null else entry.substring(0, idx) to entry.substring(idx + 3)
+        }
+    }
+
+    private fun encodeRedditAccounts(accounts: List<Pair<String, String>>): String =
+        accounts.joinToString("|||") { "${it.first}|@|${it.second}" }
+
+    val redditAccounts: kotlinx.coroutines.flow.Flow<List<Pair<String, String>>> =
+        context.dataStore.data.map { prefs ->
+            parseRedditAccounts(prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] ?: "")
+        }
+
+    suspend fun addRedditAccount(username: String, cookies: String) {
+        if (username.isBlank() || cookies.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val current = parseRedditAccounts(
+                prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] ?: "").toMutableList()
+            current.removeIf { it.first == username }
+            current.add(0, username to cookies)
+            prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] = encodeRedditAccounts(current.take(5))
+        }
+    }
+
+    suspend fun removeRedditAccount(username: String) {
+        context.dataStore.edit { prefs ->
+            val current = parseRedditAccounts(
+                prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] ?: "")
+                .filter { it.first != username }
+            prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] = encodeRedditAccounts(current)
+        }
+    }
 }
