@@ -119,12 +119,7 @@ fun PornPopScreen() {
             selectedTabIndex = activeTab,
             containerColor = MaterialTheme.colorScheme.surface,
             contentColor = Purple,
-            indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    Modifier.tabIndicatorOffset(tabPositions[activeTab]),
-                    color = Purple,
-                )
-            },
+
         ) {
             Tab(
                 selected = activeTab == 0,
