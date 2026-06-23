@@ -489,7 +489,7 @@ private fun AddSourceContent(
             )
             SourceTypeChip(
                 label    = "Xtream",
-                icon     = Icons.Default.Key,
+                icon     = Icons.Default.VpnKey,
                 selected = selectedType == SourceType.XTREAM,
                 modifier = Modifier.weight(1f),
                 onClick  = { selectedType = SourceType.XTREAM },
@@ -730,7 +730,7 @@ private fun SourcesContent(
                         Icon(
                             when (src.type) {
                                 SourceType.M3U_URL -> Icons.Default.Link
-                                SourceType.XTREAM  -> Icons.Default.Key
+                                SourceType.XTREAM  -> Icons.Default.VpnKey
                                 SourceType.SINGLE  -> Icons.Default.OndemandVideo
                             },
                             contentDescription = null,
@@ -756,7 +756,7 @@ private fun SourcesContent(
                         )
                     }
                     IconButton(onClick = { onRemove(src) }) {
-                        Icon(Icons.Default.DeleteOutline, "Remove",
+                        Icon(Icons.Default.Delete, "Remove",
                              tint = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -869,7 +869,7 @@ private fun LiveTvPlayerScreen(channel: LiveTvChannel, onClose: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.Default.KeyboardArrowDown, "Close",
+                        Icon(Icons.Default.VpnKeyboardArrowDown, "Close",
                              tint = Color.White, modifier = Modifier.size(32.dp))
                     }
                     Spacer(Modifier.width(4.dp))
