@@ -17,7 +17,6 @@ interface RedditApi {
         @Query("raw_json") rawJson: Int = 1,
         @Query("include_over_18") over18: String = "on",
         @Header("User-Agent") userAgent: String = USER_AGENT,
-        @Header("Cookie") cookie: String? = null,
     ): RedditListing
 
     companion object {
