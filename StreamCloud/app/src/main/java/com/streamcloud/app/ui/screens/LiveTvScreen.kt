@@ -869,7 +869,7 @@ private fun LiveTvPlayerScreen(channel: LiveTvChannel, onClose: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.Default.VpnKeyboardArrowDown, "Close",
+                        Icon(Icons.Default.KeyboardArrowDown, "Close",
                              tint = Color.White, modifier = Modifier.size(32.dp))
                     }
                     Spacer(Modifier.width(4.dp))
