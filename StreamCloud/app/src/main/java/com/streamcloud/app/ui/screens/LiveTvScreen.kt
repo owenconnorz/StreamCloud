@@ -1,10 +1,6 @@
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.streamcloud.app.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -39,7 +35,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.livetv.LiveTvChannel
-import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.data.livetv.LiveTvSource
 import com.streamcloud.app.data.livetv.SourceType
 import com.streamcloud.app.ui.viewmodel.LiveTvViewModel
@@ -47,7 +42,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LiveTvScreen() {
+fun LiveTvScreen(onPlayChannel: (url: String, title: String, subtitle: String?) -> Unit) {
     val context   = LocalContext.current
     val vm: LiveTvViewModel = viewModel(factory = LiveTvViewModel.factory(context))
     val state by vm.state.collectAsState()
@@ -142,7 +137,9 @@ fun LiveTvScreen() {
                             modifier = Modifier.fillMaxSize(),
                         ) {
                             items(state.filteredChannels, key = { it.id }) { ch ->
-                                ChannelCard(channel = ch) { vm.selectChannel(ch) }
+                                ChannelCard(channel = ch) {
+                                    onPlayChannel(ch.url, ch.name, ch.currentProgram.ifBlank { null })
+                                }
                             }
                         }
                     }
@@ -176,21 +173,7 @@ fun LiveTvScreen() {
             }
         }
 
-        // ── Fullscreen player ────────────────────────────────────────────────
-        AnimatedVisibility(
-            visible = state.selectedChannel != null,
-            enter   = slideInVertically(tween(350)) { it },
-            exit    = slideOutVertically(tween(300)) { it },
-        ) {
-            state.selectedChannel?.let { ch ->
-                NativePlayerScreen(
-                    streamUrl = ch.url,
-                    title     = ch.name,
-                    subtitle  = ch.currentProgram.ifBlank { null },
-                    onBack    = { vm.selectChannel(null) },
-                )
-            }
-        }
+
     }
 
     // ── Add Source bottom sheet ─────────────────────────────────────────────
