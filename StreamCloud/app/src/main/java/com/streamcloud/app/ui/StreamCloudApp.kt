@@ -57,6 +57,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.player.EpornerPlayerScreen
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
@@ -762,25 +763,14 @@ fun StreamCloudApp() {
                     )
                 ) { entry ->
                     val id    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8")
-                    val embed = URLDecoder.decode(entry.arguments!!.getString("embed")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    val ctx = LocalContext.current
-                    val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(ctx))
-                    var resolved by remember { mutableStateOf<String?>(null) }
-                    LaunchedEffect(id) { resolved = vm.resolveStreamUrl(id, embed) }
-                    if (resolved != null) {
-                        NativePlayerScreen(
-                            streamUrl = resolved!!,
-                            title = title,
-                            headers = mapOf("Referer" to "https://www.eporner.com/"),
-                            onBack = { nav.popBackStack() },
-                        )
-                    } else {
-                        Box(
-                            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-                            contentAlignment = androidx.compose.ui.Alignment.Center,
-                        ) { androidx.compose.material3.CircularProgressIndicator() }
-                    }
+                    // Use eporner's own embed player — avoids raw-stream extraction issues
+                    val embedUrl = "https://www.eporner.com/embed/$id/"
+                    EpornerPlayerScreen(
+                        embedUrl = embedUrl,
+                        title    = title,
+                        onBack   = { nav.popBackStack() },
+                    )
                 }
 
                 composable(
