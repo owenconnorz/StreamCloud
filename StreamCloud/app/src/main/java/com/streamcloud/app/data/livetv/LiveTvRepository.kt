@@ -49,10 +49,13 @@ class LiveTvRepository(context: Context) {
         prefs.edit().putString("sources", arr.toString()).apply()
     }
 
-    // ── English-only preference ─────────────────────────────────────────────
+    // ── Preferences ─────────────────────────────────────────────────────────
 
-    fun loadEnglishOnly(): Boolean = prefs.getBoolean("english_only", false)
-    fun saveEnglishOnly(v: Boolean) { prefs.edit().putBoolean("english_only", v).apply() }
+    fun loadEnglishOnly(): Boolean      = prefs.getBoolean("english_only",    false)
+    fun saveEnglishOnly(v: Boolean)     { prefs.edit().putBoolean("english_only",    v).apply() }
+
+    fun loadHideDeadStreams(): Boolean   = prefs.getBoolean("hide_dead_streams", false)
+    fun saveHideDeadStreams(v: Boolean)  { prefs.edit().putBoolean("hide_dead_streams", v).apply() }
 
     // ── Channel fetching ────────────────────────────────────────────────────
 
@@ -119,12 +122,66 @@ class LiveTvRepository(context: Context) {
                     logo     = o.optString("stream_icon", ""),
                     group    = o.optString("category_name", "General"),
                     epgId    = o.optString("epg_channel_id", ""),
-                    language = "",   // Xtream API doesn't expose language per stream
+                    language = "",
                     sourceId = source.id,
                 )
             }
         } catch (e: Exception) { emptyList() }
     }
+
+    // ── Stream health probe ─────────────────────────────────────────────────
+
+    /**
+     * Returns true if the stream URL appears reachable (HTTP 2xx or 3xx within timeout).
+     * RTMP/UDP/non-HTTP URLs are considered alive by default (can't probe without a player).
+     */
+    suspend fun probeStream(url: String): Boolean = withContext(Dispatchers.IO) {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return@withContext true
+        return@withContext try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.requestMethod    = "HEAD"
+            conn.connectTimeout   = 4_000
+            conn.readTimeout      = 4_000
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "StreamCloud/1.0")
+            val code = conn.responseCode
+            conn.disconnect()
+            code in 200..399
+        } catch (_: Exception) {
+            // HEAD failed — some servers reject HEAD on live streams, try GET (just connect)
+            try {
+                val conn = URL(url).openConnection() as HttpURLConnection
+                conn.requestMethod    = "GET"
+                conn.connectTimeout   = 4_000
+                conn.readTimeout      = 1_000  // only need headers, disconnect fast
+                conn.setRequestProperty("User-Agent", "StreamCloud/1.0")
+                val code = conn.responseCode
+                conn.disconnect()
+                code in 200..399
+            } catch (_: Exception) { false }
+        }
+    }
+
+    /** Fetch short EPG (current + next) for a single channel from an Xtream server. */
+    suspend fun fetchShortEpg(source: LiveTvSource, streamId: String): Pair<String, String> =
+        withContext(Dispatchers.IO) {
+            if (source.type != SourceType.XTREAM) return@withContext Pair("", "")
+            try {
+                val sid  = streamId.substringAfterLast("_")
+                val base = source.xtreamServer.trimEnd('/')
+                val raw  = fetchUrl(
+                    "$base/player_api.php?username=${source.xtreamUser}" +
+                    "&password=${source.xtreamPass}&action=get_short_epg&stream_id=$sid&limit=2"
+                )
+                val listings = JSONObject(raw).optJSONArray("epg_listings")
+                    ?: return@withContext Pair("", "")
+                val current = if (listings.length() > 0)
+                    listings.getJSONObject(0).optString("title", "") else ""
+                val next = if (listings.length() > 1)
+                    listings.getJSONObject(1).optString("title", "") else ""
+                Pair(current, next)
+            } catch (e: Exception) { Pair("", "") }
+        }
 
     // ── HTTP helper ─────────────────────────────────────────────────────────
 
