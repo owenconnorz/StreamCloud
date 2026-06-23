@@ -40,6 +40,7 @@ object SettingsKeys {
     val PLAYLIST_THUMBS = stringPreferencesKey("playlist_thumbs")
     val UI_MODE = stringPreferencesKey("ui_mode")
     val ADULT_REDDIT_SUBS = stringPreferencesKey("adult_reddit_subs")
+    val REDDIT_USERNAME     = stringPreferencesKey("reddit_username")
     val COLOR_PALETTE = stringPreferencesKey("color_palette")
 
 
@@ -366,4 +367,14 @@ class SettingsRepository(private val context: Context) {
         it.remove(SettingsKeys.NUVIO_EMAIL)
         it.remove(SettingsKeys.NUVIO_USER_ID)
     }
+
+    // ── Reddit login session ───────────────────────────────────────────
+    val redditUsername: Flow<String> =
+        context.dataStore.data.map { it[SettingsKeys.REDDIT_USERNAME] ?: "" }
+
+    suspend fun setRedditUsername(name: String) =
+        context.dataStore.edit { it[SettingsKeys.REDDIT_USERNAME] = name }
+
+    suspend fun clearRedditUsername() =
+        context.dataStore.edit { it.remove(SettingsKeys.REDDIT_USERNAME) }
 }
