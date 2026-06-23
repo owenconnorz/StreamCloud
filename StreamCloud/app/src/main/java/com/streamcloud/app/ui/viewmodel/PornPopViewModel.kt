@@ -151,7 +151,10 @@ class PornPopViewModel(private val context: Context) : ViewModel() {
                 startPolling(taskId, isVideo, cookie)
             }
             else -> _state.update { it.copy(
-                error = resp.error ?: resp.message
+                // resp.error may be a JSON boolean coerced to "true"/"false" —
+                // treat those as "no useful error message from backend".
+                error = resp.error?.takeIf { e -> e != "true" && e != "false" }
+                    ?: resp.message
                     ?: "Backend not yet available — image generation works now, video/undress coming soon.",
                 generating = false, progressLabel = "") }
         }
