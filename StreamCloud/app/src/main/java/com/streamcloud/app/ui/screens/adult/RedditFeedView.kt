@@ -51,6 +51,10 @@ import com.streamcloud.app.data.api.RedditAdultSubs
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -63,6 +67,8 @@ fun RedditFeedView(
     redditUsername: String = "",
     onLoginClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {},
+    accounts: List<Pair<String, String>> = emptyList(),
+    onSwitchAccount: (username: String, cookies: String) -> Unit = { _, _ -> },
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
@@ -160,6 +166,7 @@ fun RedditFeedView(
                     )
                 }
             } else {
+                var showAccountMenu by remember { mutableStateOf(false) }
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -173,12 +180,66 @@ fun RedditFeedView(
                         modifier = Modifier.size(14.dp),
                     )
                     Spacer(Modifier.width(4.dp))
-                    Text(
-                        "u/$redditUsername",
-                        color = Color(0xFFFF7A50),
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.weight(1f),
-                    )
+                    // Tappable username — opens switcher if >1 account saved
+                    Box(Modifier.weight(1f)) {
+                        Row(
+                            Modifier.clickable(enabled = accounts.size > 1) {
+                                showAccountMenu = true
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "u/$redditUsername",
+                                color = Color(0xFFFF7A50),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            if (accounts.size > 1) {
+                                Icon(
+                                    Icons.Default.ArrowDropDown, null,
+                                    tint = Color(0xFFFF7A50),
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = showAccountMenu,
+                            onDismissRequest = { showAccountMenu = false },
+                        ) {
+                            accounts.forEach { (name, cookies) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "u/$name",
+                                            color = if (name == redditUsername)
+                                                Color(0xFFFF4500) else MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.AccountCircle, null,
+                                            tint = if (name == redditUsername)
+                                                Color(0xFFFF4500) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    onClick = {
+                                        showAccountMenu = false
+                                        if (name != redditUsername) onSwitchAccount(name, cookies)
+                                    },
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Add account") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Add, null)
+                                },
+                                onClick = {
+                                    showAccountMenu = false
+                                    onLoginClick()
+                                },
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = onLogoutClick,
                         modifier = Modifier.size(28.dp),
