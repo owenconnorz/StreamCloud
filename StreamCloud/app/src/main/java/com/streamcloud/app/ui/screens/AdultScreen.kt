@@ -41,6 +41,8 @@ import kotlinx.coroutines.launch
 fun AdultScreen(
     onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
     onOpenRedditLogin: () -> Unit = {},
+    screenTitle: String = "Adult",
+    screenSubtitle: String = "18+ · Powered by Eporner",
 ) {
     val context = LocalContext.current
     val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(context))
@@ -103,12 +105,12 @@ fun AdultScreen(
     ) {
         Spacer(Modifier.height(12.dp))
         Text(
-            "Adult", style = MaterialTheme.typography.displayLarge,
+            screenTitle, style = MaterialTheme.typography.displayLarge,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(horizontal = 20.dp),
         )
         Text(
-            "18+ · Powered by Eporner",
+            screenSubtitle,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp),
