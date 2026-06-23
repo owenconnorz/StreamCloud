@@ -2,7 +2,6 @@ package com.streamcloud.app.data.livetv
 
 enum class SourceType { M3U_URL, XTREAM, SINGLE }
 
-/** A user-added IPTV source (M3U playlist, Xtream credentials, or a single stream URL). */
 data class LiveTvSource(
     val id: String,
     val name: String,
@@ -14,7 +13,6 @@ data class LiveTvSource(
     val epgUrl: String = "",
 )
 
-/** A single playable live-TV channel. */
 data class LiveTvChannel(
     val id: String,
     val name: String,
@@ -22,10 +20,10 @@ data class LiveTvChannel(
     val logo: String     = "",
     val group: String    = "General",
     val epgId: String    = "",
-    val language: String = "",   // tvg-language attribute, e.g. "English", "Arabic"
+    val language: String = "",
+    val chno: Int        = 0,   // tvg-chno from M3U, 0 = not set
     val sourceId: String = "",
     val currentProgram: String = "",
     val nextProgram: String    = "",
-    /** null = not yet probed, true = stream responded OK, false = stream dead/unreachable */
     val isAlive: Boolean? = null,
 )
