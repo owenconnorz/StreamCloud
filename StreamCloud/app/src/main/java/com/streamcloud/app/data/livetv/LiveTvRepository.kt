@@ -53,9 +53,58 @@ class LiveTvRepository(context: Context) {
 
     fun loadEnglishOnly(): Boolean      = prefs.getBoolean("english_only",    false)
     fun saveEnglishOnly(v: Boolean)     { prefs.edit().putBoolean("english_only",    v).apply() }
-
     fun loadHideDeadStreams(): Boolean   = prefs.getBoolean("hide_dead_streams", false)
     fun saveHideDeadStreams(v: Boolean)  { prefs.edit().putBoolean("hide_dead_streams", v).apply() }
+
+    // ── Favorites ───────────────────────────────────────────────────────────
+
+    fun loadFavorites(): Set<String> {
+        val raw = prefs.getString("favorites", "[]") ?: "[]"
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getString(it) }.toSet()
+        } catch (e: Exception) { emptySet() }
+    }
+
+    fun saveFavorites(ids: Set<String>) {
+        val arr = JSONArray(); ids.forEach { arr.put(it) }
+        prefs.edit().putString("favorites", arr.toString()).apply()
+    }
+
+    // ── Recently watched (stores full channel JSON, max 30) ──────────────────
+
+    fun loadRecents(): List<LiveTvChannel> {
+        val raw = prefs.getString("recents", "[]") ?: "[]"
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).mapNotNull { i ->
+                runCatching {
+                    val o = arr.getJSONObject(i)
+                    LiveTvChannel(
+                        id = o.optString("id"), name = o.optString("name"),
+                        url = o.optString("url"), logo = o.optString("logo"),
+                        group = o.optString("group", "General"),
+                        language = o.optString("language"),
+                        chno = o.optInt("chno", 0),
+                        sourceId = o.optString("sourceId"),
+                    )
+                }.getOrNull()
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    fun saveRecents(channels: List<LiveTvChannel>) {
+        val arr = JSONArray()
+        channels.take(30).forEach { ch ->
+            arr.put(JSONObject().apply {
+                put("id", ch.id); put("name", ch.name); put("url", ch.url)
+                put("logo", ch.logo); put("group", ch.group)
+                put("language", ch.language); put("chno", ch.chno)
+                put("sourceId", ch.sourceId)
+            })
+        }
+        prefs.edit().putString("recents", arr.toString()).apply()
+    }
 
     // ── Channel fetching ────────────────────────────────────────────────────
 
@@ -76,6 +125,7 @@ class LiveTvRepository(context: Context) {
         val groupRe = Regex("""group-title="([^"]*)"""")
         val epgRe   = Regex("""tvg-id="([^"]*)"""")
         val langRe  = Regex("""tvg-language="([^"]*)"""")
+        val chnoRe  = Regex("""tvg-chno="([^"]*)"""")
         val channels = mutableListOf<LiveTvChannel>()
         val lines = content.lines()
         var i = 0
@@ -87,14 +137,15 @@ class LiveTvRepository(context: Context) {
                 val group = groupRe.find(line)?.groupValues?.getOrNull(1)?.ifBlank { "General" } ?: "General"
                 val epgId = epgRe.find(line)?.groupValues?.getOrNull(1) ?: ""
                 val lang  = langRe.find(line)?.groupValues?.getOrNull(1) ?: ""
+                val chno  = chnoRe.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
                 var j = i + 1
                 while (j < lines.size && lines[j].isBlank()) j++
                 val url = if (j < lines.size) lines[j].trim() else ""
                 if (url.isNotBlank() && !url.startsWith("#")) {
                     channels += LiveTvChannel(
                         id = "${sourceId}_${channels.size}",
-                        name = name, url = url, logo = logo,
-                        group = group, epgId = epgId, language = lang, sourceId = sourceId,
+                        name = name, url = url, logo = logo, group = group,
+                        epgId = epgId, language = lang, chno = chno, sourceId = sourceId,
                     )
                     i = j + 1
                     continue
@@ -111,7 +162,7 @@ class LiveTvRepository(context: Context) {
         val raw = fetchUrl("$base/player_api.php?username=$u&password=$p&action=get_live_streams")
         return try {
             val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
+            (0 until arr.length()).mapIndexed { idx, i ->
                 val o   = arr.getJSONObject(i)
                 val sid = o.optInt("stream_id", i)
                 val ext = o.optString("container_extension", "ts")
@@ -122,7 +173,7 @@ class LiveTvRepository(context: Context) {
                     logo     = o.optString("stream_icon", ""),
                     group    = o.optString("category_name", "General"),
                     epgId    = o.optString("epg_channel_id", ""),
-                    language = "",
+                    chno     = o.optInt("num", idx + 1),
                     sourceId = source.id,
                 )
             }
@@ -131,10 +182,6 @@ class LiveTvRepository(context: Context) {
 
     // ── Stream health probe ─────────────────────────────────────────────────
 
-    /**
-     * Returns true if the stream URL appears reachable (HTTP 2xx or 3xx within timeout).
-     * RTMP/UDP/non-HTTP URLs are considered alive by default (can't probe without a player).
-     */
     suspend fun probeStream(url: String): Boolean = withContext(Dispatchers.IO) {
         if (!url.startsWith("http://") && !url.startsWith("https://")) return@withContext true
         return@withContext try {
@@ -148,12 +195,11 @@ class LiveTvRepository(context: Context) {
             conn.disconnect()
             code in 200..399
         } catch (_: Exception) {
-            // HEAD failed — some servers reject HEAD on live streams, try GET (just connect)
             try {
                 val conn = URL(url).openConnection() as HttpURLConnection
                 conn.requestMethod    = "GET"
                 conn.connectTimeout   = 4_000
-                conn.readTimeout      = 1_000  // only need headers, disconnect fast
+                conn.readTimeout      = 1_000
                 conn.setRequestProperty("User-Agent", "StreamCloud/1.0")
                 val code = conn.responseCode
                 conn.disconnect()
@@ -162,7 +208,6 @@ class LiveTvRepository(context: Context) {
         }
     }
 
-    /** Fetch short EPG (current + next) for a single channel from an Xtream server. */
     suspend fun fetchShortEpg(source: LiveTvSource, streamId: String): Pair<String, String> =
         withContext(Dispatchers.IO) {
             if (source.type != SourceType.XTREAM) return@withContext Pair("", "")
@@ -175,15 +220,11 @@ class LiveTvRepository(context: Context) {
                 )
                 val listings = JSONObject(raw).optJSONArray("epg_listings")
                     ?: return@withContext Pair("", "")
-                val current = if (listings.length() > 0)
-                    listings.getJSONObject(0).optString("title", "") else ""
-                val next = if (listings.length() > 1)
-                    listings.getJSONObject(1).optString("title", "") else ""
+                val current = if (listings.length() > 0) listings.getJSONObject(0).optString("title", "") else ""
+                val next    = if (listings.length() > 1) listings.getJSONObject(1).optString("title", "") else ""
                 Pair(current, next)
             } catch (e: Exception) { Pair("", "") }
         }
-
-    // ── HTTP helper ─────────────────────────────────────────────────────────
 
     private fun fetchUrl(url: String): String {
         val conn = URL(url).openConnection() as HttpURLConnection
