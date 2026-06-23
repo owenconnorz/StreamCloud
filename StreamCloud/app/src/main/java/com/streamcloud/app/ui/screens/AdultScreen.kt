@@ -49,6 +49,7 @@ fun AdultScreen(
     val state by vm.state.collectAsState()
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
     val redditUsername by sl.settings.redditUsername.collectAsState(initial = "")
+    val redditAccounts by sl.settings.redditAccounts.collectAsState(initial = emptyList())
 
 
 
@@ -64,9 +65,22 @@ fun AdultScreen(
             redditUsername = redditUsername,
             onLoginClick  = onOpenRedditLogin,
             onLogoutClick = {
-                scope.launch { sl.settings.clearRedditUsername() }
+                scope.launch {
+                    sl.settings.clearRedditUsername()
+                    sl.settings.removeRedditAccount(redditUsername)
+                }
                 android.webkit.CookieManager.getInstance().removeAllCookies(null)
                 android.webkit.CookieManager.getInstance().flush()
+            },
+            accounts = redditAccounts,
+            onSwitchAccount = { name, cookies ->
+                val cm = android.webkit.CookieManager.getInstance()
+                cookies.split("; ").forEach { c ->
+                    cm.setCookie("https://www.reddit.com", c.trim())
+                    cm.setCookie("https://reddit.com", c.trim())
+                }
+                cm.flush()
+                scope.launch { sl.settings.setRedditUsername(name) }
             },
             onAddSub = { sub ->
                 scope.launch {
