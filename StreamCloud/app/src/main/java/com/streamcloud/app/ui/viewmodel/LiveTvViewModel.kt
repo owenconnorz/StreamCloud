@@ -17,22 +17,27 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+enum class LiveTvTab { CHANNELS, FAVORITES, RECENT }
+
 class LiveTvViewModel(private val context: Context) : ViewModel() {
 
     private val repo = LiveTvRepository(context)
 
     data class State(
-        val sources: List<LiveTvSource>   = emptyList(),
-        val channels: List<LiveTvChannel> = emptyList(),
-        val loading: Boolean              = false,
-        val probing: Boolean              = false,
-        val probedCount: Int              = 0,
-        val error: String?                = null,
-        val selectedGroup: String?        = null,
-        val searchQuery: String           = "",
-        val selectedChannel: LiveTvChannel? = null,
-        val englishOnly: Boolean          = false,
-        val hideDeadStreams: Boolean       = false,
+        val sources: List<LiveTvSource>       = emptyList(),
+        val channels: List<LiveTvChannel>     = emptyList(),
+        val loading: Boolean                  = false,
+        val probing: Boolean                  = false,
+        val probedCount: Int                  = 0,
+        val error: String?                    = null,
+        val selectedGroup: String?            = null,
+        val searchQuery: String               = "",
+        val selectedChannel: LiveTvChannel?   = null,
+        val englishOnly: Boolean              = false,
+        val hideDeadStreams: Boolean           = false,
+        val favorites: Set<String>            = emptySet(),
+        val recentlyWatched: List<LiveTvChannel> = emptyList(),
+        val activeTab: LiveTvTab              = LiveTvTab.CHANNELS,
     ) {
         val groups: List<String>
             get() = channels.map { it.group }.distinct().filter { it.isNotBlank() }.sorted()
@@ -47,6 +52,13 @@ class LiveTvViewModel(private val context: Context) : ViewModel() {
                     list = list.filter { it.name.contains(searchQuery, ignoreCase = true) }
                 return list
             }
+
+        val displayChannels: List<LiveTvChannel>
+            get() = when (activeTab) {
+                LiveTvTab.CHANNELS  -> filteredChannels
+                LiveTvTab.FAVORITES -> filteredChannels.filter { it.id in favorites }
+                LiveTvTab.RECENT    -> recentlyWatched
+            }
     }
 
     private val _state = MutableStateFlow(State())
@@ -54,8 +66,10 @@ class LiveTvViewModel(private val context: Context) : ViewModel() {
 
     init {
         _state.update { it.copy(
-            englishOnly    = repo.loadEnglishOnly(),
-            hideDeadStreams = repo.loadHideDeadStreams(),
+            englishOnly     = repo.loadEnglishOnly(),
+            hideDeadStreams  = repo.loadHideDeadStreams(),
+            favorites        = repo.loadFavorites(),
+            recentlyWatched  = repo.loadRecents(),
         )}
         loadSources()
     }
@@ -80,18 +94,12 @@ class LiveTvViewModel(private val context: Context) : ViewModel() {
         }
     }
 
-    /**
-     * Probes all channels concurrently (max 8 at a time) and updates isAlive per channel.
-     * Results trickle in — the UI re-renders as each batch completes.
-     */
     private fun startProbing() {
         viewModelScope.launch {
             val channels = _state.value.channels
             if (channels.isEmpty()) return@launch
             _state.update { it.copy(probing = true, probedCount = 0) }
-
             val ioPool = Dispatchers.IO.limitedParallelism(8)
-            // Work in chunks so we can flush progress to the UI
             channels.chunked(8).forEach { batch ->
                 batch.map { ch ->
                     async(ioPool) { ch.id to repo.probeStream(ch.url) }
@@ -134,14 +142,30 @@ class LiveTvViewModel(private val context: Context) : ViewModel() {
         val next = !_state.value.hideDeadStreams
         repo.saveHideDeadStreams(next)
         _state.update { it.copy(hideDeadStreams = next) }
-        // Kick off probing when user enables the feature (if not already probed)
         if (next && _state.value.channels.any { it.isAlive == null }) startProbing()
     }
 
-    fun selectGroup(g: String?)           = _state.update { it.copy(selectedGroup = g) }
-    fun setSearch(q: String)              = _state.update { it.copy(searchQuery = q) }
-    fun selectChannel(ch: LiveTvChannel?) = _state.update { it.copy(selectedChannel = ch) }
-    fun newSourceId()                     = UUID.randomUUID().toString()
+    fun toggleFavorite(channelId: String) {
+        val next = if (channelId in _state.value.favorites)
+            _state.value.favorites - channelId
+        else
+            _state.value.favorites + channelId
+        repo.saveFavorites(next)
+        _state.update { it.copy(favorites = next) }
+    }
+
+    fun addToRecent(channel: LiveTvChannel) {
+        val existing = _state.value.recentlyWatched.filter { it.id != channel.id }
+        val next = listOf(channel) + existing
+        repo.saveRecents(next)
+        _state.update { it.copy(recentlyWatched = next) }
+    }
+
+    fun setActiveTab(tab: LiveTvTab)          = _state.update { it.copy(activeTab = tab, searchQuery = "") }
+    fun selectGroup(g: String?)               = _state.update { it.copy(selectedGroup = g) }
+    fun setSearch(q: String)                  = _state.update { it.copy(searchQuery = q) }
+    fun selectChannel(ch: LiveTvChannel?)     = _state.update { it.copy(selectedChannel = ch) }
+    fun newSourceId()                         = UUID.randomUUID().toString()
 
     companion object {
         fun isLikelyEnglish(ch: LiveTvChannel): Boolean {
