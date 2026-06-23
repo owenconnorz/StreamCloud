@@ -174,7 +174,6 @@ fun MusicSearchScreen(
                 }
             }
         },
-        containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         LazyColumn(
             contentPadding = PaddingValues(
