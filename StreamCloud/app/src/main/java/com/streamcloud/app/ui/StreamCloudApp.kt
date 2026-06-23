@@ -60,6 +60,7 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.EpornerPlayerScreen
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
+import com.streamcloud.app.ui.screens.adult.RedditLoginScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
 import com.streamcloud.app.ui.screens.LiveTvScreen
 import com.streamcloud.app.ui.screens.MovieDetailScreen
@@ -744,12 +745,31 @@ fun StreamCloudApp() {
                 }
 
                 composable(Tab.Adult.route) {
-                    AdultScreen(onPlay = { videoId, embed, title ->
-                        val v = URLEncoder.encode(videoId, "UTF-8")
-                        val e = URLEncoder.encode(embed, "UTF-8")
-                        val t = URLEncoder.encode(title, "UTF-8")
-                        nav.navigate("player/eporner/$v/$e/$t")
-                    })
+                    AdultScreen(
+                        onPlay = { videoId, embed, title ->
+                            val v = URLEncoder.encode(videoId, "UTF-8")
+                            val e = URLEncoder.encode(embed, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/eporner/$v/$e/$t")
+                        },
+                        onOpenRedditLogin = { nav.navigate("reddit-login") },
+                    )
+                }
+
+                // ── Reddit WebView login ──────────────────────────────────
+                composable("reddit-login") {
+                    val ctx = LocalContext.current
+                    val sl  = remember(ctx) { com.streamcloud.app.data.ServiceLocator.get(ctx) }
+                    val scope = rememberCoroutineScope()
+                    RedditLoginScreen(
+                        onLoginSuccess = { username ->
+                            scope.launch {
+                                sl.settings.setRedditUsername(username)
+                            }
+                            nav.popBackStack()
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
                 }
 
 
