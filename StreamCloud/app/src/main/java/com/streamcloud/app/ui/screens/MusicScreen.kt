@@ -217,7 +217,29 @@ fun MusicScreen(
                                 ) {
                                     items(section.items) { pl ->
                                         YtHomePlaylistCard(pl) {
-                                            onOpenPlaylist(pl.id, pl.title)
+                                            if (pl.isVideo) {
+                                                // Music video card — play directly; do NOT navigate
+                                                // to YtPlaylistScreen (it can't browse a videoId).
+                                                dlScope.launch {
+                                                    val song = com.streamcloud.app.data.ytmusic.YtmSong(
+                                                        videoId = pl.id,
+                                                        title   = pl.title,
+                                                        artist  = pl.subtitle
+                                                            ?.substringBefore(" •")?.trim()
+                                                            ?.substringBefore(" · ")?.trim()
+                                                            .orEmpty(),
+                                                        album            = null,
+                                                        thumbnail        = pl.thumbnail,
+                                                        durationSeconds  = null,
+                                                    )
+                                                    runCatching {
+                                                        com.streamcloud.app.data.ytmusic.YtPlayback
+                                                            .playSong(context, song)
+                                                    }
+                                                }
+                                            } else {
+                                                onOpenPlaylist(pl.id, pl.title)
+                                            }
                                         }
                                     }
                                 }
