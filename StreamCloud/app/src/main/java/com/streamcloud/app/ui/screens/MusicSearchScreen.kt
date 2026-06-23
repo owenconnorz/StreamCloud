@@ -1,9 +1,12 @@
 package com.streamcloud.app.ui.screens
 
 import android.net.Uri
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -55,6 +58,15 @@ fun MusicSearchScreen(
     val state by vm.state.collectAsState()
     val searchHistory by sl.settings.musicSearchHistory.collectAsState(initial = emptyList())
     var query by remember { mutableStateOf(initialQuery) }
+
+    // ── Dynamic theme: tint the screen with the dominant colour of the now-playing artwork ──
+    val nowArtwork = state.nowPlayingTrack?.thumbnail
+    val dominant  by rememberDominant(nowArtwork)
+    val animAccent by animateColorAsState(
+        targetValue = dominant,
+        animationSpec = tween(durationMillis = 700),
+        label = "search-accent",
+    )
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
@@ -83,10 +95,24 @@ fun MusicSearchScreen(
         }
     }
 
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .background(
+                Brush.verticalGradient(
+                    0.00f to animAccent.copy(alpha = 0.28f),
+                    0.35f to animAccent.copy(alpha = 0.08f),
+                    1.00f to androidx.compose.ui.graphics.Color.Transparent,
+                )
+            ),
+    ) {
+
     Scaffold(
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = {
             Surface(
-                color = MaterialTheme.colorScheme.background,
+                color = androidx.compose.ui.graphics.Color.Transparent,
                 modifier = Modifier.statusBarsPadding(),
             ) {
                 Row(
@@ -321,6 +347,7 @@ fun MusicSearchScreen(
             }
         }
     }
+    } // end outer Box (dynamic theme wrapper)
 }
 
 @Composable
