@@ -263,12 +263,21 @@ fun NowPlayingShell(
     }
 
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie) {
+    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, isMusicVideo) {
         canvasUrl = null
-        if (!canvasEnabled || title.isBlank() || videoId.isBlank() || spotifyCookie.isBlank()) return@LaunchedEffect
+        // For confirmed music videos skip the Spotify canvas entirely — the inline
+        // MusicVideoPlayer takes over the artwork slot and is a much better experience.
+        if (!canvasEnabled || title.isBlank() || videoId.isBlank() ||
+            spotifyCookie.isBlank() || isMusicVideo == true) return@LaunchedEffect
         canvasUrl = runCatching {
             SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
         }.getOrNull()
+    }
+    // Auto-reveal the inline video player as soon as the stream URL is ready
+    LaunchedEffect(isMusicVideo, videoStreamUrl) {
+        if (isMusicVideo == true && videoStreamUrl != null) {
+            showVideoPlayer = true
+        }
     }
     val activeCanvas = if (canvasEnabled) canvasUrl else null
 
@@ -871,7 +880,7 @@ private fun ToolbarChip(
 }
 
 @Composable
-private fun rememberDominant(thumbnailUrl: String?): State<Color> {
+fun rememberDominant(thumbnailUrl: String?): State<Color> {
     val context = LocalContext.current
     val state = remember { mutableStateOf(Color(0xFF8A6A48)) }
     LaunchedEffect(thumbnailUrl) {
