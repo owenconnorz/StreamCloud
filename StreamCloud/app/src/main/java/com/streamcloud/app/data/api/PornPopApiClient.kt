@@ -69,6 +69,11 @@ object PornPopApiClient {
     private fun String?.parse(): PornPopTaskResponse =
         json.decodeFromString(this ?: "{}")
 
+    // Returns empty response (no error field) for non-2xx so the ViewModel
+    // shows the generic "backend not available" message instead of raw HTML/JSON.
+    private fun okhttp3.Response.safeBody(): PornPopTaskResponse =
+        if (!isSuccessful) PornPopTaskResponse() else body?.string().parse()
+
     // ── public API ─────────────────────────────────────────────────────────
 
     /**
@@ -94,7 +99,7 @@ object PornPopApiClient {
             .post(builder.build())
             .withCookie(cookie)
             .build()
-        runCatching { client.newCall(req).execute().body?.string().parse() }
+        runCatching { client.newCall(req).execute().safeBody() }
             .getOrElse { PornPopTaskResponse(error = it.message) }
     }
 
@@ -123,7 +128,7 @@ object PornPopApiClient {
             .post(builder.build())
             .withCookie(cookie)
             .build()
-        runCatching { client.newCall(req).execute().body?.string().parse() }
+        runCatching { client.newCall(req).execute().safeBody() }
             .getOrElse { PornPopTaskResponse(error = it.message) }
     }
 
@@ -145,7 +150,7 @@ object PornPopApiClient {
             .post(body)
             .withCookie(cookie)
             .build()
-        runCatching { client.newCall(req).execute().body?.string().parse() }
+        runCatching { client.newCall(req).execute().safeBody() }
             .getOrElse { PornPopTaskResponse(error = it.message) }
     }
 
@@ -161,7 +166,7 @@ object PornPopApiClient {
             .get()
             .withCookie(cookie)
             .build()
-        runCatching { client.newCall(req).execute().body?.string().parse() }
+        runCatching { client.newCall(req).execute().safeBody() }
             .getOrElse { PornPopTaskResponse(error = it.message) }
     }
 
