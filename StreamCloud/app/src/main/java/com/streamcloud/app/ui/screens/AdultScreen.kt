@@ -511,14 +511,14 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
             }
             if (v.source == AdultSource.Redtube) {
                 Text(
-                    "Redtube",
+                    "PornHub",
                     color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFFCC0000).copy(alpha = 0.85f))
+                        .background(Color(0xFFFF9000).copy(alpha = 0.92f))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
