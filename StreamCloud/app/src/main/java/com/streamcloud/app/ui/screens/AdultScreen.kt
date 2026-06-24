@@ -1,20 +1,29 @@
 package com.streamcloud.app.ui.screens
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +43,8 @@ import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.RedditAdultSubs
+import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import kotlinx.coroutines.launch
 
@@ -51,14 +63,14 @@ fun AdultScreen(
     val redditUsername by sl.settings.redditUsername.collectAsState(initial = "")
     val redditAccounts by sl.settings.redditAccounts.collectAsState(initial = emptyList())
 
-
+    var detailItem by remember { mutableStateOf<AdultItem?>(null) }
 
     if (state.source == AdultSource.Reddit) {
         val customCsv by sl.settings.adultRedditSubsCsv.collectAsState(initial = "")
         val customSubs = remember(customCsv) {
             customCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }
         }
-        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        val scope = rememberCoroutineScope()
         com.streamcloud.app.ui.screens.adult.RedditFeedView(
             vm = vm,
             customSubs = customSubs,
@@ -105,7 +117,6 @@ fun AdultScreen(
     var query by remember { mutableStateOf("") }
     val gridState = rememberLazyGridState()
 
-
     LaunchedEffect(gridState, state.source) {
         snapshotFlow {
             val total = gridState.layoutInfo.totalItemsCount
@@ -130,7 +141,6 @@ fun AdultScreen(
             modifier = Modifier.padding(horizontal = 20.dp),
         )
         Spacer(Modifier.height(12.dp))
-
 
         Row(
             Modifier
@@ -181,7 +191,6 @@ fun AdultScreen(
             )
         )
 
-
         if (state.source == AdultSource.Reddit) {
             Spacer(Modifier.height(10.dp))
             Row(
@@ -213,7 +222,13 @@ fun AdultScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(state.items, key = { "${it.source.name}:${it.id}" }) { v ->
-                AdultCard(v) { onPlay(v.routeId(), v.routeFallback(), v.title) }
+                AdultCard(v) {
+                    if (v.source == AdultSource.Eporner) {
+                        detailItem = v
+                    } else {
+                        onPlay(v.routeId(), v.routeFallback(), v.title)
+                    }
+                }
             }
             if (state.loadingMore) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
@@ -224,11 +239,177 @@ fun AdultScreen(
             }
         }
     }
+
+    detailItem?.let { item ->
+        EpornerDetailSheet(
+            item = item,
+            context = context,
+            onPlay = {
+                detailItem = null
+                onPlay(item.routeId(), item.routeFallback(), item.title)
+            },
+            onDismiss = { detailItem = null },
+        )
+    }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EpornerDetailSheet(
+    item: AdultItem,
+    context: Context,
+    onPlay: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var saved by remember { mutableStateOf(false) }
+
+    LaunchedEffect(item.id) {
+        LibraryDb.get(context).watchlist()
+            .isWatchlisted(epornerWatchlistId(item.id))
+            .collect { saved = it }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp)
+        ) {
+            if (!item.thumbnail.isNullOrBlank()) {
+                AsyncImage(
+                    model = item.thumbnail,
+                    contentDescription = item.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(210.dp)
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(14.dp)),
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+
+            Text(
+                item.title,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.padding(horizontal = 16.dp),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                Modifier.padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                item.durationLabel?.let { InfoPill(Icons.Default.Timer, it) }
+                item.views?.let         { InfoPill(Icons.Default.Visibility, "$it views") }
+                item.rating?.let        { InfoPill(Icons.Default.Star, it) }
+            }
+
+            item.tags?.takeIf { it.isNotBlank() }?.let { tagStr ->
+                val tags = tagStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.take(14)
+                Spacer(Modifier.height(12.dp))
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(tags) { tag ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(50),
+                        ) {
+                            Text(
+                                tag,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Button(
+                    onClick = onPlay,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C5CFF)),
+                ) {
+                    Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Play", fontWeight = FontWeight.SemiBold)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            val db = LibraryDb.get(context)
+                            val wid = epornerWatchlistId(item.id)
+                            if (saved) {
+                                db.watchlist().remove(wid)
+                            } else {
+                                db.watchlist().add(
+                                    WatchlistEntity(
+                                        tmdbId    = wid,
+                                        title     = item.title,
+                                        posterUrl = item.thumbnail,
+                                        mediaType = "eporner",
+                                        csPlugin  = "eporner",
+                                        csUrl     = item.embedUrl.orEmpty(),
+                                    )
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        if (saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                        null,
+                        modifier = Modifier.size(18.dp),
+                        tint = if (saved) Color(0xFF7C5CFF) else MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (saved) "Saved" else "Save")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoPill(icon: ImageVector, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(icon, null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private fun epornerWatchlistId(epornerId: String): Long =
+    (-9_000_000_000L) - (epornerId.hashCode().toLong() and 0xFFFFFL)
 
 private fun AdultItem.routeId(): String = when (source) {
     AdultSource.Eporner -> epornerId ?: id
-    AdultSource.Reddit -> "direct://${streamUrl ?: ""}"
+    AdultSource.Reddit  -> "direct://${streamUrl ?: ""}"
+    AdultSource.Redtube -> "direct://"
 }
 
 private fun AdultItem.routeFallback(): String = when (source) {
