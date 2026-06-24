@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -110,6 +111,7 @@ private fun ArtistPageContent(
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
 ) {
     var descExpanded by remember { mutableStateOf(false) }
+    var showAllPopular by remember { mutableStateOf(false) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -177,15 +179,16 @@ private fun ArtistPageContent(
 
         // Popular tracks
         if (page.topTracks.isNotEmpty()) {
-            item { SectionHeader("Popular") }
-            items(page.topTracks.take(5), key = { "pop_${it.url}" }) { tr ->
+            item { SectionHeader("Popular", showAll = showAllPopular, onViewAll = { showAllPopular = !showAllPopular }) }
+            val popularList = if (showAllPopular) page.topTracks else page.topTracks.take(5)
+            items(popularList, key = { "pop_${it.url}" }) { tr ->
                 TrackRow(track = tr, onPlay = { onPlay(tr) }, onArtistClick = onArtistClick)
             }
         }
 
         // Singles
         if (page.singles.isNotEmpty()) {
-            item { SectionHeader("Singles") }
+            item { SectionHeader("Singles", onViewAll = null) }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(page.singles, key = { "sin_${it.url}" }) { album ->
@@ -197,7 +200,7 @@ private fun ArtistPageContent(
 
         // Albums
         if (page.albums.isNotEmpty()) {
-            item { SectionHeader("Albums") }
+            item { SectionHeader("Albums", onViewAll = null) }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(page.albums, key = { "alb_${it.url}" }) { album ->
@@ -209,7 +212,7 @@ private fun ArtistPageContent(
 
         // Videos
         if (page.videos.isNotEmpty()) {
-            item { SectionHeader("Videos") }
+            item { SectionHeader("Videos", onViewAll = null) }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(page.videos, key = { "vid_${it.url}" }) { vid ->
@@ -221,7 +224,7 @@ private fun ArtistPageContent(
 
         // Featured on
         if (page.featuredOn.isNotEmpty()) {
-            item { SectionHeader("Featured on") }
+            item { SectionHeader("Featured on", onViewAll = null) }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(page.featuredOn, key = { "feat_${it.url}" }) { pl ->
@@ -233,7 +236,7 @@ private fun ArtistPageContent(
 
         // Related Artists
         if (page.relatedArtists.isNotEmpty()) {
-            item { SectionHeader("Related Artists") }
+            item { SectionHeader("Related Artists", onViewAll = null) }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(page.relatedArtists, key = { "rel_${it.url}" }) { artist ->
@@ -245,7 +248,7 @@ private fun ArtistPageContent(
 
         // Description
         if (page.description.isNotBlank()) {
-            item { SectionHeader("Description") }
+            item { SectionHeader("Description", onViewAll = null) }
             item {
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp)
@@ -271,9 +274,34 @@ private fun ArtistPageContent(
 // Reusable composables
 
 @Composable
-private fun SectionHeader(title: String) {
-    Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 10.dp))
+private fun SectionHeader(
+    title: String,
+    showAll: Boolean = false,
+    onViewAll: (() -> Unit)? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onViewAll != null) Modifier.clickable(onClick = onViewAll) else Modifier)
+            .padding(start = 20.dp, end = 12.dp, top = 28.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            color = Color.White,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+        if (onViewAll != null) {
+            Icon(
+                if (showAll) Icons.Default.ChevronRight else Icons.Default.ChevronRight,
+                contentDescription = if (showAll) "Show less" else "View all",
+                tint = Color.White.copy(alpha = 0.6f),
+                modifier = Modifier.size(26.dp),
+            )
+        }
+    }
 }
 
 @Composable
