@@ -812,9 +812,15 @@ fun StreamCloudApp() {
                     )
                 ) { entry ->
                     val id    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8")
+                    val embed = URLDecoder.decode(entry.arguments!!.getString("embed")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    // Use eporner's own embed player — avoids raw-stream extraction issues
-                    val embedUrl = "https://www.eporner.com/embed/$id/"
+                    // For non-Eporner sources (Redtube, Reddit) the embed URL is passed directly.
+                    // For Eporner the id is the video hash; construct the canonical embed URL.
+                    val embedUrl = if (id.startsWith("direct") || embed.startsWith("http")) {
+                        embed.ifBlank { "https://www.eporner.com/embed/$id/" }
+                    } else {
+                        "https://www.eporner.com/embed/$id/"
+                    }
                     EpornerPlayerScreen(
                         embedUrl = embedUrl,
                         title    = title,
