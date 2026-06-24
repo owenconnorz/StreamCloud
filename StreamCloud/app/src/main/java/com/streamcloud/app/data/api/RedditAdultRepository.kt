@@ -22,6 +22,9 @@ data class AdultItem(
 
     val epornerId: String? = null,
     val embedUrl: String? = null,
+    val views: String? = null,
+    val rating: String? = null,
+    val tags: String? = null,
 )
 
 enum class AdultSource(val label: String) {
