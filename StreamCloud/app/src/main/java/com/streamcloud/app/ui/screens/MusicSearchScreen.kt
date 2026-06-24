@@ -418,11 +418,13 @@ private fun SongResultRow(
 ) {
     val song = remember(track.url) {
         YtmSong(
-            videoId   = Uri.parse(track.url).getQueryParameter("v")
-                        ?: track.url.substringAfterLast("/"),
-            title     = track.title,
-            artist    = track.uploader,
-            thumbnail = track.thumbnail,
+            videoId         = Uri.parse(track.url).getQueryParameter("v")
+                                ?: track.url.substringAfterLast("/"),
+            title           = track.title,
+            artist          = track.uploader,
+            album           = null,
+            thumbnail       = track.thumbnail,
+            durationSeconds = null,
         )
     }
     Row(
