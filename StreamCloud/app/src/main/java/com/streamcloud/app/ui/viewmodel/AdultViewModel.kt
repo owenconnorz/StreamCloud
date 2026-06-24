@@ -8,6 +8,7 @@ import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerApi
 import com.streamcloud.app.data.api.RedditAdultRepository
+import com.streamcloud.app.data.api.RedtubeRepository
 import com.streamcloud.app.data.network.Net
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,6 +29,10 @@ data class AdultState(
 
     val nextAfter: String? = null,
     val loadingMore: Boolean = false,
+
+    val redtubePage: Int = 1,
+    val redtubeQuery: String = "",
+    val redtubeCanLoadMore: Boolean = true,
 )
 
 class AdultViewModel : ViewModel() {
@@ -44,10 +49,11 @@ class AdultViewModel : ViewModel() {
 
     fun setSource(source: AdultSource) {
         if (_state.value.source == source) return
-        _state.update { it.copy(source = source, items = emptyList(), error = null, nextAfter = null) }
+        _state.update { it.copy(source = source, items = emptyList(), error = null, nextAfter = null, redtubePage = 1, redtubeCanLoadMore = true) }
         when (source) {
             AdultSource.Eporner -> search("popular")
-            AdultSource.Reddit -> loadReddit(_state.value.subreddit)
+            AdultSource.Reddit  -> loadReddit(_state.value.subreddit)
+            AdultSource.Redtube -> searchRedtube("")
         }
     }
 
@@ -55,11 +61,12 @@ class AdultViewModel : ViewModel() {
     fun search(query: String) {
         when (_state.value.source) {
             AdultSource.Eporner -> searchEporner(query)
-            AdultSource.Reddit -> {
+            AdultSource.Reddit  -> {
                 val sub = query.ifBlank { "nsfw" }.removePrefix("r/").trim()
                 _state.update { it.copy(subreddit = sub) }
                 loadReddit(sub)
             }
+            AdultSource.Redtube -> searchRedtube(query)
         }
     }
 
@@ -73,21 +80,47 @@ class AdultViewModel : ViewModel() {
 
     fun loadMore() {
         val s = _state.value
-        if (s.source != AdultSource.Reddit || s.loadingMore || s.nextAfter == null) return
-        viewModelScope.launch {
-            _state.update { it.copy(loadingMore = true) }
-            try {
-                val (more, after) = RedditAdultRepository.fetch(s.subreddit, after = s.nextAfter)
-                _state.update {
-                    it.copy(
-                        items = it.items + more,
-                        nextAfter = after,
-                        loadingMore = false,
-                    )
+        if (s.loadingMore) return
+        when (s.source) {
+            AdultSource.Reddit  -> {
+                if (s.nextAfter == null) return
+                viewModelScope.launch {
+                    _state.update { it.copy(loadingMore = true) }
+                    try {
+                        val (more, after) = RedditAdultRepository.fetch(s.subreddit, after = s.nextAfter)
+                        _state.update {
+                            it.copy(
+                                items = it.items + more,
+                                nextAfter = after,
+                                loadingMore = false,
+                            )
+                        }
+                    } catch (e: Exception) {
+                        _state.update { it.copy(loadingMore = false, error = "Reddit page failed: ${e.message}") }
+                    }
                 }
-            } catch (e: Exception) {
-                _state.update { it.copy(loadingMore = false, error = "Reddit page failed: ${e.message}") }
             }
+            AdultSource.Redtube -> {
+                if (!s.redtubeCanLoadMore) return
+                viewModelScope.launch {
+                    _state.update { it.copy(loadingMore = true) }
+                    try {
+                        val nextPage = s.redtubePage + 1
+                        val more = RedtubeRepository.search(s.redtubeQuery, page = nextPage)
+                        _state.update {
+                            it.copy(
+                                items = it.items + more,
+                                redtubePage = nextPage,
+                                redtubeCanLoadMore = more.isNotEmpty(),
+                                loadingMore = false,
+                            )
+                        }
+                    } catch (e: Exception) {
+                        _state.update { it.copy(loadingMore = false, error = "Redtube page failed: ${e.message}") }
+                    }
+                }
+            }
+            else -> {}
         }
     }
 
@@ -128,6 +161,20 @@ class AdultViewModel : ViewModel() {
                 _state.update { it.copy(items = items, nextAfter = after, loading = false) }
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = "Reddit failed: ${e.message}") }
+            }
+        }
+    }
+
+    private fun searchRedtube(query: String) {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(if (query.isBlank()) 0L else 300L)
+            _state.update { it.copy(loading = true, error = null, redtubeQuery = query, redtubePage = 1, redtubeCanLoadMore = true) }
+            try {
+                val items = RedtubeRepository.search(query = query, page = 1)
+                _state.update { it.copy(items = items, loading = false, redtubeCanLoadMore = items.isNotEmpty()) }
+            } catch (e: Exception) {
+                _state.update { it.copy(loading = false, error = "Redtube failed: ${e.message}") }
             }
         }
     }
