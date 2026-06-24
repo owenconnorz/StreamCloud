@@ -65,6 +65,8 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
@@ -713,14 +715,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                         onChange = { explicitContent = it; scope.launch { sl.settings.setExplicitContent(it) } },
                     )
                     SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.Visibility, tint = ColourContent,
-                        title = "Show Adult tab (18+)",
-                        subtitle = "Replaces Library with Adult section",
-                        checked = nsfw,
-                        onChange = { nsfw = it; scope.launch { sl.settings.setNsfwEnabled(it) } },
-                    )
-                    SettingDivider()
                     SettingNav(
                         icon = Icons.Default.Language, tint = ColourContent,
                         title = "Backend URL",
@@ -1232,7 +1226,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         )
     }
     if (showNavOrderDialog) {
-        NavOrderDialog(nsfw = nsfw, onDismiss = { showNavOrderDialog = false })
+        NavOrderDialog(onDismiss = { showNavOrderDialog = false })
     }
     if (showAboutDialog) {
         AboutDialog(onDismiss = { showAboutDialog = false })
@@ -2102,38 +2096,55 @@ private fun CollectionsDialog(
 }
 
 @Composable
-private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
+private fun NavOrderDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val sl      = remember(context) { ServiceLocator.get(context) }
     val scope   = rememberCoroutineScope()
 
-    data class NavItem(val id: String, val label: String, val icon: ImageVector)
+    data class NavItem(
+        val id: String,
+        val label: String,
+        val icon: ImageVector,
+        val enabled: Boolean = true,
+    )
 
-    val all = remember(nsfw) {
-        buildList {
-            add(NavItem("music",   "Music",   Icons.Default.MusicNote))
-            add(NavItem("library", "Library", Icons.Default.FormatListBulleted))
-            add(NavItem("movies",  "Movies",  Icons.Default.PlayArrow))
-            if (nsfw) add(NavItem("adult", "Adult", Icons.Default.Visibility))
-        }
+    // All possible tabs — always shown so the user can enable any of them
+    val all = remember {
+        listOf(
+            NavItem("music",   "Music",   Icons.Default.MusicNote),
+            NavItem("library", "Library", Icons.Default.FormatListBulleted),
+            NavItem("movies",  "Movies",  Icons.Default.PlayArrow),
+            NavItem("live_tv", "Live TV", Icons.Default.LiveTv),
+            NavItem("adult",   "Adult",   Icons.Default.Visibility),
+            NavItem("pornpop", "PornPop", Icons.Default.AutoAwesome),
+        )
     }
-    val byId  = all.associateBy { it.id }
-    var order by remember { mutableStateOf<List<NavItem>>(all) }
+    val byId = all.associateBy { it.id }
+    var order by remember { mutableStateOf(all) }
 
-    LaunchedEffect(nsfw) {
-        val csv = sl.settings.navTabOrderCsv.first()
-        val saved = csv?.split(",")?.mapNotNull { byId[it.trim()] } ?: emptyList()
-        val remaining = all.filter { it.id !in saved.map(NavItem::id) }
-        order = (saved + remaining).distinctBy { it.id }
+    LaunchedEffect(Unit) {
+        val csv     = sl.settings.navTabOrderCsv.first()
+        val hidden  = sl.settings.navHiddenTabsCsv.first()
+            .split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        val nsfw    = sl.settings.nsfwEnabled.first()
+        val adultIds = setOf("adult", "pornpop")
+        val saved   = csv?.split(",")?.mapNotNull { byId[it.trim()] } ?: emptyList()
+        val remaining = all.filter { it.id !in saved.map { s -> s.id } }
+        order = (saved + remaining).distinctBy { it.id }.map { item ->
+            item.copy(
+                enabled = item.id !in hidden &&
+                          (item.id !in adultIds || nsfw)
+            )
+        }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Reorder navigation bar") },
+        title = { Text("Navigation bar") },
         text = {
-            Column {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
                 Text(
-                    "Use the arrows to reorder tabs. Settings is always pinned at the end.",
+                    "Toggle tabs on/off and drag to reorder. Settings is always pinned at the end.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 12.dp),
@@ -2145,12 +2156,32 @@ private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .background(
+                                if (item.enabled) MaterialTheme.colorScheme.surfaceContainerHigh
+                                else MaterialTheme.colorScheme.surfaceContainerLow
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
-                        Icon(item.icon, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(12.dp))
-                        Text(item.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Icon(
+                            item.icon, null,
+                            tint = if (item.enabled) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            item.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f),
+                            color = if (item.enabled) MaterialTheme.colorScheme.onSurface
+                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                        )
+                        Switch(
+                            checked = item.enabled,
+                            onCheckedChange = { on ->
+                                order = order.map { if (it.id == item.id) it.copy(enabled = on) else it }
+                            },
+                        )
+                        Spacer(Modifier.width(4.dp))
                         IconButton(
                             onClick = {
                                 if (index > 0) order = order.toMutableList().apply {
@@ -2158,7 +2189,8 @@ private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
                                 }
                             },
                             enabled = index > 0,
-                        ) { Icon(Icons.Default.ArrowUpward, "Move up") }
+                            modifier = Modifier.size(36.dp),
+                        ) { Icon(Icons.Default.ArrowUpward, "Move up", Modifier.size(18.dp)) }
                         IconButton(
                             onClick = {
                                 if (index < order.lastIndex) order = order.toMutableList().apply {
@@ -2166,14 +2198,21 @@ private fun NavOrderDialog(nsfw: Boolean, onDismiss: () -> Unit) {
                                 }
                             },
                             enabled = index < order.lastIndex,
-                        ) { Icon(Icons.Default.ArrowDownward, "Move down") }
+                            modifier = Modifier.size(36.dp),
+                        ) { Icon(Icons.Default.ArrowDownward, "Move down", Modifier.size(18.dp)) }
                     }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                scope.launch { sl.settings.setNavTabOrder(order.map { it.id }) }
+                scope.launch {
+                    val hiddenIds = order.filter { !it.enabled }.map { it.id }
+                    val adultOn   = order.any { it.id in setOf("adult", "pornpop") && it.enabled }
+                    sl.settings.setNavTabOrder(order.map { it.id })
+                    sl.settings.setNavHiddenTabs(hiddenIds.joinToString(","))
+                    sl.settings.setNsfwEnabled(adultOn)
+                }
                 onDismiss()
             }) { Text("Save") }
         },
