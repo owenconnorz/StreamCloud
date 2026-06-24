@@ -11,8 +11,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
@@ -33,6 +31,8 @@ import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.newpipe.YtAlbum
 import com.streamcloud.app.data.newpipe.YtArtist
 import com.streamcloud.app.data.newpipe.YtTrack
+import com.streamcloud.app.data.ytmusic.YtmSong
+import com.streamcloud.app.ui.components.SongRowMenu
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -56,15 +56,9 @@ fun MusicArtistScreen(
         loading = false
     }
 
-    // Status bar height — used to extend hero behind it and position the back button
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0A0A0A))
-    ) {
-        // ── Main scrollable content (no top inset — goes edge-to-edge behind status bar) ──
+    Box(Modifier.fillMaxSize().background(Color(0xFF0A0A0A))) {
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White)
@@ -87,7 +81,6 @@ fun MusicArtistScreen(
             )
         }
 
-        // ── Floating back button overlaid at top-left, clear of status bar ──
         IconButton(
             onClick = onBack,
             modifier = Modifier
@@ -117,29 +110,21 @@ private fun ArtistPageContent(
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
 ) {
     var descExpanded by remember { mutableStateOf(false) }
-    var menuTrack by remember { mutableStateOf<YtTrack?>(null) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 8.dp),
     ) {
 
-        // ── Hero: extends behind status bar ──
+        // Hero
         item {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    // Extra top height absorbs the status bar so the image bleeds behind it
-                    .height(320.dp + heroExtraTop)
-            ) {
+            Box(Modifier.fillMaxWidth().height(320.dp + heroExtraTop)) {
                 AsyncImage(
-                    // Priority: profile photo from search > avatar from browse > banner
                     model = initialAvatar ?: page.avatar ?: page.banner,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-                // Bottom gradient fading into page background
                 Box(
                     Modifier.matchParentSize().background(
                         Brush.verticalGradient(
@@ -152,38 +137,22 @@ private fun ArtistPageContent(
             }
         }
 
-        // ── Artist name + subscriber count below the hero ──
+        // Name + subscribers
         item {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    page.name,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 26.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text(page.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 26.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
                 page.subscriberLabel?.let { sub ->
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        sub,
-                        color = Color.White.copy(alpha = 0.65f),
-                        fontSize = 13.sp,
-                    )
+                    Text(sub, color = Color.White.copy(alpha = 0.65f), fontSize = 13.sp)
                 }
             }
         }
 
-        // ── Action buttons ──
+        // Action buttons
         item {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -191,83 +160,58 @@ private fun ArtistPageContent(
                     onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
                     shape = RoundedCornerShape(50),
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp),
-                ) {
-                    Text("Shuffle", color = Color(0xFF111111), fontWeight = FontWeight.Bold)
-                }
+                    modifier = Modifier.weight(1f).height(44.dp),
+                ) { Text("Shuffle", color = Color(0xFF111111), fontWeight = FontWeight.Bold) }
                 IconButton(
                     onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(50))
+                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
                         .background(Color.White.copy(alpha = 0.12f)),
-                ) {
-                    Icon(Icons.Default.Shuffle, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                }
+                ) { Icon(Icons.Default.Shuffle, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
                 IconButton(
                     onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(50))
+                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
                         .background(Color.White.copy(alpha = 0.12f)),
-                ) {
-                    Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp))
-                }
+                ) { Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
             }
         }
 
-        // ── Popular ──
+        // Popular tracks
         if (page.topTracks.isNotEmpty()) {
             item { SectionHeader("Popular") }
             items(page.topTracks.take(5), key = { "pop_${it.url}" }) { tr ->
-                TrackRow(track = tr, onPlay = { onPlay(tr) }, onMoreClick = { menuTrack = tr })
+                TrackRow(track = tr, onPlay = { onPlay(tr) }, onArtistClick = onArtistClick)
             }
         }
 
-        // ── Singles ── (horizontal scroll)
+        // Singles
         if (page.singles.isNotEmpty()) {
             item { SectionHeader("Singles") }
             item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(page.singles, key = { "sin_${it.url}" }) { album ->
-                        AlbumCard(album = album, onClick = {
-                            onAlbumClick(albumId(album.url), album.title, album.thumbnail)
-                        })
+                        AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
                     }
                 }
             }
         }
 
-        // ── Albums ── (horizontal scroll)
+        // Albums
         if (page.albums.isNotEmpty()) {
             item { SectionHeader("Albums") }
             item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(page.albums, key = { "alb_${it.url}" }) { album ->
-                        AlbumCard(album = album, onClick = {
-                            onAlbumClick(albumId(album.url), album.title, album.thumbnail)
-                        })
+                        AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
                     }
                 }
             }
         }
 
-        // ── Videos ──
+        // Videos
         if (page.videos.isNotEmpty()) {
             item { SectionHeader("Videos") }
             item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(page.videos, key = { "vid_${it.url}" }) { vid ->
                         VideoCard(track = vid, onClick = { onPlay(vid) })
                     }
@@ -275,31 +219,23 @@ private fun ArtistPageContent(
             }
         }
 
-        // ── Featured on ──
+        // Featured on
         if (page.featuredOn.isNotEmpty()) {
             item { SectionHeader("Featured on") }
             item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(page.featuredOn, key = { "feat_${it.url}" }) { pl ->
-                        AlbumCard(album = pl, subtitle = "YouTube Music", onClick = {
-                            onAlbumClick(albumId(pl.url), pl.title, pl.thumbnail)
-                        })
+                        AlbumCard(album = pl, subtitle = "YouTube Music", onClick = { onAlbumClick(albumId(pl.url), pl.title, pl.thumbnail) })
                     }
                 }
             }
         }
 
-        // ── Related Artists ──
+        // Related Artists
         if (page.relatedArtists.isNotEmpty()) {
             item { SectionHeader("Related Artists") }
             item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(page.relatedArtists, key = { "rel_${it.url}" }) { artist ->
                         RelatedArtistCard(artist = artist, onClick = { onArtistClick(artist.url, artist.thumbnail) })
                     }
@@ -307,164 +243,93 @@ private fun ArtistPageContent(
             }
         }
 
-        // ── Description ──
+        // Description
         if (page.description.isNotBlank()) {
             item { SectionHeader("Description") }
             item {
                 Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1C1C1C))
-                        .clickable { descExpanded = !descExpanded }
-                        .padding(16.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(12.dp)).background(Color(0xFF1C1C1C))
+                        .clickable { descExpanded = !descExpanded }.padding(16.dp),
                 ) {
                     Column {
                         Text(
-                            page.description,
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
+                            page.description, color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 14.sp, lineHeight = 20.sp,
                             maxLines = if (descExpanded) Int.MAX_VALUE else 4,
                             overflow = if (descExpanded) TextOverflow.Clip else TextOverflow.Ellipsis,
                         )
                         Spacer(Modifier.height(8.dp))
-                        Text(
-                            if (descExpanded) "Less" else "More",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                        )
+                        Text(if (descExpanded) "Less" else "More", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }
         }
     }
-
-    val mt = menuTrack
-    if (mt != null) {
-        ModalBottomSheet(onDismissRequest = { menuTrack = null }) {
-            Column(modifier = androidx.compose.ui.Modifier.padding(bottom = 32.dp)) {
-                Text(
-                    mt.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                )
-                ListItem(
-                    headlineContent = { Text("Play") },
-                    leadingContent = { Icon(Icons.Default.PlayArrow, null) },
-                    modifier = androidx.compose.ui.Modifier.clickable {
-                        onPlay(mt)
-                        menuTrack = null
-                    },
-                )
-                val context = androidx.compose.ui.platform.LocalContext.current
-                ListItem(
-                    headlineContent = { Text("Share") },
-                    leadingContent = { Icon(Icons.Default.OpenInNew, null) },
-                    modifier = androidx.compose.ui.Modifier.clickable {
-                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(android.content.Intent.EXTRA_TEXT, mt.url)
-                        }
-                        context.startActivity(android.content.Intent.createChooser(intent, "Share track"))
-                        menuTrack = null
-                    },
-                )
-            }
-        }
-    }
 }
 
-// ── Reusable composables ──────────────────────────────────────────────────────
+// Reusable composables
 
 @Composable
 private fun SectionHeader(title: String) {
-    Text(
-        title,
-        color = Color.White,
-        fontSize = 20.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 10.dp),
-    )
+    Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 10.dp))
 }
 
 @Composable
-private fun TrackRow(track: YtTrack, onPlay: () -> Unit, onMoreClick: () -> Unit = {}) {
+private fun TrackRow(
+    track: YtTrack,
+    onPlay: () -> Unit,
+    onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
+) {
+    val song = remember(track.url) {
+        YtmSong(
+            videoId   = Uri.parse(track.url).getQueryParameter("v") ?: track.url.substringAfterLast("/"),
+            title     = track.title,
+            artist    = track.uploader,
+            thumbnail = track.thumbnail,
+        )
+    }
     Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onPlay)
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onPlay)
+            .padding(start = 20.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AsyncImage(
-            model = track.thumbnail,
-            contentDescription = null,
+            model = track.thumbnail, contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(50.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Color(0xFF2A2A2A)),
+            modifier = Modifier.size(50.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFF2A2A2A)),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                track.title,
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                "\uD83C\uDFB5 ${track.uploader}",
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("♪ ${track.uploader}", color = Color.White.copy(alpha = 0.6f),
+                fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(onClick = onMoreClick) {
-            Icon(Icons.Default.MoreVert, null, tint = Color.White.copy(alpha = 0.5f))
-        }
+        SongRowMenu(
+            song = song,
+            onPlay = onPlay,
+            onViewArtist = { artistName ->
+                onArtistClick(
+                    "https://music.youtube.com/search?q=${Uri.encode(artistName)}",
+                    null,
+                )
+            },
+        )
     }
 }
 
 @Composable
-private fun AlbumCard(
-    album: YtAlbum,
-    subtitle: String? = null,
-    onClick: () -> Unit,
-) {
-    Column(
-        Modifier
-            .width(150.dp)
-            .clickable(onClick = onClick),
-    ) {
-        AsyncImage(
-            model = album.thumbnail,
-            contentDescription = album.title,
+private fun AlbumCard(album: YtAlbum, subtitle: String? = null, onClick: () -> Unit) {
+    Column(Modifier.width(150.dp).clickable(onClick = onClick)) {
+        AsyncImage(model = album.thumbnail, contentDescription = album.title,
             contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(150.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF2A2A2A)),
-        )
+            modifier = Modifier.size(150.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF2A2A2A)))
         Spacer(Modifier.height(8.dp))
-        Text(
-            album.title,
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        val meta = subtitle ?: album.year
-        meta?.let {
+        Text(album.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        (subtitle ?: album.year)?.let {
             Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1)
         }
     }
@@ -472,33 +337,16 @@ private fun AlbumCard(
 
 @Composable
 private fun VideoCard(track: YtTrack, onClick: () -> Unit) {
-    Column(
-        Modifier
-            .width(200.dp)
-            .clickable(onClick = onClick),
-    ) {
-        AsyncImage(
-            model = track.thumbnail,
-            contentDescription = track.title,
+    Column(Modifier.width(200.dp).clickable(onClick = onClick)) {
+        AsyncImage(model = track.thumbnail, contentDescription = track.title,
             contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(112.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF2A2A2A)),
-        )
+            modifier = Modifier.fillMaxWidth().height(112.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF2A2A2A)))
         Spacer(Modifier.height(6.dp))
-        Text(
-            track.title,
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         val meta = buildString {
             append(track.uploader)
-            if (track.viewCount > 0) append(" \u2022 ${humanViewCount(track.viewCount)} views")
+            if (track.viewCount > 0) append(" • ${humanViewCount(track.viewCount)} views")
         }
         Text(meta, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -506,54 +354,29 @@ private fun VideoCard(track: YtTrack, onClick: () -> Unit) {
 
 @Composable
 private fun RelatedArtistCard(artist: YtArtist, onClick: () -> Unit) {
-    Column(
-        Modifier
-            .width(100.dp)
-            .clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        AsyncImage(
-            model = artist.thumbnail,
-            contentDescription = artist.name,
+    Column(Modifier.width(100.dp).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
+        AsyncImage(model = artist.thumbnail, contentDescription = artist.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(84.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF2A2A2A)),
-        )
+            modifier = Modifier.size(84.dp).clip(CircleShape).background(Color(0xFF2A2A2A)))
         Spacer(Modifier.height(8.dp))
-        Text(
-            artist.name,
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
+        Text(artist.name, color = Color.White, fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center)
         artist.subscriberLabel?.let {
-            Text(
-                it,
-                color = Color.White.copy(alpha = 0.55f),
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
+            Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         }
     }
 }
 
 private fun albumId(url: String): String {
     val uri = Uri.parse(url)
-    return uri.getQueryParameter("list")
-        ?: uri.lastPathSegment?.takeIf { it.isNotBlank() }
-        ?: url
+    return uri.getQueryParameter("list") ?: uri.lastPathSegment?.takeIf { it.isNotBlank() } ?: url
 }
 
 private fun humanViewCount(n: Long): String = when {
     n >= 1_000_000_000 -> "%.1f".format(n / 1_000_000_000.0).trimEnd('0').trimEnd('.') + "B"
-    n >= 1_000_000 -> "%.1f".format(n / 1_000_000.0).trimEnd('0').trimEnd('.') + "M"
-    n >= 1_000 -> "%.1f".format(n / 1_000.0).trimEnd('0').trimEnd('.') + "K"
-    else -> n.toString()
+    n >= 1_000_000     -> "%.1f".format(n / 1_000_000.0).trimEnd('0').trimEnd('.') + "M"
+    n >= 1_000         -> "%.1f".format(n / 1_000.0).trimEnd('0').trimEnd('.') + "K"
+    else               -> n.toString()
 }
