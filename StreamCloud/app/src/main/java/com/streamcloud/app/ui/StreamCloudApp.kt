@@ -123,6 +123,7 @@ fun StreamCloudApp() {
     val sl = remember { ServiceLocator.get(context) }
     val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
+    val navHiddenCsv by sl.settings.navHiddenTabsCsv.collectAsState(initial = "")
 
 
 
@@ -133,17 +134,18 @@ fun StreamCloudApp() {
         runCatching { com.streamcloud.app.ui.theme.AlbumArtThemeBus.attach(context) }
     }
 
-    val tabs = remember(nsfwEnabled, navOrderCsv) {
+    val tabs = remember(nsfwEnabled, navOrderCsv, navHiddenCsv) {
+        val hidden = navHiddenCsv.split(",").map { it.trim() }.toSet()
 
 
 
         val pool: Map<String, Tab> = buildMap {
-            put(Tab.Movies.route, Tab.Movies)
-            put(Tab.Music.route, Tab.Music)
-            put(Tab.Library.route, Tab.Library)
-            put(Tab.LiveTv.route, Tab.LiveTv)
-            if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
-            if (nsfwEnabled) put(Tab.PornPop.route, Tab.PornPop)
+            if (Tab.Movies.route  !in hidden) put(Tab.Movies.route,  Tab.Movies)
+            if (Tab.Music.route   !in hidden) put(Tab.Music.route,   Tab.Music)
+            if (Tab.Library.route !in hidden) put(Tab.Library.route, Tab.Library)
+            if (Tab.LiveTv.route  !in hidden) put(Tab.LiveTv.route,  Tab.LiveTv)
+            if (nsfwEnabled && Tab.Adult.route   !in hidden) put(Tab.Adult.route,   Tab.Adult)
+            if (nsfwEnabled && Tab.PornPop.route !in hidden) put(Tab.PornPop.route, Tab.PornPop)
         }
 
 
