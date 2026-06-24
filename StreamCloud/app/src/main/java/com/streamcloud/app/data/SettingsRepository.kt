@@ -36,7 +36,8 @@ object SettingsKeys {
     val YT_MUSIC_COOKIE = stringPreferencesKey("yt_music_cookie")
     val YT_MUSIC_USER_NAME = stringPreferencesKey("yt_music_user_name")
     val YT_MUSIC_USER_AVATAR = stringPreferencesKey("yt_music_user_avatar")
-    val NAV_TAB_ORDER = stringPreferencesKey("nav_tab_order")
+    val NAV_TAB_ORDER    = stringPreferencesKey("nav_tab_order")
+    val NAV_HIDDEN_TABS  = stringPreferencesKey("nav_hidden_tabs")
     val PLAYLIST_THUMBS = stringPreferencesKey("playlist_thumbs")
     val UI_MODE = stringPreferencesKey("ui_mode")
     val ADULT_REDDIT_SUBS = stringPreferencesKey("adult_reddit_subs")
@@ -132,7 +133,8 @@ class SettingsRepository(private val context: Context) {
     val ytMusicUserAvatar: Flow<String> = context.dataStore.data.map { it[SettingsKeys.YT_MUSIC_USER_AVATAR] ?: "" }
 
 
-    val navTabOrderCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.NAV_TAB_ORDER] }
+    val navTabOrderCsv:  Flow<String?> = context.dataStore.data.map { it[SettingsKeys.NAV_TAB_ORDER] }
+    val navHiddenTabsCsv: Flow<String>  = context.dataStore.data.map { it[SettingsKeys.NAV_HIDDEN_TABS] ?: "" }
 
 
     val playlistThumbsJson: Flow<String> = context.dataStore.data.map {
@@ -171,6 +173,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setNavTabOrder(ids: List<String>) =
         context.dataStore.edit { it[SettingsKeys.NAV_TAB_ORDER] = ids.joinToString(",") }
+
+    suspend fun setNavHiddenTabs(csv: String) =
+        context.dataStore.edit { it[SettingsKeys.NAV_HIDDEN_TABS] = csv }
 
     suspend fun setUiMode(mode: String) =
         context.dataStore.edit { it[SettingsKeys.UI_MODE] = mode }
