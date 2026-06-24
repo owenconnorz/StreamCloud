@@ -233,7 +233,8 @@ private fun AdultItem.routeId(): String = when (source) {
 
 private fun AdultItem.routeFallback(): String = when (source) {
     AdultSource.Eporner -> embedUrl.orEmpty()
-    AdultSource.Reddit -> streamUrl.orEmpty()
+    AdultSource.Reddit  -> streamUrl.orEmpty()
+    AdultSource.Redtube -> embedUrl.orEmpty()
 }
 
 @Composable
@@ -324,6 +325,19 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
                         .padding(6.dp)
                         .clip(RoundedCornerShape(6.dp))
                         .background(Color(0xFFFF4500).copy(alpha = 0.85f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+            if (v.source == AdultSource.Redtube) {
+                Text(
+                    "Redtube",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFFCC0000).copy(alpha = 0.85f))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
