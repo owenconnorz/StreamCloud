@@ -30,7 +30,7 @@ data class AdultItem(
 enum class AdultSource(val label: String) {
     Eporner("Eporner"),
     Reddit("Reddit"),
-    Redtube("Redtube"),
+    Redtube("PornHub"),
 }
 
 object RedditAdultRepository {
