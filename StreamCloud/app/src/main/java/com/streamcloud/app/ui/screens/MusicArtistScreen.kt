@@ -110,8 +110,13 @@ private fun ArtistPageContent(
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
 ) {
-    var descExpanded by remember { mutableStateOf(false) }
-    var showAllPopular by remember { mutableStateOf(false) }
+    var descExpanded      by remember { mutableStateOf(false) }
+    var showAllPopular    by remember { mutableStateOf(false) }
+    var showAllSingles    by remember { mutableStateOf(false) }
+    var showAllAlbums     by remember { mutableStateOf(false) }
+    var showAllVideos     by remember { mutableStateOf(false) }
+    var showAllFeatured   by remember { mutableStateOf(false) }
+    var showAllRelated    by remember { mutableStateOf(false) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -188,11 +193,17 @@ private fun ArtistPageContent(
 
         // Singles
         if (page.singles.isNotEmpty()) {
-            item { SectionHeader("Singles", onViewAll = null) }
-            item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(page.singles, key = { "sin_${it.url}" }) { album ->
-                        AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
+            item { SectionHeader("Singles", showAll = showAllSingles, onViewAll = { showAllSingles = !showAllSingles }) }
+            if (showAllSingles) {
+                items(page.singles, key = { "sin_${it.url}" }) { album ->
+                    AlbumListRow(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
+                }
+            } else {
+                item {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(page.singles, key = { "sin_${it.url}" }) { album ->
+                            AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
+                        }
                     }
                 }
             }
@@ -200,11 +211,17 @@ private fun ArtistPageContent(
 
         // Albums
         if (page.albums.isNotEmpty()) {
-            item { SectionHeader("Albums", onViewAll = null) }
-            item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(page.albums, key = { "alb_${it.url}" }) { album ->
-                        AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
+            item { SectionHeader("Albums", showAll = showAllAlbums, onViewAll = { showAllAlbums = !showAllAlbums }) }
+            if (showAllAlbums) {
+                items(page.albums, key = { "alb_${it.url}" }) { album ->
+                    AlbumListRow(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
+                }
+            } else {
+                item {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(page.albums, key = { "alb_${it.url}" }) { album ->
+                            AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
+                        }
                     }
                 }
             }
@@ -212,11 +229,17 @@ private fun ArtistPageContent(
 
         // Videos
         if (page.videos.isNotEmpty()) {
-            item { SectionHeader("Videos", onViewAll = null) }
-            item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(page.videos, key = { "vid_${it.url}" }) { vid ->
-                        VideoCard(track = vid, onClick = { onPlay(vid) })
+            item { SectionHeader("Videos", showAll = showAllVideos, onViewAll = { showAllVideos = !showAllVideos }) }
+            if (showAllVideos) {
+                items(page.videos, key = { "vid_${it.url}" }) { vid ->
+                    VideoListRow(track = vid, onClick = { onPlay(vid) })
+                }
+            } else {
+                item {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(page.videos, key = { "vid_${it.url}" }) { vid ->
+                            VideoCard(track = vid, onClick = { onPlay(vid) })
+                        }
                     }
                 }
             }
@@ -224,11 +247,17 @@ private fun ArtistPageContent(
 
         // Featured on
         if (page.featuredOn.isNotEmpty()) {
-            item { SectionHeader("Featured on", onViewAll = null) }
-            item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(page.featuredOn, key = { "feat_${it.url}" }) { pl ->
-                        AlbumCard(album = pl, subtitle = "YouTube Music", onClick = { onAlbumClick(albumId(pl.url), pl.title, pl.thumbnail) })
+            item { SectionHeader("Featured on", showAll = showAllFeatured, onViewAll = { showAllFeatured = !showAllFeatured }) }
+            if (showAllFeatured) {
+                items(page.featuredOn, key = { "feat_${it.url}" }) { pl ->
+                    AlbumListRow(album = pl, subtitle = "YouTube Music", onClick = { onAlbumClick(albumId(pl.url), pl.title, pl.thumbnail) })
+                }
+            } else {
+                item {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(page.featuredOn, key = { "feat_${it.url}" }) { pl ->
+                            AlbumCard(album = pl, subtitle = "YouTube Music", onClick = { onAlbumClick(albumId(pl.url), pl.title, pl.thumbnail) })
+                        }
                     }
                 }
             }
@@ -236,11 +265,17 @@ private fun ArtistPageContent(
 
         // Related Artists
         if (page.relatedArtists.isNotEmpty()) {
-            item { SectionHeader("Related Artists", onViewAll = null) }
-            item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(page.relatedArtists, key = { "rel_${it.url}" }) { artist ->
-                        RelatedArtistCard(artist = artist, onClick = { onArtistClick(artist.url, artist.thumbnail) })
+            item { SectionHeader("Related Artists", showAll = showAllRelated, onViewAll = { showAllRelated = !showAllRelated }) }
+            if (showAllRelated) {
+                items(page.relatedArtists, key = { "rel_${it.url}" }) { artist ->
+                    RelatedArtistListRow(artist = artist, onClick = { onArtistClick(artist.url, artist.thumbnail) })
+                }
+            } else {
+                item {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        items(page.relatedArtists, key = { "rel_${it.url}" }) { artist ->
+                            RelatedArtistCard(artist = artist, onClick = { onArtistClick(artist.url, artist.thumbnail) })
+                        }
                     }
                 }
             }
@@ -395,6 +430,78 @@ private fun RelatedArtistCard(artist: YtArtist, onClick: () -> Unit) {
         artist.subscriberLabel?.let {
             Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+
+@Composable
+private fun AlbumListRow(album: YtAlbum, subtitle: String? = null, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AsyncImage(
+            model = album.thumbnail, contentDescription = album.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(54.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2A2A)),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(album.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val meta = subtitle ?: album.year
+            meta?.let { Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1) }
+        }
+    }
+}
+
+@Composable
+private fun VideoListRow(track: YtTrack, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AsyncImage(
+            model = track.thumbnail, contentDescription = track.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2A2A)),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val meta = buildString {
+                append(track.uploader)
+                if (track.viewCount > 0) append(" • ${humanViewCount(track.viewCount)} views")
+            }
+            Text(meta, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun RelatedArtistListRow(artist: YtArtist, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AsyncImage(
+            model = artist.thumbnail, contentDescription = artist.name,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(54.dp).clip(CircleShape).background(Color(0xFF2A2A2A)),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(artist.name, color = Color.White, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            artist.subscriberLabel?.let {
+                Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1)
+            }
         }
     }
 }
