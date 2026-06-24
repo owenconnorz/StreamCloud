@@ -143,6 +143,9 @@ class AdultViewModel : ViewModel() {
                         source = AdultSource.Eporner,
                         epornerId = v.id,
                         embedUrl = v.embed,
+                        views  = if (v.views > 0) formatViews(v.views) else null,
+                        rating = v.rate?.takeIf { it.isNotBlank() },
+                        tags   = v.keywords?.takeIf { it.isNotBlank() },
                     )
                 }
                 _state.update { it.copy(items = items, loading = false) }
@@ -202,6 +205,12 @@ class AdultViewModel : ViewModel() {
         } finally {
             _state.update { it.copy(resolvingId = null) }
         }
+    }
+
+    private fun formatViews(n: Long): String = when {
+        n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+        n >= 1_000     -> "%.1fK".format(n / 1_000.0)
+        else           -> n.toString()
     }
 
     companion object {
