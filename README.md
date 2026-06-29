@@ -35,7 +35,7 @@ Native Android music & media streaming app built with Kotlin and Jetpack Compose
 
 ### 🔌 Plugins
 
-- CloudStream support (some wbat working)
+- CloudStream support (some what working)
 - Nuvio support (in a fix now)
 - Stremio support ( i think it works)
 
