@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 fun Modifier.verticalScrollbar(
     state: LazyListState,
     width: Dp = 3.dp,
+    dragGestureWidth: Dp = 48.dp,
     minThumbHeight: Dp = 48.dp,
     color: Color = Color.White.copy(alpha = 0.35f),
     fadeOutDelayMs: Int = 800,
@@ -46,7 +47,7 @@ fun Modifier.verticalScrollbar(
             while (true) {
                 awaitPointerEventScope {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    if (size.width - down.position.x > 48f) return@awaitPointerEventScope
+                    if (size.width - down.position.x > dragGestureWidth.toPx()) return@awaitPointerEventScope
                     isDragging = true
                     down.consume()
                     drag(down.id) { change ->
