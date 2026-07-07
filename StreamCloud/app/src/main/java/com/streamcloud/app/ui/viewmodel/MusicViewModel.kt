@@ -1,6 +1,7 @@
 package com.streamcloud.app.ui.viewmodel
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -113,7 +114,8 @@ class MusicViewModel(context: Context) : ViewModel() {
             try {
                 val feed = NewPipeRepository.homeFeed()
                 _state.update { it.copy(homeFeed = feed, homeLoading = false) }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e("MusicViewModel", "loadHomeFeed failed: ${e.message}", e)
                 _state.update { it.copy(homeLoading = false) }
             }
         }
