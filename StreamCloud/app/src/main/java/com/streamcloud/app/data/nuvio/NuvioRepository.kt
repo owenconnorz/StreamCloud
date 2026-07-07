@@ -1,6 +1,7 @@
 package com.streamcloud.app.data.nuvio
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -25,6 +26,25 @@ import java.util.concurrent.TimeUnit
 private val Context.nuvioStore by preferencesDataStore("streamcloud_nuvio")
 private val KEY_INSTALLED   = stringPreferencesKey("installed_json")
 private val KEY_SAVED_REPOS = stringPreferencesKey("saved_repos_json")
+private const val TAG = "NuvioRepository"
+
+internal fun normaliseNuvioIdToken(raw: Any?): String? =
+    raw?.toString()
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.removePrefix("tmdb:")
+        ?.removePrefix("tmdb/")
+        ?.removePrefix("imdb:")
+        ?.removePrefix("movie:")
+        ?.removePrefix("series:")
+        ?.substringBefore(':')
+        ?.substringBefore('/')
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+
+internal fun sanitizeNuvioTmdbId(raw: Any?): String? =
+    normaliseNuvioIdToken(raw)
+        ?.takeIf { it != "0" && it.all(Char::isDigit) }
 
 class NuvioRepository(private val context: Context) {
 
@@ -124,7 +144,8 @@ class NuvioRepository(private val context: Context) {
         episode: Int? = null,
         imdbId: String? = null,
     ): List<Pair<InstalledNuvioProvider, NuvioStream>> = coroutineScope {
-        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType)
+            ?: return@coroutineScope emptyList()
         val list = installed.first()
         list.map { provider ->
             async(Dispatchers.IO) {
@@ -149,14 +170,7 @@ class NuvioRepository(private val context: Context) {
 
     private val tmdbIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private suspend fun resolveTmdbId(raw: String, mediaType: String): String? {
-        val trimmed = raw.trim()
-        if (trimmed.isBlank()) return null
-        val noPrefix = trimmed
-            .removePrefix("tmdb:").removePrefix("tmdb/")
-            .removePrefix("imdb:").removePrefix("movie:").removePrefix("series:")
-            .substringBefore(':').substringBefore('/')
-            .trim()
-        if (noPrefix.isBlank()) return null
+        val noPrefix = normaliseNuvioIdToken(raw) ?: return null
         if (noPrefix.all(Char::isDigit)) return noPrefix
         if (!noPrefix.startsWith("tt", ignoreCase = true)) return null
 
@@ -207,7 +221,8 @@ class NuvioRepository(private val context: Context) {
     ): List<NuvioStream> = withContext(Dispatchers.IO) {
         val js = runCatching { File(provider.filePath).readText() }.getOrNull()
             ?: return@withContext emptyList()
-        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType)
+            ?: return@withContext emptyList()
         NuvioRuntime.runProvider(
             scriptText = js,
             tmdbId = resolvedTmdb,
@@ -230,7 +245,8 @@ class NuvioRepository(private val context: Context) {
         val js = runCatching { File(provider.filePath).readText() }.getOrElse {
             return@withContext 0 to "Could not read provider file"
         }
-        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType)
+            ?: return@withContext 0 to "Invalid TMDB ID after sanitization"
         try {
             val streams = NuvioRuntime.runProvider(
                 scriptText = js,
@@ -246,6 +262,15 @@ class NuvioRepository(private val context: Context) {
             streams.size to null
         } catch (e: Exception) {
             0 to (e.message ?: "Unknown error")
+        }
+    }
+
+    private suspend fun resolvedTmdbIdOrWarn(raw: String, mediaType: String): String? {
+        val resolved = resolveTmdbId(raw, mediaType) ?: raw
+        return sanitizeNuvioTmdbId(resolved) ?: run {
+            val shown = raw.trim().ifBlank { "<blank>" }
+            Log.w(TAG, "Skipping Nuvio lookup for invalid TMDB id \"$shown\" (mediaType=${normaliseMediaType(mediaType)})")
+            null
         }
     }
 

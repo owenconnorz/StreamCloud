@@ -859,6 +859,52 @@ object NuvioRuntime {
         // populated with real values in the execute IIFE below.
         if (typeof globalThis.params === 'undefined') globalThis.params = {};
 
+        function __sanitizeTmdbQueryValue(value) {
+            if (value == null) return null;
+            var normalized = String(value).trim();
+            if (!normalized || normalized === '0' || !/^\d+$/.test(normalized)) return null;
+            return normalized;
+        }
+
+        function __normalizeTmdbRequestUrl(url) {
+            var rawUrl = String(url == null ? '' : url);
+            if (!rawUrl || rawUrl.indexOf('tmdb=') === -1) return rawUrl;
+            try {
+                var hashIndex = rawUrl.indexOf('#');
+                var hash = hashIndex >= 0 ? rawUrl.substring(hashIndex) : '';
+                var beforeHash = hashIndex >= 0 ? rawUrl.substring(0, hashIndex) : rawUrl;
+                var queryIndex = beforeHash.indexOf('?');
+                if (queryIndex < 0) return rawUrl;
+                var baseUrl = beforeHash.substring(0, queryIndex);
+                var search = beforeHash.substring(queryIndex + 1);
+                var params = new URLSearchParams(search);
+                if (!params.has('tmdb')) return rawUrl;
+                var normalizedTmdb = __sanitizeTmdbQueryValue(params.get('tmdb'));
+                if (!normalizedTmdb) {
+                    console.warn('[runtime] Skipping request with invalid tmdb query param: ' + rawUrl);
+                    return null;
+                }
+                params.set('tmdb', normalizedTmdb);
+                var normalizedQuery = params.toString();
+                return normalizedQuery ? (baseUrl + '?' + normalizedQuery + hash) : (baseUrl + hash);
+            } catch (e) {
+                console.warn('[runtime] Failed to normalize tmdb query param: ' + ((e && e.message) || String(e)));
+                return rawUrl;
+            }
+        }
+
+        function __makeSyntheticResponse(url, status, statusText, body) {
+            return JSON.stringify({
+                ok: status >= 200 && status < 300,
+                status: status,
+                statusText: statusText || '',
+                url: String(url == null ? '' : url),
+                redirected: false,
+                headers: { 'content-type': 'text/plain' },
+                body: body || '',
+            });
+        }
+
         var fetch = async function(url, options) {
             options = options || {};
             // If an AbortSignal is already aborted reject immediately (matching
@@ -890,14 +936,18 @@ object NuvioRuntime {
             }
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
+            var normalizedUrl = __normalizeTmdbRequestUrl(url);
             // __native_fetch is a synchronous blocking function (returns a String directly).
             // Do NOT await it — it is not a Promise. The fetch shim itself is still async
             // so providers that use .then() chaining still get a proper Promise from fetch().
-            var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
+            var requestUrl = normalizedUrl == null ? String(url == null ? '' : url) : normalizedUrl;
+            var result = normalizedUrl == null
+                ? __makeSyntheticResponse(requestUrl, 400, 'Bad Request', '')
+                : __native_fetch(requestUrl, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             // Compact response trace (same format as XHR so the picker shows real API output).
             try {
-                var _fPath = String(url || '').replace(/^https?:\/\/[^\/]+/, '').substring(0, 50);
+                var _fPath = requestUrl.replace(/^https?:\/\/[^\/]+/, '').substring(0, 50);
                 var _fBody = String(parsed.body || '').substring(0, 55);
                 console.log('[rsp] ' + method + ' ' + _fPath + ' \u2192 ' + parsed.status + ' ' + _fBody);
             } catch(_fErr) {}
@@ -1033,16 +1083,20 @@ object NuvioRuntime {
                 // the outer await picks it up correctly.
                 var _doSend = function() {
                     try {
-                        var result = __native_fetch(
-                            self._url, self._method,
-                            JSON.stringify(self._headers),
-                            (body == null ? '' : String(body)),
-                            true   // followRedirects
-                        );
+                        var normalizedUrl = __normalizeTmdbRequestUrl(self._url);
+                        var requestUrl = normalizedUrl == null ? String(self._url == null ? '' : self._url) : normalizedUrl;
+                        var result = normalizedUrl == null
+                            ? __makeSyntheticResponse(requestUrl, 400, 'Bad Request', '')
+                            : __native_fetch(
+                                requestUrl, self._method,
+                                JSON.stringify(self._headers),
+                                (body == null ? '' : String(body)),
+                                true   // followRedirects
+                            );
                         var parsed = JSON.parse(result);
                         self.status      = parsed.status      || 0;
                         self.statusText  = parsed.statusText  || '';
-                        self.responseURL = parsed.url         || self._url;
+                        self.responseURL = parsed.url         || requestUrl;
                         self._responseHeaders = parsed.headers || {};
                         var rawBody = parsed.body || '';
                         if (self.responseType === 'json') {
@@ -1055,7 +1109,7 @@ object NuvioRuntime {
                         // Compact HTTP response trace — visible as lastLog in the stream picker.
                         // Format: "[rsp] METHOD /path/... → STATUS body_preview"
                         try {
-                            var _rspPath = String(self._url || '').replace(/^https?:\/\/[^\/]+/, '').substring(0, 50);
+                            var _rspPath = requestUrl.replace(/^https?:\/\/[^\/]+/, '').substring(0, 50);
                             var _rspBody = String(rawBody || '').substring(0, 55);
                             console.log('[rsp] ' + (self._method||'?') + ' ' + _rspPath + ' \u2192 ' + self.status + ' ' + _rspBody);
                         } catch(_rspErr) {}
