@@ -321,7 +321,11 @@ fun YtPlaylistScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
-                        .verticalScrollbar(listState),
+                        .verticalScrollbar(
+                            state = listState,
+                            width = 5.dp,
+                            dragGestureWidth = 56.dp,
+                        ),
                 ) {
                 // Hide the hero when search is active so results start immediately
                 if (!searchActive) {
@@ -706,7 +710,7 @@ private fun PlaylistTrackRow(
                 else androidx.compose.ui.graphics.Color.Transparent,
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(modifier = Modifier.size(52.dp)) {

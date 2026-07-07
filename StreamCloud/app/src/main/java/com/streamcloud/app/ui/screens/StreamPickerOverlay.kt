@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.ExtractorLink
+import com.lagradost.cloudstream3.LiveStreamLoadResponse
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
@@ -716,6 +717,7 @@ private suspend fun resolveCsForPicker(
         }.getOrNull() ?: return emptyList()
         val dataStr: String? = when (detail) {
             is MovieLoadResponse -> detail.dataUrl
+            is LiveStreamLoadResponse -> detail.dataUrl
             is TvSeriesLoadResponse -> {
                 val eps = detail.episodes
                 if (eps.size == 1) eps.first().data else null
