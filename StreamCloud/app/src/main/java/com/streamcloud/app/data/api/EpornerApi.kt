@@ -55,6 +55,20 @@ data class EpornerSearchResponse(
     val videos: List<EpornerVideo> = emptyList(),
 )
 
+@Serializable
+data class EpornerCategory(
+    val id: String = "",
+    val slug: String? = null,
+    val title: String = "",
+    val count: Int = 0,
+)
+
+@Serializable
+data class EpornerCategoryResponse(
+    val count: Int = 0,
+    val categories: List<EpornerCategory> = emptyList(),
+)
+
 interface EpornerApi {
     @GET("api/v2/video/search/")
     suspend fun search(
@@ -66,7 +80,6 @@ interface EpornerApi {
         @Query("format") format: String = "json",
     ): EpornerSearchResponse
 
-
     @GET("api/v2/video/search/")
     suspend fun details(
         @Query("id") id: String,
@@ -74,4 +87,12 @@ interface EpornerApi {
         @Query("thumbsize") thumbsize: String = "medium",
         @Query("format") format: String = "json",
     ): EpornerSearchResponse
+
+    @GET("api/v2/category/list/")
+    suspend fun categories(
+        @Query("per_page") perPage: Int = 100,
+        @Query("thumbsize") thumbsize: String = "medium",
+        @Query("format") format: String = "json",
+        @Query("page") page: Int = 1,
+    ): EpornerCategoryResponse
 }
