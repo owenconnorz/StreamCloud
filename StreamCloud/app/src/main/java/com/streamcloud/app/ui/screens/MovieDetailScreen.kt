@@ -814,7 +814,13 @@ fun MovieDetailScreen(
                                         mediaType = mediaType,
                                     )
                                     val ps = csPickerSources.toCsPlayerSources(pickerPlugin.name)
-                                    val selPs = ps.find { it.url == selLink.url } ?: ps.first()
+                                    // Prefer URL match; fall back to index match so we never silently
+                                    // play the wrong source when the URL was slightly transformed.
+                                    val selIdx = csPickerSources.indexOf(selLink)
+                                    val selPs = ps.find { it.url == selLink.url }
+                                        ?: if (selIdx >= 0 && selIdx < ps.size) ps[selIdx]
+                                        else ps.firstOrNull()
+                                        ?: return@Button
                                     val reordered = listOf(selPs) + ps.filter { it.url != selPs.url }
                                     csPickerPlugin = null
                                     onPlay(selPs.url, displayTitle, reordered, progressKey)

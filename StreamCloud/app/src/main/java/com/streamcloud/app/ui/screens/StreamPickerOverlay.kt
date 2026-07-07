@@ -691,7 +691,7 @@ private fun pickerNormaliseQuality(q: String?): String? {
     return when {
         s.equals("4K", ignoreCase = true) || s.contains("2160") || s.contains("uhd", ignoreCase = true) -> "4K"
         s.contains("1440") || s.equals("2K", ignoreCase = true) -> "1440p"
-        s.contains("1080") || s.equals("fhd", ignoreCase = true) || s.equals("fullhd", ignoreCase = true) -> "1080p"
+        s.contains("1080") || s.equals("fhd", ignoreCase = true) || s.equals("fullhd", ignoreCase = true) || s.equals("full hd", ignoreCase = true) -> "1080p"
         s.contains("720") || s.equals("hd", ignoreCase = true) -> "720p"
         s.contains("480") || s.equals("sd", ignoreCase = true) -> "480p"
         s.contains("360") -> "360p"
