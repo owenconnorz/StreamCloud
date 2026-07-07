@@ -1,6 +1,7 @@
 package com.streamcloud.app.data.plugins
 
 import android.content.Context
+import android.util.Log
 import com.lagradost.cloudstream3.ExtractorLink
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -10,9 +11,13 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.installPrefs
 import com.lagradost.cloudstream3.plugins.Plugin
+import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.loadExtractor
 import dalvik.system.DexClassLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -23,7 +28,15 @@ import java.util.zip.ZipInputStream
 
 object PluginRuntime {
 
-    private data class LoadedPlugin(val plugin: Plugin, val apis: List<MainAPI>)
+    private const val TAG = "PluginRuntime"
+    private const val API_TIMEOUT_MS = 30_000L
+    private const val TOTAL_TIMEOUT_MS = 90_000L
+
+    private data class LoadedPlugin(
+        val plugin: Plugin,
+        val apis: List<MainAPI>,
+        val extractors: List<ExtractorApi>,
+    )
     private val cache = mutableMapOf<String, LoadedPlugin>()
     private val lastErrors = mutableMapOf<String, String>()
 
@@ -250,7 +263,11 @@ object PluginRuntime {
             instance.beforeLoad()
             instance.load(context)
             instance.afterLoad()
-            val loaded = LoadedPlugin(instance, instance.apis.toList())
+            val loaded = LoadedPlugin(
+                plugin = instance,
+                apis = instance.apis.toList(),
+                extractors = instance.extractors.toList(),
+            )
             cache[filePath] = loaded
             lastErrors.remove(filePath)
             loaded.apis
@@ -571,21 +588,92 @@ object PluginRuntime {
         data: String,
         isCasting: Boolean = false,
     ): Pair<List<ExtractorLink>, List<SubtitleFile>> = withContext(Dispatchers.IO) {
-        val apis = load(context, filePath)
+        val loaded = cache[filePath] ?: run {
+            load(context, filePath)
+            cache[filePath]
+        }
+        val apis = loaded?.apis ?: emptyList()
+        val pluginExtractors = loaded?.extractors ?: emptyList()
+
         val links = java.util.Collections.synchronizedList(mutableListOf<ExtractorLink>())
         val subs = java.util.Collections.synchronizedList(mutableListOf<SubtitleFile>())
-        for (api in apis) {
-            try {
-                api.loadLinks(
-                    data = data,
-                    isCasting = isCasting,
-                    subtitleCallback = { sub -> subs.add(sub) },
-                    callback = { link -> links.add(link) },
-                )
-            } catch (e: Throwable) {
-                lastErrors[filePath] = "${api.name}: ${e::class.simpleName}: ${e.message}"
+        val errors = mutableListOf<String>()
+        var apisAttempted = 0
+
+        val timedOut = withTimeoutOrNull(TOTAL_TIMEOUT_MS) {
+            for (api in apis) {
+                apisAttempted++
+                try {
+                    val apiLinks = java.util.Collections.synchronizedList(mutableListOf<ExtractorLink>())
+                    val timedOutApi = withTimeoutOrNull(API_TIMEOUT_MS) {
+                        api.loadLinks(
+                            data = data,
+                            isCasting = isCasting,
+                            subtitleCallback = { sub -> subs.add(sub) },
+                            callback = { link -> apiLinks.add(link) },
+                        )
+                    }
+                    if (timedOutApi == null) {
+                        Log.w(TAG, "${api.name}: timed out after ${API_TIMEOUT_MS}ms")
+                        errors.add("${api.name}: timed out")
+                    } else {
+                        Log.d(TAG, "${api.name}: found ${apiLinks.size} link(s)")
+                        links.addAll(apiLinks)
+                        // Run plugin-registered extractors on each discovered link URL.
+                        if (pluginExtractors.isNotEmpty()) {
+                            for (link in apiLinks) {
+                                for (extractor in pluginExtractors) {
+                                    val url = link.url.lowercase()
+                                    val extUrl = extractor.mainUrl.lowercase()
+                                        .replace(com.lagradost.cloudstream3.utils.schemaStripRegex, "")
+                                    if (url.replace(com.lagradost.cloudstream3.utils.schemaStripRegex, "")
+                                            .startsWith(extUrl)) {
+                                        try {
+                                            extractor.getUrl(link.url, link.referer.takeIf { it.isNotBlank() }, { sub -> subs.add(sub) }, { l -> links.add(l) })
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Throwable) {
+                                            Log.w(TAG, "Extractor ${extractor.name}: ${e.message}")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Also run the global loadExtractor registry on each discovered link.
+                        for (link in apiLinks) {
+                            try {
+                                loadExtractor(link.url, link.referer.takeIf { it.isNotBlank() }, { sub -> subs.add(sub) }, { l -> links.add(l) })
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    Log.w(TAG, "${api.name}: error – ${e::class.simpleName}: ${e.message}")
+                    errors.add("${api.name}: ${e::class.simpleName}: ${e.message}")
+                }
             }
         }
+
+        if (timedOut == null) {
+            Log.w(TAG, "loadLinks($filePath) timed out after ${TOTAL_TIMEOUT_MS}ms")
+            errors.add("overall timeout after ${TOTAL_TIMEOUT_MS / 1000}s")
+        }
+
+        if (links.isEmpty()) {
+            val errorMsg = when {
+                errors.isNotEmpty() -> errors.joinToString("; ")
+                apisAttempted == 0 -> "No provider APIs loaded"
+                else -> "No links found ($apisAttempted API(s) tried)"
+            }
+            lastErrors[filePath] = errorMsg
+            Log.d(TAG, "loadLinks($filePath): $errorMsg")
+        } else {
+            lastErrors.remove(filePath)
+        }
+
         links.toList() to subs.toList()
     }
 
@@ -594,6 +682,10 @@ object PluginRuntime {
 
     fun clear(filePath: String) {
         cache.remove(filePath)
+        lastErrors.remove(filePath)
+    }
+
+    fun clearLastError(filePath: String) {
         lastErrors.remove(filePath)
     }
 
