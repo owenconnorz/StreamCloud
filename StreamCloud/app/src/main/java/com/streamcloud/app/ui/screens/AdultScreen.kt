@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -16,8 +17,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timer
@@ -40,6 +44,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
+import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
@@ -59,8 +64,10 @@ fun AdultScreen(
 
     var detailItem by remember { mutableStateOf<AdultItem?>(null) }
     var query by remember { mutableStateOf("") }
+    var showCategoryPicker by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
 
+    // Infinite scroll: trigger loadMore when near the bottom
     LaunchedEffect(gridState) {
         snapshotFlow {
             val total = gridState.layoutInfo.totalItemsCount
@@ -75,20 +82,38 @@ fun AdultScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Spacer(Modifier.height(12.dp))
-        Text(
-            screenTitle,
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(horizontal = 20.dp),
-        )
-        Text(
-            screenSubtitle,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp),
-        )
+
+        // Title row with refresh button
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    screenTitle,
+                    style = MaterialTheme.typography.displayLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text(
+                    screenSubtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = { vm.refresh() }) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "Refresh",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+
         Spacer(Modifier.height(16.dp))
 
+        // Search field
         OutlinedTextField(
             value = query,
             onValueChange = { query = it; vm.search(it) },
@@ -116,6 +141,38 @@ fun AdultScreen(
         )
 
         Spacer(Modifier.height(8.dp))
+
+        // Category + active-category chip row
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                onClick = { showCategoryPicker = true },
+                shape   = RoundedCornerShape(10.dp),
+            ) {
+                Icon(Icons.Default.Category, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Categories")
+            }
+
+            state.selectedCategory?.let { cat ->
+                InputChip(
+                    selected  = true,
+                    onClick   = { vm.selectCategory(null); query = "" },
+                    label     = { Text(cat.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    trailingIcon = {
+                        Icon(Icons.Default.Close, contentDescription = "Clear category", Modifier.size(16.dp))
+                    },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
         state.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp))
         }
@@ -140,7 +197,36 @@ fun AdultScreen(
                     }
                 }
             }
+            if (!state.hasMore && state.items.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "No more results",
+                        style    = MaterialTheme.typography.bodySmall,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                            .wrapContentWidth(Alignment.CenterHorizontally),
+                    )
+                }
+            }
         }
+    }
+
+    if (showCategoryPicker) {
+        CategoryPickerSheet(
+            categories       = state.categories,
+            loadingCategories = state.loadingCategories,
+            categorySearch   = state.categorySearch,
+            selectedCategory = state.selectedCategory,
+            onSearchChange   = { vm.setCategorySearch(it) },
+            onSelect         = { cat ->
+                vm.selectCategory(cat)
+                query = ""
+                showCategoryPicker = false
+            },
+            onDismiss        = { showCategoryPicker = false },
+        )
     }
 
     detailItem?.let { item ->
@@ -154,6 +240,184 @@ fun AdultScreen(
             onDismiss = { detailItem = null },
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CategoryPickerSheet(
+    categories: List<EpornerCategory>,
+    loadingCategories: Boolean,
+    categorySearch: String,
+    selectedCategory: EpornerCategory?,
+    onSearchChange: (String) -> Unit,
+    onSelect: (EpornerCategory?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val filtered = remember(categorySearch, categories) {
+        if (categorySearch.isBlank()) categories
+        else categories.filter { it.title.contains(categorySearch, ignoreCase = true) }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState       = sheetState,
+        containerColor   = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp)
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    "Categories",
+                    style    = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color    = MaterialTheme.colorScheme.onSurface,
+                )
+                if (selectedCategory != null) {
+                    TextButton(onClick = { onSelect(null) }) {
+                        Text("Clear")
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Category search field
+            OutlinedTextField(
+                value          = categorySearch,
+                onValueChange  = onSearchChange,
+                modifier       = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                placeholder    = { Text("Search categories\u2026") },
+                singleLine     = true,
+                leadingIcon    = { Icon(Icons.Default.Search, null) },
+                trailingIcon   = {
+                    if (categorySearch.isNotEmpty()) {
+                        IconButton(onClick = { onSearchChange("") }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                shape          = RoundedCornerShape(14.dp),
+                colors         = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor      = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor    = MaterialTheme.colorScheme.outline,
+                    focusedContainerColor   = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                ),
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            when {
+                loadingCategories -> {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(strokeWidth = 2.dp)
+                    }
+                }
+                categories.isEmpty() -> {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No categories available",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                filtered.isEmpty() -> {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No categories match \"$categorySearch\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        modifier            = Modifier.fillMaxWidth(),
+                        contentPadding      = PaddingValues(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        items(filtered, key = { it.id.ifBlank { it.title } }) { cat ->
+                            val isSelected = selectedCategory?.id == cat.id
+                            Surface(
+                                modifier  = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onSelect(cat) },
+                                color     = if (isSelected)
+                                    MaterialTheme.colorScheme.primaryContainer
+                                else
+                                    MaterialTheme.colorScheme.surfaceVariant,
+                                shape     = RoundedCornerShape(10.dp),
+                            ) {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment     = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        cat.title,
+                                        style  = MaterialTheme.typography.bodyMedium,
+                                        color  = if (isSelected)
+                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                        else
+                                            MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                    if (cat.count > 0) {
+                                        Text(
+                                            formatCount(cat.count),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isSelected)
+                                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                            else
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatCount(n: Int): String = when {
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+    n >= 1_000     -> "%.1fK".format(n / 1_000.0)
+    else           -> n.toString()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
