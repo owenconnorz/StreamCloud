@@ -49,6 +49,7 @@ import com.streamcloud.app.player.StreamCacheRepository
 import com.streamcloud.app.player.WatchProgressKey
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.ExtractorLink
+import com.lagradost.cloudstream3.LiveStreamLoadResponse
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
@@ -275,12 +276,18 @@ fun MovieDetailScreen(
                 val detail = runCatching {
                     PluginRuntime.loadDetail(context, plugin.filePath, best.url)
                 }.getOrNull()
-                val movieDetail = detail as? MovieLoadResponse ?: run {
+                val dataStr = when (detail) {
+                    is MovieLoadResponse -> detail.dataUrl
+                    is LiveStreamLoadResponse -> detail.dataUrl
+                    is TvSeriesLoadResponse -> detail.episodes.singleOrNull()?.data
+                    is AnimeLoadResponse -> detail.episodes.values.flatten().singleOrNull()?.data
+                    else -> null
+                } ?: run {
                     csPickerError = "Could not load movie details from ${plugin.name}."
                     return@launch
                 }
                 val (links, subs) = runCatching {
-                    PluginRuntime.loadLinks(context, plugin.filePath, movieDetail.dataUrl)
+                    PluginRuntime.loadLinks(context, plugin.filePath, dataStr)
                 }.getOrElse { emptyList<ExtractorLink>() to emptyList<SubtitleFile>() }
                 if (links.isEmpty()) {
                     csPickerError = "No streams found for \"$title\" in ${plugin.name}."
@@ -1074,6 +1081,7 @@ private suspend fun resolveCsPluginForMovie(
         // a standalone movie as a single-episode series/anime.
         val dataStr: String? = when (detail) {
             is MovieLoadResponse -> detail.dataUrl
+            is LiveStreamLoadResponse -> detail.dataUrl
             is TvSeriesLoadResponse -> {
                 val eps = detail.episodes
                 if (eps.size == 1) eps.first().data else null
