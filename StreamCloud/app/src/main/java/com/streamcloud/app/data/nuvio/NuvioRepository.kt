@@ -265,7 +265,12 @@ class NuvioRepository(private val context: Context) {
 
 
     private fun resolveDownloadUrl(manifestUrl: String, e: NuvioProviderEntry): String? {
-        val raw = e.downloadUrl ?: e.downloadUrlSnake ?: e.url ?: e.filename ?: return null
+        // Prefer explicit URL fields over the filename fallback.  Only use `filename` as a
+        // last resort and only when it looks like a relative path (contains a '/') or an
+        // absolute URL — a plain basename like "provider.js" is relative to the manifest dir.
+        val raw = e.downloadUrl ?: e.downloadUrlSnake ?: e.url
+            ?: e.filename?.takeIf { it.isNotBlank() }
+            ?: return null
         if (raw.startsWith("http")) return raw
 
         val base = manifestUrl.substringBeforeLast('/')
