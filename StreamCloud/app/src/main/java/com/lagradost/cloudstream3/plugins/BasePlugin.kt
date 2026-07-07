@@ -2,6 +2,7 @@
 package com.lagradost.cloudstream3.plugins
 
 import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.utils.ExtractorApi
 
 const val PLUGIN_TAG = "PluginInstance"
 
@@ -14,7 +15,15 @@ const val PLUGIN_TAG = "PluginInstance"
  * without throwing NoClassDefFoundError: BasePlugin.
  *
  * The key contract: [registerMainAPI] adds to [apis], which PluginRuntime
- * reads after [load] returns.
+ * reads after [load] returns. Similarly, [registerExtractorAPI] adds to [extractors]
+ * for custom video stream extractors.
+ *
+ * ## Compatibility Notes
+ * - This stub is frozen at a specific CloudStream version.
+ * - When CloudStream updates its plugin SDK, this file may need updates.
+ * - The reflection bridge in PluginRuntime can help mitigate API drift.
+ * - If a plugin's API call fails due to missing method, check the error logs
+ *   which will indicate the specific incompatibility.
  */
 abstract class BasePlugin {
 
@@ -23,6 +32,13 @@ abstract class BasePlugin {
      * PluginRuntime captures this list immediately after afterLoad() returns.
      */
     val apis: MutableList<MainAPI> = mutableListOf()
+
+    /**
+     * All [ExtractorApi] extractors registered by this plugin during [load].
+     * PluginRuntime captures this list immediately after afterLoad() returns.
+     * Enables plugins to provide custom video stream extractors beyond MainAPI.
+     */
+    val extractors: MutableList<ExtractorApi> = mutableListOf()
 
     /**
      * Absolute file path to the .cs3 file.
@@ -39,10 +55,13 @@ abstract class BasePlugin {
     }
 
     /**
-     * Register an extractor.  No-op in StreamCloud — retained for API
-     * compatibility so plugins that call it don't crash on class verification.
+     * Register an [ExtractorApi] extractor.
+     * This enables plugins to provide custom video stream extractors.
+     * Must be called from inside [load] / [load(Context)][com.lagradost.cloudstream3.plugins.Plugin.load].
      */
-    fun registerExtractorAPI(extractor: Any) { /* no-op */ }
+    fun registerExtractorAPI(extractor: ExtractorApi) {
+        extractors.add(extractor)
+    }
 
     /** Called before [load]. Override for one-time setup. */
     @Throws(Throwable::class)
