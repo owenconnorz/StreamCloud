@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -235,6 +236,8 @@ fun MusicScreen(
                                                     runCatching {
                                                         com.streamcloud.app.data.ytmusic.YtPlayback
                                                             .playSong(context, song)
+                                                    }.onFailure { e ->
+                                                        Log.e("MusicScreen", "PlaylistRail video play failed for ${pl.id}: ${e.message}", e)
                                                     }
                                                 }
                                             } else {
@@ -247,7 +250,7 @@ fun MusicScreen(
                         }
                         is com.streamcloud.app.data.ytmusic.HomeSection.SongRail -> {
                             item(key = "yt_srail_title_$idx") { SectionTitle(section.title) }
-                            items(section.items) { s ->
+                            items(section.items, key = { s -> "yt_srail_${idx}_${s.videoId}" }) { s ->
                                 YtHomeSongRow(s)
                             }
                         }
@@ -1089,6 +1092,7 @@ private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
     val onPlay = {
         scope.launch {
             runCatching { com.streamcloud.app.data.ytmusic.YtPlayback.playSong(context, s) }
+                .onFailure { e -> Log.e("MusicScreen", "YtHomeSongRow play failed for ${s.videoId}: ${e.message}", e) }
         }
         Unit
     }

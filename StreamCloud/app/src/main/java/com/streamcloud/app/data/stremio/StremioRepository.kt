@@ -79,8 +79,10 @@ class StremioRepository(private val context: Context) {
     suspend fun fetchHomeCatalog(addon: InstalledStremioAddon): List<StremioMetaPreview> =
         withContext(Dispatchers.IO) {
             val mf = fetchManifest(addon.manifestUrl)
+            // Select the first catalog that does NOT require a "search" query parameter,
+            // so we can browse it without providing a search term.
             val first = mf.catalogs.firstOrNull { c ->
-                c.extra?.none { it.isRequired && it.name.lowercase() == "search" } != false
+                c.extra?.none { it.isRequired && it.name.lowercase() == "search" } ?: true
             } ?: return@withContext emptyList()
             fetchCatalog(addon, first.type, first.id)
         }

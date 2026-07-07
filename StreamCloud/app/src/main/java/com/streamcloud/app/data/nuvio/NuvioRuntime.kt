@@ -390,9 +390,11 @@ object NuvioRuntime {
                     val bypassed = CloudflareKiller.bypass(context, url, ua, BrowserCookieJar)
                     if (bypassed) {
                         return client.newCall(req).execute().use { r2 ->
-                            val text2 = r2.body?.string().orEmpty().let {
-                                if (it.length > MAX_FETCH_BODY_CHARS) it.substring(0, MAX_FETCH_BODY_CHARS) else it
-                            }
+                            val raw2 = r2.body?.string().orEmpty()
+                            val text2 = if (raw2.length > MAX_FETCH_BODY_CHARS) {
+                                Log.w(TAG, "performFetch CF-retry: response truncated ${raw2.length} → $MAX_FETCH_BODY_CHARS chars for $url")
+                                raw2.substring(0, MAX_FETCH_BODY_CHARS)
+                            } else raw2
                             buildJson {
                                 put("ok", r2.isSuccessful)
                                 put("status", r2.code)
@@ -405,9 +407,10 @@ object NuvioRuntime {
                     }
                 }
 
-                val text = respBody.let {
-                    if (it.length > MAX_FETCH_BODY_CHARS) it.substring(0, MAX_FETCH_BODY_CHARS) else it
-                }
+                val text = if (respBody.length > MAX_FETCH_BODY_CHARS) {
+                    Log.w(TAG, "performFetch: response truncated ${respBody.length} → $MAX_FETCH_BODY_CHARS chars for $url")
+                    respBody.substring(0, MAX_FETCH_BODY_CHARS)
+                } else respBody
                 val hdrs = resp.headers.associate { (n, v) -> n.lowercase() to v }
                 buildJson {
                     put("ok", resp.isSuccessful)
@@ -483,9 +486,11 @@ object NuvioRuntime {
                     }
                     if (bypassed) {
                         return client.newCall(req).execute().use { r2 ->
-                            val text2 = r2.body?.string().orEmpty().let {
-                                if (it.length > MAX_FETCH_BODY_CHARS) it.substring(0, MAX_FETCH_BODY_CHARS) else it
-                            }
+                            val raw2 = r2.body?.string().orEmpty()
+                            val text2 = if (raw2.length > MAX_FETCH_BODY_CHARS) {
+                                Log.w(TAG, "fetchSync CF-retry: response truncated ${raw2.length} → $MAX_FETCH_BODY_CHARS chars for $url")
+                                raw2.substring(0, MAX_FETCH_BODY_CHARS)
+                            } else raw2
                             buildJson {
                                 put("ok", r2.isSuccessful)
                                 put("status", r2.code)
@@ -498,9 +503,10 @@ object NuvioRuntime {
                     }
                 }
 
-                val text = respBody.let {
-                    if (it.length > MAX_FETCH_BODY_CHARS) it.substring(0, MAX_FETCH_BODY_CHARS) else it
-                }
+                val text = if (respBody.length > MAX_FETCH_BODY_CHARS) {
+                    Log.w(TAG, "fetchSync: response truncated ${respBody.length} → $MAX_FETCH_BODY_CHARS chars for $url")
+                    respBody.substring(0, MAX_FETCH_BODY_CHARS)
+                } else respBody
                 val hdrs = resp.headers.associate { (n, v) -> n.lowercase() to v }
                 buildJson {
                     put("ok", resp.isSuccessful)
