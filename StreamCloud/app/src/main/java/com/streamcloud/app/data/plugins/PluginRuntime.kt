@@ -787,6 +787,10 @@ object PluginRuntime {
         extractorApis.removeAll { it.sourcePlugin == filePath }
     }
 
+    fun clearLastError(filePath: String) {
+        lastErrors.remove(filePath)
+    }
+
     suspend fun hasSettings(context: Context, filePath: String): Boolean = withContext(Dispatchers.IO) {
         load(context, filePath)
         cache[filePath]?.plugin?.openSettings != null
