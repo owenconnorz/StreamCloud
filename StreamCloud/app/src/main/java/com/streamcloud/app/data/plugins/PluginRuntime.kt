@@ -1,7 +1,6 @@
 package com.streamcloud.app.data.plugins
 
 import android.content.Context
-import android.util.Log
 import com.lagradost.cloudstream3.ExtractorLink
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -12,25 +11,30 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.installPrefs
 import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.utils.ExtractorApi
-import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.schemaStripRegex
+import com.lagradost.cloudstream3.utils.extractorApis
 import dalvik.system.DexClassLoader
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
+import kotlin.coroutines.coroutineContext
 
 object PluginRuntime {
 
-    private const val TAG = "PluginRuntime"
-    private const val API_TIMEOUT_MS = 30_000L
-    private const val TOTAL_TIMEOUT_MS = 90_000L
+    private const val DEFAULT_LOAD_LINKS_TIMEOUT_MS = 30_000L
+    private const val TOTAL_LOAD_LINKS_TIMEOUT_MS = 90_000L
 
     private data class LoadedPlugin(
         val plugin: Plugin,
@@ -38,9 +42,13 @@ object PluginRuntime {
         val extractors: List<ExtractorApi>,
     )
     private val cache = mutableMapOf<String, LoadedPlugin>()
-    private val lastErrors = mutableMapOf<String, String>()
+    private val lastErrors = ConcurrentHashMap<String, String>()
+    private val lastLogs = ConcurrentHashMap<String, String>()
+    private val fetchCountByPlugin = ConcurrentHashMap<String, AtomicInteger>()
 
     fun lastErrorFor(filePath: String): String? = lastErrors[filePath]
+    fun lastLogFor(filePath: String): String? = lastLogs[filePath]
+    fun fetchCountFor(filePath: String): Int = fetchCountByPlugin[filePath]?.get() ?: 0
 
     suspend fun load(context: Context, filePath: String): List<MainAPI> = withContext(Dispatchers.IO) {
         cache[filePath]?.let { return@withContext it.apis }
@@ -263,13 +271,22 @@ object PluginRuntime {
             instance.beforeLoad()
             instance.load(context)
             instance.afterLoad()
-            val loaded = LoadedPlugin(
-                plugin = instance,
-                apis = instance.apis.toList(),
-                extractors = instance.extractors.toList(),
-            )
+            val apis = instance.apis.toList().onEach { it.sourcePlugin = filePath }
+            val pluginExtractors = instance.extractors.toList().onEach { it.sourcePlugin = filePath }
+            pluginExtractors.forEach { extractor ->
+                val alreadyRegistered = extractorApis.any {
+                    it === extractor ||
+                        (it.sourcePlugin == filePath &&
+                            it.name == extractor.name &&
+                            it.mainUrl == extractor.mainUrl)
+                }
+                if (!alreadyRegistered) extractorApis.add(extractor)
+            }
+            val loaded = LoadedPlugin(instance, apis, pluginExtractors)
             cache[filePath] = loaded
             lastErrors.remove(filePath)
+            lastLogs.remove(filePath)
+            fetchCountByPlugin.remove(filePath)
             loaded.apis
         } catch (e: Throwable) {
             lastErrors[filePath] = "${e::class.simpleName}: ${e.message}"
@@ -588,92 +605,174 @@ object PluginRuntime {
         data: String,
         isCasting: Boolean = false,
     ): Pair<List<ExtractorLink>, List<SubtitleFile>> = withContext(Dispatchers.IO) {
-        val loaded = cache[filePath] ?: run {
-            load(context, filePath)
-            cache[filePath]
+        load(context, filePath)
+        val loaded = cache[filePath]
+        if (loaded == null) {
+            fetchCountByPlugin.remove(filePath)
+            return@withContext emptyList<ExtractorLink>() to emptyList()
         }
-        val apis = loaded?.apis ?: emptyList()
-        val pluginExtractors = loaded?.extractors ?: emptyList()
 
         val links = java.util.Collections.synchronizedList(mutableListOf<ExtractorLink>())
         val subs = java.util.Collections.synchronizedList(mutableListOf<SubtitleFile>())
-        val errors = mutableListOf<String>()
-        var apisAttempted = 0
+        val diagnostics = mutableListOf<String>()
+        val fetchCounter = AtomicInteger(0)
+        val extractors = loaded.extractors
+        lastErrors.remove(filePath)
+        lastLogs.remove(filePath)
 
-        val timedOut = withTimeoutOrNull(TOTAL_TIMEOUT_MS) {
-            for (api in apis) {
-                apisAttempted++
+        fun record(message: String, asError: Boolean = false) {
+            diagnostics += message
+            lastLogs[filePath] = diagnostics.joinToString(" · ").take(1500)
+            if (asError) lastErrors[filePath] = message
+        }
+
+        fun matchingExtractor(url: String): ExtractorApi? {
+            val compareUrl = url.lowercase().replace(schemaStripRegex, "")
+            return extractors.asReversed().firstOrNull { extractor ->
+                compareUrl.startsWith(extractor.mainUrl.lowercase().replace(schemaStripRegex, ""))
+            }
+        }
+
+        suspend fun resolveCandidate(
+            candidate: ExtractorLink,
+            seen: MutableSet<String>,
+            owner: String,
+        ): Int {
+            coroutineContext.ensureActive()
+            val url = candidate.url.trim()
+            if (url.isBlank()) return 0
+
+            val match = matchingExtractor(url) ?: run {
+                links.add(candidate)
+                return 1
+            }
+
+            val visitKey = "${match.name}|$url|${candidate.referer}"
+            if (!seen.add(visitKey)) {
+                links.add(candidate)
+                return 1
+            }
+
+            val chained = mutableListOf<ExtractorLink>()
+            val completed = withTimeoutOrNull(DEFAULT_LOAD_LINKS_TIMEOUT_MS) {
                 try {
-                    val apiLinks = java.util.Collections.synchronizedList(mutableListOf<ExtractorLink>())
-                    val timedOutApi = withTimeoutOrNull(API_TIMEOUT_MS) {
+                    match.getUrl(
+                        url = url,
+                        referer = candidate.referer.takeIf { it.isNotBlank() },
+                        subtitleCallback = { sub -> subs.add(sub) },
+                        callback = { link ->
+                            fetchCounter.incrementAndGet()
+                            chained += link
+                        },
+                    )
+                    true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    record("${match.name}: ${e::class.simpleName}: ${e.message}", asError = true)
+                    false
+                }
+            }
+
+            if (completed == null) {
+                record("${match.name}: Timed out after 30s", asError = true)
+                return 0
+            }
+            if (!completed || chained.isEmpty()) {
+                record("${match.name}: Extractor returned 0 results from $owner")
+                return 0
+            }
+
+            var produced = 0
+            for (next in chained) {
+                produced += resolveCandidate(next, seen, match.name)
+            }
+            return produced
+        }
+
+        val result = withTimeoutOrNull(TOTAL_LOAD_LINKS_TIMEOUT_MS) {
+            if (loaded.apis.isEmpty() && extractors.isEmpty()) {
+                record("Plugin registered no APIs or extractors", asError = true)
+                return@withTimeoutOrNull
+            }
+
+            for (api in loaded.apis) {
+                coroutineContext.ensureActive()
+                val rawLinks = mutableListOf<ExtractorLink>()
+                var apiCrashed = false
+                val handled = withTimeoutOrNull(
+                    api.loadLinksTimeoutMs?.coerceAtMost(DEFAULT_LOAD_LINKS_TIMEOUT_MS)
+                        ?: DEFAULT_LOAD_LINKS_TIMEOUT_MS,
+                ) {
+                    try {
                         api.loadLinks(
                             data = data,
                             isCasting = isCasting,
                             subtitleCallback = { sub -> subs.add(sub) },
-                            callback = { link -> apiLinks.add(link) },
+                            callback = { link ->
+                                fetchCounter.incrementAndGet()
+                                rawLinks += link
+                            },
                         )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        apiCrashed = true
+                        record("${api.name}: ${e::class.simpleName}: ${e.message}", asError = true)
+                        null
                     }
-                    if (timedOutApi == null) {
-                        Log.w(TAG, "${api.name}: timed out after ${API_TIMEOUT_MS}ms")
-                        errors.add("${api.name}: timed out")
-                    } else {
-                        Log.d(TAG, "${api.name}: found ${apiLinks.size} link(s)")
-                        links.addAll(apiLinks)
-                        // Run plugin-registered extractors on each discovered link URL.
-                        if (pluginExtractors.isNotEmpty()) {
-                            for (link in apiLinks) {
-                                for (extractor in pluginExtractors) {
-                                    val url = link.url.lowercase()
-                                    val extUrl = extractor.mainUrl.lowercase()
-                                        .replace(com.lagradost.cloudstream3.utils.schemaStripRegex, "")
-                                    if (url.replace(com.lagradost.cloudstream3.utils.schemaStripRegex, "")
-                                            .startsWith(extUrl)) {
-                                        try {
-                                            extractor.getUrl(link.url, link.referer.takeIf { it.isNotBlank() }, { sub -> subs.add(sub) }, { l -> links.add(l) })
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } catch (e: Throwable) {
-                                            Log.w(TAG, "Extractor ${extractor.name}: ${e.message}")
-                                        }
-                                    }
-                                }
-                            }
+                }
+
+                when {
+                    handled == null && rawLinks.isEmpty() ->
+                        if (!apiCrashed) record("${api.name}: Timed out after 30s", asError = true)
+
+                    rawLinks.isEmpty() ->
+                        record("${api.name}: API returned 0 results")
+
+                    else -> {
+                        var produced = 0
+                        val seen = linkedSetOf<String>()
+                        rawLinks.forEach { candidate ->
+                            produced += resolveCandidate(candidate, seen, api.name)
                         }
-                        // Also run the global loadExtractor registry on each discovered link.
-                        for (link in apiLinks) {
-                            try {
-                                loadExtractor(link.url, link.referer.takeIf { it.isNotBlank() }, { sub -> subs.add(sub) }, { l -> links.add(l) })
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (_: Throwable) {}
+                        if (produced > 0) {
+                            record("${api.name}: Resolved $produced link(s)")
+                        } else {
+                            record("${api.name}: Produced ${rawLinks.size} candidate link(s) but no playable streams", asError = true)
                         }
                     }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Throwable) {
-                    Log.w(TAG, "${api.name}: error – ${e::class.simpleName}: ${e.message}")
-                    errors.add("${api.name}: ${e::class.simpleName}: ${e.message}")
+                }
+            }
+
+            if (links.isEmpty() && extractors.isNotEmpty() && matchingExtractor(data.trim()) != null) {
+                val directSeed = ExtractorLink(
+                    source = loaded.plugin::class.java.simpleName.ifBlank { "Plugin" },
+                    name = loaded.plugin::class.java.simpleName.ifBlank { "Plugin" },
+                    url = data,
+                    referer = "",
+                    quality = 0,
+                    headers = emptyMap(),
+                    extractorData = null,
+                    type = ExtractorLinkType.VIDEO,
+                    audioTracks = emptyList(),
+                )
+                val produced = resolveCandidate(directSeed, linkedSetOf(), "plugin data")
+                if (produced > 0) {
+                    record("Plugin extractors resolved $produced link(s) from data")
                 }
             }
         }
 
-        if (timedOut == null) {
-            Log.w(TAG, "loadLinks($filePath) timed out after ${TOTAL_TIMEOUT_MS}ms")
-            errors.add("overall timeout after ${TOTAL_TIMEOUT_MS / 1000}s")
+        fetchCountByPlugin[filePath] = fetchCounter
+        if (result == null) {
+            record("Timed out after 90s", asError = true)
         }
-
-        if (links.isEmpty()) {
-            val errorMsg = when {
-                errors.isNotEmpty() -> errors.joinToString("; ")
-                apisAttempted == 0 -> "No provider APIs loaded"
-                else -> "No links found ($apisAttempted API(s) tried)"
-            }
-            lastErrors[filePath] = errorMsg
-            Log.d(TAG, "loadLinks($filePath): $errorMsg")
-        } else {
+        if (links.isNotEmpty()) {
             lastErrors.remove(filePath)
+        } else if (!lastErrors.containsKey(filePath)) {
+            lastErrors[filePath] = diagnostics.lastOrNull() ?: "No links found"
         }
-
         links.toList() to subs.toList()
     }
 
@@ -683,10 +782,9 @@ object PluginRuntime {
     fun clear(filePath: String) {
         cache.remove(filePath)
         lastErrors.remove(filePath)
-    }
-
-    fun clearLastError(filePath: String) {
-        lastErrors.remove(filePath)
+        lastLogs.remove(filePath)
+        fetchCountByPlugin.remove(filePath)
+        extractorApis.removeAll { it.sourcePlugin == filePath }
     }
 
     suspend fun hasSettings(context: Context, filePath: String): Boolean = withContext(Dispatchers.IO) {
