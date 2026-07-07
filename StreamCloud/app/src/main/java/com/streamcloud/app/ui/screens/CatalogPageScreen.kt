@@ -73,8 +73,14 @@ fun CatalogPageScreen(
                 val items = def.fetchPage(sl.tmdb, sl.tmdbApiKey, page)
                 if (items.isEmpty()) endReached = true
                 else {
-                    tmdbItems = tmdbItems + items
-                    page++
+                    val existingIds = tmdbItems.mapTo(mutableSetOf()) { it.id }
+                    val newItems = items.filter { it.id !in existingIds }
+                    if (newItems.isEmpty()) {
+                        endReached = true
+                    } else {
+                        tmdbItems = tmdbItems + newItems
+                        page++
+                    }
                 }
             } else if (isStremio) {
                 val parts = source.removePrefix("stremio:").split(":")
