@@ -212,17 +212,26 @@ fun StreamPickerOverlay(
 
             eligibleCs.forEach { plugin ->
                 launch {
+                    // Clear any stale error from a previous scan for this plugin before starting.
+                    PluginRuntime.clearLastError(plugin.filePath)
                     val sources = withContext(Dispatchers.IO) {
-                        withTimeoutOrNull(35_000L) {
+                        withTimeoutOrNull(95_000L) {
                             runCatching {
                                 resolveCsForPicker(context, plugin, csTitle, csYear)
                             }.getOrElse { e ->
                                 Log.d("StreamPicker", "CS ${plugin.name}: ${e.message}")
                                 emptyList()
                             }
-                        } ?: emptyList()
+                        } ?: run {
+                            Log.d("StreamPicker", "CS ${plugin.name}: timed out after 95s")
+                            emptyList()
+                        }
                     }
-                    updateGroup("cs:${plugin.internalName}", streams = sources)
+                    val lastErr = PluginRuntime.lastErrorFor(plugin.filePath)
+                    val err = if (sources.isEmpty()) {
+                        lastErr ?: "No streams found"
+                    } else null
+                    updateGroup("cs:${plugin.internalName}", streams = sources, error = err)
                 }
             }
         }
