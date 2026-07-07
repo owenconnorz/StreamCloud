@@ -244,6 +244,11 @@ class PluginsViewModel(
                                     val detail = PluginRuntime.loadDetail(context, plugin.filePath, best.url)
                                     val dataUrl = when (detail) {
                                         is com.lagradost.cloudstream3.MovieLoadResponse -> detail.dataUrl
+                                        is com.lagradost.cloudstream3.LiveStreamLoadResponse -> detail.dataUrl
+                                        is com.lagradost.cloudstream3.TvSeriesLoadResponse ->
+                                            detail.episodes.singleOrNull()?.data
+                                        is com.lagradost.cloudstream3.AnimeLoadResponse ->
+                                            detail.episodes.values.flatten().singleOrNull()?.data
                                         else -> null
                                     } ?: return@withTimeoutOrNull 0
                                     val (links, _) = PluginRuntime.loadLinks(context, plugin.filePath, dataUrl, false)

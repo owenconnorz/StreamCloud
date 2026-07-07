@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -53,6 +54,7 @@ import android.net.Uri
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
+import com.streamcloud.app.ui.util.verticalScrollbar
 import kotlinx.coroutines.launch
 
 private val SUGGESTIONS = listOf(
@@ -131,8 +133,16 @@ fun MusicScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
+        val listState = rememberLazyListState()
         LazyColumn(
-            Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScrollbar(
+                    state = listState,
+                    width = 5.dp,
+                    dragGestureWidth = 56.dp,
+                ),
+            state = listState,
             contentPadding = PaddingValues(bottom = if (nowPlaying != null) 180.dp else 80.dp),
         ) {
             item {
@@ -893,11 +903,11 @@ private fun SongRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (highlighted) MaterialTheme.colorScheme.surface else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 10.dp),
     ) {
         Box(
             Modifier
@@ -956,11 +966,11 @@ private fun LibraryRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
-            .padding(8.dp),
+            .padding(horizontal = 8.dp, vertical = 10.dp),
     ) {
         Box(
             Modifier
@@ -1146,4 +1156,3 @@ private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
         com.streamcloud.app.ui.components.SongRowMenu(song = s, onPlay = { onPlay() })
     }
 }
-

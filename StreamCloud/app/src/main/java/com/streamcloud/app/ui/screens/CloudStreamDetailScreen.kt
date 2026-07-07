@@ -33,7 +33,9 @@ import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.WatchProgressKey
+import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.Episode
+import com.lagradost.cloudstream3.LiveStreamLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MovieLoadResponse
@@ -139,7 +141,7 @@ fun CloudStreamDetailScreen(
                 CsDetailState.Error(msg)
             } else {
                 // Background pre-fetch of sources for the source count badge
-                val dataUrl = (lr as? MovieLoadResponse)?.dataUrl
+                val dataUrl = lr.primaryPlaybackData()
                 if (dataUrl != null) {
                     sourcesState = SourcesState.Fetching
                     scope.launch {
@@ -166,7 +168,7 @@ fun CloudStreamDetailScreen(
             resolvingData = data
             try {
                 val links = if (data == (state as? CsDetailState.Ready)?.let {
-                        (it.response as? MovieLoadResponse)?.dataUrl } && cachedSources.isNotEmpty()
+                        it.response.primaryPlaybackData() } && cachedSources.isNotEmpty()
                 ) {
                     cachedSources
                 } else {
@@ -187,12 +189,17 @@ fun CloudStreamDetailScreen(
                 val sources = links.toPlayerSources(pluginDisplayName ?: pluginInternalName)
                 val sorted = sources.sortedByDescending { it.qualityScoreCs() }
                 val displayTitle = listOfNotNull(initialTitle, episodeTitle).joinToString(" · ")
-                val poster = (state as? CsDetailState.Ready)?.response?.posterUrl ?: initialPoster
+                val readyResponse = (state as? CsDetailState.Ready)?.response
+                val poster = readyResponse?.posterUrl ?: initialPoster
                 val progressKey = WatchProgressKey(
                     tmdbId = -((pluginInternalName + "|" + url + "|" + (episodeTitle ?: "")).hashCode().toLong()),
                     title = displayTitle,
                     posterUrl = poster,
-                    mediaType = if (episodeTitle != null) "tv" else "movie",
+                    mediaType = when {
+                        episodeTitle != null -> "tv"
+                        readyResponse is LiveStreamLoadResponse -> "live"
+                        else -> "movie"
+                    },
                     sourceRoute = "cs:$pluginInternalName|||$url|||$displayTitle|||${poster ?: ""}",
                 )
                 onPlay(sorted.first().url, displayTitle, sorted, progressKey)
@@ -214,35 +221,42 @@ fun CloudStreamDetailScreen(
         when (val s = state) {
             is CsDetailState.Loading -> CsLoadingScreen(initialTitle)
             is CsDetailState.Error  -> CsErrorScreen(s.message, onBack)
-            is CsDetailState.Ready  -> CsReadyContent(
-                lr                = s.response,
-                initialTitle      = initialTitle,
-                initialPoster     = initialPoster,
-                pluginName        = pluginDisplayName.orEmpty(),
-                sourcesState      = sourcesState,
-                resolvingData     = resolvingData,
-                isWatchlisted     = isWatchlisted,
-                onPlayMovie       = { resolveAndPlay((s.response as MovieLoadResponse).dataUrl, null) },
-                onPlayEpisode     = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
-                onToggleWatchlist = {
-                    scope.launch {
-                        if (isWatchlisted) {
-                            watchlistDao.remove(syntheticId)
-                        } else {
-                            watchlistDao.add(
-                                WatchlistEntity(
-                                    tmdbId    = syntheticId,
-                                    title     = s.response.name.ifBlank { initialTitle },
-                                    posterUrl = s.response.posterUrl ?: initialPoster,
-                                    mediaType = "cloudstream",
-                                    csPlugin  = pluginInternalName,
-                                    csUrl     = url,
+            is CsDetailState.Ready  -> {
+                val primaryData = s.response.primaryPlaybackData()
+                CsReadyContent(
+                    lr                = s.response,
+                    initialTitle      = initialTitle,
+                    initialPoster     = initialPoster,
+                    pluginName        = pluginDisplayName.orEmpty(),
+                    sourcesState      = sourcesState,
+                    resolvingData     = resolvingData,
+                    isWatchlisted     = isWatchlisted,
+                    onPlayMovie       = if (primaryData != null) {
+                        { resolveAndPlay(primaryData, null) }
+                    } else {
+                        null
+                    },
+                    onPlayEpisode     = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
+                    onToggleWatchlist = {
+                        scope.launch {
+                            if (isWatchlisted) {
+                                watchlistDao.remove(syntheticId)
+                            } else {
+                                watchlistDao.add(
+                                    WatchlistEntity(
+                                        tmdbId    = syntheticId,
+                                        title     = s.response.name.ifBlank { initialTitle },
+                                        posterUrl = s.response.posterUrl ?: initialPoster,
+                                        mediaType = "cloudstream",
+                                        csPlugin  = pluginInternalName,
+                                        csUrl     = url,
+                                    )
                                 )
-                            )
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
 
         // Back button — always visible, overlaid on content
@@ -313,13 +327,15 @@ private fun CsReadyContent(
     sourcesState: SourcesState,
     resolvingData: String?,
     isWatchlisted: Boolean,
-    onPlayMovie: () -> Unit,
+    onPlayMovie: (() -> Unit)?,
     onPlayEpisode: (Episode) -> Unit,
     onToggleWatchlist: () -> Unit,
 ) {
     val resolving = resolvingData != null
-    val isSeries = lr is TvSeriesLoadResponse
-    val episodes = (lr as? TvSeriesLoadResponse)?.episodes.orEmpty()
+    val episodes = lr.playableEpisodes()
+    val isSeries = episodes.isNotEmpty()
+    val isLive = lr is LiveStreamLoadResponse
+    val canPlayPrimary = onPlayMovie != null
     val displayTitle = lr.name.ifBlank { initialTitle }
 
     // Use Score.toDouble(10) for a 0-10 scale display value
@@ -411,10 +427,11 @@ private fun CsReadyContent(
                         // Play button
                         val playLabel = when {
                             resolving -> "Finding streams…"
+                            !canPlayPrimary -> if (isLive) "Live playback unavailable" else "Playback unavailable"
                             sourcesState is SourcesState.Done && (sourcesState as SourcesState.Done).count > 0 ->
-                                "Play Movie · ${(sourcesState as SourcesState.Done).count} sources"
-                            sourcesState is SourcesState.Fetching -> "Play Movie"
-                            else -> "Play Movie"
+                                "${if (isLive) "Play Live" else "Play Movie"} · ${(sourcesState as SourcesState.Done).count} sources"
+                            sourcesState is SourcesState.Fetching -> if (isLive) "Play Live" else "Play Movie"
+                            else -> if (isLive) "Play Live" else "Play Movie"
                         }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -424,7 +441,7 @@ private fun CsReadyContent(
                                 .height(52.dp)
                                 .clip(RoundedCornerShape(50))
                                 .background(AccentColor)
-                                .clickable(enabled = !resolving, onClick = onPlayMovie)
+                                .clickable(enabled = !resolving && canPlayPrimary) { onPlayMovie?.invoke() }
                                 .padding(horizontal = 20.dp),
                         ) {
                             if (resolving) {
@@ -463,6 +480,14 @@ private fun CsReadyContent(
                                 modifier = Modifier.size(24.dp),
                             )
                         }
+                    }
+                    if (!canPlayPrimary) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "This plugin item doesn’t expose a direct playable stream yet.",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                     Spacer(Modifier.height(6.dp))
                 }
@@ -614,6 +639,21 @@ private fun Episode.displayLabel(): String {
     name?.takeIf { it.isNotBlank() }?.let { parts += it }
     if (parts.isEmpty()) parts += "Episode"
     return parts.joinToString(" · ")
+}
+
+private fun LoadResponse.primaryPlaybackData(): String? = when (this) {
+    is MovieLoadResponse -> dataUrl
+    is LiveStreamLoadResponse -> dataUrl
+    is TvSeriesLoadResponse -> episodes.singleOrNull()?.data
+    is AnimeLoadResponse -> episodes.values.flatten().singleOrNull()?.data
+    else -> null
+}
+
+private fun LoadResponse.playableEpisodes(): List<Episode> = when (this) {
+    is TvSeriesLoadResponse -> episodes
+    is AnimeLoadResponse -> episodes.values.flatten()
+        .sortedWith(compareBy<Episode>({ it.season ?: Int.MAX_VALUE }, { it.episode ?: Int.MAX_VALUE }, { it.name ?: "" }))
+    else -> emptyList()
 }
 
 private fun List<ExtractorLink>.toPlayerSources(pluginDisplayName: String): List<PlayerSource> =
