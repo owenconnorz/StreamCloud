@@ -7,9 +7,34 @@ import android.content.res.Resources
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.utils.ExtractorApi
 
+/**
+ * The primary Plugin base class for CloudStream-compatible plugins in StreamCloud.
+ *
+ * Plugins should extend this class and override [load] to register [MainAPI] providers
+ * and optionally [ExtractorApi] extractors during plugin initialization.
+ *
+ * ## Lifecycle
+ * 1. Plugin is instantiated (no-arg constructor)
+ * 2. [__initContext] is called with the app context
+ * 3. [beforeLoad] is called for one-time setup
+ * 4. [load] is called with the Android context — register APIs here
+ * 5. [afterLoad] is called to finalize initialization
+ * 6. PluginRuntime reads [apis] and [extractors]
+ *
+ * ## Context Delegation
+ * The original CloudStream Plugin base exposes context methods directly on the Plugin
+ * instance so plugins can call this.getResources(), etc. We delegate these via the
+ * stored context.
+ *
+ * ## API Registration
+ * - Call [registerMainAPI] from [load] to register content providers
+ * - Call [registerExtractorAPI] from [load] to register video stream extractors
+ */
 abstract class Plugin {
 
     val apis: MutableList<MainAPI> = mutableListOf()
+
+    val extractors: MutableList<ExtractorApi> = mutableListOf()
 
     // ── Context delegation ───────────────────────────────────────────────────
     // The original CloudStream Plugin base exposes context methods directly on
@@ -50,10 +75,27 @@ abstract class Plugin {
         apis.add(api)
     }
 
-    // Parameter must be ExtractorApi (not Any/Object) so the JVM method
-    // descriptor is (Lcom/lagradost/cloudstream3/utils/ExtractorApi;)V,
-    // matching what plugins compiled against the real CloudStream API expect.
-    fun registerExtractorAPI(extractor: ExtractorApi) {}
+    /**
+     * Register an [ExtractorApi] extractor.
+     * This enables plugins to provide custom video stream extractors.
+     *
+     * Parameter must be ExtractorApi (not Any/Object) so the JVM method
+     * descriptor is (Lcom/lagradost/cloudstream3/utils/ExtractorApi;)V,
+     * allowing proper method resolution across classloaders.
+     *
+     * ## Example
+     * ```kotlin
+     * class MyPlugin : Plugin() {
+     *     override fun load(context: Context) {
+     *         registerMainAPI(MyProvider())
+     *         registerExtractorAPI(MyCustomExtractor())
+     *     }
+     * }
+     * ```
+     */
+    fun registerExtractorAPI(extractor: ExtractorApi) {
+        extractors.add(extractor)
+    }
 
     // ── Settings callbacks — added in later CloudStream API versions ────────
     // Plugins call setOpenSettings(handler) to register a settings-open callback.
