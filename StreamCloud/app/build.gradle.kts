@@ -218,4 +218,6 @@ dependencies {
     // Uses the Default Media Receiver app id — no developer console needed.
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
     implementation("androidx.mediarouter:mediarouter:1.7.0")
+
+    testImplementation("junit:junit:4.13.2")
 }
