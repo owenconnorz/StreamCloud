@@ -2159,75 +2159,145 @@ object NuvioRuntime {
         return sentinel != "undefined" && sentinel != "null" && sentinel != "none"
     }
 
+    private fun parseSimpleUrl(value: String): NuvioStream? {
+        val url = value.takeIf { it.looksLikeUrl() } ?: return null
+        return NuvioStream(url = url)
+    }
+
+    private fun parseTorrentObject(
+        obj: kotlinx.serialization.json.JsonObject,
+        prim: (kotlinx.serialization.json.JsonObject, Array<out String>) -> String?,
+    ): NuvioStream? {
+        val infoHash = prim(obj, arrayOf("infoHash", "info_hash", "infohash"))
+            ?.trim()
+            ?.takeIf { it.length >= 20 }
+            ?: return null
+
+        val trackers = (obj["sources"] as? kotlinx.serialization.json.JsonArray)
+            ?.mapNotNull { source ->
+                (source as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.content
+                    ?.trim()
+                    ?.removePrefix("tracker:")
+                    ?.takeIf { it.isNotBlank() }
+            }
+            .orEmpty()
+
+        val magnetUrl = buildString {
+            append("magnet:?xt=urn:btih:$infoHash")
+            trackers.forEach { tracker ->
+                append("&tr=").append(java.net.URLEncoder.encode(tracker, "UTF-8"))
+            }
+            prim(obj, arrayOf("name", "title", "label"))
+                ?.substringBefore('\n')
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { displayName ->
+                    append("&dn=").append(java.net.URLEncoder.encode(displayName, "UTF-8"))
+                }
+        }
+
+        return NuvioStream(
+            name = prim(obj, arrayOf("name", "label", "provider")),
+            title = prim(obj, arrayOf("title")),
+            url = magnetUrl,
+            quality = prim(obj, arrayOf("quality", "resolution", "q", "format", "res")),
+        )
+    }
+
+    private fun extractNestedStreams(
+        element: kotlinx.serialization.json.JsonElement,
+        depth: Int = 0,
+    ): List<kotlinx.serialization.json.JsonElement> {
+        if (depth > 6) return emptyList()
+        return when (element) {
+            is kotlinx.serialization.json.JsonArray -> element.toList()
+            is kotlinx.serialization.json.JsonObject -> {
+                val nestedKeys = listOf("streams", "data", "results", "items")
+                nestedKeys.firstNotNullOfOrNull { key ->
+                    element[key]?.let { nested ->
+                        extractNestedStreams(nested, depth + 1).takeIf { it.isNotEmpty() }
+                    }
+                }.orEmpty()
+            }
+            else -> emptyList()
+        }
+    }
+
+    private fun parseStreamObject(
+        obj: kotlinx.serialization.json.JsonObject,
+        prim: (kotlinx.serialization.json.JsonObject, Array<out String>) -> String?,
+    ): NuvioStream? {
+        parseTorrentObject(obj, prim)?.let { return it }
+
+        val url = prim(obj, arrayOf("url", "link", "src", "stream", "href", "stream_url", "streamUrl"))
+            ?.takeIf { it.looksLikeUrl() }
+            ?: return null
+
+        val headers: Map<String, String>? = when (val h = obj["headers"]) {
+            is kotlinx.serialization.json.JsonObject ->
+                h.mapValues { (_, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() }
+                    .filterKeys { it.isNotBlank() }
+            is kotlinx.serialization.json.JsonArray ->
+                h.filterIsInstance<kotlinx.serialization.json.JsonObject>()
+                    .mapNotNull { entry ->
+                        val key = (entry["name"] as? kotlinx.serialization.json.JsonPrimitive)
+                            ?.content
+                            ?.takeIf { it.isNotBlank() }
+                            ?: return@mapNotNull null
+                        val value = (entry["value"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                        key to value
+                    }
+                    .toMap()
+            else -> null
+        }
+
+        return NuvioStream(
+            name = prim(obj, arrayOf("name", "title", "label", "provider", "description")),
+            title = prim(obj, arrayOf("title", "name")),
+            url = url,
+            quality = prim(obj, arrayOf("quality", "resolution", "q", "format", "res", "qualityTag", "quality_tag")),
+            headers = headers,
+        )
+    }
+
     private fun parseStreams(json: String): List<NuvioStream> {
         if (json.isBlank() || json == "null") return emptyList()
         val J = kotlinx.serialization.json.Json
 
-        fun prim(o: kotlinx.serialization.json.JsonObject, vararg keys: String): String? =
-            keys.firstNotNullOfOrNull { k -> (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() } }
+        fun prim(
+            o: kotlinx.serialization.json.JsonObject,
+            keys: Array<out String>,
+        ): String? = keys.firstNotNullOfOrNull { key ->
+            (o[key] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+        }
 
         val element = runCatching { J.parseToJsonElement(json) }.getOrNull() ?: return emptyList()
-        val arr = element as? kotlinx.serialization.json.JsonArray ?: return emptyList()
-        return arr.mapNotNull { item ->
-            when (item) {
+        val items = extractNestedStreams(element).ifEmpty {
+            when (element) {
+                is kotlinx.serialization.json.JsonArray -> element.toList()
+                is kotlinx.serialization.json.JsonObject,
+                is kotlinx.serialization.json.JsonPrimitive -> listOf(element)
+                else -> emptyList()
+            }
+        }
 
-                is kotlinx.serialization.json.JsonPrimitive -> {
-                    val u = item.content.takeIf { it.looksLikeUrl() } ?: return@mapNotNull null
-                    NuvioStream(url = u)
-                }
-                is kotlinx.serialization.json.JsonObject -> {
-                    // ── Stremio / Torrentio torrent format: infoHash + sources ──
-                    // Providers like Torrentio and NoTorrent return torrent streams
-                    // using the Stremio addon format ({infoHash, sources, name, title})
-                    // rather than a direct URL. Build a magnet: URI from infoHash so
-                    // they are not silently dropped.
-                    val infoHash = prim(item, "infoHash", "info_hash", "infohash")
-                    if (infoHash != null && infoHash.length >= 20) {
-                        val magnetUrl = buildString {
-                            append("magnet:?xt=urn:btih:$infoHash")
-                            val sources = item["sources"] as? kotlinx.serialization.json.JsonArray
-                            sources?.forEach { s ->
-                                val tracker = (s as? kotlinx.serialization.json.JsonPrimitive)?.content
-                                if (tracker != null && tracker.startsWith("tracker:")) {
-                                    append("&tr=").append(java.net.URLEncoder.encode(tracker.removePrefix("tracker:"), "UTF-8"))
+        return items.mapNotNull { item ->
+            when (item) {
+                is kotlinx.serialization.json.JsonPrimitive -> parseSimpleUrl(item.content)
+                is kotlinx.serialization.json.JsonObject ->
+                    parseStreamObject(item, ::prim)
+                        ?: extractNestedStreams(item, depth = 1).asSequence()
+                            .mapNotNull { nested ->
+                                when (nested) {
+                                    is kotlinx.serialization.json.JsonPrimitive -> parseSimpleUrl(nested.content)
+                                    is kotlinx.serialization.json.JsonObject -> parseStreamObject(nested, ::prim)
+                                    else -> null
                                 }
                             }
-                            val dn = prim(item, "name", "title")?.substringBefore('\n')?.trim()
-                            if (!dn.isNullOrBlank()) {
-                                append("&dn=").append(java.net.URLEncoder.encode(dn, "UTF-8"))
-                            }
-                        }
-                        val name    = prim(item, "name", "label")
-                        val title   = prim(item, "title")
-                        val quality = prim(item, "quality", "resolution", "res")
-                        return@mapNotNull NuvioStream(name = name, title = title, url = magnetUrl, quality = quality)
-                    }
-
-                    val url = prim(item, "url", "stream_url", "streamUrl", "link", "href")
-                        ?.takeIf { it.looksLikeUrl() }
-                        ?: return@mapNotNull null
-                    val name    = prim(item, "name", "label", "description")
-                    val title   = prim(item, "title")
-                    val quality = prim(item, "quality", "resolution", "res", "qualityTag", "quality_tag")
-                    val headers: Map<String, String>? = when (val h = item["headers"]) {
-                        is kotlinx.serialization.json.JsonObject ->
-                            h.mapValues { (_, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() }
-                                .filterKeys { it.isNotBlank() }
-                        is kotlinx.serialization.json.JsonArray ->
-
-                            h.filterIsInstance<kotlinx.serialization.json.JsonObject>()
-                                .mapNotNull { entry ->
-                                    val k = (entry["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                                    val v = (entry["value"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
-                                    k to v
-                                }.toMap()
-                        else -> null
-                    }
-                    NuvioStream(name = name, title = title, url = url, quality = quality, headers = headers)
-                }
+                            .firstOrNull()
                 else -> null
             }
         }
     }
 }
-
