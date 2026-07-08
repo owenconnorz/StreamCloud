@@ -197,9 +197,9 @@ fun StreamPickerOverlay(
                             // Prefer the specific console.log message when the only "error"
                             // is the generic catch-all set after an empty return.  Real errors
                             // (HTTP status codes, JS exceptions, timeouts) take priority.
-                            val genericFallback = "No streams found (provider returned empty list)"
                             val base = when {
-                                lastErr != null && lastErr != genericFallback -> lastErr
+                                lastErr != null && !lastErr.startsWith("No streams found") &&
+                                    !lastErr.startsWith("No requests made") -> lastErr
                                 lastLog != null -> lastLog
                                 lastErr != null -> lastErr
                                 else            -> "No streams found"
