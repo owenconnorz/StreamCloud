@@ -15,6 +15,7 @@ import coil.decode.ImageDecoderDecoder
 import com.streamcloud.app.data.util.ThumbnailCache
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.updates.PluginUpdateWorker
+import com.streamcloud.app.data.updates.ArtistReleaseCheckWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +46,18 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
             "plugin_update_check",
             ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<PluginUpdateWorker>(24, TimeUnit.HOURS)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build()
+                )
+                .build(),
+        )
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "artist_release_check",
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<ArtistReleaseCheckWorker>(12, TimeUnit.HOURS)
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)

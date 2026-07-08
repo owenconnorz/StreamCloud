@@ -81,6 +81,8 @@ object SettingsKeys {
     val DYNAMIC_MINI_PLAYER_THEME = booleanPreferencesKey("dynamic_mini_player_theme")
     val NAV_LABELS                = booleanPreferencesKey("nav_labels")
 
+    val RELEASE_NOTIFICATIONS_ENABLED = booleanPreferencesKey("release_notifications_enabled")
+
     val SPOTIFY_COOKIE    = stringPreferencesKey("spotify_cookie")
     val SPOTIFY_USER_NAME = stringPreferencesKey("spotify_user_name")
 
@@ -324,6 +326,12 @@ class SettingsRepository(private val context: Context) {
     val navLabels: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NAV_LABELS] ?: true }
 
     suspend fun setNavLabels(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NAV_LABELS] = b }
+
+    val releaseNotificationsEnabled: Flow<Boolean> =
+        context.dataStore.data.map { it[SettingsKeys.RELEASE_NOTIFICATIONS_ENABLED] ?: true }
+
+    suspend fun setReleaseNotificationsEnabled(b: Boolean) =
+        context.dataStore.edit { it[SettingsKeys.RELEASE_NOTIFICATIONS_ENABLED] = b }
 
 
     val spotifyCookie: Flow<String>    = context.dataStore.data.map { it[SettingsKeys.SPOTIFY_COOKIE]    ?: "" }
