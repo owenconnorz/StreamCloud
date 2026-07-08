@@ -245,6 +245,7 @@ class MusicViewModel(context: Context) : ViewModel() {
                         album = null,
                         thumbnail = track.thumbnail,
                         durationSeconds = track.durationSec,
+                        isVideo = track.isVideo,
                     )
                     com.streamcloud.app.data.ytmusic.YtPlayback.playSong(
                         appContext, song, withAutoRadio = false,

@@ -43,6 +43,7 @@ import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
+import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -726,6 +727,7 @@ class MusicPlaybackService : MediaLibraryService() {
                                     album = null,
                                     thumbnail = t.thumbnail,
                                     watchUrl = t.url,
+                                    isMusicVideo = t.isVideo,
                                 )
                             },
                         )
@@ -750,7 +752,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 val items = ImmutableList.copyOf(
                     results.map { t ->
                         val videoId = t.url.substringAfter("v=").substringBefore("&")
-                        ytmSong(videoId, t.title, t.uploader, null, t.thumbnail, t.url)
+                        ytmSong(videoId, t.title, t.uploader, null, t.thumbnail, t.url, t.isVideo)
                     },
                 )
                 fut.set(LibraryResult.ofItemList(items, params))
@@ -915,7 +917,7 @@ class MusicPlaybackService : MediaLibraryService() {
                     && !pl.id.startsWith("VL") && !pl.id.startsWith("MPREb_") && !pl.id.startsWith("PL")
                 if (isVideoId) {
                     val url = "https://music.youtube.com/watch?v=${pl.id}"
-                    ytmSong(pl.id, pl.title, pl.subtitle ?: "", null, pl.thumbnail, url)
+                    ytmSong(pl.id, pl.title, pl.subtitle ?: "", null, pl.thumbnail, url, pl.isVideo)
                 } else {
                     MediaItem.Builder()
                         .setMediaId("$YT_HOME_BROWSE_PREFIX${pl.id}")
@@ -962,7 +964,7 @@ class MusicPlaybackService : MediaLibraryService() {
             val page = YtMusicArtistRepository.load(channelId) ?: return emptyList()
             page.topTracks.map { t ->
                 val videoId = t.url.substringAfter("v=").substringBefore("&")
-                ytmSong(videoId, t.title, t.uploader, null, t.thumbnail, t.url)
+                ytmSong(videoId, t.title, t.uploader, null, t.thumbnail, t.url, t.isVideo)
             }
         } catch (e: Throwable) {
             emptyList()
@@ -995,7 +997,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
     private fun ytmSongItem(s: YtmSong): MediaItem {
         val url = "https://music.youtube.com/watch?v=${s.videoId}"
-        return ytmSong(s.videoId, s.title, s.artist, s.album, s.thumbnail, url)
+        return ytmSong(s.videoId, s.title, s.artist, s.album, s.thumbnail, url, s.isVideo)
     }
 
     private fun ytmSong(
@@ -1005,6 +1007,7 @@ class MusicPlaybackService : MediaLibraryService() {
         album: String?,
         thumbnail: String?,
         watchUrl: String,
+        isMusicVideo: Boolean = false,
     ): MediaItem = MediaItem.Builder()
         .setMediaId(watchUrl)
         .setUri(watchUrl)
@@ -1019,8 +1022,9 @@ class MusicPlaybackService : MediaLibraryService() {
                 .setIsBrowsable(false)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                 .setExtras(Bundle().apply {
-                    putString("videoId", videoId)
-                    putString("watchUrl", watchUrl)
+                    putString(YtPlayback.EXTRA_VIDEO_ID, videoId)
+                    putString(YtPlayback.EXTRA_WATCH_URL, watchUrl)
+                    putBoolean(YtPlayback.EXTRA_IS_MUSIC_VIDEO, isMusicVideo)
                 })
                 .build(),
         )
