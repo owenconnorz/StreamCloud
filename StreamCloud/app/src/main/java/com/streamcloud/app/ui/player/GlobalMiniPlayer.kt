@@ -149,6 +149,7 @@ fun GlobalMiniPlayer(
 
     val swipeOffsetX = remember { Animatable(0f) }
     var liveDragX by remember { mutableStateOf(0f) }
+    var liveDragY by remember { mutableStateOf(0f) }
 
     AnimatedVisibility(
         visible = title != null,
@@ -161,7 +162,7 @@ fun GlobalMiniPlayer(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp)
-                .offset { IntOffset((swipeOffsetX.value + liveDragX).roundToInt(), 0) }
+                .offset { IntOffset((swipeOffsetX.value + liveDragX).roundToInt(), liveDragY.roundToInt()) }
                 .clip(RoundedCornerShape(20.dp))
                 .background(bgColor)
                 .clickable(onClick = onExpand)
@@ -187,27 +188,38 @@ fun GlobalMiniPlayer(
                                 if (dirLocked && isHorizontal) {
                                     liveDragX = totalX.coerceIn(-280f, 280f)
                                     change.consume()
+                                } else if (dirLocked && !isHorizontal && totalY > 0f) {
+                                    // Provide visual feedback while swiping down
+                                    liveDragY = totalY.coerceIn(0f, 200f)
+                                    change.consume()
                                 }
                             }
                         }
                         swipeOffsetX.snapTo(liveDragX)
                         liveDragX = 0f
-                        when {
-                            dirLocked && isHorizontal && totalX < -80f -> {
+                        liveDragY = 0f
+                        when (resolveMiniPlayerSwipeAction(dirLocked, isHorizontal, totalX, totalY)) {
+                            MiniPlayerSwipeAction.SeekNext -> {
                                 swipeOffsetX.animateTo(-90f, tween(100))
                                 controller?.seekToNextMediaItem()
                                 swipeOffsetX.snapTo(90f)
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
-                            dirLocked && isHorizontal && totalX > 80f -> {
+                            MiniPlayerSwipeAction.SeekPrev -> {
                                 swipeOffsetX.animateTo(90f, tween(100))
                                 controller?.seekToPreviousMediaItem()
                                 swipeOffsetX.snapTo(-90f)
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
-                            dirLocked && isHorizontal -> swipeOffsetX.animateTo(0f, spring())
-                            dirLocked && !isHorizontal && totalY < -60f -> onExpand()
-                            else -> swipeOffsetX.snapTo(0f)
+                            MiniPlayerSwipeAction.SnapBack -> swipeOffsetX.animateTo(0f, spring())
+                            MiniPlayerSwipeAction.Expand   -> onExpand()
+                            MiniPlayerSwipeAction.Dismiss  -> {
+                                // Swipe-down: stop playback and hide the mini-player
+                                controller?.stop()
+                                controller?.clearMediaItems()
+                                title = null
+                            }
+                            MiniPlayerSwipeAction.None     -> swipeOffsetX.snapTo(0f)
                         }
                     }
                 }
