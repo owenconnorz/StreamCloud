@@ -100,6 +100,13 @@ class NuvioTmdbApiQueryTest {
     }
 
     @Test
+    fun tmdbMovieId687163IsValid() {
+        // Regression: second film reported in the bug (id 687163) must be valid
+        val id = sanitizeNuvioTmdbId("687163")
+        assertEquals("687163", id)
+    }
+
+    @Test
     fun sanitizeTmdbApiQueryStringPreservesEmptyString() {
         assertEquals("", sanitizeTmdbApiQueryString(""))
     }
@@ -112,5 +119,56 @@ class NuvioTmdbApiQueryTest {
         assert(result.contains("language=en"))       { "language must be preserved: $result" }
         assert(result.contains("include_adult=false")){ "include_adult must be preserved: $result" }
         assert(result.contains("page=1"))             { "page must be preserved: $result" }
+    }
+
+    // ── Cineby / Videasy proxy URL (db.videasy.to) ──────────────────────────
+
+    @Test
+    fun fixesAppendToResponseInVideasyStyleQuery() {
+        // Regression: Cineby/Videasy provider constructs
+        // `?append_to _response=external_ids,genres` which causes HTTP 404.
+        val input  = "append_to _response=external_ids,genres"
+        val result = sanitizeTmdbApiQueryString(input)
+        assert(result.contains("append_to_response=")) {
+            "Space must be removed from 'append_to_response': $result"
+        }
+        assert(result.contains("external_ids")) {
+            "Value 'external_ids' must be preserved: $result"
+        }
+        assert(result.contains("genres")) {
+            "Value 'genres' must be preserved: $result"
+        }
+        assert(!result.contains("append_to%20_response") && !result.contains("append_to _response")) {
+            "No space (literal or encoded) must remain in the key: $result"
+        }
+    }
+
+    @Test
+    fun fixesFullVideasyStyleQueryString() {
+        // Full query from the reported 404: append_to _response=external_ids,genres
+        val input  = "append_to _response=external_ids,genres&language=en&api_key=validkey123"
+        val result = sanitizeTmdbApiQueryString(input)
+        assert(result.contains("append_to_response=external_ids,genres")) {
+            "Key must be normalized and value preserved: $result"
+        }
+        assert(result.contains("api_key=validkey123")) {
+            "api_key must pass through unchanged: $result"
+        }
+    }
+
+    // ── Torrentio / leading-space-before-key (Torrentio bug) ───────────────
+
+    @Test
+    fun fixesFullTorrentioStyleQueryString() {
+        // Simulates the Torrentio-style query: " api_kev=<key>&language=en"
+        // reported as `[rsp GET /3/movie/687163? api_kev=1865f43a0549ca50d341dd9ab8 ->200`
+        val input  = " api_kev=1865f43a0549ca50d341dd9ab8&language=en"
+        val result = sanitizeTmdbApiQueryString(input)
+        assert(result.contains("api_key=1865f43a0549ca50d341dd9ab8")) {
+            "Both leading space and typo must be fixed: $result"
+        }
+        assert(result.contains("language=en")) {
+            "Remaining params must be preserved: $result"
+        }
     }
 }
