@@ -52,7 +52,11 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import android.net.Uri
 import coil.compose.AsyncImage
+import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.newpipe.YtTrack
+import com.streamcloud.app.data.ytmusic.HomeSection
+import com.streamcloud.app.data.ytmusic.YtMusicHomeTaxonomy
+import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import com.streamcloud.app.ui.util.verticalScrollbar
 import kotlinx.coroutines.launch
@@ -114,6 +118,14 @@ fun MusicScreen(
     val nowPlaying = state.nowPlayingTrack
         ?: state.tracks.firstOrNull { it.url == state.nowPlayingUrl }
         ?: state.homeFeed.firstOrNull { it.url == state.nowPlayingUrl }
+    val fallbackSongs = remember(state.homeFeed) { state.homeFeed.mapNotNull { it.toYtmSong() } }
+    val approvedYtSections = remember(state.ytHome.sections, fallbackSongs) {
+        YtMusicHomeTaxonomy.mapSections(state.ytHome.sections, fallbackSongs)
+    }
+    val listenAgainTracks = remember(state.mostPlayed) { state.mostPlayed.take(10) }
+    val forgottenFavoritesTracks = remember(state.liked) { state.liked.takeLast(10).asReversed() }
+    val recentlyPlayedTracks = remember(state.recent) { state.recent.take(10) }
+    val fromLibraryTracks = remember(state.liked) { state.liked.take(10) }
 
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
@@ -191,142 +203,111 @@ fun MusicScreen(
             if (query.isBlank()) {
                 item { SuggestionsRow(onPick = { query = it; vm.search(it) }) }
 
-
-                if (state.liked.isNotEmpty()) {
-                    item { SectionTitle("Liked songs") }
-                    items(state.liked.take(5), key = { "lib_liked_${it.url}" }) { entity ->
+                item { SectionTitle("Listen Again") }
+                if (listenAgainTracks.isEmpty()) {
+                    item(key = "listen_again_empty") { HomeCategoryEmptyRow() }
+                } else {
+                    items(listenAgainTracks, key = { "listen_again_${it.url}" }) { entity ->
                         LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
-                            val track = YtTrack(
-                                title = entity.title, uploader = entity.artist,
-                                durationSec = entity.durationSec,
-                                url = entity.url, thumbnail = entity.thumbnail,
-                            )
-                            if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                            else if (state.nowPlayingUrl == track.url) player?.play()
-                            else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+                            playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
                         }
                     }
                 }
 
+                item { SectionTitle("Forgotten Favorites") }
+                if (forgottenFavoritesTracks.isEmpty()) {
+                    item(key = "forgotten_favorites_empty") { HomeCategoryEmptyRow() }
+                } else {
+                    items(forgottenFavoritesTracks, key = { "forgotten_favorites_${it.url}" }) { entity ->
+                        LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
+                            playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
+                        }
+                    }
+                }
 
-
-
-
-                state.ytHome.sections.forEachIndexed { idx, section ->
+                approvedYtSections.forEachIndexed { idx, section ->
                     when (section) {
-                        is com.streamcloud.app.data.ytmusic.HomeSection.MoodChips -> {
+                        is HomeSection.MoodChips -> {
+                            item(key = "yt_chips_title_$idx") { SectionTitle(section.title) }
                             item(key = "yt_chips_$idx") {
                                 YtMoodChipRow(section.chips, onChipClick = { label -> onSearchWithQuery(label) })
                             }
                         }
-                        is com.streamcloud.app.data.ytmusic.HomeSection.PlaylistRail -> {
+                        is HomeSection.PlaylistRail -> {
                             item(key = "yt_prail_title_$idx") { SectionTitle(section.title) }
-                            item(key = "yt_prail_$idx") {
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    items(section.items) { pl ->
-                                        YtHomePlaylistCard(pl) {
-                                            if (pl.isVideo) {
-                                                // Music video card — play directly; do NOT navigate
-                                                // to YtPlaylistScreen (it can't browse a videoId).
-                                                dlScope.launch {
-                                                    val song = com.streamcloud.app.data.ytmusic.YtmSong(
-                                                        videoId = pl.id,
-                                                        title   = pl.title,
-                                                        artist  = pl.subtitle
-                                                            ?.substringBefore(" •")?.trim()
-                                                            ?.substringBefore(" · ")?.trim()
-                                                            .orEmpty(),
-                                                        album            = null,
-                                                        thumbnail        = pl.thumbnail,
-                                                        durationSeconds  = null,
-                                                        isVideo          = true,
-                                                    )
-                                                    runCatching {
-                                                        com.streamcloud.app.data.ytmusic.YtPlayback
-                                                            .playSong(context, song)
-                                                    }.onFailure { e ->
-                                                        Log.e("MusicScreen", "PlaylistRail video play failed for ${pl.id}: ${e.message}", e)
+                            if (section.items.isEmpty()) {
+                                item(key = "yt_prail_empty_$idx") { HomeCategoryEmptyRow() }
+                            } else {
+                                item(key = "yt_prail_$idx") {
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        items(section.items) { pl ->
+                                            YtHomePlaylistCard(pl) {
+                                                if (pl.isVideo) {
+                                                    // Music video card — play directly; do NOT navigate
+                                                    // to YtPlaylistScreen (it can't browse a videoId).
+                                                    dlScope.launch {
+                                                        val song = com.streamcloud.app.data.ytmusic.YtmSong(
+                                                            videoId = pl.id,
+                                                            title   = pl.title,
+                                                            artist  = pl.subtitle
+                                                                ?.substringBefore(" •")?.trim()
+                                                                ?.substringBefore(" · ")?.trim()
+                                                                .orEmpty(),
+                                                            album            = null,
+                                                            thumbnail        = pl.thumbnail,
+                                                            durationSeconds  = null,
+                                                            isVideo          = true,
+                                                        )
+                                                        runCatching {
+                                                            com.streamcloud.app.data.ytmusic.YtPlayback
+                                                                .playSong(context, song)
+                                                        }.onFailure { e ->
+                                                            Log.e("MusicScreen", "PlaylistRail video play failed for ${pl.id}: ${e.message}", e)
+                                                        }
                                                     }
+                                                } else {
+                                                    onOpenPlaylist(pl.id, pl.title)
                                                 }
-                                            } else {
-                                                onOpenPlaylist(pl.id, pl.title)
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                        is com.streamcloud.app.data.ytmusic.HomeSection.SongRail -> {
+                        is HomeSection.SongRail -> {
                             item(key = "yt_srail_title_$idx") { SectionTitle(section.title) }
-                            items(section.items, key = { s -> "yt_srail_${idx}_${s.videoId}" }) { s ->
-                                YtHomeSongRow(s)
+                            if (section.items.isEmpty()) {
+                                item(key = "yt_srail_empty_$idx") { HomeCategoryEmptyRow() }
+                            } else {
+                                items(section.items, key = { s -> "yt_srail_${idx}_${s.videoId}" }) { s ->
+                                    YtHomeSongRow(s)
+                                }
                             }
                         }
                     }
                 }
 
-
-
-                if (state.ytHome.sections.isEmpty() && state.homeFeed.isNotEmpty()) {
-                    item { SectionTitle("Trending today") }
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(state.homeFeed.take(10), key = { "home_${it.url}" }) { track ->
-                                HeroCard(
-                                    track = track,
-                                    isPlaying = isPlaying && state.nowPlayingUrl == track.url,
-                                    onClick = {
-                                        if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                                        else if (state.nowPlayingUrl == track.url) player?.play()
-                                        else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
-                                    }
-                                )
-                            }
+                item { SectionTitle("Recently Played") }
+                if (recentlyPlayedTracks.isEmpty()) {
+                    item(key = "recently_played_empty") { HomeCategoryEmptyRow() }
+                } else {
+                    items(recentlyPlayedTracks, key = { "recently_played_${it.url}" }) { entity ->
+                        LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
+                            playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
                         }
                     }
-                    item { SectionTitle("More from YouTube") }
-                    items(state.homeFeed.drop(10), key = { "homerow_${it.url}" }) { track ->
-                        SongRow(
-                            track = track,
-                            nowPlayingUrl = state.nowPlayingUrl,
-                            isPlaying = isPlaying && state.nowPlayingUrl == track.url,
-                            loading = state.resolvingUrl == track.url,
-                            onClick = {
-                                if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                                else if (state.nowPlayingUrl == track.url) player?.play()
-                                else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
-                            }
-                        )
-                    }
-                } else if ((state.ytHomeLoading && state.ytHome.sections.isEmpty()) || state.homeLoading) {
-                    item {
-                        Box(
-                            Modifier.fillMaxWidth().padding(40.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { CircularProgressIndicator() }
-                    }
+                }
+
+                item { SectionTitle("From Your Library") }
+                if (fromLibraryTracks.isEmpty()) {
+                    item(key = "from_library_empty") { HomeCategoryEmptyRow() }
                 } else {
-                    item {
-                        Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(
-                                Modifier.size(96.dp).clip(CircleShape).background(
-                                    Brush.linearGradient(
-                                        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)
-                                    )
-                                ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(40.dp))
-                            }
-                            Spacer(Modifier.height(16.dp))
-                            Text("Tap a vibe or search", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
-                            Text("Stream from YouTube · audio only", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    items(fromLibraryTracks, key = { "from_library_${it.url}" }) { entity ->
+                        LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
+                            playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
                         }
                     }
                 }
@@ -1110,4 +1091,48 @@ private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
         }
         com.streamcloud.app.ui.components.SongRowMenu(song = s, onPlay = { onPlay() })
     }
+}
+
+private fun playLibraryTrack(
+    entity: TrackEntity,
+    nowPlayingUrl: String?,
+    player: Player?,
+    vm: MusicViewModel,
+) {
+    val track = YtTrack(
+        title = entity.title,
+        uploader = entity.artist,
+        durationSec = entity.durationSec,
+        url = entity.url,
+        thumbnail = entity.thumbnail,
+    )
+    if (nowPlayingUrl == track.url && (player?.isPlaying == true)) player.pause()
+    else if (nowPlayingUrl == track.url) player?.play()
+    else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+}
+
+private fun YtTrack.toYtmSong(): YtmSong? {
+    val videoId = url.substringAfter("v=", "").substringBefore("&")
+        .ifBlank { url.substringAfterLast("/") }
+        .takeIf { it.isNotBlank() }
+        ?: return null
+    return YtmSong(
+        videoId = videoId,
+        title = title,
+        artist = uploader,
+        album = null,
+        thumbnail = thumbnail,
+        durationSeconds = durationSec,
+        isVideo = isVideo,
+    )
+}
+
+@Composable
+private fun HomeCategoryEmptyRow() {
+    Text(
+        text = "Nothing here yet",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
 }
