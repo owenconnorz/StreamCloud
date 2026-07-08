@@ -20,4 +20,14 @@ class NuvioTmdbSanitizerTest {
     fun returnsNullForInvalidTmdbIds() {
         assertNull(sanitizeNuvioTmdbId("movie: abc "))
     }
+
+    @Test
+    fun normalizesTmdbPrefixedEpisodeIdsBeforeExecution() {
+        assertEquals("687163", normaliseNuvioContentId("tmdb:687163:1:2", season = 1, episode = 2))
+    }
+
+    @Test
+    fun normalizesPathStyleEpisodeIdsBeforeExecution() {
+        assertEquals("687163", normaliseNuvioContentId("tmdb/687163/1/2", season = 1, episode = 2))
+    }
 }
