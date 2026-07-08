@@ -228,7 +228,12 @@ object NuvioRuntime {
                             " · raw: " + it.take(300)
                         } else ""
                     }
-                    lastErrorByScript[scriptKey] = "No streams found (provider returned empty list)$rawPreview"
+                    val fetchCount = fetchCountByScript[scriptKey]?.get() ?: 0
+                    val noStreamsMsg = when {
+                        fetchCount == 0 -> "No requests made — provider may have exited early$rawPreview"
+                        else            -> "No streams found (provider returned empty list)$rawPreview"
+                    }
+                    lastErrorByScript[scriptKey] = noStreamsMsg
                 } else if (streams.isNotEmpty()) {
                     lastErrorByScript.remove(scriptKey)
                 }
@@ -866,9 +871,44 @@ object NuvioRuntime {
             return normalized;
         }
 
+        // Returns true when the URL looks like a TMDB-style API request
+        // (direct or via a known mirror/proxy that uses the same path structure).
+        function __isTmdbApiStyleUrl(url) {
+            return /\/\d+\/(movie|tv|find|person|search|collection|discover)\//i.test(url) ||
+                   url.indexOf('themoviedb.org') !== -1;
+        }
+
+        // Fix query-parameter NAMES in TMDB API query strings.
+        // Handles two documented plugin bugs:
+        //   1. Stray whitespace inside a key: "append_to _response" → "append_to_response"
+        //   2. "api_kev" typo → "api_key"
+        // The value portion of each pair is preserved verbatim.
+        function __fixTmdbQueryParamNames(rawQuery) {
+            if (!rawQuery) return rawQuery;
+            var parts = rawQuery.split('&');
+            var fixed = [];
+            for (var _qi = 0; _qi < parts.length; _qi++) {
+                var pair   = parts[_qi];
+                var eqIdx  = pair.indexOf('=');
+                var rawKey = eqIdx >= 0 ? pair.substring(0, eqIdx) : pair;
+                var val    = eqIdx >= 0 ? pair.substring(eqIdx + 1) : '';
+                var key = rawKey;
+                try { key = decodeURIComponent(rawKey); } catch(_e) {}
+                // Strip all whitespace from the parameter name
+                key = key.replace(/\s+/g, '');
+                // Fix "api_kev" typo
+                if (key === 'api_kev') key = 'api_key';
+                fixed.push(encodeURIComponent(key) + '=' + val);
+            }
+            return fixed.join('&');
+        }
+
         function __normalizeTmdbRequestUrl(url) {
             var rawUrl = String(url == null ? '' : url);
-            if (!rawUrl || rawUrl.indexOf('tmdb=') === -1) return rawUrl;
+            if (!rawUrl) return rawUrl;
+            var hasTmdbParam = rawUrl.indexOf('tmdb=') !== -1;
+            var isTmdbApi    = __isTmdbApiStyleUrl(rawUrl);
+            if (!hasTmdbParam && !isTmdbApi) return rawUrl;
             try {
                 var hashIndex = rawUrl.indexOf('#');
                 var hash = hashIndex >= 0 ? rawUrl.substring(hashIndex) : '';
@@ -877,18 +917,29 @@ object NuvioRuntime {
                 if (queryIndex < 0) return rawUrl;
                 var baseUrl = beforeHash.substring(0, queryIndex);
                 var search = beforeHash.substring(queryIndex + 1);
-                var params = new URLSearchParams(search);
-                if (!params.has('tmdb')) return rawUrl;
-                var normalizedTmdb = __sanitizeTmdbQueryValue(params.get('tmdb'));
-                if (!normalizedTmdb) {
-                    console.warn('[runtime] Skipping request with invalid tmdb query param: ' + rawUrl);
-                    return null;
+
+                // Fix param names for TMDB-style API requests (removes spaces, fixes typos)
+                if (isTmdbApi) {
+                    search = __fixTmdbQueryParamNames(search);
                 }
-                params.set('tmdb', normalizedTmdb);
-                var normalizedQuery = params.toString();
-                return normalizedQuery ? (baseUrl + '?' + normalizedQuery + hash) : (baseUrl + hash);
+
+                // Sanitize the tmdb= param value (must be a non-zero integer)
+                if (hasTmdbParam) {
+                    var params = new URLSearchParams(search);
+                    if (params.has('tmdb')) {
+                        var normalizedTmdb = __sanitizeTmdbQueryValue(params.get('tmdb'));
+                        if (!normalizedTmdb) {
+                            console.warn('[runtime] Skipping request with invalid tmdb query param: ' + rawUrl);
+                            return null;
+                        }
+                        params.set('tmdb', normalizedTmdb);
+                        search = params.toString();
+                    }
+                }
+
+                return search ? (baseUrl + '?' + search + hash) : (baseUrl + hash);
             } catch (e) {
-                console.warn('[runtime] Failed to normalize tmdb query param: ' + ((e && e.message) || String(e)));
+                console.warn('[runtime] Failed to normalize request URL: ' + ((e && e.message) || String(e)));
                 return rawUrl;
             }
         }
