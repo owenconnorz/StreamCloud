@@ -43,4 +43,37 @@ class ThemeDynamicPropagationTest {
             ),
         )
     }
+
+    @Test
+    fun albumArtThemeAppliesWhenOnlyDynamicColorEnabledAndArtworkPresent() {
+        assertTrue(
+            shouldUseAlbumArtDynamicTheme(
+                dynamicColorEnabled = true,
+                dynamicMiniPlayerThemeEnabled = false,
+                hasArtwork = true,
+            ),
+        )
+    }
+
+    @Test
+    fun albumArtThemeDoesNotApplyWhenBothDisabledEvenWithArtwork() {
+        assertFalse(
+            shouldUseAlbumArtDynamicTheme(
+                dynamicColorEnabled = false,
+                dynamicMiniPlayerThemeEnabled = false,
+                hasArtwork = true,
+            ),
+        )
+    }
+
+    @Test
+    fun systemDynamicThemeDoesNotApplyWhenDeviceDoesNotSupportDynamic() {
+        assertFalse(
+            shouldUseSystemDynamicTheme(
+                dynamicColorEnabled = true,
+                supportsDynamic = false,
+            ),
+        )
+    }
 }
+
