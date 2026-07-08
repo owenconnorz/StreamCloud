@@ -111,6 +111,7 @@ object YtMusicSearchRepository {
         val year = parts.getOrNull(1)?.trim()?.takeIf { it.matches(Regex("\\d{4}")) }
         val thumb = item["thumbnailRenderer"].bestThumbnail()
             ?: item["thumbnail"].bestThumbnail()
+            ?: item.bestThumbnailAnywhere()
         return YtAlbum(
             title = title,
             artist = artist,
