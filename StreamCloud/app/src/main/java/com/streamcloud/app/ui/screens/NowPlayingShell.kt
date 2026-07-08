@@ -80,6 +80,7 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.lyrics.LyricsRepository
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.ui.player.MusicActionsSheet
 import com.streamcloud.app.ui.player.SonosDevicePickerSheet
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
@@ -108,9 +109,26 @@ fun NowPlayingShell(
     var artist by remember { mutableStateOf(controller.mediaMetadata.artist?.toString().orEmpty()) }
     var artwork by remember { mutableStateOf(controller.mediaMetadata.artworkUri?.toString()) }
     var mediaId by remember { mutableStateOf(controller.currentMediaItem?.mediaId) }
+    var currentIsMusicVideo by remember {
+        mutableStateOf(controller.currentMediaItem?.mediaMetadata?.extras?.getBoolean(YtPlayback.EXTRA_IS_MUSIC_VIDEO) == true)
+    }
+    var currentVideoId by remember {
+        mutableStateOf(controller.currentMediaItem?.mediaMetadata?.extras?.getString(YtPlayback.EXTRA_VIDEO_ID).orEmpty())
+    }
+    var currentWatchUrl by remember {
+        mutableStateOf(controller.currentMediaItem?.mediaMetadata?.extras?.getString(YtPlayback.EXTRA_WATCH_URL).orEmpty())
+    }
     var isPlaying by remember { mutableStateOf(controller.isPlaying) }
     var shuffleOn by remember { mutableStateOf(controller.shuffleModeEnabled) }
     var repeatMode by remember { mutableStateOf(controller.repeatMode) }
+
+    fun syncCurrentMediaItem(item: MediaItem?) {
+        mediaId = item?.mediaId
+        val extras = item?.mediaMetadata?.extras
+        currentIsMusicVideo = extras?.getBoolean(YtPlayback.EXTRA_IS_MUSIC_VIDEO) == true
+        currentVideoId = extras?.getString(YtPlayback.EXTRA_VIDEO_ID).orEmpty()
+        currentWatchUrl = extras?.getString(YtPlayback.EXTRA_WATCH_URL).orEmpty()
+    }
 
     DisposableEffect(controller) {
         val listener = object : Player.Listener {
@@ -118,12 +136,13 @@ fun NowPlayingShell(
                 title = md.title?.toString().orEmpty()
                 artist = md.artist?.toString().orEmpty()
                 artwork = md.artworkUri?.toString()
-                mediaId = controller.currentMediaItem?.mediaId
+                syncCurrentMediaItem(controller.currentMediaItem)
             }
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onShuffleModeEnabledChanged(enabled: Boolean) { shuffleOn = enabled }
             override fun onRepeatModeChanged(mode: Int) { repeatMode = mode }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                syncCurrentMediaItem(mediaItem)
                 // When casting, tell Sonos to load and play the newly-selected track.
                 val cstate = SonosRepository.castState.value
                 if (cstate is SonosRepository.CastState.Casting && mediaItem != null) {
@@ -215,22 +234,11 @@ fun NowPlayingShell(
 
 
 
-    val videoId = remember(mediaId) {
-        val mid = mediaId ?: return@remember ""
-        if (mid.startsWith("http")) {
-
-            mid.substringAfter("v=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: ""
-        } else {
-
-            mid
-        }
+    val videoId = remember(mediaId, currentVideoId, currentIsMusicVideo) {
+        selectedMusicVideoId(currentIsMusicVideo, currentVideoId, mediaId)
     }
-    val sonosCastWatchUrl = remember(mediaId, videoId) {
-        when {
-            mediaId?.startsWith("http") == true -> mediaId.orEmpty()
-            videoId.isNotBlank() -> "https://music.youtube.com/watch?v=$videoId"
-            else -> ""
-        }
+    val sonosCastWatchUrl = remember(mediaId, videoId, currentWatchUrl) {
+        selectedMusicVideoWatchUrl(currentWatchUrl, mediaId, videoId)
     }
 
 
@@ -243,11 +251,12 @@ fun NowPlayingShell(
     var videoStreamUrl  by remember(mediaId) { mutableStateOf<String?>(null) }
     var showVideoPlayer by remember(mediaId) { mutableStateOf(false) }
 
-    LaunchedEffect(videoId) {
-        isMusicVideo   = null
+    LaunchedEffect(currentIsMusicVideo, videoId) {
+        isMusicVideo   = false
         videoStreamUrl = null
         showVideoPlayer = false
-        if (videoId.isBlank()) return@LaunchedEffect
+        if (!currentIsMusicVideo || videoId.isBlank()) return@LaunchedEffect
+        isMusicVideo = null
         val result = withContext(Dispatchers.IO) { YtPlayerUtils.resolveVideoStream(videoId) }
         isMusicVideo   = result.isMusicVideo
         videoStreamUrl = result.url
@@ -263,19 +272,19 @@ fun NowPlayingShell(
     }
 
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, isMusicVideo) {
+    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, currentIsMusicVideo) {
         canvasUrl = null
         // For confirmed music videos skip the Spotify canvas entirely — the inline
         // MusicVideoPlayer takes over the artwork slot and is a much better experience.
         if (!canvasEnabled || title.isBlank() || videoId.isBlank() ||
-            spotifyCookie.isBlank() || isMusicVideo == true) return@LaunchedEffect
+            spotifyCookie.isBlank() || currentIsMusicVideo) return@LaunchedEffect
         canvasUrl = runCatching {
             SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
         }.getOrNull()
     }
     // Auto-reveal the inline video player as soon as the stream URL is ready
-    LaunchedEffect(isMusicVideo, videoStreamUrl) {
-        if (isMusicVideo == true && videoStreamUrl != null) {
+    LaunchedEffect(currentIsMusicVideo, isMusicVideo, videoStreamUrl) {
+        if (currentIsMusicVideo && isMusicVideo == true && videoStreamUrl != null) {
             showVideoPlayer = true
         }
     }
