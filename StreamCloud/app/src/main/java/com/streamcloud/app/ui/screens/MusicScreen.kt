@@ -3,6 +3,7 @@ package com.streamcloud.app.ui.screens
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -41,6 +42,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,9 +63,6 @@ import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import com.streamcloud.app.ui.util.verticalScrollbar
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 
 private val SUGGESTIONS = listOf(
     "Top hits 2026", "Lo-fi beats", "Chill", "Workout",
@@ -125,9 +125,9 @@ fun MusicScreen(
     val approvedYtSections = remember(state.ytHome.sections, fallbackSongs) {
         YtMusicHomeTaxonomy.mapSections(state.ytHome.sections, fallbackSongs)
     }
-    val listenAgainTracks = remember(state.mostPlayed) { state.mostPlayed.take(10) }
+    val listenAgainTracks = remember(state.mostPlayed) { state.mostPlayed.take(6) }
     val forgottenFavoritesTracks = remember(state.liked) { state.liked.takeLast(10).asReversed() }
-    val recentlyPlayedTracks = remember(state.recent) { state.recent.take(10) }
+    val recentlyPlayedTracks = remember(state.recent) { state.recent.take(6) }
     val fromLibraryTracks = remember(state.liked) { state.liked.take(10) }
 
     var isRefreshing by remember { mutableStateOf(false) }
