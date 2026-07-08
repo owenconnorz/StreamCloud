@@ -50,8 +50,9 @@ class SpotifyLoginActivity : ComponentActivity() {
         container.addView(web)
         setContentView(container)
 
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+        val cm = CookieManager.getInstance()
+        cm.setAcceptCookie(true)
+        cm.setAcceptThirdPartyCookies(web, true)
 
         web.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -62,19 +63,33 @@ class SpotifyLoginActivity : ComponentActivity() {
                 progress.visibility = View.GONE
                 if (url == null) return
 
-                // After the user signs in, Spotify redirects to open.spotify.com
+                // After sign-in Spotify lands on open.spotify.com.
                 if (!url.contains("open.spotify.com")) return
 
-                val rawCookie = CookieManager.getInstance()
-                    .getCookie("https://open.spotify.com") ?: return
+                // Build a robust cookie header instead of only getCookie(open.spotify.com).
+                // On newer WebView/Spotify flows, critical cookies (sp_dc/sp_key/...) may be
+                // scoped across .spotify.com, open.spotify.com, or accounts.spotify.com.
+                val cookieDomains = listOf(
+                    "https://open.spotify.com",
+                    "https://accounts.spotify.com",
+                    "https://spotify.com",
+                    "https://www.spotify.com",
+                )
+                val merged = linkedSetOf<String>()
+                cookieDomains.forEach { domain ->
+                    cm.getCookie(domain)
+                        ?.split(';')
+                        ?.map { it.trim() }
+                        ?.filter { it.contains('=') }
+                        ?.forEach { merged.add(it) }
+                }
+                val rawCookie = merged.joinToString("; ")
                 if (rawCookie.isBlank()) return
 
-                val spDc = rawCookie.split(";")
-                    .map { it.trim() }
-                    .firstOrNull { it.startsWith("sp_dc=") }
-                    ?.substringAfter("sp_dc=")
-                    ?.trim()
-                if (spDc.isNullOrBlank()) return
+                // Canvas auth needs sp_dc and often sp_key to mint web tokens.
+                val hasSpDc = merged.any { it.startsWith("sp_dc=") }
+                val hasSpKey = merged.any { it.startsWith("sp_key=") }
+                if (!hasSpDc && !hasSpKey) return
 
                 lifecycleScope.launch {
                     val sl = ServiceLocator.get(applicationContext)
