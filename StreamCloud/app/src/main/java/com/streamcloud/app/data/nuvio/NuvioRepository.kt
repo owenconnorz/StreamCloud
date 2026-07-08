@@ -46,6 +46,35 @@ internal fun sanitizeNuvioTmdbId(raw: Any?): String? =
     normaliseNuvioIdToken(raw)
         ?.takeIf { it != "0" && it.all(Char::isDigit) }
 
+/**
+ * Normalises query-parameter names in a raw TMDB-API query string.
+ *
+ * Fixes two known plugin bugs:
+ *  - `append_to _response` (stray space) → `append_to_response`
+ *  - `api_kev` (typo) → `api_key`
+ *
+ * The value side of each pair is left unchanged (already URL-encoded by the caller).
+ * Safe to call on any URL targeting a TMDB-style endpoint.
+ */
+internal fun sanitizeTmdbApiQueryString(rawQuery: String): String {
+    if (rawQuery.isBlank()) return rawQuery
+    return rawQuery.split('&').joinToString("&") { pair ->
+        val eqIdx  = pair.indexOf('=')
+        val rawKey = if (eqIdx >= 0) pair.substring(0, eqIdx) else pair
+        val value  = if (eqIdx >= 0) pair.substring(eqIdx + 1) else ""
+        val decoded = try {
+            java.net.URLDecoder.decode(rawKey, "UTF-8")
+        } catch (_: Exception) {
+            rawKey
+        }
+        val fixed = when (val stripped = decoded.replace(Regex("""\s+"""), "")) {
+            "api_kev" -> "api_key"
+            else      -> stripped
+        }
+        java.net.URLEncoder.encode(fixed, "UTF-8") + "=" + value
+    }
+}
+
 class NuvioRepository(private val context: Context) {
 
     private val http = OkHttpClient.Builder()
