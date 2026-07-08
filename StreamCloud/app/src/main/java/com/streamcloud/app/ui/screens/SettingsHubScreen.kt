@@ -2212,8 +2212,8 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
                     sl.settings.setNavTabOrder(order.map { it.id })
                     sl.settings.setNavHiddenTabs(hiddenIds.joinToString(","))
                     sl.settings.setNsfwEnabled(adultOn)
+                    onDismiss()
                 }
-                onDismiss()
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
