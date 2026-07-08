@@ -1395,17 +1395,17 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp),
             )
         }
-        item { HubRow(icon = Icons.Default.Person,      title = "Account",             onClick = { onNavigate(SettingsPage.Account) }) }
-        item { HubRow(icon = Icons.Default.Palette,     title = "Appearance",          onClick = { onNavigate(SettingsPage.Appearance) }) }
-        item { HubRow(icon = Icons.Default.PlayArrow,   title = "Player and audio",    onClick = { onNavigate(SettingsPage.PlayerAudio) }) }
-        item { HubRow(icon = Icons.Default.Group,       title = "Listen Together",     onClick = { onNavigate(SettingsPage.ListenTogether) }) }
-        item { HubRow(icon = Icons.Default.Extension,   title = "Plugins & Addons",    onClick = onOpenPlugins) }
-        item { HubRow(icon = Icons.Default.PlayCircle,  title = "Movies home plugins", onClick = { onNavigate(SettingsPage.CsHomeSettings) }) }
-        item { HubRow(icon = Icons.Default.Layers,      title = "Collections",         onClick = onOpenCollections) }
-        item { HubRow(icon = Icons.Default.Storage,     title = "Storage",             onClick = { onNavigate(SettingsPage.Storage) }) }
-        item { HubRow(icon = Icons.Default.CloudUpload, title = "Backup and restore",  onClick = { onNavigate(SettingsPage.BackupRestore) }) }
-        item { HubRow(icon = Icons.Default.Shield,      title = "Privacy",             onClick = { onNavigate(SettingsPage.Privacy) }) }
-        item { HubRow(icon = Icons.Default.Public,      title = "Content",             onClick = { onNavigate(SettingsPage.Content) }) }
+        item { HubRow(icon = Icons.Default.Person,      title = "Account",             iconTint = ColourAccount,    onClick = { onNavigate(SettingsPage.Account) }) }
+        item { HubRow(icon = Icons.Default.Palette,     title = "Appearance",          iconTint = ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }) }
+        item { HubRow(icon = Icons.Default.PlayArrow,   title = "Player and audio",    iconTint = ColourPlayer,     onClick = { onNavigate(SettingsPage.PlayerAudio) }) }
+        item { HubRow(icon = Icons.Default.Group,       title = "Listen Together",     iconTint = ColourSonos,      onClick = { onNavigate(SettingsPage.ListenTogether) }) }
+        item { HubRow(icon = Icons.Default.Extension,   title = "Plugins & Addons",    iconTint = ColourAi,         onClick = onOpenPlugins) }
+        item { HubRow(icon = Icons.Default.PlayCircle,  title = "Movies home plugins", iconTint = ColourContent,    onClick = { onNavigate(SettingsPage.CsHomeSettings) }) }
+        item { HubRow(icon = Icons.Default.Layers,      title = "Collections",         iconTint = ColourSystem,     onClick = onOpenCollections) }
+        item { HubRow(icon = Icons.Default.Storage,     title = "Storage",             iconTint = ColourStorage,    onClick = { onNavigate(SettingsPage.Storage) }) }
+        item { HubRow(icon = Icons.Default.CloudUpload, title = "Backup and restore",  iconTint = ColourSystem,     onClick = { onNavigate(SettingsPage.BackupRestore) }) }
+        item { HubRow(icon = Icons.Default.Shield,      title = "Privacy",             iconTint = ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }) }
+        item { HubRow(icon = Icons.Default.Public,      title = "Content",             iconTint = ColourContent,    onClick = { onNavigate(SettingsPage.Content) }) }
         item {
             HubRow(
                 icon       = Icons.Default.BugReport,
@@ -1415,7 +1415,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 onClick    = { onNavigate(SettingsPage.Logs) },
             )
         }
-        item { HubRow(icon = Icons.Default.Info, title = "About", onClick = { onNavigate(SettingsPage.About) }) }
+        item { HubRow(icon = Icons.Default.Info, title = "About", iconTint = ColourSystem, onClick = { onNavigate(SettingsPage.About) }) }
     }
 }
 
@@ -1425,6 +1425,7 @@ private fun HubRow(
     title: String,
     badge: String? = null,
     badgeError: Boolean = false,
+    iconTint: Color = HubIconFg,
     onClick: () -> Unit,
 ) {
     Row(
@@ -1440,13 +1441,13 @@ private fun HubRow(
             Modifier
                 .size(44.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(if (badgeError && !badge.isNullOrBlank()) Color(0xFF3D1A1A) else HubIconBg),
+                .background(if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.errorContainer else iconTint.copy(alpha = 0.18f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 icon,
                 contentDescription = null,
-                tint = if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.error else HubIconFg,
+                tint = if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.error else iconTint,
                 modifier = Modifier.size(22.dp),
             )
         }
