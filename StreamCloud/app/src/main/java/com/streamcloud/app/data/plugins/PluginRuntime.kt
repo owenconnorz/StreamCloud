@@ -289,8 +289,47 @@ object PluginRuntime {
             fetchCountByPlugin.remove(filePath)
             loaded.apis
         } catch (e: Throwable) {
-            lastErrors[filePath] = "${e::class.simpleName}: ${e.message}"
+            lastErrors[filePath] = buildPluginErrorMessage(e, filePath)
             emptyList()
+        }
+    }
+
+    /**
+     * Converts a plugin load throwable into a human-readable, actionable error message.
+     *
+     * When the error is a [NoSuchMethodError] or [NoClassDefFoundError] that mentions
+     * a CloudStream API method (e.g. `ParCollectionsKt.amap`), the message explicitly
+     * calls out the API/runtime version mismatch so users know to report it rather than
+     * treating it as a generic crash.
+     */
+    internal fun buildPluginErrorMessage(e: Throwable, filePath: String): String {
+        val kind = e::class.simpleName ?: "Error"
+        val raw = e.message ?: "(no message)"
+        val pluginName = java.io.File(filePath).name.removeSuffix(".cs3").removeSuffix(".jar")
+        return when {
+            e is NoSuchMethodError || e is NoClassDefFoundError -> {
+                val isParCollections = raw.contains("ParCollectionsKt") ||
+                    raw.contains("amap") || raw.contains("apmap")
+                val isCloudStreamApi = raw.contains("com/lagradost/cloudstream3") ||
+                    raw.contains("com.lagradost.cloudstream3")
+                when {
+                    isParCollections ->
+                        "Plugin '$pluginName' API mismatch — $kind: $raw\n" +
+                            "Hint: the plugin calls ParCollectionsKt.amap(List, …) which is a " +
+                            "CloudStream parallel-collections helper. This app includes a " +
+                            "compatibility shim for this method; the error suggests the plugin " +
+                            "was compiled against a different API surface. Try reinstalling the " +
+                            "plugin or check for an updated version."
+                    isCloudStreamApi ->
+                        "Plugin '$pluginName' API mismatch — $kind: $raw\n" +
+                            "Hint: the plugin references a CloudStream API method that is absent " +
+                            "in this app's runtime. Try reinstalling the plugin or check for an " +
+                            "updated version compatible with this app."
+                    else ->
+                        "Plugin '$pluginName' load failed — $kind: $raw"
+                }
+            }
+            else -> "Plugin '$pluginName' load failed — $kind: $raw"
         }
     }
 

@@ -54,21 +54,29 @@ suspend fun <T> runAllAsyncNotNull(vararg jobs: suspend () -> T?): List<T> =
     }
 
 // ── List receivers (explicit) — fixes NoSuchMethodError amap(Ljava/util/List;...) ──
+//
+// IMPORTANT: Do NOT add @JvmName annotations to these overloads.
+// Without @JvmName, Kotlin compiles them to JVM static methods whose first
+// parameter type is java.util.List — which is exactly what CloudStream plugins
+// call at runtime:
+//   amap(Ljava/util/List;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)
+// Adding @JvmName (e.g. @JvmName("amapList")) renames the JVM method and would
+// cause the plugin's call to fail again with NoSuchMethodError.
+// The Iterable and List overloads compile to *different* JVM descriptors
+// (java/lang/Iterable vs java/util/List as the first parameter), so there is
+// no platform-declaration clash and @JvmName is not needed.
 
 /** Parallel map — List<A> receiver.
  *  Most CloudStream plugins call this overload; it compiles to a JVM static method
  *  whose first parameter is java.util.List, not java.lang.Iterable. */
-@JvmName("amapList")
 suspend fun <A, B> List<A>.amap(transform: suspend (A) -> B): List<B> =
     coroutineScope { map { async { transform(it) } }.awaitAll() }
 
 /** Alias — List receiver. */
-@JvmName("apmapList")
 suspend fun <A, B> List<A>.apmap(transform: suspend (A) -> B): List<B> =
     amap(transform)
 
 /** Parallel map that swallows errors — List receiver. */
-@JvmName("amapNotNullList")
 suspend fun <A, B> List<A>.amapNotNull(transform: suspend (A) -> B?): List<B> =
     coroutineScope {
         map { async { runCatching { transform(it) }.getOrNull() } }
@@ -77,7 +85,6 @@ suspend fun <A, B> List<A>.amapNotNull(transform: suspend (A) -> B?): List<B> =
     }
 
 /** Execute [block] in parallel for each element — List receiver. */
-@JvmName("forEachList")
 suspend fun <A> List<A>.forEach(block: suspend (A) -> Unit) {
     coroutineScope { map { async { runCatching { block(it) } } }.awaitAll() }
 }
