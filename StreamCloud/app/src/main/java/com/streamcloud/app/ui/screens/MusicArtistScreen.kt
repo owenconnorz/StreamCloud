@@ -11,6 +11,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Shuffle
@@ -22,11 +24,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.newpipe.YtAlbum
@@ -34,6 +38,7 @@ import com.streamcloud.app.data.newpipe.YtArtist
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.components.SongRowMenu
+import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -47,6 +52,8 @@ fun MusicArtistScreen(
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
     onShowMore: (sectionType: String) -> Unit = {},
 ) {
+    val context = LocalContext.current
+    val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
     var page by remember(channelUrl) { mutableStateOf<NewPipeRepository.ArtistPage?>(null) }
     var loading by remember(channelUrl) { mutableStateOf(true) }
     var error by remember(channelUrl) { mutableStateOf<String?>(null) }
@@ -77,6 +84,8 @@ fun MusicArtistScreen(
                 page = page!!,
                 initialAvatar = initialAvatar,
                 heroExtraTop = statusBarPadding,
+                channelUrl = channelUrl,
+                vm = vm,
                 onPlay = onPlay,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
@@ -108,12 +117,20 @@ private fun ArtistPageContent(
     page: NewPipeRepository.ArtistPage,
     initialAvatar: String?,
     heroExtraTop: androidx.compose.ui.unit.Dp,
+    channelUrl: String,
+    vm: MusicViewModel,
     onPlay: (YtTrack) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
     onShowMore: (sectionType: String) -> Unit,
 ) {
     var descExpanded by remember { mutableStateOf(false) }
+
+    // Derive a stable artist ID from the channel URL (last path segment or the whole URL)
+    val artistId = remember(channelUrl) {
+        Uri.parse(channelUrl).lastPathSegment?.takeIf { it.isNotBlank() } ?: channelUrl
+    }
+    val isFollowed by vm.isFollowed(artistId).collectAsState(initial = false)
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -176,6 +193,30 @@ private fun ArtistPageContent(
                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
                         .background(Color.White.copy(alpha = 0.12f)),
                 ) { Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
+                // Follow / Unfollow button
+                IconButton(
+                    onClick = {
+                        if (isFollowed) {
+                            vm.unfollowArtist(artistId)
+                        } else {
+                            vm.followArtist(
+                                artistId = artistId,
+                                artistName = page.name,
+                                thumbnail = initialAvatar ?: page.avatar,
+                                channelUrl = channelUrl,
+                            )
+                        }
+                    },
+                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.12f)),
+                ) {
+                    Icon(
+                        if (isFollowed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (isFollowed) "Unfollow artist" else "Follow artist",
+                        tint = if (isFollowed) Color(0xFFFF4081) else Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
 
