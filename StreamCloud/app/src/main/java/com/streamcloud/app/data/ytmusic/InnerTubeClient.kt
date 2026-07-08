@@ -313,6 +313,12 @@ internal fun JsonElement.bestThumbnailAnywhere(): String? {
 }
 
 private fun String.upgradeToHqSize(): String {
+    // ytimg.com video thumbnails use path-based quality names rather than query params
+    if (contains("i.ytimg.com")) {
+        return replace("/mqdefault.jpg", "/hqdefault.jpg")
+            .replace("/sddefault.jpg", "/hqdefault.jpg")
+            .replace("/default.jpg", "/hqdefault.jpg")
+    }
     val cut = indexOf('=')
     if (cut < 0) return this
     val base = substring(0, cut)

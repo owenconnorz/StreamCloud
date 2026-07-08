@@ -65,7 +65,11 @@ object YtMusicHomeRepository {
                 var token = resp.findContinuationToken()
                 var safety = 12
                 while (!token.isNullOrBlank() && safety-- > 0) {
-                    val page = client.browseContinuation(token) ?: break
+                    val page = client.browseContinuation(token)
+                    if (page == null) {
+                        Log.w(TAG, "browseContinuation returned null, stopping pagination")
+                        break
+                    }
                     val before = size
                     page.findAll("musicCarouselShelfRenderer")
                         .mapNotNull { it as? JsonObject }
@@ -121,7 +125,10 @@ object YtMusicHomeRepository {
                 }.distinctBy { it.videoId }
                 HomeSection.SongRail(title, items)
             }
-            else -> null
+            else -> {
+                Log.d(TAG, "parseCarousel: unrecognised first-item renderer keys=${first.keys}, title=$title")
+                null
+            }
         }
     }
 
