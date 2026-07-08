@@ -220,6 +220,8 @@ fun NowPlayingShell(
         if (mid.startsWith("http")) {
 
             mid.substringAfter("v=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: ""
+        } else if (mid.startsWith("content://") || mid.startsWith("file://")) {
+            ""
         } else {
 
             mid
