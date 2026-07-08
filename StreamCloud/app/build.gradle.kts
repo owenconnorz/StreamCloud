@@ -151,6 +151,8 @@ dependencies {
     // for animated NSFW posts. Without this, AsyncImage renders only the first
     // frame.
     implementation("io.coil-kt:coil-gif:2.7.0")
+    // Video frame decoder — required for thumbnail extraction in LocalFilesScreen.
+    implementation("io.coil-kt:coil-video:2.7.0")
 
     // DataStore
     implementation("androidx.datastore:datastore-preferences:1.1.1")
