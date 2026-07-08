@@ -5,7 +5,6 @@ import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
-import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -266,98 +265,39 @@ interface CollectionFolderDao {
     fun all(): Flow<List<CollectionFolderEntity>>
 }
 
-// ── Artist Follows ────────────────────────────────────────────────────────────
+// ── Followed Artists ──────────────────────────────────────────────────────────
 
-@Entity(
-    tableName = "artist_follows",
-    indices = [Index(value = ["artist_id"], unique = true)],
-)
-data class ArtistFollowEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    @ColumnInfo(name = "artist_id") val artistId: String,
-    @ColumnInfo(name = "artist_name") val artistName: String,
-    @ColumnInfo(name = "artist_thumbnail") val artistThumbnail: String? = null,
+@Entity(tableName = "followed_artists")
+data class FollowedArtistEntity(
+    @PrimaryKey @ColumnInfo(name = "channel_id") val channelId: String,
+    val name: String,
+    val thumbnail: String?,
+    @ColumnInfo(name = "subscriber_label") val subscriberLabel: String?,
     @ColumnInfo(name = "followed_at") val followedAt: Long = System.currentTimeMillis(),
-    /** Opaque string (channel URL / browse ID) used to poll for new releases. */
-    @ColumnInfo(name = "channel_url") val channelUrl: String = "",
+    /** browseId (or album title+year hash) of the most recently seen release, used to
+     *  detect new albums/singles in the background check worker. */
+    @ColumnInfo(name = "latest_release_id") val latestReleaseId: String? = null,
 )
 
 @Dao
-interface ArtistFollowDao {
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun follow(entity: ArtistFollowEntity): Long
+interface FollowedArtistDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun follow(entity: FollowedArtistEntity)
 
-    @Query("DELETE FROM artist_follows WHERE artist_id = :artistId")
-    suspend fun unfollow(artistId: String)
+    @Query("DELETE FROM followed_artists WHERE channel_id = :channelId")
+    suspend fun unfollow(channelId: String)
 
-    @Query("SELECT COUNT(*) > 0 FROM artist_follows WHERE artist_id = :artistId")
-    fun isFollowed(artistId: String): Flow<Boolean>
+    @Query("SELECT * FROM followed_artists ORDER BY followed_at DESC")
+    fun all(): Flow<List<FollowedArtistEntity>>
 
-    @Query("SELECT * FROM artist_follows ORDER BY followed_at DESC")
-    fun allFollowed(): Flow<List<ArtistFollowEntity>>
+    @Query("SELECT COUNT(*) > 0 FROM followed_artists WHERE channel_id = :channelId")
+    fun isFollowed(channelId: String): Flow<Boolean>
 
-    @Query("SELECT * FROM artist_follows ORDER BY followed_at DESC LIMIT :limit OFFSET :offset")
-    suspend fun pagedFollowed(limit: Int, offset: Int): List<ArtistFollowEntity>
+    @Query("SELECT * FROM followed_artists WHERE channel_id = :channelId LIMIT 1")
+    suspend fun byChannelId(channelId: String): FollowedArtistEntity?
 
-    @Query("SELECT * FROM artist_follows")
-    suspend fun allFollowedOnce(): List<ArtistFollowEntity>
-}
-
-// ── Artist Release Notifications ──────────────────────────────────────────────
-
-/** Event types emitted when a followed artist releases new content. */
-enum class ReleaseEventType { ALBUM, SINGLE_EP, VIDEO, UNKNOWN }
-
-@Entity(
-    tableName = "artist_release_notifications",
-    indices = [
-        Index(value = ["artist_id"]),
-        Index(value = ["release_id"], unique = true),
-        Index(value = ["created_at"]),
-    ],
-)
-data class ArtistReleaseNotificationEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    @ColumnInfo(name = "artist_id") val artistId: String,
-    @ColumnInfo(name = "artist_name") val artistName: String,
-    /** Stable, unique identifier for this release (e.g. playlist ID, video ID). */
-    @ColumnInfo(name = "release_id") val releaseId: String,
-    @ColumnInfo(name = "release_title") val releaseTitle: String,
-    @ColumnInfo(name = "release_thumbnail") val releaseThumbnail: String? = null,
-    @ColumnInfo(name = "event_type") val eventType: String = ReleaseEventType.UNKNOWN.name,
-    @ColumnInfo(name = "is_read") val isRead: Boolean = false,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-)
-
-@Dao
-interface ArtistReleaseNotificationDao {
-    /**
-     * Inserts a notification, silently ignoring duplicates (deduplication via IGNORE strategy
-     * on the unique [ArtistReleaseNotificationEntity.releaseId] index).
-     */
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertIfAbsent(entity: ArtistReleaseNotificationEntity): Long
-
-    @Query("SELECT * FROM artist_release_notifications ORDER BY created_at DESC LIMIT :limit OFFSET :offset")
-    fun paged(limit: Int = 50, offset: Int = 0): Flow<List<ArtistReleaseNotificationEntity>>
-
-    @Query("SELECT * FROM artist_release_notifications ORDER BY created_at DESC LIMIT :limit OFFSET :offset")
-    suspend fun pagedOnce(limit: Int = 50, offset: Int = 0): List<ArtistReleaseNotificationEntity>
-
-    @Query("SELECT COUNT(*) FROM artist_release_notifications WHERE is_read = 0")
-    fun unreadCount(): Flow<Int>
-
-    @Query("UPDATE artist_release_notifications SET is_read = 1 WHERE id = :id")
-    suspend fun markRead(id: Long)
-
-    @Query("UPDATE artist_release_notifications SET is_read = 1")
-    suspend fun markAllRead()
-
-    @Query("SELECT COUNT(*) > 0 FROM artist_release_notifications WHERE release_id = :releaseId")
-    suspend fun exists(releaseId: String): Boolean
-
-    @Query("DELETE FROM artist_release_notifications WHERE created_at < :beforeTs")
-    suspend fun pruneOlderThan(beforeTs: Long)
+    @Query("UPDATE followed_artists SET latest_release_id = :releaseId WHERE channel_id = :channelId")
+    suspend fun updateLatestRelease(channelId: String, releaseId: String)
 }
 
 // ── Database ─────────────────────────────────────────────────────────────────
@@ -372,8 +312,7 @@ interface ArtistReleaseNotificationDao {
         FormatEntity::class,
         UserCollectionEntity::class,
         CollectionFolderEntity::class,
-        ArtistFollowEntity::class,
-        ArtistReleaseNotificationEntity::class,
+        FollowedArtistEntity::class,
     ],
     version = 10,
     exportSchema = false,
@@ -386,8 +325,7 @@ abstract class LibraryDb : RoomDatabase() {
     abstract fun formats(): FormatDao
     abstract fun userCollections(): UserCollectionDao
     abstract fun collectionFolders(): CollectionFolderDao
-    abstract fun artistFollows(): ArtistFollowDao
-    abstract fun artistReleaseNotifications(): ArtistReleaseNotificationDao
+    abstract fun followedArtists(): FollowedArtistDao
 
     companion object {
         private val MIGRATION_5_6 = object : Migration(5, 6) {
@@ -408,6 +346,23 @@ abstract class LibraryDb : RoomDatabase() {
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE watch_progress ADD COLUMN source_route TEXT")
+            }
+        }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS followed_artists (
+                        channel_id TEXT PRIMARY KEY NOT NULL,
+                        name TEXT NOT NULL,
+                        thumbnail TEXT,
+                        subscriber_label TEXT,
+                        followed_at INTEGER NOT NULL DEFAULT 0,
+                        latest_release_id TEXT
+                    )
+                    """.trimIndent()
+                )
             }
         }
 
@@ -446,50 +401,6 @@ abstract class LibraryDb : RoomDatabase() {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
             ).addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10).fallbackToDestructiveMigration().build().also { INSTANCE = it }
-        }
-
-        private val MIGRATION_9_10 = object : Migration(9, 10) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS artist_follows (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        artist_id TEXT NOT NULL,
-                        artist_name TEXT NOT NULL,
-                        artist_thumbnail TEXT,
-                        followed_at INTEGER NOT NULL DEFAULT 0,
-                        channel_url TEXT NOT NULL DEFAULT ''
-                    )
-                    """.trimIndent()
-                )
-                db.execSQL(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS index_artist_follows_artist_id ON artist_follows(artist_id)"
-                )
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS artist_release_notifications (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        artist_id TEXT NOT NULL,
-                        artist_name TEXT NOT NULL,
-                        release_id TEXT NOT NULL,
-                        release_title TEXT NOT NULL,
-                        release_thumbnail TEXT,
-                        event_type TEXT NOT NULL DEFAULT 'UNKNOWN',
-                        is_read INTEGER NOT NULL DEFAULT 0,
-                        created_at INTEGER NOT NULL DEFAULT 0
-                    )
-                    """.trimIndent()
-                )
-                db.execSQL(
-                    "CREATE INDEX IF NOT EXISTS index_artist_release_notifications_artist_id ON artist_release_notifications(artist_id)"
-                )
-                db.execSQL(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS index_artist_release_notifications_release_id ON artist_release_notifications(release_id)"
-                )
-                db.execSQL(
-                    "CREATE INDEX IF NOT EXISTS index_artist_release_notifications_created_at ON artist_release_notifications(created_at)"
-                )
-            }
         }
     }
 }

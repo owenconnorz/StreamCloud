@@ -65,15 +65,15 @@ fun MusicArtistSectionScreen(
 
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF0A0A0A))) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color.White)
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
             error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     "Couldn't load section\n$error",
-                    color = Color(0xFFFF5555),
+                    color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(24.dp),
                 )
@@ -128,7 +128,7 @@ private fun ArtistSectionContent(
         item {
             Text(
                 sectionTitle,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 16.dp),
@@ -214,13 +214,13 @@ private fun ArtistSectionTrackRow(
         AsyncImage(
             model = track.thumbnail, contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(50.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFF2A2A2A)),
+            modifier = Modifier.size(50.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+            Text(track.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("♪ ${track.uploader}", color = Color.White.copy(alpha = 0.6f),
+            Text("♪ ${track.uploader}", color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         SongRowMenu(
@@ -246,14 +246,14 @@ private fun ArtistSectionAlbumRow(album: YtAlbum, subtitle: String? = null, onCl
         AsyncImage(
             model = album.thumbnail, contentDescription = album.title,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(54.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2A2A)),
+            modifier = Modifier.size(54.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(album.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+            Text(album.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             val meta = subtitle ?: album.year
-            meta?.let { Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1) }
+            meta?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1) }
         }
     }
 }
@@ -268,17 +268,17 @@ private fun ArtistSectionVideoRow(track: YtTrack, onClick: () -> Unit) {
         AsyncImage(
             model = track.thumbnail, contentDescription = track.title,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2A2A)),
+            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+            Text(track.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             val meta = buildString {
                 append(track.uploader)
                 if (track.viewCount > 0) append(" • ${humanViewCountSection(track.viewCount)} views")
             }
-            Text(meta, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1,
+            Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
         }
     }
@@ -294,14 +294,14 @@ private fun ArtistSectionRelatedRow(artist: YtArtist, onClick: () -> Unit) {
         AsyncImage(
             model = artist.thumbnail, contentDescription = artist.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(54.dp).clip(CircleShape).background(Color(0xFF2A2A2A)),
+            modifier = Modifier.size(54.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(artist.name, color = Color.White, fontWeight = FontWeight.SemiBold,
+            Text(artist.name, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             artist.subscriberLabel?.let {
-                Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1)
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1)
             }
         }
     }

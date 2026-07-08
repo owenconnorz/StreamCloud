@@ -2,7 +2,6 @@ package com.streamcloud.app.data.library
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,19 +9,21 @@ import org.junit.Test
 /**
  * Pure JVM unit tests for artist-follow domain logic.
  *
- * These tests validate entity construction, idempotency contract expectations,
- * and notification deduplication semantics — all without an Android Context.
+ * These tests validate entity construction and idempotency contract expectations
+ * without an Android Context.
  */
 class ArtistFollowDomainTest {
 
-    // ── ArtistFollowEntity ────────────────────────────────────────────────────
+    // ── FollowedArtistEntity ──────────────────────────────────────────────────
 
     @Test
-    fun artistFollowEntityDefaultsFollowedAtToCurrentTime() {
+    fun followedArtistEntityDefaultsFollowedAtToCurrentTime() {
         val before = System.currentTimeMillis()
-        val entity = ArtistFollowEntity(
-            artistId = "UCexample",
-            artistName = "Test Artist",
+        val entity = FollowedArtistEntity(
+            channelId = "UCexample",
+            name = "Test Artist",
+            thumbnail = null,
+            subscriberLabel = null,
         )
         val after = System.currentTimeMillis()
         assertTrue("followedAt should be >= before", entity.followedAt >= before)
@@ -30,132 +31,95 @@ class ArtistFollowDomainTest {
     }
 
     @Test
-    fun artistFollowEntityAllowsNullThumbnail() {
-        val entity = ArtistFollowEntity(
-            artistId = "UCexample",
-            artistName = "Test Artist",
-            artistThumbnail = null,
+    fun followedArtistEntityAllowsNullThumbnail() {
+        val entity = FollowedArtistEntity(
+            channelId = "UCexample",
+            name = "Test Artist",
+            thumbnail = null,
+            subscriberLabel = null,
         )
-        assertNull(entity.artistThumbnail)
+        assertNull(entity.thumbnail)
     }
 
     @Test
-    fun artistFollowEntityStoresChannelUrl() {
-        val url = "https://music.youtube.com/channel/UCexample"
-        val entity = ArtistFollowEntity(
-            artistId = "UCexample",
-            artistName = "Test Artist",
-            channelUrl = url,
+    fun followedArtistEntityAllowsNullSubscriberLabel() {
+        val entity = FollowedArtistEntity(
+            channelId = "UCexample",
+            name = "Test Artist",
+            thumbnail = null,
+            subscriberLabel = null,
         )
-        assertEquals(url, entity.channelUrl)
+        assertNull(entity.subscriberLabel)
     }
 
     @Test
-    fun artistFollowEntityEmptyChannelUrlIsAllowed() {
-        val entity = ArtistFollowEntity(
-            artistId = "UCexample",
-            artistName = "Test Artist",
+    fun followedArtistEntityStoresChannelId() {
+        val channelId = "UCexample123"
+        val entity = FollowedArtistEntity(
+            channelId = channelId,
+            name = "Test Artist",
+            thumbnail = null,
+            subscriberLabel = null,
         )
-        assertEquals("", entity.channelUrl)
-    }
-
-    // ── ArtistReleaseNotificationEntity ───────────────────────────────────────
-
-    @Test
-    fun notificationDefaultsToUnread() {
-        val notif = ArtistReleaseNotificationEntity(
-            artistId = "UCexample",
-            artistName = "Test Artist",
-            releaseId = "PLrelease123",
-            releaseTitle = "New Album",
-        )
-        assertFalse(notif.isRead)
+        assertEquals(channelId, entity.channelId)
     }
 
     @Test
-    fun notificationDefaultsEventTypeToUnknown() {
-        val notif = ArtistReleaseNotificationEntity(
-            artistId = "UCexample",
-            artistName = "Test Artist",
-            releaseId = "PLrelease123",
-            releaseTitle = "New Album",
+    fun followedArtistEntityDefaultsLatestReleaseIdToNull() {
+        val entity = FollowedArtistEntity(
+            channelId = "UCexample",
+            name = "Test Artist",
+            thumbnail = null,
+            subscriberLabel = null,
         )
-        assertEquals(ReleaseEventType.UNKNOWN.name, notif.eventType)
+        assertNull(entity.latestReleaseId)
     }
 
     @Test
-    fun notificationAlbumEventTypeStoredCorrectly() {
-        val notif = ArtistReleaseNotificationEntity(
-            artistId = "UCexample",
-            artistName = "Test Artist",
-            releaseId = "PLrelease123",
-            releaseTitle = "New Album",
-            eventType = ReleaseEventType.ALBUM.name,
+    fun followedArtistEntityCanUpdateLatestReleaseId() {
+        val entity = FollowedArtistEntity(
+            channelId = "UCexample",
+            name = "Test Artist",
+            thumbnail = null,
+            subscriberLabel = null,
         )
-        assertEquals(ReleaseEventType.ALBUM.name, notif.eventType)
+        val updated = entity.copy(latestReleaseId = "PLrelease123")
+        assertEquals("PLrelease123", updated.latestReleaseId)
+        assertNull(entity.latestReleaseId) // original unchanged
     }
 
     @Test
-    fun notificationSingleEpEventTypeStoredCorrectly() {
-        val notif = ArtistReleaseNotificationEntity(
-            artistId = "UCexample",
-            artistName = "Test Artist",
-            releaseId = "PLsingle456",
-            releaseTitle = "New Single",
-            eventType = ReleaseEventType.SINGLE_EP.name,
+    fun followedArtistEntityDedupeKeyIsChannelId() {
+        // Two entities with the same channelId should be considered the same artist.
+        // The DB enforces uniqueness via PRIMARY KEY on channel_id.
+        val channelId = "UCexample999"
+        val entity1 = FollowedArtistEntity(
+            channelId = channelId,
+            name = "Artist Name",
+            thumbnail = null,
+            subscriberLabel = null,
         )
-        assertEquals(ReleaseEventType.SINGLE_EP.name, notif.eventType)
+        val entity2 = FollowedArtistEntity(
+            channelId = channelId,
+            name = "Artist Name",
+            thumbnail = "https://example.com/thumb.jpg",
+            subscriberLabel = "1M subscribers",
+        )
+        assertEquals(entity1.channelId, entity2.channelId)
     }
 
     @Test
-    fun notificationDedupeKeyIsReleaseId() {
-        // Two notifications for the same release should be considered duplicates
-        // (the DB enforces uniqueness on release_id via UNIQUE index + IGNORE conflict).
-        // Here we verify the business key is consistent across construction.
-        val releaseId = "PLrelease999"
-        val notif1 = ArtistReleaseNotificationEntity(
-            artistId = "UC1",
-            artistName = "Artist 1",
-            releaseId = releaseId,
-            releaseTitle = "Album Title",
+    fun followedArtistEntityIsFollowedByDefault() {
+        // Any entity that exists in the DB is implicitly followed.
+        // Here we verify constructor sets no unexpected flags.
+        val entity = FollowedArtistEntity(
+            channelId = "UCexample",
+            name = "Test Artist",
+            thumbnail = null,
+            subscriberLabel = null,
         )
-        val notif2 = ArtistReleaseNotificationEntity(
-            artistId = "UC1",
-            artistName = "Artist 1",
-            releaseId = releaseId,
-            releaseTitle = "Album Title",
-        )
-        assertEquals(notif1.releaseId, notif2.releaseId)
-    }
-
-    @Test
-    fun notificationCanMarkAsRead() {
-        val notif = ArtistReleaseNotificationEntity(
-            artistId = "UCexample",
-            artistName = "Test Artist",
-            releaseId = "PLrelease123",
-            releaseTitle = "New Album",
-        )
-        val readNotif = notif.copy(isRead = true)
-        assertTrue(readNotif.isRead)
-        assertFalse(notif.isRead) // original unchanged
-    }
-
-    // ── ReleaseEventType enum ─────────────────────────────────────────────────
-
-    @Test
-    fun releaseEventTypeValuesAreStable() {
-        val types = ReleaseEventType.values()
-        assertTrue(types.contains(ReleaseEventType.ALBUM))
-        assertTrue(types.contains(ReleaseEventType.SINGLE_EP))
-        assertTrue(types.contains(ReleaseEventType.VIDEO))
-        assertTrue(types.contains(ReleaseEventType.UNKNOWN))
-    }
-
-    @Test
-    fun releaseEventTypeNameRoundTripsFromString() {
-        for (type in ReleaseEventType.values()) {
-            assertEquals(type, ReleaseEventType.valueOf(type.name))
-        }
+        assertFalse(entity.channelId.isBlank())
+        assertFalse(entity.name.isBlank())
     }
 }
+

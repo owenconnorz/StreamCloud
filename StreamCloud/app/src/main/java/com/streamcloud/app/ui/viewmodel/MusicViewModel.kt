@@ -6,10 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
-import com.streamcloud.app.data.library.ArtistFollowDao
-import com.streamcloud.app.data.library.ArtistFollowEntity
-import com.streamcloud.app.data.library.ArtistReleaseNotificationEntity
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.FollowedArtistDao
+import com.streamcloud.app.data.library.FollowedArtistEntity
 import com.streamcloud.app.data.library.TrackDao
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.lyrics.LrcEntry
@@ -72,10 +71,7 @@ data class MusicState(
     val ytHome: YtMusicHomeFeed = YtMusicHomeFeed(),
     val ytHomeLoading: Boolean = false,
 
-
-    val followedArtists: List<ArtistFollowEntity> = emptyList(),
-    val releaseNotifications: List<ArtistReleaseNotificationEntity> = emptyList(),
-    val unreadNotificationCount: Int = 0,
+    val followedArtists: List<FollowedArtistEntity> = emptyList(),
 )
 
 class MusicViewModel(context: Context) : ViewModel() {
@@ -84,8 +80,7 @@ class MusicViewModel(context: Context) : ViewModel() {
     val state: StateFlow<MusicState> = _state.asStateFlow()
 
     private val dao: TrackDao = LibraryDb.get(context).tracks()
-    private val followDao: ArtistFollowDao = LibraryDb.get(context).artistFollows()
-    private val notifDao = LibraryDb.get(context).artistReleaseNotifications()
+    private val followedArtistsDao: FollowedArtistDao = LibraryDb.get(context).followedArtists()
     private val settings = com.streamcloud.app.data.ServiceLocator.get(context).settings
     private var sleepJob: Job? = null
 
@@ -102,17 +97,7 @@ class MusicViewModel(context: Context) : ViewModel() {
             dao.mostPlayed().collect { list -> _state.update { it.copy(mostPlayed = list) } }
         }
         viewModelScope.launch {
-            followDao.allFollowed().collect { list -> _state.update { it.copy(followedArtists = list) } }
-        }
-        viewModelScope.launch {
-            notifDao.paged(limit = 50, offset = 0).collect { list ->
-                _state.update { it.copy(releaseNotifications = list) }
-            }
-        }
-        viewModelScope.launch {
-            notifDao.unreadCount().collect { count ->
-                _state.update { it.copy(unreadNotificationCount = count) }
-            }
+            followedArtistsDao.all().collect { list -> _state.update { it.copy(followedArtists = list) } }
         }
 
         viewModelScope.launch {
@@ -362,52 +347,27 @@ class MusicViewModel(context: Context) : ViewModel() {
     fun setRepeatMode(mode: Int) { _state.update { it.copy(repeatMode = mode) } }
     fun setShuffle(enabled: Boolean) { _state.update { it.copy(shuffleEnabled = enabled) } }
 
-    // ── Artist Follow ────────────────────────────────────────────────────────
+    // ── Follow artists ────────────────────────────────────────────────────────
 
-    /** Observes follow status for [artistId] as a reactive Flow. */
-    fun isFollowed(artistId: String) = followDao.isFollowed(artistId)
-
-    /**
-     * Follows an artist idempotently.  Concurrent or duplicate calls are safe — the DB uses
-     * IGNORE conflict strategy on the unique artist_id index.
-     */
-    fun followArtist(
-        artistId: String,
-        artistName: String,
-        thumbnail: String?,
-        channelUrl: String,
-    ) {
+    fun followArtist(channelId: String, name: String, thumbnail: String?, subscriberLabel: String?) {
         viewModelScope.launch {
-            runCatching {
-                followDao.follow(
-                    ArtistFollowEntity(
-                        artistId = artistId,
-                        artistName = artistName,
-                        artistThumbnail = thumbnail,
-                        channelUrl = channelUrl,
-                        followedAt = System.currentTimeMillis(),
-                    )
+            followedArtistsDao.follow(
+                FollowedArtistEntity(
+                    channelId       = channelId,
+                    name            = name,
+                    thumbnail       = thumbnail,
+                    subscriberLabel = subscriberLabel,
                 )
-            }.onFailure { e -> Log.e("MusicVM", "followArtist failed: ${e.message}", e) }
+            )
         }
     }
 
-    fun unfollowArtist(artistId: String) {
-        viewModelScope.launch {
-            runCatching { followDao.unfollow(artistId) }
-                .onFailure { e -> Log.e("MusicVM", "unfollowArtist failed: ${e.message}", e) }
-        }
+    fun unfollowArtist(channelId: String) {
+        viewModelScope.launch { followedArtistsDao.unfollow(channelId) }
     }
 
-    // ── Notifications ────────────────────────────────────────────────────────
-
-    fun markNotificationRead(id: Long) {
-        viewModelScope.launch { runCatching { notifDao.markRead(id) } }
-    }
-
-    fun markAllNotificationsRead() {
-        viewModelScope.launch { runCatching { notifDao.markAllRead() } }
-    }
+    /** Returns a [kotlinx.coroutines.flow.Flow] that emits whether [channelId] is followed. */
+    fun isArtistFollowed(channelId: String) = followedArtistsDao.isFollowed(channelId)
 
     companion object {
         fun factory(context: Context) = object : ViewModelProvider.Factory {
