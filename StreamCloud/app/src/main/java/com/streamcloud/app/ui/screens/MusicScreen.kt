@@ -188,7 +188,7 @@ fun MusicScreen(
             }
 
 
-            if (query.isBlank() && state.tracks.isEmpty()) {
+            if (query.isBlank()) {
                 item { SuggestionsRow(onPick = { query = it; vm.search(it) }) }
 
 
@@ -596,22 +596,12 @@ private fun SearchResultRow(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val imgMod = Modifier
-            .size(54.dp)
-            .clip(if (isCircle) CircleShape else RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-        if (thumbnail != null) {
-            AsyncImage(
-                model = thumbnail,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = imgMod,
-            )
-        } else {
-            Box(imgMod, contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+        val imgMod = Modifier.size(54.dp)
+        com.streamcloud.app.ui.components.MusicThumbnail(
+            url = thumbnail,
+            modifier = imgMod,
+            shape = if (isCircle) CircleShape else RoundedCornerShape(8.dp),
+        )
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -1044,29 +1034,11 @@ private fun YtHomePlaylistCard(
             .width(150.dp)
             .clickable(onClick = onClick),
     ) {
-        Box(
-            Modifier
-                .size(150.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (pl.thumbnail != null) {
-                AsyncImage(
-                    model = pl.thumbnail,
-                    contentDescription = pl.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(
-                    Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(52.dp),
-                )
-            }
-        }
+        com.streamcloud.app.ui.components.MusicThumbnail(
+            url = pl.thumbnail,
+            size = 150.dp,
+            shape = RoundedCornerShape(12.dp),
+        )
         Spacer(Modifier.height(6.dp))
         Text(
             pl.title,
@@ -1113,29 +1085,11 @@ private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(54.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (s.thumbnail != null) {
-                AsyncImage(
-                    model = s.thumbnail,
-                    contentDescription = s.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(
-                    Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-        }
+        com.streamcloud.app.ui.components.MusicThumbnail(
+            url = s.thumbnail,
+            size = 54.dp,
+            shape = RoundedCornerShape(8.dp),
+        )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
