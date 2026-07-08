@@ -29,6 +29,7 @@ data class YtmSong(
     val album: String?,
     val thumbnail: String?,
     val durationSeconds: Long?,
+    val isVideo: Boolean = false,
 )
 
 data class YtMusicLibrary(
@@ -39,4 +40,3 @@ data class YtMusicLibrary(
     val syncedAt: Long = System.currentTimeMillis(),
     val failureReason: String? = null,
 )
-
