@@ -242,6 +242,7 @@ fun MusicScreen(
                                                         album            = null,
                                                         thumbnail        = pl.thumbnail,
                                                         durationSeconds  = null,
+                                                        isVideo          = true,
                                                     )
                                                     runCatching {
                                                         com.streamcloud.app.data.ytmusic.YtPlayback
