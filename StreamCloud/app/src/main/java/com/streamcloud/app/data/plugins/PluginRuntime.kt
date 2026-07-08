@@ -438,6 +438,24 @@ object PluginRuntime {
                     val c = loader.loadClass(className)
                     mainApiBase.isAssignableFrom(c) && !java.lang.reflect.Modifier.isAbstract(c.modifiers)
                 }.getOrDefault(false)
+            } ?: run {
+                // Name-heuristic fallback: isAssignableFrom failed for everything (likely a
+                // classloader mismatch where the plugin's Plugin superclass was resolved from
+                // its own dex rather than the app's).  Pick the best candidate purely by name,
+                // mirroring the same logic used in the primary path above.
+                val fileBaseName = readOnlyFile.name.removeSuffix(".cs3").removeSuffix(".jar")
+                allNames
+                    .sortedWith(compareByDescending<String> { name ->
+                        val simple = name.substringAfterLast('.')
+                        when {
+                            simple.contains("Plugin") && name.contains(fileBaseName, ignoreCase = true) -> 4
+                            simple.contains("Plugin") -> 3
+                            name.contains(fileBaseName, ignoreCase = true) -> 2
+                            !simple.contains('$') -> 1
+                            else -> 0
+                        }
+                    })
+                    .firstOrNull()
             }
         } catch (_: Throwable) { null }
     }
