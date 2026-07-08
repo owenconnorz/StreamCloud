@@ -281,6 +281,14 @@ fun MusicSearchScreen(
             } else {
                 val sections = state.sections
 
+                // ── Filter pills ───────────────────────────────────────────
+                item(key = "filter_pills") {
+                    SearchFilterPills(
+                        selectedMode = state.searchMode,
+                        onModeSelected = { vm.setSearchMode(it) },
+                    )
+                }
+
                 // ── Songs ──────────────────────────────────────────────────
                 if (sections.songs.isNotEmpty()) {
                     item(key = "hdr_songs") {
@@ -403,6 +411,35 @@ private fun SearchSectionHeader(title: String, showingAll: Boolean, onViewAll: (
             Text(
                 if (showingAll) "Show less" else "View all",
                 style = MaterialTheme.typography.labelMedium,
+            )
+        }
+    }
+}
+
+// ── Filter pills row ─────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchFilterPills(
+    selectedMode: com.streamcloud.app.ui.viewmodel.SearchMode,
+    onModeSelected: (com.streamcloud.app.ui.viewmodel.SearchMode) -> Unit,
+) {
+    val modes = listOf(
+        com.streamcloud.app.ui.viewmodel.SearchMode.All     to "All",
+        com.streamcloud.app.ui.viewmodel.SearchMode.Songs   to "Songs",
+        com.streamcloud.app.ui.viewmodel.SearchMode.Videos  to "Videos",
+        com.streamcloud.app.ui.viewmodel.SearchMode.Albums  to "Albums",
+        com.streamcloud.app.ui.viewmodel.SearchMode.Artists to "Artists",
+    )
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(modes) { (mode, label) ->
+            FilterChip(
+                selected = selectedMode == mode,
+                onClick  = { onModeSelected(mode) },
+                label    = { Text(label) },
             )
         }
     }
