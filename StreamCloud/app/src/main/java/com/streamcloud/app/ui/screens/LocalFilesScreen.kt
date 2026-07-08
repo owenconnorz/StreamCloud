@@ -40,6 +40,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -86,6 +87,8 @@ import com.streamcloud.app.data.local.LocalVideoItem
 import com.streamcloud.app.ui.viewmodel.LocalFilesViewModel
 import com.streamcloud.app.ui.viewmodel.PagedLocalMediaState
 import kotlinx.coroutines.flow.collectLatest
+
+private const val VIDEO_FRAME_MILLIS = 1_000L
 
 @Composable
 fun LocalFilesScreen(
@@ -221,6 +224,7 @@ fun LocalFilesScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalImageViewerScreen(
     imageUri: String,
@@ -525,7 +529,7 @@ private fun LocalMediaThumbnail(
     val request = remember(model, isVideo) {
         ImageRequest.Builder(context)
             .data(model)
-            .apply { if (isVideo) videoFrameMillis(0) }
+            .apply { if (isVideo) videoFrameMillis(VIDEO_FRAME_MILLIS) }
             .crossfade(true)
             .build()
     }
