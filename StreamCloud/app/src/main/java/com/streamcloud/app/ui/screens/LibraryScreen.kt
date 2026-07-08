@@ -44,10 +44,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.FollowedArtistEntity
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
@@ -99,6 +101,9 @@ fun LibraryScreen(
 
     var ytLibrary by remember { mutableStateOf(com.streamcloud.app.data.ytmusic.YtMusicLibrary()) }
     var ytLoading by remember { mutableStateOf(false) }
+
+    val followedArtists by LibraryDb.get(context).followedArtists().all()
+        .collectAsState(initial = emptyList())
 
     LaunchedEffect(ytCookie) {
         if (ytCookie.isBlank()) {
@@ -401,10 +406,43 @@ fun LibraryScreen(
                         }
                     }
                     LibTab.Artists -> {
-                        if (ytLibrary.artists.isEmpty() && !ytLoading) {
+                        if (followedArtists.isNotEmpty()) {
+                            item(span = { GridItemSpan(2) }) {
+                                androidx.compose.foundation.layout.Box(
+                                    Modifier.fillMaxWidth().padding(start = 20.dp, top = 20.dp, bottom = 4.dp)
+                                ) {
+                                    androidx.compose.material3.Text(
+                                        "Following",
+                                        color = androidx.compose.ui.graphics.Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp,
+                                    )
+                                }
+                            }
+                            items(followedArtists, key = { "fa_${it.channelId}" }) { ar ->
+                                FollowedArtistTile(ar) {
+                                    onOpenArtist("https://music.youtube.com/channel/${ar.channelId}")
+                                }
+                            }
+                        }
+                        if (ytLibrary.artists.isNotEmpty()) {
+                            item(span = { GridItemSpan(2) }) {
+                                androidx.compose.foundation.layout.Box(
+                                    Modifier.fillMaxWidth().padding(start = 20.dp, top = 20.dp, bottom = 4.dp)
+                                ) {
+                                    androidx.compose.material3.Text(
+                                        "Subscriptions",
+                                        color = androidx.compose.ui.graphics.Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp,
+                                    )
+                                }
+                            }
+                        }
+                        if (ytLibrary.artists.isEmpty() && followedArtists.isEmpty() && !ytLoading) {
                             item(span = { GridItemSpan(2) }) {
                                 EmptyStateRow(
-                                    "You haven't subscribed to any artists.",
+                                    "You haven't followed or subscribed to any artists.",
                                     ytCookie.isBlank(),
                                 )
                             }
@@ -897,6 +935,34 @@ private fun YtPlaylistTile(pl: YtmPlaylist, customThumb: String? = null, onClick
 
 @Composable
 private fun YtArtistTile(a: YtmLibraryArtist, onClick: () -> Unit) {
+    Column(
+        Modifier.clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        AsyncImage(
+            model = a.thumbnail,
+            contentDescription = a.name,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            a.name,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun FollowedArtistTile(a: FollowedArtistEntity, onClick: () -> Unit) {
     Column(
         Modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
