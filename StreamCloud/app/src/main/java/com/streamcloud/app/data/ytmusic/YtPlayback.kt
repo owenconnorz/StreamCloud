@@ -23,6 +23,10 @@ import kotlinx.coroutines.withContext
 @OptIn(UnstableApi::class)
 object YtPlayback {
 
+    const val EXTRA_VIDEO_ID = "videoId"
+    const val EXTRA_WATCH_URL = "watchUrl"
+    const val EXTRA_IS_MUSIC_VIDEO = "isMusicVideo"
+
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun watchUrl(videoId: String) = "https://music.youtube.com/watch?v=$videoId"
@@ -40,8 +44,9 @@ object YtPlayback {
                     .setArtist(song.artist)
                     .setArtworkUri(song.thumbnail?.let(Uri::parse))
                     .setExtras(android.os.Bundle().apply {
-                        putString("videoId", song.videoId)
-                        putString("watchUrl", url)
+                        putString(EXTRA_VIDEO_ID, song.videoId)
+                        putString(EXTRA_WATCH_URL, url)
+                        putBoolean(EXTRA_IS_MUSIC_VIDEO, song.isVideo)
                     })
                     .build(),
             )
