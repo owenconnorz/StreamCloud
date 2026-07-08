@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Group
@@ -2111,12 +2112,13 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
     // All possible tabs — always shown so the user can enable any of them
     val all = remember {
         listOf(
-            NavItem("music",   "Music",   Icons.Default.MusicNote),
-            NavItem("library", "Library", Icons.Default.FormatListBulleted),
-            NavItem("movies",  "Movies",  Icons.Default.PlayArrow),
-            NavItem("live_tv", "Live TV", Icons.Default.LiveTv),
-            NavItem("adult",   "Adult",   Icons.Default.Visibility),
-            NavItem("pornpop", "PornPop", Icons.Default.AutoAwesome),
+            NavItem("music",       "Music",       Icons.Default.MusicNote),
+            NavItem("library",     "Library",     Icons.Default.FormatListBulleted),
+            NavItem("movies",      "Movies",      Icons.Default.PlayArrow),
+            NavItem("local_files", "Local Files", Icons.Default.Folder),
+            NavItem("live_tv",     "Live TV",     Icons.Default.LiveTv),
+            NavItem("adult",       "Adult",       Icons.Default.Visibility),
+            NavItem("pornpop",     "PornPop",     Icons.Default.AutoAwesome),
         )
     }
     val byId = all.associateBy { it.id }
