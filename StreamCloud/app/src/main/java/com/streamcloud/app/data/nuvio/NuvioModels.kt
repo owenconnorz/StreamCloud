@@ -57,10 +57,36 @@ data class NuvioSavedRepo(
 )
 
 @Serializable
+data class NuvioStreamSubtitle(
+    val url: String,
+    val language: String,
+    val name: String? = null,
+    val headers: Map<String, String>? = null,
+)
+
+@Serializable
 data class NuvioStream(
     val name: String? = null,
     val title: String? = null,
     val url: String,
     val quality: String? = null,
     val headers: Map<String, String>? = null,
+    val size: String? = null,
+    val language: String? = null,
+    val provider: String? = null,
+    val type: String? = null,
+    val seeders: Int? = null,
+    val peers: Int? = null,
+    val infoHash: String? = null,
+    val subtitles: List<NuvioStreamSubtitle>? = null,
+)
+
+data class NuvioProviderDiagnostics(
+    val phase: String = "precheck",
+    val requestCount: Int = 0,
+    val lastUrl: String? = null,
+    val lastDomain: String? = null,
+    val lastStatus: Int? = null,
+    val errorSummary: String? = null,
+    val exitedEarly: Boolean = false,
 )
