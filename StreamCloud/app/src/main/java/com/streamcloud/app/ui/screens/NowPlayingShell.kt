@@ -272,12 +272,13 @@ fun NowPlayingShell(
     }
 
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, currentIsMusicVideo) {
+    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, isMusicVideo, videoStreamUrl) {
         canvasUrl = null
-        // For confirmed music videos skip the Spotify canvas entirely — the inline
-        // MusicVideoPlayer takes over the artwork slot and is a much better experience.
+        // Only skip canvas when a music video stream is confirmed and ready — if the video
+        // player failed to resolve a stream, fall back to canvas instead of showing nothing.
+        val hasWorkingVideo = isMusicVideo == true && videoStreamUrl != null
         if (!canvasEnabled || title.isBlank() || videoId.isBlank() ||
-            spotifyCookie.isBlank() || currentIsMusicVideo) return@LaunchedEffect
+            spotifyCookie.isBlank() || hasWorkingVideo) return@LaunchedEffect
         canvasUrl = runCatching {
             SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
         }.getOrNull()
