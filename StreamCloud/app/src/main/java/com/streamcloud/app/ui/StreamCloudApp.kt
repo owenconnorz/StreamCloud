@@ -697,6 +697,43 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(artistThumb.orEmpty(), "UTF-8")
                             nav.navigate("artist/$u?thumb=$t")
                         },
+                        onShowMore = { sectionType ->
+                            val u = URLEncoder.encode(url, "UTF-8")
+                            val s = URLEncoder.encode(sectionType, "UTF-8")
+                            nav.navigate("artist-section/$u/$s")
+                        },
+                    )
+                }
+                composable(
+                    "artist-section/{url}/{section}",
+                    arguments = listOf(
+                        navArgument("url") { type = NavType.StringType },
+                        navArgument("section") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val sectionUrl = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val sectionType = URLDecoder.decode(entry.arguments!!.getString("section")!!, "UTF-8")
+                    val sectionContext = LocalContext.current
+                    val sectionVm: com.streamcloud.app.ui.viewmodel.MusicViewModel =
+                        androidx.lifecycle.viewmodel.compose.viewModel(
+                            factory = com.streamcloud.app.ui.viewmodel.MusicViewModel.factory(sectionContext)
+                        )
+                    com.streamcloud.app.ui.screens.MusicArtistSectionScreen(
+                        channelUrl = sectionUrl,
+                        sectionType = sectionType,
+                        onBack = { nav.popBackStack() },
+                        onPlay = { track -> sectionVm.play(track) },
+                        onAlbumClick = { id, title, thumb ->
+                            val i = URLEncoder.encode(id, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            val th = URLEncoder.encode(thumb.orEmpty(), "UTF-8")
+                            nav.navigate("yt-playlist/$i/$t?thumb=$th")
+                        },
+                        onArtistClick = { artistUrl, artistThumb ->
+                            val u = URLEncoder.encode(artistUrl, "UTF-8")
+                            val t = URLEncoder.encode(artistThumb.orEmpty(), "UTF-8")
+                            nav.navigate("artist/$u?thumb=$t")
+                        },
                     )
                 }
                 composable(Tab.Library.route)  {
