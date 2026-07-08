@@ -874,8 +874,9 @@ object NuvioRuntime {
         // Returns true when the URL looks like a TMDB-style API request
         // (direct or via a known mirror/proxy that uses the same path structure).
         function __isTmdbApiStyleUrl(url) {
-            return /\/\d+\/(movie|tv|find|person|search|collection|discover)\//i.test(url) ||
-                   url.indexOf('themoviedb.org') !== -1;
+            return /\/\d+\/(movie|tv|find|person|search|collection|discover)(\/|\?|$)/i.test(url) ||
+                   url.indexOf('themoviedb.org') !== -1 ||
+                   url.indexOf('api.tmdb.org') !== -1;
         }
 
         // Fix query-parameter NAMES in TMDB API query strings.
