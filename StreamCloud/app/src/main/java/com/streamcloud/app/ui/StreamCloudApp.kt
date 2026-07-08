@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Theaters
@@ -64,6 +65,8 @@ import com.streamcloud.app.ui.screens.PornPopScreen
 import com.streamcloud.app.ui.screens.adult.RedditLoginScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
 import com.streamcloud.app.ui.screens.LiveTvScreen
+import com.streamcloud.app.ui.screens.LocalFilesScreen
+import com.streamcloud.app.ui.screens.LocalImageViewerScreen
 import com.streamcloud.app.ui.screens.MovieDetailScreen
 import com.streamcloud.app.ui.screens.MovieSearchScreen
 import com.streamcloud.app.ui.screens.MoviesScreen
@@ -96,6 +99,7 @@ import java.net.URLEncoder
 private sealed class Tab(val route: String, val label: String, val icon: ImageVector) {
     data object Movies   : Tab("movies",   "Movies",   Icons.Filled.Theaters)
     data object Music    : Tab("music",    "Music",    Icons.Filled.MusicNote)
+    data object LocalFiles : Tab("local_files", "Local Files", Icons.Filled.Folder)
     data object Library  : Tab("library",  "Library",  Icons.Filled.Bookmarks)
     data object Adult    : Tab("adult",    "Adult",    Icons.Filled.Whatshot)
     data object PornPop  : Tab("pornpop",  "PornPop",  Icons.Filled.AutoAwesome)
@@ -116,7 +120,11 @@ fun StreamCloudApp() {
         currentRoute.startsWith("cs-section/") ||
         currentRoute.startsWith("movie/") ||
         currentRoute.startsWith("tv/") ||
-        currentRoute.startsWith("live-tv-player")
+        currentRoute.startsWith("live-tv-player") ||
+        currentRoute.startsWith("player/url") ||
+        currentRoute.startsWith("player/movie") ||
+        currentRoute.startsWith("player/eporner") ||
+        currentRoute.startsWith("local-image")
     )
 
     val context = LocalContext.current
@@ -142,6 +150,7 @@ fun StreamCloudApp() {
         val pool: Map<String, Tab> = buildMap {
             if (Tab.Movies.route  !in hidden) put(Tab.Movies.route,  Tab.Movies)
             if (Tab.Music.route   !in hidden) put(Tab.Music.route,   Tab.Music)
+            if (Tab.LocalFiles.route !in hidden) put(Tab.LocalFiles.route, Tab.LocalFiles)
             if (Tab.Library.route !in hidden) put(Tab.Library.route, Tab.Library)
             if (Tab.LiveTv.route  !in hidden) put(Tab.LiveTv.route,  Tab.LiveTv)
             if (nsfwEnabled && Tab.Adult.route   !in hidden) put(Tab.Adult.route,   Tab.Adult)
@@ -175,7 +184,9 @@ fun StreamCloudApp() {
         val validRoutes = buildSet<String> {
             add(Tab.Movies.route)
             add(Tab.Music.route)
+            add(Tab.LocalFiles.route)
             add(Tab.Library.route)
+            add(Tab.LiveTv.route)
             if (nsfw) add(Tab.Adult.route)
             if (nsfw) add(Tab.PornPop.route)
         }
@@ -585,6 +596,23 @@ fun StreamCloudApp() {
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
                 }
+                composable(Tab.LocalFiles.route) {
+                    LocalFilesScreen(
+                        onPlayAudio = { item ->
+                            com.streamcloud.app.data.local.LocalAudioPlayback.play(context, item)
+                        },
+                        onPlayVideo = { item ->
+                            val u = URLEncoder.encode(item.uri.toString(), "UTF-8")
+                            val t = URLEncoder.encode(item.title, "UTF-8")
+                            nav.navigate("player/url/$u/$t")
+                        },
+                        onOpenImage = { item ->
+                            val u = URLEncoder.encode(item.uri.toString(), "UTF-8")
+                            val t = URLEncoder.encode(item.title, "UTF-8")
+                            nav.navigate("local-image/$u/$t")
+                        },
+                    )
+                }
                 composable("movie-search") {
                     MovieSearchScreen(
                         onBack = { nav.popBackStack() },
@@ -830,6 +858,22 @@ fun StreamCloudApp() {
                         embedUrl = embedUrl,
                         title    = title,
                         onBack   = { nav.popBackStack() },
+                    )
+                }
+
+                composable(
+                    "local-image/{uri}/{title}",
+                    arguments = listOf(
+                        navArgument("uri") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val uri = URLDecoder.decode(entry.arguments!!.getString("uri")!!, "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    LocalImageViewerScreen(
+                        imageUri = uri,
+                        title = title,
+                        onBack = { nav.popBackStack() },
                     )
                 }
 
