@@ -42,6 +42,7 @@ object NuvioRuntime {
     // 0 = provider returned early without touching the network (init crash / guard clause).
     // N = provider ran but APIs returned empty / error.
     private val fetchCountByScript = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+    private val diagnosticsByScript = java.util.concurrent.ConcurrentHashMap<String, NuvioProviderDiagnostics>()
 
     private val http = OkHttpClient.Builder()
         .cookieJar(BrowserCookieJar)
@@ -54,6 +55,33 @@ object NuvioRuntime {
     fun lastError(scriptKey: String): String? = lastErrorByScript[scriptKey]
     fun lastLog(scriptKey: String): String?   = lastLogByScript[scriptKey]
     fun lastFetchCount(scriptKey: String): Int = fetchCountByScript[scriptKey]?.get() ?: 0
+    fun lastDiagnostics(scriptKey: String): NuvioProviderDiagnostics? = diagnosticsByScript[scriptKey]
+
+    private fun updateDiagnostics(
+        scriptKey: String,
+        block: (NuvioProviderDiagnostics) -> NuvioProviderDiagnostics,
+    ) {
+        diagnosticsByScript.compute(scriptKey) { _, current ->
+            block(current ?: NuvioProviderDiagnostics())
+        }
+    }
+
+    private fun setErrorState(
+        scriptKey: String,
+        phase: String,
+        summary: String,
+        exitedEarly: Boolean = false,
+    ) {
+        lastErrorByScript[scriptKey] = summary
+        updateDiagnostics(scriptKey) {
+            it.copy(
+                phase = phase,
+                errorSummary = summary,
+                exitedEarly = exitedEarly,
+                requestCount = fetchCountByScript[scriptKey]?.get() ?: it.requestCount,
+            )
+        }
+    }
 
     suspend fun runProvider(
         scriptText: String,
@@ -75,6 +103,7 @@ object NuvioRuntime {
         lastLogByScript.remove(scriptKey)
         lastErrorByScript.remove(scriptKey)
         fetchCountByScript[scriptKey] = java.util.concurrent.atomic.AtomicInteger(0)
+        diagnosticsByScript[scriptKey] = NuvioProviderDiagnostics(phase = "precheck")
         var capturedJson = "[]"
         return try {
             withTimeoutOrNull(90_000L) {
@@ -141,6 +170,11 @@ object NuvioRuntime {
                     appendLine("    imdb_id:   __imdbId,")
                     appendLine("    seriesId:  __tmdbId,")
                     appendLine("    showId:    __tmdbId,")
+                    appendLine("    contentId: __tmdbId,")
+                    appendLine("    mediaId:   __tmdbId,")
+                    appendLine("    media_id:  __tmdbId,")
+                    appendLine("    videoId:   __tmdbId,")
+                    appendLine("    video_id:  __tmdbId,")
                     appendLine("    contentType: __mediaType")
                     appendLine("  };")
                     // Also expose each value as a top-level global so providers that
@@ -150,6 +184,9 @@ object NuvioRuntime {
                     appendLine("  globalThis.imdbId  = __imdbId;")
                     appendLine("  globalThis.mediaType = __mediaType;")
                     appendLine("  globalThis.type    = __mediaType;")
+                    appendLine("  globalThis.contentId = __tmdbId;")
+                    appendLine("  globalThis.mediaId = __tmdbId;")
+                    appendLine("  globalThis.videoId = __tmdbId;")
                     appendLine("  globalThis.season  = __season;")
                     appendLine("  globalThis.episode = __episode;")
                     // Override the polyfill's hardcoded TMDB key with the app's own valid key.
@@ -159,6 +196,8 @@ object NuvioRuntime {
                     appendLine("  globalThis.TMDB_API_KEY = ${jsString(com.streamcloud.app.BuildConfig.TMDB_API_KEY)};")
                     appendLine("  if (!globalThis.SCRAPER_SETTINGS) globalThis.SCRAPER_SETTINGS = {};")
                     appendLine("  globalThis.SCRAPER_SETTINGS.tmdb_api_key = ${jsString(com.streamcloud.app.BuildConfig.TMDB_API_KEY)};")
+                    appendLine("  globalThis.settings = globalThis.SCRAPER_SETTINGS;")
+                    appendLine("  globalThis.providerContext = { scraperId: ${jsString(scriptKey)}, settings: globalThis.SCRAPER_SETTINGS };")
                     appendLine("  // ── Provider code — wrapped in try-catch to survive init errors ──────")
                     appendLine("  // function declarations inside a try block are still hoisted to the IIFE")
                     appendLine("  // scope in QuickJS, so 'function getStreams(){}' is visible below.")
@@ -196,7 +235,16 @@ object NuvioRuntime {
                     appendLine("    var params = globalThis.params;")
                     // Pre-call trace: only stays visible if provider never calls console.log itself.
                     appendLine("    console.log('[runtime] calling ' + (__fn.name || 'getStreams') + ' tmdb=' + params.tmdbId + ' imdb=' + (params.imdbId || 'null') + ' type=' + params.mediaType);")
-                    appendLine("    var arr = await __fn(params.tmdbId, params.mediaType, params.season, params.episode);")
+                    appendLine("    var __fnSource = '';")
+                    appendLine("    var __expectsObject = false;")
+                    appendLine("    try {")
+                    appendLine("      __fnSource = Function.prototype.toString.call(__fn);")
+                    appendLine("      __expectsObject = /^(?:async\\s*)?function[^\\(]*\\(\\s*\\{/.test(__fnSource) || /^\\s*(?:async\\s*)?\\(\\s*\\{/.test(__fnSource) || /^\\s*(?:async\\s*)?\\{/.test(__fnSource);")
+                    appendLine("    } catch (_fnSrcErr) {}")
+                    appendLine("    if (!__expectsObject && __fn.length <= 1) __expectsObject = true;")
+                    appendLine("    var arr = __expectsObject")
+                    appendLine("      ? await __fn(params)")
+                    appendLine("      : await __fn(params.tmdbId, params.mediaType, params.season, params.episode);")
                     appendLine("    var result = JSON.stringify(arr || []);")
                     appendLine("    __capture_result(result);")
                     appendLine("    return result;")
@@ -216,6 +264,7 @@ object NuvioRuntime {
                 val directStr = (directResult as? String)
                     ?.takeIf { it.isNotBlank() && it != "null" && !it.trimStart().startsWith("Promise ") }
                 val finalJson = directStr ?: capturedJson
+                updateDiagnostics(scriptKey) { it.copy(phase = "parse") }
                 val streams = parseStreams(finalJson)
                 Log.i(TAG, "$scriptKey returned ${streams.size} stream(s)")
                 if (streams.isEmpty()) Log.d(TAG, "$scriptKey raw json (first 500): ${finalJson.take(500)}")
@@ -233,24 +282,37 @@ object NuvioRuntime {
                         fetchCount == 0 -> "No requests made — provider may have exited early$rawPreview"
                         else            -> "No streams found (provider returned empty list)$rawPreview"
                     }
-                    lastErrorByScript[scriptKey] = noStreamsMsg
+                    setErrorState(
+                        scriptKey = scriptKey,
+                        phase = if (fetchCount == 0) "precheck" else "emit",
+                        summary = noStreamsMsg,
+                        exitedEarly = fetchCount == 0,
+                    )
                 } else if (streams.isNotEmpty()) {
                     lastErrorByScript.remove(scriptKey)
+                    updateDiagnostics(scriptKey) {
+                        it.copy(
+                            phase = "emit",
+                            requestCount = fetchCountByScript[scriptKey]?.get() ?: it.requestCount,
+                            errorSummary = null,
+                            exitedEarly = false,
+                        )
+                    }
                 }
                 streams
             }
             } ?: run {
                 Log.w(TAG, "Provider $scriptKey timed out after 90s")
-                lastErrorByScript[scriptKey] = "Timed out after 90s"
+                setErrorState(scriptKey, "request", "Timed out after 90s")
                 emptyList()
             }
         } catch (e: QuickJsException) {
             Log.w(TAG, "QuickJS error in $scriptKey: ${e.message}", e)
-            lastErrorByScript[scriptKey] = "JS error: ${e.message}"
+            setErrorState(scriptKey, "precheck", "JS error: ${e.message}", exitedEarly = lastFetchCount(scriptKey) == 0)
             emptyList()
         } catch (e: Throwable) {
             Log.w(TAG, "Provider $scriptKey crashed: ${e.message}", e)
-            lastErrorByScript[scriptKey] = "Crashed: ${e.message}"
+            setErrorState(scriptKey, "precheck", "Crashed: ${e.message}", exitedEarly = lastFetchCount(scriptKey) == 0)
             emptyList()
         } finally {
             documentCache.clear()
@@ -272,7 +334,7 @@ object NuvioRuntime {
                         }
                         "error" -> {
                             Log.e("$TAG/$scriptKey", msg)
-                            lastErrorByScript[scriptKey] = msg
+                            setErrorState(scriptKey, "parse", msg, exitedEarly = lastFetchCount(scriptKey) == 0)
                         }
                         "debug" -> Log.d("$TAG/$scriptKey", msg)
                         else -> {
@@ -302,7 +364,16 @@ object NuvioRuntime {
             val body = args.getOrNull(3)?.toString().orEmpty()
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
             Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
-            fetchCountByScript.getOrPut(scriptKey) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
+            val requestCount = fetchCountByScript.getOrPut(scriptKey) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
+            updateDiagnostics(scriptKey) {
+                it.copy(
+                    phase = "request",
+                    requestCount = requestCount,
+                    lastUrl = url.take(500),
+                    lastDomain = inferNuvioDomain(url),
+                    exitedEarly = false,
+                )
+            }
             val result = performFetchSync(url, method, headersJson, body, followRedirects, context)
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
             // Providers that silently return [] on !response.ok would otherwise show only the
@@ -312,12 +383,23 @@ object NuvioRuntime {
                 val obj = J.parseToJsonElement(result) as? kotlinx.serialization.json.JsonObject
                 val ok = (obj?.get("ok") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toBoolean() ?: true
                 val status = (obj?.get("status") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0
+                updateDiagnostics(scriptKey) {
+                    it.copy(
+                        phase = if (ok) "parse" else "request",
+                        lastStatus = status,
+                        requestCount = fetchCountByScript[scriptKey]?.get() ?: it.requestCount,
+                    )
+                }
                 if (!ok) {
                     val shortUrl = url.take(120)
                     // Only set if no provider-supplied console.error already exists for this key.
                     // Provider errors are more specific; HTTP errors are the fallback.
                     if (!lastErrorByScript.containsKey(scriptKey) || lastErrorByScript[scriptKey]?.startsWith("No streams") == true) {
-                        lastErrorByScript[scriptKey] = if (status == 0) "Network error reaching $shortUrl" else "HTTP $status from $shortUrl"
+                        setErrorState(
+                            scriptKey = scriptKey,
+                            phase = "request",
+                            summary = if (status == 0) "Network error reaching $shortUrl" else "HTTP $status from $shortUrl",
+                        )
                     }
                 }
             } catch (_: Exception) {}
@@ -453,22 +535,28 @@ object NuvioRuntime {
         context: Context? = null,
     ): String {
         return try {
-            val headers = parseHeaders(headersJson).toMutableMap()
-            if (headers.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
-                headers["User-Agent"] = BrowserHeaders.USER_AGENT
-            }
-            if (headers.keys.none { it.equals("Accept", ignoreCase = true) }) {
-                headers["Accept"] = BrowserHeaders.ACCEPT_JSON
-            }
-            if (headers.keys.none { it.equals("Accept-Language", ignoreCase = true) }) {
-                headers["Accept-Language"] = BrowserHeaders.ACCEPT_LANGUAGE
-            }
+            val headers = buildNuvioRequestHeaders(url, method, parseHeaders(headersJson))
             val client = if (followRedirects) http else http.newBuilder().followRedirects(false).build()
 
             val requestBody = when {
                 method == "GET" || method == "HEAD" -> null
                 body.isEmpty() -> ByteArray(0).toRequestBody()
                 else -> body.toRequestBody()
+            }
+            fun buildResponseJson(
+                responseUrl: String,
+                responseCode: Int,
+                responseMessage: String,
+                responseBody: String,
+                responseHeaders: Map<String, String>,
+                ok: Boolean,
+            ) = buildJson {
+                put("ok", ok)
+                put("status", responseCode)
+                put("statusText", responseMessage)
+                put("url", responseUrl)
+                put("body", responseBody)
+                put("headers", responseHeaders)
             }
             val req = Request.Builder().url(url).apply {
                 headers.forEach { (k, v) -> header(k, v) }
@@ -485,7 +573,7 @@ object NuvioRuntime {
                 // (called from within quickJs(Dispatchers.IO) {}), so blocking it
                 // while the main thread runs the WebView does not deadlock.
                 if (context != null && CloudflareKiller.isCfChallenge(respCode, respMultimap, respBody)) {
-                    val ua = headers["User-Agent"] ?: BrowserHeaders.USER_AGENT
+                    val ua = headers["User-Agent"] ?: NUVIO_DEFAULT_USER_AGENT
                     val bypassed = runBlocking(Dispatchers.Main) {
                         CloudflareKiller.bypass(context, url, ua, BrowserCookieJar)
                     }
@@ -496,14 +584,14 @@ object NuvioRuntime {
                                 Log.w(TAG, "fetchSync CF-retry: response truncated ${raw2.length} → $MAX_FETCH_BODY_CHARS chars for $url")
                                 raw2.substring(0, MAX_FETCH_BODY_CHARS)
                             } else raw2
-                            buildJson {
-                                put("ok", r2.isSuccessful)
-                                put("status", r2.code)
-                                put("statusText", r2.message)
-                                put("url", r2.request.url.toString())
-                                put("body", text2)
-                                put("headers", r2.headers.associate { (n, v) -> n.lowercase() to v })
-                            }
+                            buildResponseJson(
+                                responseUrl = r2.request.url.toString(),
+                                responseCode = r2.code,
+                                responseMessage = r2.message,
+                                responseBody = text2,
+                                responseHeaders = r2.headers.associate { (n, v) -> n.lowercase() to v },
+                                ok = r2.isSuccessful,
+                            )
                         }
                     }
                 }
@@ -513,14 +601,41 @@ object NuvioRuntime {
                     respBody.substring(0, MAX_FETCH_BODY_CHARS)
                 } else respBody
                 val hdrs = resp.headers.associate { (n, v) -> n.lowercase() to v }
-                buildJson {
-                    put("ok", resp.isSuccessful)
-                    put("status", respCode)
-                    put("statusText", resp.message)
-                    put("url", resp.request.url.toString())
-                    put("body", text)
-                    put("headers", hdrs)
+                val primaryResponse = buildResponseJson(
+                    responseUrl = resp.request.url.toString(),
+                    responseCode = respCode,
+                    responseMessage = resp.message,
+                    responseBody = text,
+                    responseHeaders = hdrs,
+                    ok = resp.isSuccessful,
+                )
+                val tmdbFallbackUrl = if (respCode == 404) tmdbMirrorFallbackUrl(url) else null
+                if (!tmdbFallbackUrl.isNullOrBlank()) {
+                    Log.d(TAG, "Retrying TMDB-style request against canonical host: $tmdbFallbackUrl")
+                    val fallbackHeaders = buildNuvioRequestHeaders(tmdbFallbackUrl, method, headers)
+                    val fallbackReq = Request.Builder().url(tmdbFallbackUrl).apply {
+                        fallbackHeaders.forEach { (k, v) -> header(k, v) }
+                        method(method, requestBody)
+                    }.build()
+                    client.newCall(fallbackReq).execute().use { fallbackResp ->
+                        val fallbackRaw = fallbackResp.body?.string().orEmpty()
+                        val fallbackText = if (fallbackRaw.length > MAX_FETCH_BODY_CHARS) {
+                            Log.w(TAG, "fetchSync fallback: response truncated ${fallbackRaw.length} → $MAX_FETCH_BODY_CHARS chars for $tmdbFallbackUrl")
+                            fallbackRaw.substring(0, MAX_FETCH_BODY_CHARS)
+                        } else fallbackRaw
+                        if (fallbackResp.isSuccessful || fallbackResp.code == 200) {
+                            return buildResponseJson(
+                                responseUrl = fallbackResp.request.url.toString(),
+                                responseCode = fallbackResp.code,
+                                responseMessage = fallbackResp.message,
+                                responseBody = fallbackText,
+                                responseHeaders = fallbackResp.headers.associate { (n, v) -> n.lowercase() to v },
+                                ok = fallbackResp.isSuccessful,
+                            )
+                        }
+                    }
                 }
+                primaryResponse
             }
         } catch (t: Throwable) {
             Log.w(TAG, "fetchSync($url) failed: ${t.message}")
@@ -1353,6 +1468,24 @@ object NuvioRuntime {
                 domain: 'streamcloud.app',
                 location: globalThis.location,
                 createElementNS: function(ns, tag) { return this.createElement(tag); },
+            };
+        }
+        if (typeof localStorage === 'undefined') {
+            var __localStore = {};
+            globalThis.localStorage = {
+                getItem: function(k) { return Object.prototype.hasOwnProperty.call(__localStore, k) ? __localStore[k] : null; },
+                setItem: function(k, v) { __localStore[k] = String(v); },
+                removeItem: function(k) { delete __localStore[k]; },
+                clear: function() { __localStore = {}; },
+            };
+        }
+        if (typeof sessionStorage === 'undefined') {
+            globalThis.sessionStorage = globalThis.localStorage;
+        }
+        if (typeof performance === 'undefined') {
+            var __perfStart = Date.now();
+            globalThis.performance = {
+                now: function() { return Date.now() - __perfStart; },
             };
         }
 
@@ -2314,6 +2447,10 @@ object NuvioRuntime {
             title = prim(obj, arrayOf("title")),
             url = magnetUrl,
             quality = prim(obj, arrayOf("quality", "resolution", "q", "format", "res")),
+            provider = prim(obj, arrayOf("provider", "name", "label")),
+            seeders = prim(obj, arrayOf("seeders"))?.toIntOrNull(),
+            peers = prim(obj, arrayOf("peers"))?.toIntOrNull(),
+            infoHash = infoHash,
         )
     }
 
@@ -2342,7 +2479,24 @@ object NuvioRuntime {
     ): NuvioStream? {
         parseTorrentObject(obj, prim)?.let { return it }
 
-        val url = prim(obj, arrayOf("url", "link", "src", "stream", "href", "stream_url", "streamUrl"))
+        val url = prim(
+            obj,
+            arrayOf(
+                "url",
+                "link",
+                "src",
+                "stream",
+                "href",
+                "stream_url",
+                "streamUrl",
+                "magnet",
+                "magnetUri",
+                "playlist",
+                "playlistUrl",
+                "m3u8",
+                "file",
+            ),
+        )
             ?.takeIf { it.looksLikeUrl() }
             ?: return null
 
@@ -2361,8 +2515,33 @@ object NuvioRuntime {
                         key to value
                     }
                     .toMap()
-            else -> null
+            else -> {
+                val behaviorHints = obj["behaviorHints"] as? kotlinx.serialization.json.JsonObject
+                val proxyHeaders = behaviorHints?.get("proxyHeaders") as? kotlinx.serialization.json.JsonObject
+                val requestHeaders = proxyHeaders?.get("request") as? kotlinx.serialization.json.JsonObject
+                requestHeaders?.mapValues { (_, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() }
+                    ?.filterKeys { it.isNotBlank() }
+                    ?.takeIf { it.isNotEmpty() }
+            }
         }
+        val subtitles = (obj["subtitles"] as? kotlinx.serialization.json.JsonArray)
+            ?.mapNotNull { subtitleElement ->
+                val subtitleObject = subtitleElement as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+                val subtitleUrl = prim(subtitleObject, arrayOf("url", "link"))?.takeIf { it.looksLikeUrl() }
+                    ?: return@mapNotNull null
+                val subtitleLanguage = prim(subtitleObject, arrayOf("language", "lang")) ?: "Unknown"
+                val subtitleHeaders = (subtitleObject["headers"] as? kotlinx.serialization.json.JsonObject)
+                    ?.mapValues { (_, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() }
+                    ?.filterKeys { it.isNotBlank() }
+                    ?.takeIf { it.isNotEmpty() }
+                NuvioStreamSubtitle(
+                    url = subtitleUrl,
+                    language = subtitleLanguage,
+                    name = prim(subtitleObject, arrayOf("name", "title", "label")),
+                    headers = subtitleHeaders,
+                )
+            }
+            ?.takeIf { it.isNotEmpty() }
 
         return NuvioStream(
             name = prim(obj, arrayOf("name", "title", "label", "provider", "description")),
@@ -2370,6 +2549,14 @@ object NuvioRuntime {
             url = url,
             quality = prim(obj, arrayOf("quality", "resolution", "q", "format", "res", "qualityTag", "quality_tag")),
             headers = headers,
+            size = prim(obj, arrayOf("size", "filesize", "file_size")),
+            language = prim(obj, arrayOf("language", "lang")),
+            provider = prim(obj, arrayOf("provider", "source")),
+            type = prim(obj, arrayOf("type", "streamType", "stream_type")),
+            seeders = prim(obj, arrayOf("seeders"))?.toIntOrNull(),
+            peers = prim(obj, arrayOf("peers"))?.toIntOrNull(),
+            infoHash = prim(obj, arrayOf("infoHash", "info_hash", "infohash")),
+            subtitles = subtitles,
         )
     }
 

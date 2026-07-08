@@ -35,6 +35,7 @@ import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
 import com.streamcloud.app.data.nuvio.NuvioRuntime
 import com.streamcloud.app.data.nuvio.NuvioStream
+import com.streamcloud.app.data.nuvio.toSummary
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
@@ -190,7 +191,8 @@ fun StreamPickerOverlay(
                         val streams = byProvider[provider.id]
                             ?.map { (prov, stream) -> stream.pickerToPlayerSource(prov) }
                             ?: emptyList()
-                        val fetchCount = NuvioRuntime.lastFetchCount(provider.id)
+                        val diagnostics = NuvioRuntime.lastDiagnostics(provider.id)
+                        val fetchCount = diagnostics?.requestCount ?: NuvioRuntime.lastFetchCount(provider.id)
                         val lastErr    = NuvioRuntime.lastError(provider.id)
                         val lastLog    = NuvioRuntime.lastLog(provider.id)
                         val err = if (streams.isEmpty()) {
@@ -201,6 +203,7 @@ fun StreamPickerOverlay(
                                 lastErr != null && !lastErr.startsWith("No streams found") &&
                                     !lastErr.startsWith("No requests made") -> lastErr
                                 lastLog != null -> lastLog
+                                diagnostics != null -> diagnostics.toSummary()
                                 lastErr != null -> lastErr
                                 else            -> "No streams found"
                             }
