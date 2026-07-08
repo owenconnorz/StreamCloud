@@ -38,6 +38,7 @@ private val AioColors = darkColorScheme(
     onBackground = TextPrimary,
     surface = BgElevated,
     onSurface = TextPrimary,
+    surfaceContainerHigh = Color(0xFF2D2019),
     surfaceVariant = BgSurface,
     onSurfaceVariant = TextSecondary,
     outline = Outline,
@@ -200,6 +201,7 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
                 onBackground         = TextPrimary,
                 surface              = tintedSurface,
                 onSurface            = TextPrimary,
+                surfaceContainerHigh = lerp(Color(0xFF1E1E1E), accent, 0.22f),
                 surfaceVariant       = tintedVariant,
                 onSurfaceVariant     = TextSecondary,
                 outline              = lerp(Outline, accent, 0.25f),
@@ -217,14 +219,21 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
         else -> {
             val p = palettes[colorPaletteId] ?: palettes["default"]!!
             val scheme = AioColors.copy(
-                primary          = p.primary,
-                primaryContainer = p.primaryContainer,
-                secondary        = p.secondary,
+                primary              = p.primary,
+                primaryContainer     = p.primaryContainer,
+                secondary            = p.secondary,
+                background           = lerp(Bg, p.primary, 0.10f),
+                surface              = lerp(BgElevated, p.primary, 0.12f),
+                surfaceVariant       = lerp(BgSurface, p.primary, 0.15f),
+                surfaceContainerHigh = lerp(Color(0xFF2D2019), p.primary, 0.12f),
+                outline              = lerp(Outline, p.primary, 0.20f),
+                outlineVariant       = lerp(Outline, p.primary, 0.12f),
             )
             if (themeMode == "black") scheme.copy(
-                background     = Color.Black,
-                surface        = Color(0xFF0D0D0D),
-                surfaceVariant = Color(0xFF121212),
+                background           = Color.Black,
+                surface              = Color(0xFF0D0D0D),
+                surfaceVariant       = Color(0xFF121212),
+                surfaceContainerHigh = Color(0xFF1A1A1A),
             ) else scheme
         }
     }
