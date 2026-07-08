@@ -63,6 +63,9 @@ import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import com.streamcloud.app.ui.util.verticalScrollbar
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 
 private val SUGGESTIONS = listOf(
     "Top hits 2026", "Lo-fi beats", "Chill", "Workout",
@@ -207,6 +210,7 @@ fun MusicScreen(
                 item { SuggestionsRow(onPick = { query = it; vm.search(it) }) }
 
                 item { SectionTitle("Listen Again") }
+<<<<<<< HEAD
                 if (listenAgainTracks.isEmpty()) {
                     item(key = "listen_again_empty") { HomeCategoryEmptyRow() }
                 } else {
@@ -228,17 +232,36 @@ fun MusicScreen(
                                 }
                             }
                         }
+=======
+                item(key = "listen_again_row") {
+                    if (listenAgainTracks.isEmpty()) {
+                        HomeCategoryEmptyRow()
+                    } else {
+                        TrackEntityCarousel(
+                            tracks = listenAgainTracks,
+                            nowPlayingUrl = state.nowPlayingUrl,
+                            isPlaying = isPlaying,
+                            onTrackClick = { entity ->
+                                playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
+                            },
+                        )
+>>>>>>> origin/main
                     }
                 }
 
                 item { SectionTitle("Forgotten Favorites") }
-                if (forgottenFavoritesTracks.isEmpty()) {
-                    item(key = "forgotten_favorites_empty") { HomeCategoryEmptyRow() }
-                } else {
-                    items(forgottenFavoritesTracks, key = { "forgotten_favorites_${it.url}" }) { entity ->
-                        LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
-                            playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
-                        }
+                item(key = "forgotten_favorites_row") {
+                    if (forgottenFavoritesTracks.isEmpty()) {
+                        HomeCategoryEmptyRow()
+                    } else {
+                        TrackEntityCarousel(
+                            tracks = forgottenFavoritesTracks,
+                            nowPlayingUrl = state.nowPlayingUrl,
+                            isPlaying = isPlaying,
+                            onTrackClick = { entity ->
+                                playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
+                            },
+                        )
                     }
                 }
 
@@ -300,6 +323,7 @@ fun MusicScreen(
                                 item(key = "yt_srail_empty_$idx") { HomeCategoryEmptyRow() }
                             } else {
                                 item(key = "yt_srail_$idx") {
+<<<<<<< HEAD
                                     val srailState = rememberLazyListState()
                                     LazyRow(
                                         state = srailState,
@@ -317,6 +341,21 @@ fun MusicScreen(
                                             YtHomeSongCard(s)
                                         }
                                     }
+=======
+                                    YtmSongCarousel(
+                                        songs = section.items,
+                                        isArtistRail = section.title.equals("Top Artists", ignoreCase = true),
+                                        onPlay = { s ->
+                                            dlScope.launch {
+                                                runCatching {
+                                                    com.streamcloud.app.data.ytmusic.YtPlayback.playSong(context, s)
+                                                }.onFailure { e ->
+                                                    Log.e("MusicScreen", "SongRail play failed for ${s.videoId}: ${e.message}", e)
+                                                }
+                                            }
+                                        },
+                                    )
+>>>>>>> origin/main
                                 }
                             }
                         }
@@ -324,6 +363,7 @@ fun MusicScreen(
                 }
 
                 item { SectionTitle("Recently Played") }
+<<<<<<< HEAD
                 if (recentlyPlayedTracks.isEmpty()) {
                     item(key = "recently_played_empty") { HomeCategoryEmptyRow() }
                 } else {
@@ -345,17 +385,36 @@ fun MusicScreen(
                                 }
                             }
                         }
+=======
+                item(key = "recently_played_row") {
+                    if (recentlyPlayedTracks.isEmpty()) {
+                        HomeCategoryEmptyRow()
+                    } else {
+                        TrackEntityCarousel(
+                            tracks = recentlyPlayedTracks,
+                            nowPlayingUrl = state.nowPlayingUrl,
+                            isPlaying = isPlaying,
+                            onTrackClick = { entity ->
+                                playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
+                            },
+                        )
+>>>>>>> origin/main
                     }
                 }
 
                 item { SectionTitle("From Your Library") }
-                if (fromLibraryTracks.isEmpty()) {
-                    item(key = "from_library_empty") { HomeCategoryEmptyRow() }
-                } else {
-                    items(fromLibraryTracks, key = { "from_library_${it.url}" }) { entity ->
-                        LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
-                            playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
-                        }
+                item(key = "from_library_row") {
+                    if (fromLibraryTracks.isEmpty()) {
+                        HomeCategoryEmptyRow()
+                    } else {
+                        TrackEntityCarousel(
+                            tracks = fromLibraryTracks,
+                            nowPlayingUrl = state.nowPlayingUrl,
+                            isPlaying = isPlaying,
+                            onTrackClick = { entity ->
+                                playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
+                            },
+                        )
                     }
                 }
             }
@@ -1293,4 +1352,199 @@ private fun HomeCategoryEmptyRow() {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
+}
+
+// ── Quick-pick carousels ───────────────────────────────────────────────────────
+
+/**
+ * Horizontal carousel for [TrackEntity] items (Listen Again / Recently Played etc.).
+ * Shows 6 items initially; swipe/scroll left to reveal more.
+ * Supports smooth snap-scrolling, keyboard focus, and ARIA-style content descriptions.
+ */
+@Composable
+private fun TrackEntityCarousel(
+    tracks: List<TrackEntity>,
+    nowPlayingUrl: String?,
+    isPlaying: Boolean,
+    onTrackClick: (TrackEntity) -> Unit,
+) {
+    val lazyState = rememberLazyListState()
+    val snapBehavior = rememberSnapFlingBehavior(lazyState)
+    LazyRow(
+        state = lazyState,
+        flingBehavior = snapBehavior,
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = "Track carousel" },
+    ) {
+        items(tracks, key = { "carousel_${it.url}" }) { entity ->
+            TrackCarouselCard(
+                entity = entity,
+                isPlaying = isPlaying && nowPlayingUrl == entity.url,
+                onClick = { onTrackClick(entity) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrackCarouselCard(
+    entity: TrackEntity,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+) {
+    val cardWidth = 130.dp
+    Column(
+        modifier = Modifier
+            .width(cardWidth)
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = "${entity.title} by ${entity.artist}" },
+    ) {
+        Box(
+            modifier = Modifier
+                .size(cardWidth)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.BottomEnd,
+        ) {
+            if (entity.thumbnail != null) {
+                AsyncImage(
+                    model = entity.thumbnail,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(40.dp).align(Alignment.Center),
+                )
+            }
+            if (isPlaying) {
+                Box(
+                    modifier = Modifier
+                        .padding(6.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Pause,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            entity.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            entity.artist,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * Horizontal carousel for [YtmSong] items (Trending Now / Top Songs / Top Artists).
+ * When [isArtistRail] is true, shows circular avatar cards instead of square thumbnails.
+ */
+@Composable
+private fun YtmSongCarousel(
+    songs: List<YtmSong>,
+    isArtistRail: Boolean,
+    onPlay: (YtmSong) -> Unit,
+) {
+    val lazyState = rememberLazyListState()
+    val snapBehavior = rememberSnapFlingBehavior(lazyState)
+    LazyRow(
+        state = lazyState,
+        flingBehavior = snapBehavior,
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (isArtistRail) 16.dp else 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = "Song carousel" },
+    ) {
+        items(songs, key = { "ytm_carousel_${it.videoId}" }) { s ->
+            if (isArtistRail) {
+                ArtistCarouselCard(song = s, onClick = { onPlay(s) })
+            } else {
+                SongCarouselCard(song = s, onClick = { onPlay(s) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun SongCarouselCard(song: YtmSong, onClick: () -> Unit) {
+    val cardWidth = 130.dp
+    Column(
+        modifier = Modifier
+            .width(cardWidth)
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = "${song.title} by ${song.artist}" },
+    ) {
+        com.streamcloud.app.ui.components.MusicThumbnail(
+            url = song.thumbnail,
+            size = cardWidth,
+            shape = RoundedCornerShape(10.dp),
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            song.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            song.artist,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun ArtistCarouselCard(song: YtmSong, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(96.dp)
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = song.artist },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        com.streamcloud.app.ui.components.MusicThumbnail(
+            url = song.thumbnail,
+            size = 80.dp,
+            shape = CircleShape,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            song.artist.ifBlank { song.title },
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+    }
 }
