@@ -83,6 +83,17 @@ internal val palettes: Map<String, PaletteAccents> = mapOf(
     "indigo"  to PaletteAccents(Color(0xFF3B3B9C),    Color(0xFF1E1E60),       Color(0xFF8888CC)),
 )
 
+internal fun shouldUseAlbumArtDynamicTheme(
+    dynamicColorEnabled: Boolean,
+    dynamicMiniPlayerThemeEnabled: Boolean,
+    hasArtwork: Boolean,
+): Boolean = hasArtwork && (dynamicColorEnabled || dynamicMiniPlayerThemeEnabled)
+
+internal fun shouldUseSystemDynamicTheme(
+    dynamicColorEnabled: Boolean,
+    supportsDynamic: Boolean,
+): Boolean = dynamicColorEnabled && supportsDynamic
+
 private val AioTypography = Typography(
     displayLarge = TextStyle(
         fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black,
@@ -123,6 +134,7 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
     val dynamicEnabled  by sl.settings.dynamicColor.collectAsState(initial = false)
+    val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
     val albumArtAccent  by AlbumArtThemeBus.accent.collectAsState()
     val albumArtSecond  by AlbumArtThemeBus.accentSecondary.collectAsState()
     val hasArtwork      by AlbumArtThemeBus.hasArtwork.collectAsState()
@@ -148,10 +160,20 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
 
 
 
+    val useAlbumArtDynamicTheme = shouldUseAlbumArtDynamicTheme(
+        dynamicColorEnabled = dynamicEnabled,
+        dynamicMiniPlayerThemeEnabled = dynamicMiniTheme,
+        hasArtwork = hasArtwork,
+    )
+    val useSystemDynamicTheme = shouldUseSystemDynamicTheme(
+        dynamicColorEnabled = dynamicEnabled,
+        supportsDynamic = supportsDynamic,
+    )
+
     val colors = when {
 
         // Album-art extracted palette — highest priority when dynamic theme is ON and artwork exists
-        dynamicEnabled && hasArtwork -> {
+        useAlbumArtDynamicTheme -> {
             val accent    = albumArtAccent   // vivid, already HSL-boosted by AlbumArtThemeBus
             val secondary = albumArtSecond   // same hue, darker/more muted
 
@@ -186,7 +208,7 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
         }
 
         // Android 12+ Material You wallpaper-based dynamic colours (fallback when no artwork)
-        dynamicEnabled && supportsDynamic -> {
+        useSystemDynamicTheme -> {
             if (useDark) dynamicDarkColorScheme(context)
             else         dynamicLightColorScheme(context)
         }
@@ -222,4 +244,3 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
         MaterialTheme(colorScheme = colors, typography = AioTypography, content = content)
     }
 }
-
