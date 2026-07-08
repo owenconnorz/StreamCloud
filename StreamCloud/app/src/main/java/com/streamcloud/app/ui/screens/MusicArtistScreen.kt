@@ -45,6 +45,7 @@ fun MusicArtistScreen(
     onPlay: (YtTrack) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
+    onShowMore: (sectionType: String) -> Unit = {},
 ) {
     var page by remember(channelUrl) { mutableStateOf<NewPipeRepository.ArtistPage?>(null) }
     var loading by remember(channelUrl) { mutableStateOf(true) }
@@ -79,6 +80,7 @@ fun MusicArtistScreen(
                 onPlay = onPlay,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
+                onShowMore = onShowMore,
             )
         }
 
@@ -109,14 +111,9 @@ private fun ArtistPageContent(
     onPlay: (YtTrack) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
+    onShowMore: (sectionType: String) -> Unit,
 ) {
-    var descExpanded      by remember { mutableStateOf(false) }
-    var showAllPopular    by remember { mutableStateOf(false) }
-    var showAllSingles    by remember { mutableStateOf(false) }
-    var showAllAlbums     by remember { mutableStateOf(false) }
-    var showAllVideos     by remember { mutableStateOf(false) }
-    var showAllFeatured   by remember { mutableStateOf(false) }
-    var showAllRelated    by remember { mutableStateOf(false) }
+    var descExpanded by remember { mutableStateOf(false) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -184,26 +181,19 @@ private fun ArtistPageContent(
 
         // Popular tracks
         if (page.topTracks.isNotEmpty()) {
-            item { SectionHeader("Popular", showAll = showAllPopular, onViewAll = { showAllPopular = !showAllPopular }) }
-            val popularList = if (showAllPopular) page.topTracks else page.topTracks.take(5)
-            items(popularList, key = { "pop_${it.url}" }) { tr ->
+            item { SectionHeader("Popular", onViewAll = { onShowMore("popular") }) }
+            items(page.topTracks.take(5), key = { "pop_${it.url}" }) { tr ->
                 TrackRow(track = tr, onPlay = { onPlay(tr) }, onArtistClick = onArtistClick)
             }
         }
 
         // Singles
         if (page.singles.isNotEmpty()) {
-            item { SectionHeader("Singles", showAll = showAllSingles, onViewAll = { showAllSingles = !showAllSingles }) }
-            if (showAllSingles) {
-                items(page.singles, key = { "sin_${it.url}" }) { album ->
-                    AlbumListRow(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
-                }
-            } else {
-                item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(page.singles, key = { "sin_${it.url}" }) { album ->
-                            AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
-                        }
+            item { SectionHeader("Singles", onViewAll = { onShowMore("singles") }) }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(page.singles, key = { "sin_${it.url}" }) { album ->
+                        AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
                     }
                 }
             }
@@ -211,17 +201,11 @@ private fun ArtistPageContent(
 
         // Albums
         if (page.albums.isNotEmpty()) {
-            item { SectionHeader("Albums", showAll = showAllAlbums, onViewAll = { showAllAlbums = !showAllAlbums }) }
-            if (showAllAlbums) {
-                items(page.albums, key = { "alb_${it.url}" }) { album ->
-                    AlbumListRow(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
-                }
-            } else {
-                item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(page.albums, key = { "alb_${it.url}" }) { album ->
-                            AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
-                        }
+            item { SectionHeader("Albums", onViewAll = { onShowMore("albums") }) }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(page.albums, key = { "alb_${it.url}" }) { album ->
+                        AlbumCard(album = album, onClick = { onAlbumClick(albumId(album.url), album.title, album.thumbnail) })
                     }
                 }
             }
@@ -229,17 +213,11 @@ private fun ArtistPageContent(
 
         // Videos
         if (page.videos.isNotEmpty()) {
-            item { SectionHeader("Videos", showAll = showAllVideos, onViewAll = { showAllVideos = !showAllVideos }) }
-            if (showAllVideos) {
-                items(page.videos, key = { "vid_${it.url}" }) { vid ->
-                    VideoListRow(track = vid, onClick = { onPlay(vid) })
-                }
-            } else {
-                item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(page.videos, key = { "vid_${it.url}" }) { vid ->
-                            VideoCard(track = vid, onClick = { onPlay(vid) })
-                        }
+            item { SectionHeader("Videos", onViewAll = { onShowMore("videos") }) }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(page.videos, key = { "vid_${it.url}" }) { vid ->
+                        VideoCard(track = vid, onClick = { onPlay(vid) })
                     }
                 }
             }
@@ -247,17 +225,11 @@ private fun ArtistPageContent(
 
         // Featured on
         if (page.featuredOn.isNotEmpty()) {
-            item { SectionHeader("Featured on", showAll = showAllFeatured, onViewAll = { showAllFeatured = !showAllFeatured }) }
-            if (showAllFeatured) {
-                items(page.featuredOn, key = { "feat_${it.url}" }) { pl ->
-                    AlbumListRow(album = pl, subtitle = "YouTube Music", onClick = { onAlbumClick(albumId(pl.url), pl.title, pl.thumbnail) })
-                }
-            } else {
-                item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(page.featuredOn, key = { "feat_${it.url}" }) { pl ->
-                            AlbumCard(album = pl, subtitle = "YouTube Music", onClick = { onAlbumClick(albumId(pl.url), pl.title, pl.thumbnail) })
-                        }
+            item { SectionHeader("Featured on", onViewAll = { onShowMore("featured") }) }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(page.featuredOn, key = { "feat_${it.url}" }) { pl ->
+                        AlbumCard(album = pl, subtitle = "YouTube Music", onClick = { onAlbumClick(albumId(pl.url), pl.title, pl.thumbnail) })
                     }
                 }
             }
@@ -265,17 +237,11 @@ private fun ArtistPageContent(
 
         // Related Artists
         if (page.relatedArtists.isNotEmpty()) {
-            item { SectionHeader("Related Artists", showAll = showAllRelated, onViewAll = { showAllRelated = !showAllRelated }) }
-            if (showAllRelated) {
-                items(page.relatedArtists, key = { "rel_${it.url}" }) { artist ->
-                    RelatedArtistListRow(artist = artist, onClick = { onArtistClick(artist.url, artist.thumbnail) })
-                }
-            } else {
-                item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        items(page.relatedArtists, key = { "rel_${it.url}" }) { artist ->
-                            RelatedArtistCard(artist = artist, onClick = { onArtistClick(artist.url, artist.thumbnail) })
-                        }
+            item { SectionHeader("Related Artists", onViewAll = { onShowMore("related") }) }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    items(page.relatedArtists, key = { "rel_${it.url}" }) { artist ->
+                        RelatedArtistCard(artist = artist, onClick = { onArtistClick(artist.url, artist.thumbnail) })
                     }
                 }
             }
@@ -311,7 +277,6 @@ private fun ArtistPageContent(
 @Composable
 private fun SectionHeader(
     title: String,
-    showAll: Boolean = false,
     onViewAll: (() -> Unit)? = null,
 ) {
     Row(
@@ -330,8 +295,8 @@ private fun SectionHeader(
         )
         if (onViewAll != null) {
             Icon(
-                if (showAll) Icons.Default.ChevronRight else Icons.Default.ChevronRight,
-                contentDescription = if (showAll) "Show less" else "View all",
+                Icons.Default.ChevronRight,
+                contentDescription = "View all",
                 tint = Color.White.copy(alpha = 0.6f),
                 modifier = Modifier.size(26.dp),
             )
