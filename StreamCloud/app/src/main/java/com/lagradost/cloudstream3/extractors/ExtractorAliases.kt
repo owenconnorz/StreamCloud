@@ -1224,7 +1224,8 @@ fun registerExtraExtractors() {
         XStreamCDN(),
         FEmbed(),
         Lulustream(),
-        LuluStream(),
+        // LuluStream() intentionally omitted: it extends Lulustream with no overrides and
+        // would register an identical (name="Lulustream", mainUrl="https://lulustream.com") entry.
         Lulustream1(),
         Lulustream2(),
         Luluvdoo(),
@@ -1244,7 +1245,8 @@ fun registerExtraExtractors() {
         WatchSB(),
         Rabbitstream(),
         Megacloud(),
-        MegaCloud(),
+        // MegaCloud() intentionally omitted: it extends Megacloud with no overrides and
+        // would register an identical (name="Megacloud", mainUrl="https://megacloud.tv") entry.
         Dokicloud(),
         VidStack(),
         Server1uns(),
