@@ -3,6 +3,7 @@ package com.streamcloud.app.ui.screens
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -41,6 +42,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -122,9 +125,9 @@ fun MusicScreen(
     val approvedYtSections = remember(state.ytHome.sections, fallbackSongs) {
         YtMusicHomeTaxonomy.mapSections(state.ytHome.sections, fallbackSongs)
     }
-    val listenAgainTracks = remember(state.mostPlayed) { state.mostPlayed.take(10) }
+    val listenAgainTracks = remember(state.mostPlayed) { state.mostPlayed.take(6) }
     val forgottenFavoritesTracks = remember(state.liked) { state.liked.takeLast(10).asReversed() }
-    val recentlyPlayedTracks = remember(state.recent) { state.recent.take(10) }
+    val recentlyPlayedTracks = remember(state.recent) { state.recent.take(6) }
     val fromLibraryTracks = remember(state.liked) { state.liked.take(10) }
 
     var isRefreshing by remember { mutableStateOf(false) }
@@ -207,9 +210,23 @@ fun MusicScreen(
                 if (listenAgainTracks.isEmpty()) {
                     item(key = "listen_again_empty") { HomeCategoryEmptyRow() }
                 } else {
-                    items(listenAgainTracks, key = { "listen_again_${it.url}" }) { entity ->
-                        LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
-                            playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
+                    item(key = "listen_again_carousel") {
+                        val listenAgainState = rememberLazyListState()
+                        LazyRow(
+                            state = listenAgainState,
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            flingBehavior = rememberSnapFlingBehavior(listenAgainState),
+                            modifier = Modifier.semantics { contentDescription = "Listen Again carousel" },
+                        ) {
+                            items(listenAgainTracks, key = { "listen_again_${it.url}" }) { entity ->
+                                LibraryCarouselCard(
+                                    entity = entity,
+                                    isPlaying = isPlaying && state.nowPlayingUrl == entity.url,
+                                ) {
+                                    playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
+                                }
+                            }
                         }
                     }
                 }
@@ -282,8 +299,24 @@ fun MusicScreen(
                             if (section.items.isEmpty()) {
                                 item(key = "yt_srail_empty_$idx") { HomeCategoryEmptyRow() }
                             } else {
-                                items(section.items, key = { s -> "yt_srail_${idx}_${s.videoId}" }) { s ->
-                                    YtHomeSongRow(s)
+                                item(key = "yt_srail_$idx") {
+                                    val srailState = rememberLazyListState()
+                                    LazyRow(
+                                        state = srailState,
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        flingBehavior = rememberSnapFlingBehavior(srailState),
+                                        modifier = Modifier.semantics {
+                                            contentDescription = "Carousel: ${section.title}"
+                                        },
+                                    ) {
+                                        items(
+                                            section.items,
+                                            key = { s -> "yt_srail_${idx}_${s.videoId}" },
+                                        ) { s ->
+                                            YtHomeSongCard(s)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -294,9 +327,23 @@ fun MusicScreen(
                 if (recentlyPlayedTracks.isEmpty()) {
                     item(key = "recently_played_empty") { HomeCategoryEmptyRow() }
                 } else {
-                    items(recentlyPlayedTracks, key = { "recently_played_${it.url}" }) { entity ->
-                        LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
-                            playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
+                    item(key = "recently_played_carousel") {
+                        val recentlyPlayedState = rememberLazyListState()
+                        LazyRow(
+                            state = recentlyPlayedState,
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            flingBehavior = rememberSnapFlingBehavior(recentlyPlayedState),
+                            modifier = Modifier.semantics { contentDescription = "Recently Played carousel" },
+                        ) {
+                            items(recentlyPlayedTracks, key = { "recently_played_${it.url}" }) { entity ->
+                                LibraryCarouselCard(
+                                    entity = entity,
+                                    isPlaying = isPlaying && state.nowPlayingUrl == entity.url,
+                                ) {
+                                    playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
+                                }
+                            }
                         }
                     }
                 }
@@ -1125,6 +1172,117 @@ private fun YtTrack.toYtmSong(): YtmSong? {
         durationSeconds = durationSec,
         isVideo = isVideo,
     )
+}
+
+@Composable
+private fun LibraryCarouselCard(
+    entity: com.streamcloud.app.data.library.TrackEntity,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .width(130.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onClick)
+            .padding(8.dp),
+    ) {
+        Box(
+            Modifier
+                .size(114.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (entity.thumbnail != null) {
+                AsyncImage(
+                    model = entity.thumbnail,
+                    contentDescription = entity.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(32.dp),
+                )
+            }
+            if (isPlaying) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.35f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Pause,
+                        contentDescription = "Now playing",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            entity.title,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            entity.artist,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun YtHomeSongCard(s: com.streamcloud.app.data.ytmusic.YtmSong) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val onPlay = {
+        scope.launch {
+            runCatching { com.streamcloud.app.data.ytmusic.YtPlayback.playSong(context, s) }
+                .onFailure { e ->
+                    Log.e("MusicScreen", "YtHomeSongCard play failed for ${s.videoId}: ${e.message}", e)
+                }
+        }
+        Unit
+    }
+    Column(
+        modifier = Modifier
+            .width(130.dp)
+            .clickable { onPlay() },
+    ) {
+        com.streamcloud.app.ui.components.MusicThumbnail(
+            url = s.thumbnail,
+            size = 130.dp,
+            shape = RoundedCornerShape(10.dp),
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            s.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            s.artist,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @Composable
