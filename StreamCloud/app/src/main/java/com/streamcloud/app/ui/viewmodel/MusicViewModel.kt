@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.FollowedArtistDao
+import com.streamcloud.app.data.library.FollowedArtistEntity
 import com.streamcloud.app.data.library.TrackDao
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.lyrics.LrcEntry
@@ -68,6 +70,8 @@ data class MusicState(
 
     val ytHome: YtMusicHomeFeed = YtMusicHomeFeed(),
     val ytHomeLoading: Boolean = false,
+
+    val followedArtists: List<FollowedArtistEntity> = emptyList(),
 )
 
 class MusicViewModel(context: Context) : ViewModel() {
@@ -76,6 +80,7 @@ class MusicViewModel(context: Context) : ViewModel() {
     val state: StateFlow<MusicState> = _state.asStateFlow()
 
     private val dao: TrackDao = LibraryDb.get(context).tracks()
+    private val followedArtistsDao: FollowedArtistDao = LibraryDb.get(context).followedArtists()
     private val settings = com.streamcloud.app.data.ServiceLocator.get(context).settings
     private var sleepJob: Job? = null
 
@@ -90,6 +95,9 @@ class MusicViewModel(context: Context) : ViewModel() {
         }
         viewModelScope.launch {
             dao.mostPlayed().collect { list -> _state.update { it.copy(mostPlayed = list) } }
+        }
+        viewModelScope.launch {
+            followedArtistsDao.all().collect { list -> _state.update { it.copy(followedArtists = list) } }
         }
 
         viewModelScope.launch {
@@ -338,6 +346,28 @@ class MusicViewModel(context: Context) : ViewModel() {
 
     fun setRepeatMode(mode: Int) { _state.update { it.copy(repeatMode = mode) } }
     fun setShuffle(enabled: Boolean) { _state.update { it.copy(shuffleEnabled = enabled) } }
+
+    // ── Follow artists ────────────────────────────────────────────────────────
+
+    fun followArtist(channelId: String, name: String, thumbnail: String?, subscriberLabel: String?) {
+        viewModelScope.launch {
+            followedArtistsDao.follow(
+                FollowedArtistEntity(
+                    channelId       = channelId,
+                    name            = name,
+                    thumbnail       = thumbnail,
+                    subscriberLabel = subscriberLabel,
+                )
+            )
+        }
+    }
+
+    fun unfollowArtist(channelId: String) {
+        viewModelScope.launch { followedArtistsDao.unfollow(channelId) }
+    }
+
+    /** Returns a [kotlinx.coroutines.flow.Flow] that emits whether [channelId] is followed. */
+    fun isArtistFollowed(channelId: String) = followedArtistsDao.isFollowed(channelId)
 
     companion object {
         fun factory(context: Context) = object : ViewModelProvider.Factory {

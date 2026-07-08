@@ -14,6 +14,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,6 +43,9 @@ import kotlinx.coroutines.withContext
 fun MusicArtistScreen(
     channelUrl: String,
     initialAvatar: String? = null,
+    isFollowed: Boolean = false,
+    onFollow: ((name: String, thumbnail: String?, subscriberLabel: String?) -> Unit)? = null,
+    onUnfollow: (() -> Unit)? = null,
     onBack: () -> Unit,
     onPlay: (YtTrack) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
@@ -79,6 +84,14 @@ fun MusicArtistScreen(
                 initialAvatar = initialAvatar,
                 heroExtraTop = statusBarPadding,
                 background = background,
+                isFollowed = isFollowed,
+                onFollowToggle = if (isFollowed) {
+                    onUnfollow
+                } else {
+                    if (onFollow != null) {
+                        { onFollow(page!!.name, page!!.avatar ?: initialAvatar, page!!.subscriberLabel) }
+                    } else null
+                },
                 onPlay = onPlay,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
@@ -111,6 +124,8 @@ private fun ArtistPageContent(
     initialAvatar: String?,
     heroExtraTop: androidx.compose.ui.unit.Dp,
     background: Color,
+    isFollowed: Boolean = false,
+    onFollowToggle: (() -> Unit)? = null,
     onPlay: (YtTrack) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
@@ -176,6 +191,23 @@ private fun ArtistPageContent(
                     colors = ButtonDefaults.buttonColors(containerColor = primary),
                     modifier = Modifier.weight(1f).height(44.dp),
                 ) { Text("Shuffle", color = onPrimary, fontWeight = FontWeight.Bold) }
+                if (onFollowToggle != null) {
+                    IconButton(
+                        onClick = onFollowToggle,
+                        modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
+                            .background(
+                                if (isFollowed) Color(0xFF1DB954).copy(alpha = 0.25f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                    ) {
+                        Icon(
+                            if (isFollowed) Icons.Default.Notifications else Icons.Default.NotificationsNone,
+                            contentDescription = if (isFollowed) "Unfollow" else "Follow",
+                            tint = if (isFollowed) Color(0xFF1DB954) else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
                 IconButton(
                     onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
