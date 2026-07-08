@@ -64,16 +64,17 @@ fun MusicArtistScreen(
     }
 
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val background = MaterialTheme.colorScheme.background
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF0A0A0A))) {
+    Box(Modifier.fillMaxSize().background(background)) {
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color.White)
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
             error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     "Couldn't load artist\n${error}",
-                    color = Color(0xFFFF5555),
+                    color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(24.dp),
                 )
@@ -82,6 +83,7 @@ fun MusicArtistScreen(
                 page = page!!,
                 initialAvatar = initialAvatar,
                 heroExtraTop = statusBarPadding,
+                background = background,
                 isFollowed = isFollowed,
                 onFollowToggle = if (isFollowed) {
                     onUnfollow
@@ -121,6 +123,7 @@ private fun ArtistPageContent(
     page: NewPipeRepository.ArtistPage,
     initialAvatar: String?,
     heroExtraTop: androidx.compose.ui.unit.Dp,
+    background: Color,
     isFollowed: Boolean = false,
     onFollowToggle: (() -> Unit)? = null,
     onPlay: (YtTrack) -> Unit,
@@ -129,6 +132,13 @@ private fun ArtistPageContent(
     onShowMore: (sectionType: String) -> Unit,
 ) {
     var descExpanded by remember { mutableStateOf(false) }
+    val onBackground = MaterialTheme.colorScheme.onBackground
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val surfaceContainerHigh = MaterialTheme.colorScheme.surfaceContainerHigh
+    val primary = MaterialTheme.colorScheme.primary
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
+    val onSurface = MaterialTheme.colorScheme.onSurface
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -149,7 +159,7 @@ private fun ArtistPageContent(
                         Brush.verticalGradient(
                             0.0f to Color.Black.copy(alpha = 0.05f),
                             0.55f to Color.Black.copy(alpha = 0.15f),
-                            1.0f to Color(0xFF0A0A0A),
+                            1.0f to background,
                         )
                     )
                 )
@@ -159,11 +169,11 @@ private fun ArtistPageContent(
         // Name + subscribers
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text(page.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 26.sp,
+                Text(page.name, color = onBackground, fontWeight = FontWeight.Bold, fontSize = 26.sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 page.subscriberLabel?.let { sub ->
                     Spacer(Modifier.height(4.dp))
-                    Text(sub, color = Color.White.copy(alpha = 0.65f), fontSize = 13.sp)
+                    Text(sub, color = onSurfaceVariant, fontSize = 13.sp)
                 }
             }
         }
@@ -178,22 +188,22 @@ private fun ArtistPageContent(
                 Button(
                     onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
                     shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                    colors = ButtonDefaults.buttonColors(containerColor = primary),
                     modifier = Modifier.weight(1f).height(44.dp),
-                ) { Text("Shuffle", color = Color(0xFF111111), fontWeight = FontWeight.Bold) }
+                ) { Text("Shuffle", color = onPrimary, fontWeight = FontWeight.Bold) }
                 if (onFollowToggle != null) {
                     IconButton(
                         onClick = onFollowToggle,
                         modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
                             .background(
                                 if (isFollowed) Color(0xFF1DB954).copy(alpha = 0.25f)
-                                else Color.White.copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.surfaceVariant
                             ),
                     ) {
                         Icon(
                             if (isFollowed) Icons.Default.Notifications else Icons.Default.NotificationsNone,
                             contentDescription = if (isFollowed) "Unfollow" else "Follow",
-                            tint = if (isFollowed) Color(0xFF1DB954) else Color.White,
+                            tint = if (isFollowed) Color(0xFF1DB954) else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(22.dp),
                         )
                     }
@@ -201,13 +211,13 @@ private fun ArtistPageContent(
                 IconButton(
                     onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
-                        .background(Color.White.copy(alpha = 0.12f)),
-                ) { Icon(Icons.Default.Shuffle, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+                        .background(surfaceVariant),
+                ) { Icon(Icons.Default.Shuffle, null, tint = onSurface, modifier = Modifier.size(20.dp)) }
                 IconButton(
                     onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
-                        .background(Color.White.copy(alpha = 0.12f)),
-                ) { Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
+                        .background(surfaceVariant),
+                ) { Icon(Icons.Default.PlayArrow, null, tint = onSurface, modifier = Modifier.size(22.dp)) }
             }
         }
 
@@ -285,18 +295,18 @@ private fun ArtistPageContent(
             item {
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(12.dp)).background(Color(0xFF1C1C1C))
+                        .clip(RoundedCornerShape(12.dp)).background(surfaceContainerHigh)
                         .clickable { descExpanded = !descExpanded }.padding(16.dp),
                 ) {
                     Column {
                         Text(
-                            page.description, color = Color.White.copy(alpha = 0.85f),
+                            page.description, color = onSurface,
                             fontSize = 14.sp, lineHeight = 20.sp,
                             maxLines = if (descExpanded) Int.MAX_VALUE else 4,
                             overflow = if (descExpanded) TextOverflow.Clip else TextOverflow.Ellipsis,
                         )
                         Spacer(Modifier.height(8.dp))
-                        Text(if (descExpanded) "Less" else "More", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(if (descExpanded) "Less" else "More", color = primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }
@@ -320,7 +330,7 @@ private fun SectionHeader(
     ) {
         Text(
             title,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onBackground,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
@@ -329,7 +339,7 @@ private fun SectionHeader(
             Icon(
                 Icons.Default.ChevronRight,
                 contentDescription = "View all",
-                tint = Color.White.copy(alpha = 0.6f),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(26.dp),
             )
         }
@@ -360,13 +370,13 @@ private fun TrackRow(
         AsyncImage(
             model = track.thumbnail, contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(50.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFF2A2A2A)),
+            modifier = Modifier.size(50.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+            Text(track.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("♪ ${track.uploader}", color = Color.White.copy(alpha = 0.6f),
+            Text("♪ ${track.uploader}", color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         SongRowMenu(
@@ -387,12 +397,12 @@ private fun AlbumCard(album: YtAlbum, subtitle: String? = null, onClick: () -> U
     Column(Modifier.width(150.dp).clickable(onClick = onClick)) {
         AsyncImage(model = album.thumbnail, contentDescription = album.title,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(150.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF2A2A2A)))
+            modifier = Modifier.size(150.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
         Spacer(Modifier.height(8.dp))
-        Text(album.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+        Text(album.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
             fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         (subtitle ?: album.year)?.let {
-            Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1)
+            Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1)
         }
     }
 }
@@ -402,15 +412,15 @@ private fun VideoCard(track: YtTrack, onClick: () -> Unit) {
     Column(Modifier.width(200.dp).clickable(onClick = onClick)) {
         AsyncImage(model = track.thumbnail, contentDescription = track.title,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().height(112.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF2A2A2A)))
+            modifier = Modifier.fillMaxWidth().height(112.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
         Spacer(Modifier.height(6.dp))
-        Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+        Text(track.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
             fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         val meta = buildString {
             append(track.uploader)
             if (track.viewCount > 0) append(" • ${humanViewCount(track.viewCount)} views")
         }
-        Text(meta, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -419,13 +429,13 @@ private fun RelatedArtistCard(artist: YtArtist, onClick: () -> Unit) {
     Column(Modifier.width(100.dp).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
         AsyncImage(model = artist.thumbnail, contentDescription = artist.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(84.dp).clip(CircleShape).background(Color(0xFF2A2A2A)))
+            modifier = Modifier.size(84.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant))
         Spacer(Modifier.height(8.dp))
-        Text(artist.name, color = Color.White, fontWeight = FontWeight.SemiBold,
+        Text(artist.name, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
             fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center)
         artist.subscriberLabel?.let {
-            Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, maxLines = 1,
+            Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         }
     }
@@ -442,14 +452,14 @@ private fun AlbumListRow(album: YtAlbum, subtitle: String? = null, onClick: () -
         AsyncImage(
             model = album.thumbnail, contentDescription = album.title,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(54.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2A2A)),
+            modifier = Modifier.size(54.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(album.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+            Text(album.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             val meta = subtitle ?: album.year
-            meta?.let { Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1) }
+            meta?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1) }
         }
     }
 }
@@ -464,17 +474,17 @@ private fun VideoListRow(track: YtTrack, onClick: () -> Unit) {
         AsyncImage(
             model = track.thumbnail, contentDescription = track.title,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2A2A)),
+            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold,
+            Text(track.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             val meta = buildString {
                 append(track.uploader)
                 if (track.viewCount > 0) append(" • ${humanViewCount(track.viewCount)} views")
             }
-            Text(meta, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1,
+            Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
         }
     }
@@ -490,14 +500,14 @@ private fun RelatedArtistListRow(artist: YtArtist, onClick: () -> Unit) {
         AsyncImage(
             model = artist.thumbnail, contentDescription = artist.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(54.dp).clip(CircleShape).background(Color(0xFF2A2A2A)),
+            modifier = Modifier.size(54.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(artist.name, color = Color.White, fontWeight = FontWeight.SemiBold,
+            Text(artist.name, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             artist.subscriberLabel?.let {
-                Text(it, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1)
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1)
             }
         }
     }
