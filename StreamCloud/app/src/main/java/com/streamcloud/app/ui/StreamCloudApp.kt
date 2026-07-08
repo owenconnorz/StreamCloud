@@ -200,9 +200,11 @@ fun StreamCloudApp() {
         label = "navPillBg",
     )
 
-    // Show miniplayer on all non-media routes (including music home)
-    val showMiniPlayer = currentRoute != null && !isMediaRoute
-
+    // Show miniplayer on all non-media routes except the Settings area.
+    val showMiniPlayer = shouldShowGlobalMiniPlayer(
+        currentRoute = currentRoute,
+        isMediaRoute = isMediaRoute,
+    )
     // Profile picker — show on launch when profiles exist; also triggered from Settings
     var showProfilePicker by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -221,6 +223,9 @@ fun StreamCloudApp() {
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
         val showRail = useRail &&
             (currentRoute == null || tabs.any { it.route == currentRoute })
+        val showRailMiniPlayer = showRail &&
+            currentRoute != Tab.Music.route &&
+            showMiniPlayer
         Row(Modifier.fillMaxSize().padding(padding)) {
             if (showRail) {
                 NavigationRail(
@@ -930,7 +935,7 @@ fun StreamCloudApp() {
 
 
 
-                    if (showRail && currentRoute != Tab.Music.route && !isMediaRoute) {
+                    if (showRailMiniPlayer) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
