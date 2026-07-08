@@ -681,9 +681,25 @@ fun StreamCloudApp() {
                         androidx.lifecycle.viewmodel.compose.viewModel(
                             factory = com.streamcloud.app.ui.viewmodel.MusicViewModel.factory(artistContext)
                         )
+                    // Derive channelId from the URL (last path segment after /channel/)
+                    val artistChannelId = remember(url) {
+                        android.net.Uri.parse(url).lastPathSegment?.takeIf { it.isNotBlank() } ?: url
+                    }
+                    val isFollowed by artistVm.isArtistFollowed(artistChannelId)
+                        .collectAsState(initial = false)
                     com.streamcloud.app.ui.screens.MusicArtistScreen(
                         channelUrl = url,
                         initialAvatar = thumb,
+                        isFollowed = isFollowed,
+                        onFollow = { name, thumbnail, subscriberLabel ->
+                            artistVm.followArtist(
+                                channelId       = artistChannelId,
+                                name            = name,
+                                thumbnail       = thumbnail,
+                                subscriberLabel = subscriberLabel,
+                            )
+                        },
+                        onUnfollow = { artistVm.unfollowArtist(artistChannelId) },
                         onBack = { nav.popBackStack() },
                         onPlay = { track -> artistVm.play(track) },
                         onAlbumClick = { id, title, thumb ->
