@@ -28,53 +28,6 @@ private val KEY_INSTALLED   = stringPreferencesKey("installed_json")
 private val KEY_SAVED_REPOS = stringPreferencesKey("saved_repos_json")
 private const val TAG = "NuvioRepository"
 
-internal fun normaliseNuvioIdToken(raw: Any?): String? =
-    raw?.toString()
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
-        ?.removePrefix("tmdb:")
-        ?.removePrefix("tmdb/")
-        ?.removePrefix("imdb:")
-        ?.removePrefix("movie:")
-        ?.removePrefix("series:")
-        ?.substringBefore(':')
-        ?.substringBefore('/')
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
-
-internal fun sanitizeNuvioTmdbId(raw: Any?): String? =
-    normaliseNuvioIdToken(raw)
-        ?.takeIf { it != "0" && it.all(Char::isDigit) }
-
-/**
- * Normalises query-parameter names in a raw TMDB-API query string.
- *
- * Fixes two known plugin bugs:
- *  - `append_to _response` (stray space) → `append_to_response`
- *  - `api_kev` (typo) → `api_key`
- *
- * The value side of each pair is left unchanged (already URL-encoded by the caller).
- * Safe to call on any URL targeting a TMDB-style endpoint.
- */
-internal fun sanitizeTmdbApiQueryString(rawQuery: String): String {
-    if (rawQuery.isBlank()) return rawQuery
-    return rawQuery.split('&').joinToString("&") { pair ->
-        val eqIdx  = pair.indexOf('=')
-        val rawKey = if (eqIdx >= 0) pair.substring(0, eqIdx) else pair
-        val value  = if (eqIdx >= 0) pair.substring(eqIdx + 1) else ""
-        val decoded = try {
-            java.net.URLDecoder.decode(rawKey, "UTF-8")
-        } catch (_: Exception) {
-            rawKey
-        }
-        val fixed = when (val stripped = decoded.replace(Regex("""\s+"""), "")) {
-            "api_kev" -> "api_key"
-            else      -> stripped
-        }
-        java.net.URLEncoder.encode(fixed, "UTF-8") + "=" + value
-    }
-}
-
 class NuvioRepository(private val context: Context) {
 
     private val http = OkHttpClient.Builder()
@@ -173,16 +126,18 @@ class NuvioRepository(private val context: Context) {
         episode: Int? = null,
         imdbId: String? = null,
     ): List<Pair<InstalledNuvioProvider, NuvioStream>> = coroutineScope {
-        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType)
+        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType, season, episode)
             ?: return@coroutineScope emptyList()
         val list = installed.first()
         list.map { provider ->
             async(Dispatchers.IO) {
                 val js = runCatching { File(provider.filePath).readText() }.getOrNull()
                     ?: return@async emptyList()
+                val normalizedContentId = normaliseNuvioContentId(resolvedTmdb, season, episode)
+                    ?: resolvedTmdb
                 val streams = NuvioRuntime.runProvider(
                     scriptText = js,
-                    tmdbId = resolvedTmdb,
+                    tmdbId = normalizedContentId,
                     imdbId = imdbId,
                     mediaType = nuvioMediaType(mediaType),
                     season = season,
@@ -250,11 +205,13 @@ class NuvioRepository(private val context: Context) {
     ): List<NuvioStream> = withContext(Dispatchers.IO) {
         val js = runCatching { File(provider.filePath).readText() }.getOrNull()
             ?: return@withContext emptyList()
-        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType)
+        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType, season, episode)
             ?: return@withContext emptyList()
+        val normalizedContentId = normaliseNuvioContentId(resolvedTmdb, season, episode)
+            ?: resolvedTmdb
         NuvioRuntime.runProvider(
             scriptText = js,
-            tmdbId = resolvedTmdb,
+            tmdbId = normalizedContentId,
             imdbId = imdbId,
             mediaType = nuvioMediaType(mediaType),
             season = season,
@@ -274,12 +231,14 @@ class NuvioRepository(private val context: Context) {
         val js = runCatching { File(provider.filePath).readText() }.getOrElse {
             return@withContext 0 to "Could not read provider file"
         }
-        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType)
+        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType, null, null)
             ?: return@withContext 0 to "Invalid TMDB ID after sanitization"
+        val normalizedContentId = normaliseNuvioContentId(resolvedTmdb)
+            ?: resolvedTmdb
         try {
             val streams = NuvioRuntime.runProvider(
                 scriptText = js,
-                tmdbId = resolvedTmdb,
+                tmdbId = normalizedContentId,
                 imdbId = imdbId,
                 mediaType = nuvioMediaType(mediaType),
                 season = null,
@@ -294,9 +253,14 @@ class NuvioRepository(private val context: Context) {
         }
     }
 
-    private suspend fun resolvedTmdbIdOrWarn(raw: String, mediaType: String): String? {
+    private suspend fun resolvedTmdbIdOrWarn(
+        raw: String,
+        mediaType: String,
+        season: Int? = null,
+        episode: Int? = null,
+    ): String? {
         val resolved = resolveTmdbId(raw, mediaType) ?: raw
-        return sanitizeNuvioTmdbId(resolved) ?: run {
+        return sanitizeNuvioTmdbId(resolved, season, episode) ?: run {
             val shown = raw.trim().ifBlank { "<blank>" }
             Log.w(TAG, "Skipping Nuvio lookup for invalid TMDB id \"$shown\" (mediaType=${normaliseMediaType(mediaType)})")
             null
@@ -333,7 +297,7 @@ class NuvioRepository(private val context: Context) {
 
     private suspend fun httpGet(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", BrowserHeaders.USER_AGENT)
+            .header("User-Agent", NUVIO_DEFAULT_USER_AGENT)
             .header("Accept", BrowserHeaders.ACCEPT_JSON)
             .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
             .build()
@@ -346,7 +310,7 @@ class NuvioRepository(private val context: Context) {
             hdrs = resp.headers.toMultimap()
         }
         if (CloudflareKiller.isCfChallenge(code, hdrs, body)) {
-            val bypassed = CloudflareKiller.bypass(context, url, BrowserHeaders.USER_AGENT, BrowserCookieJar)
+            val bypassed = CloudflareKiller.bypass(context, url, NUVIO_DEFAULT_USER_AGENT, BrowserCookieJar)
             if (bypassed) {
                 http.newCall(req).execute().use { r ->
                     if (!r.isSuccessful) error("HTTP ${r.code} from $url (after CF bypass)")
