@@ -80,8 +80,18 @@ enum class Qualities(var value: Int, val defaultPriority: Int) {
 fun getQualityFromName(qualityName: String?): Int {
     if (qualityName == null) return Qualities.Unknown.value
     val match = qualityName.lowercase().replace("p", "").trim()
-    return when (match) { "4k" -> Qualities.P2160 else -> null }?.value
-        ?: match.toIntOrNull() ?: Qualities.Unknown.value
+    return when (match) {
+        "4k", "uhd", "2160", "4k uhd"   -> Qualities.P2160
+        "qhd", "1440", "2k"             -> Qualities.P1440
+        "fhd", "full hd", "fullhd",
+        "1080", "1080i"                  -> Qualities.P1080
+        "hd", "720", "720i"             -> Qualities.P720
+        "sd", "480", "480i"             -> Qualities.P480
+        "360", "360i"                   -> Qualities.P360
+        "240", "240i"                   -> Qualities.P240
+        "144"                           -> Qualities.P144
+        else                            -> null
+    }?.value ?: match.toIntOrNull() ?: Qualities.Unknown.value
 }
 
 // ---------------------------------------------------------------------------
