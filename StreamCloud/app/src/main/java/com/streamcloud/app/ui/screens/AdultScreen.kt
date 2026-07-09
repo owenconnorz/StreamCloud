@@ -47,6 +47,7 @@ import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
+import com.streamcloud.app.ui.screens.adult.RedditFeedView
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import kotlinx.coroutines.launch
 
@@ -67,13 +68,13 @@ fun AdultScreen(
     var showCategoryPicker by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
 
-    // Infinite scroll: trigger loadMore when near the bottom
+    // Infinite scroll for Eporner grid: trigger loadMore when near the bottom
     LaunchedEffect(gridState) {
         snapshotFlow {
             val total = gridState.layoutInfo.totalItemsCount
             val last  = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             total > 0 && last >= total - 6
-        }.collect { reachedEnd -> if (reachedEnd) vm.loadMore() }
+        }.collect { reachedEnd -> if (reachedEnd && state.source == AdultSource.Eporner) vm.loadMore() }
     }
 
     Column(
@@ -81,39 +82,39 @@ fun AdultScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        Spacer(Modifier.height(12.dp))
-
-        // Title row with refresh button
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    screenTitle,
-                    style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                Text(
-                    screenSubtitle.ifBlank { "18+ \u00b7 ${state.source.label}" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        // ── Title row (only shown for Eporner) ──────────────────────────
+        if (state.source == AdultSource.Eporner) {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        screenTitle,
+                        style = MaterialTheme.typography.displayLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        screenSubtitle.ifBlank { "18+ \u00b7 ${state.source.label}" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = { vm.refresh() }) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "Refresh",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
-            IconButton(onClick = { vm.refresh() }) {
-                Icon(
-                    Icons.Default.Refresh,
-                    contentDescription = "Refresh",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+            Spacer(Modifier.height(16.dp))
         }
 
-        Spacer(Modifier.height(16.dp))
-
-        // Source switcher tabs: Eporner / Reddit
+        // ── Source switcher tabs: Eporner / Reddit ───────────────────────
         val sources = listOf(AdultSource.Eporner, AdultSource.Reddit)
         val selectedTabIndex = sources.indexOfFirst { it == state.source }.coerceAtLeast(0)
         TabRow(
@@ -129,10 +130,28 @@ fun AdultScreen(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        if (state.source == AdultSource.Reddit) {
+            // ── Reddit swipe-up feed ─────────────────────────────────────
+            RedditFeedView(
+                vm              = vm,
+                redditUsername  = state.redditUsername,
+                onLoginClick    = onOpenRedditLogin,
+                onLogoutClick   = {
+                    // Clear username — actual cookie/session clear can be done
+                    // via the login screen.
+                    onOpenRedditLogin()
+                },
+                onPlayItem      = { item ->
+                    onPlay(item.id, item.streamUrl.orEmpty(), item.title)
+                },
+                modifier        = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        } else {
+            // ── Eporner: search field, categories, grid ──────────────────
+            Spacer(Modifier.height(8.dp))
 
-        // Eporner-only: search field and categories
-        if (state.source == AdultSource.Eporner) {
             // Search field
             OutlinedTextField(
                 value = query,
@@ -192,54 +211,43 @@ fun AdultScreen(
             }
 
             Spacer(Modifier.height(4.dp))
-        } else {
-            // Reddit: show loading spinner inline while first fetch runs
-            if (state.loading) {
-                Spacer(Modifier.height(4.dp))
-                Box(
-                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+
+            state.error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp))
+            }
+
+            LazyVerticalGrid(
+                state = gridState,
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement   = Arrangement.spacedBy(12.dp),
+            ) {
+                items(state.items, key = { it.id }) { v ->
+                    AdultCard(v) { detailItem = v }
                 }
-            }
-        }
-
-        state.error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp))
-        }
-
-        LazyVerticalGrid(
-            state = gridState,
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement   = Arrangement.spacedBy(12.dp),
-        ) {
-            items(state.items, key = { it.id }) { v ->
-                AdultCard(v) { detailItem = v }
-            }
-            if (state.loadingMore) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Box(
-                        Modifier.fillMaxWidth().padding(16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(strokeWidth = 2.dp)
+                if (state.loadingMore) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Box(
+                            Modifier.fillMaxWidth().padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(strokeWidth = 2.dp)
+                        }
                     }
                 }
-            }
-            if (!state.hasMore && state.items.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text(
-                        "No more results",
-                        style    = MaterialTheme.typography.bodySmall,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                            .wrapContentWidth(Alignment.CenterHorizontally),
-                    )
+                if (!state.hasMore && state.items.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            "No more results",
+                            style    = MaterialTheme.typography.bodySmall,
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                                .wrapContentWidth(Alignment.CenterHorizontally),
+                        )
+                    }
                 }
             }
         }
