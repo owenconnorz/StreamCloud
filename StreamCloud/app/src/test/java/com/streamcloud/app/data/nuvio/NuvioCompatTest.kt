@@ -43,4 +43,81 @@ class NuvioCompatTest {
         assertTrue(summary.contains("status=403"))
         assertTrue(summary.contains("host=vidsrc.me"))
     }
+
+    // ── URL scheme sanitization (VidFast nttps:// fix) ───────────────────────
+
+    @Test
+    fun fixesNttpsSchemeTypo() {
+        assertEquals(
+            "https://vidfast.vc/movie/1108427/",
+            sanitizeNuvioUrlScheme("nttps://vidfast.vc/movie/1108427/"),
+        )
+    }
+
+    @Test
+    fun fixesHtpsSchemeTypo() {
+        assertEquals(
+            "https://example.com/path",
+            sanitizeNuvioUrlScheme("htps://example.com/path"),
+        )
+    }
+
+    @Test
+    fun fixesHttsSchemeTypo() {
+        assertEquals(
+            "https://example.com/path",
+            sanitizeNuvioUrlScheme("htts://example.com/path"),
+        )
+    }
+
+    @Test
+    fun fixesHttttpSchemeTypo() {
+        assertEquals(
+            "http://example.com/path",
+            sanitizeNuvioUrlScheme("htttp://example.com/path"),
+        )
+    }
+
+    @Test
+    fun leavesValidHttpsUrlUnchanged() {
+        val url = "https://vidfast.vc/movie/1108427/"
+        assertEquals(url, sanitizeNuvioUrlScheme(url))
+    }
+
+    @Test
+    fun leavesValidHttpUrlUnchanged() {
+        val url = "http://example.com/api/v1/stream"
+        assertEquals(url, sanitizeNuvioUrlScheme(url))
+    }
+
+    @Test
+    fun returnsBlankUrlUnchanged() {
+        assertEquals("", sanitizeNuvioUrlScheme(""))
+    }
+
+    // ── BOM stripping ────────────────────────────────────────────────────────
+
+    @Test
+    fun stripsLeadingBomFromResponseBody() {
+        val body = "\uFEFF{\"id\":1}"
+        assertEquals("{\"id\":1}", body.stripLeadingBom())
+    }
+
+    @Test
+    fun leavesBodyWithoutBomUnchanged() {
+        val body = "{\"id\":1}"
+        assertEquals(body, body.stripLeadingBom())
+    }
+
+    @Test
+    fun stripsOnlyOneLeadingBom() {
+        // Only the very first BOM should be stripped; a BOM inside the string stays.
+        val body = "\uFEFF{\"key\":\"\uFEFFvalue\"}"
+        assertEquals("{\"key\":\"\uFEFFvalue\"}", body.stripLeadingBom())
+    }
+
+    @Test
+    fun stripsLeadingBomFromEmptyish() {
+        assertEquals("", "\uFEFF".stripLeadingBom())
+    }
 }
