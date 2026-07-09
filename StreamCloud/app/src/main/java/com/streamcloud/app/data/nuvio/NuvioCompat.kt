@@ -131,6 +131,36 @@ internal fun inferNuvioDomain(url: String?): String? =
         ?.let { runCatching { URI(it).host }.getOrNull() }
         ?.takeIf { it.isNotBlank() }
 
+/**
+ * Fixes common URL-scheme typos that appear in Nuvio provider scripts, e.g.
+ * `nttps://` → `https://` (VidFast), `htps://` → `https://`.
+ * Returns the URL unchanged when no known typo is detected.
+ */
+internal fun sanitizeNuvioUrlScheme(url: String): String {
+    if (url.isBlank()) return url
+    val lower = url.lowercase()
+    return when {
+        lower.startsWith("nttps://")  -> "https://" + url.substring("nttps://".length)
+        lower.startsWith("htps://")   -> "https://" + url.substring("htps://".length)
+        lower.startsWith("htts://")   -> "https://" + url.substring("htts://".length)
+        lower.startsWith("htttp://")  -> "http://"  + url.substring("htttp://".length)
+        lower.startsWith("htp://")    -> "http://"  + url.substring("htp://".length)
+        else -> url
+    }
+}
+
+/**
+ * Strips a leading UTF-8 BOM (\uFEFF) from a response body string.
+ *
+ * Several upstream APIs (TMDB proxies, Nuvio provider back-ends) return JSON
+ * responses prefixed with a BOM.  Provider scripts that call `JSON.parse(text)`
+ * directly crash with `SyntaxError: invalid character` because the BOM is not
+ * valid inside a JSON string (as seen in the UHDMovies / getTmdbDetails trace).
+ * Stripping it here, before the body is handed to JS, makes those paths safe.
+ */
+internal fun String.stripLeadingBom(): String =
+    if (isNotEmpty() && this[0] == '\uFEFF') substring(1) else this
+
 internal fun NuvioProviderDiagnostics.toSummary(): String {
     val parts = mutableListOf<String>()
     when {
