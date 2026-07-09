@@ -56,7 +56,7 @@ fun AdultScreen(
     onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
     onOpenRedditLogin: () -> Unit = {},
     screenTitle: String = "Adult",
-    screenSubtitle: String = "18+ \u00b7 Powered by Eporner",
+    screenSubtitle: String = "",
 ) {
     val context = LocalContext.current
     val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(context))
@@ -97,7 +97,7 @@ fun AdultScreen(
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 Text(
-                    screenSubtitle,
+                    screenSubtitle.ifBlank { "18+ \u00b7 ${state.source.label}" },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -113,65 +113,97 @@ fun AdultScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // Search field
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it; vm.search(it) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            placeholder = { Text("Search videos\u2026") },
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Search, null) },
-            trailingIcon = {
-                if (state.loading) CircularProgressIndicator(
-                    Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor   = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                focusedContainerColor   = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-            ),
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        // Category + active-category chip row
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // Source switcher tabs: Eporner / Reddit
+        val sources = listOf(AdultSource.Eporner, AdultSource.Reddit)
+        val selectedTabIndex = sources.indexOfFirst { it == state.source }.coerceAtLeast(0)
+        TabRow(
+            selectedTabIndex = selectedTabIndex,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            OutlinedButton(
-                onClick = { showCategoryPicker = true },
-                shape   = RoundedCornerShape(10.dp),
-            ) {
-                Icon(Icons.Default.Category, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Categories")
-            }
-
-            state.selectedCategory?.let { cat ->
-                InputChip(
-                    selected  = true,
-                    onClick   = { vm.selectCategory(null); query = "" },
-                    label     = { Text(cat.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    trailingIcon = {
-                        Icon(Icons.Default.Close, contentDescription = "Clear category", Modifier.size(16.dp))
-                    },
+            sources.forEachIndexed { index, source ->
+                Tab(
+                    selected = index == selectedTabIndex,
+                    onClick  = { vm.setSource(source) },
+                    text     = { Text(source.label) },
                 )
             }
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(8.dp))
+
+        // Eporner-only: search field and categories
+        if (state.source == AdultSource.Eporner) {
+            // Search field
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it; vm.search(it) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                placeholder = { Text("Search videos\u2026") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = {
+                    if (state.loading) CircularProgressIndicator(
+                        Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor   = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedContainerColor   = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                ),
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            // Category + active-category chip row
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { showCategoryPicker = true },
+                    shape   = RoundedCornerShape(10.dp),
+                ) {
+                    Icon(Icons.Default.Category, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Categories")
+                }
+
+                state.selectedCategory?.let { cat ->
+                    InputChip(
+                        selected  = true,
+                        onClick   = { vm.selectCategory(null); query = "" },
+                        label     = { Text(cat.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        trailingIcon = {
+                            Icon(Icons.Default.Close, contentDescription = "Clear category", Modifier.size(16.dp))
+                        },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+        } else {
+            // Reddit: show loading spinner inline while first fetch runs
+            if (state.loading) {
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                }
+            }
+        }
 
         state.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp))
@@ -235,7 +267,12 @@ fun AdultScreen(
             context  = context,
             onPlay   = {
                 detailItem = null
-                onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
+                if (item.source == AdultSource.Reddit) {
+                    // Reddit items: pass the stream URL directly as the embed
+                    onPlay(item.id, item.streamUrl.orEmpty(), item.title)
+                } else {
+                    onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
+                }
             },
             onDismiss = { detailItem = null },
         )
