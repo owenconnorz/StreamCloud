@@ -5,6 +5,13 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import retrofit2.HttpException
+
+/** Thrown when Reddit returns HTTP 401 or 403 — user must sign in. */
+class RedditAuthRequiredException(message: String) : Exception(message)
+
+/** Thrown when Reddit returns HTTP 429 — too many requests. */
+class RedditRateLimitException(message: String) : Exception(message)
 
 data class AdultItem(
     val id: String,
@@ -46,7 +53,20 @@ object RedditAdultRepository {
     ): Pair<List<AdultItem>, String?> {
         val clean = subreddit.removePrefix("r/").trim()
         // Cookies are managed automatically by BrowserCookieJar (seeded on login).
-        val resp = api.listing(subreddit = clean, sort = sort, after = after)
+        val resp = try {
+            api.listing(subreddit = clean, sort = sort, after = after)
+        } catch (e: HttpException) {
+            when (e.code()) {
+                401, 403 -> throw RedditAuthRequiredException(
+                    "Reddit requires sign-in for this content (HTTP ${e.code()}). " +
+                    "Please log in to your Reddit account."
+                )
+                429 -> throw RedditRateLimitException(
+                    "Reddit rate limit reached. Please wait a moment and try again."
+                )
+                else -> throw e
+            }
+        }
         val children = resp.data?.children.orEmpty()
         val items = children.mapNotNull { it.data?.toAdultItem() }
         return items to resp.data?.after
@@ -110,6 +130,7 @@ object RedditAdultRepository {
             isVideo = isVideo,
             isGallery = isGallery,
             source = AdultSource.Reddit,
+            tags = subreddit.ifBlank { null },
         )
     }
 
