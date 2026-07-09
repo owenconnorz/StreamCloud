@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -99,8 +100,16 @@ fun StreamingLoadingOverlay(
 
             Spacer(Modifier.height(20.dp))
 
+            CircularProgressIndicator(
+                color = Color.White,
+                modifier = Modifier.size(44.dp),
+                strokeWidth = 3.dp,
+            )
+
+            Spacer(Modifier.height(16.dp))
+
             Text(
-                text = "Connecting\u2026",
+                text = "Finding best stream\u2026",
                 color = Color.White.copy(alpha = 0.75f),
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
