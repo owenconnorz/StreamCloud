@@ -58,20 +58,29 @@ private val DarkOverlay = Color(0xFF1A1108).copy(alpha = 0.7f)
 private fun friendlyPluginError(raw: String?): String? {
     if (raw.isNullOrBlank()) return null
     return when {
-        "JsonSyntaxException" in raw || "BEGIN_OBJECT" in raw || "BEGIN_ARRAY" in raw ->
+        "JsonSyntaxException" in raw || "BEGIN_OBJECT" in raw || "BEGIN_ARRAY" in raw
+            || "MalformedJsonException" in raw || "JsonParseException" in raw ->
             "Plugin received an unexpected response from its API — it may need updating."
-        "IncompatibleClassChangeError" in raw ->
+        "IncompatibleClassChangeError" in raw || "NoSuchMethodError" in raw ->
             "Plugin is incompatible with this version of StreamCloud."
         "ClassNotFoundException" in raw || "NoClassDefFoundError" in raw ->
             "Plugin is missing required components — try reinstalling it."
-        "SocketTimeoutException" in raw || "ConnectException" in raw ->
+        "SocketTimeoutException" in raw || "ConnectException" in raw
+            || "Connection refused" in raw ->
             "Network timeout or connection error."
         "UnknownHostException" in raw ->
             "Could not reach the plugin's server — check your connection."
-        "SSLException" in raw || "SSLHandshakeException" in raw ->
+        "SSLException" in raw || "SSLHandshakeException" in raw
+            || "CertPathValidatorException" in raw ->
             "Secure connection failed. The plugin's server may be down."
-        "HTTP 4" in raw || "404" in raw ->
+        "HTTP 5" in raw || "500" in raw || "502" in raw || "503" in raw ->
+            "The plugin's server is temporarily unavailable. Try again later."
+        "HTTP 4" in raw || "404" in raw || "403" in raw ->
             "The plugin's server returned an error."
+        "Timed out" in raw || "timeout" in raw ->
+            "The request timed out — the plugin's server may be slow or unavailable."
+        "No links found" in raw || "returned 0 results" in raw ->
+            "No playable streams found. The plugin may need updating or the content is unavailable."
         else -> raw
     }
 }
