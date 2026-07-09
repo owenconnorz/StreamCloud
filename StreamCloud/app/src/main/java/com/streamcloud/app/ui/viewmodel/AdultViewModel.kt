@@ -4,16 +4,19 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerApi
 import com.streamcloud.app.data.api.EpornerCategory
+import com.streamcloud.app.data.api.RedditAdultRepository
 import com.streamcloud.app.data.network.Net
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -34,7 +37,9 @@ data class AdultState(
 
 private val SORT_ORDERS = listOf("most-popular", "newest", "top-rated", "most-viewed", "longest")
 
-class AdultViewModel : ViewModel() {
+class AdultViewModel(
+    private val settings: SettingsRepository,
+) : ViewModel() {
     private val _state = MutableStateFlow(AdultState())
     val state: StateFlow<AdultState> = _state.asStateFlow()
 
@@ -45,17 +50,61 @@ class AdultViewModel : ViewModel() {
     private var loadMoreJob: Job? = null
     private var currentQuery: String = ""
     private var currentOrder: String = "most-popular"
+    private var redditAfter: String? = null
+    private var currentSubreddit: String = DEFAULT_REDDIT_SUB
 
     init {
-        fetchPage(query = "", page = 1, order = "most-popular", replaceItems = true, isInitial = true)
-        loadCategories()
+        viewModelScope.launch {
+            val savedSource = try {
+                AdultSource.valueOf(settings.adultSource.first())
+            } catch (_: Exception) {
+                AdultSource.Eporner
+            }
+            _state.update { it.copy(source = savedSource) }
+            when (savedSource) {
+                AdultSource.Reddit -> fetchRedditPage(replace = true)
+                else -> {
+                    fetchPage(query = "", page = 1, order = "most-popular", replaceItems = true, isInitial = true)
+                    loadCategories()
+                }
+            }
+        }
     }
 
-    fun setSource(@Suppress("UNUSED_PARAMETER") source: AdultSource) {
-        // Only Eporner is supported; no-op for other values.
+    fun setSource(source: AdultSource) {
+        if (_state.value.source == source) return
+        searchJob?.cancel(); searchJob = null
+        loadMoreJob?.cancel(); loadMoreJob = null
+        _state.update {
+            it.copy(
+                source       = source,
+                items        = emptyList(),
+                hasMore      = true,
+                currentPage  = 1,
+                error        = null,
+                selectedCategory = null,
+                categorySearch   = "",
+            )
+        }
+        viewModelScope.launch { settings.setAdultSource(source.name) }
+        when (source) {
+            AdultSource.Eporner -> {
+                currentQuery = ""
+                currentOrder = "most-popular"
+                fetchPage(query = "", page = 1, order = currentOrder, replaceItems = true, isInitial = false)
+                loadCategories()
+            }
+            AdultSource.Reddit -> {
+                redditAfter = null
+                currentSubreddit = DEFAULT_REDDIT_SUB
+                fetchRedditPage(replace = true)
+            }
+            else -> {}
+        }
     }
 
     fun search(query: String) {
+        if (_state.value.source != AdultSource.Eporner) return
         val q = query.trim()
         currentQuery = q
         currentOrder = "most-popular"
@@ -66,15 +115,28 @@ class AdultViewModel : ViewModel() {
 
     /** Reload the current feed with a fresh randomised sort order for varied content. */
     fun refresh() {
-        val newOrder = SORT_ORDERS.filterNot { it == currentOrder }.random()
-        currentOrder = newOrder
-        loadMoreJob?.cancel()
-        loadMoreJob = null
-        fetchPage(query = currentQuery, page = 1, order = currentOrder, replaceItems = true, isInitial = false)
+        when (_state.value.source) {
+            AdultSource.Reddit -> {
+                redditAfter = null
+                fetchRedditPage(replace = true)
+            }
+            else -> {
+                val newOrder = SORT_ORDERS.filterNot { it == currentOrder }.random()
+                currentOrder = newOrder
+                loadMoreJob?.cancel()
+                loadMoreJob = null
+                fetchPage(query = currentQuery, page = 1, order = currentOrder, replaceItems = true, isInitial = false)
+            }
+        }
     }
 
     /** Append the next page. Safe to call repeatedly; ignores calls while already loading. */
     fun loadMore() {
+        if (_state.value.source == AdultSource.Reddit) {
+            if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
+            fetchRedditPage(replace = false)
+            return
+        }
         if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
         if (loadMoreJob?.isActive == true) return
         val nextPage = _state.value.currentPage + 1
@@ -177,6 +239,55 @@ class AdultViewModel : ViewModel() {
         }
     }
 
+    private fun fetchRedditPage(replace: Boolean) {
+        if (_state.value.loading || (_state.value.loadingMore && !replace)) return
+        loadMoreJob?.cancel()
+        loadMoreJob = viewModelScope.launch {
+            if (replace) {
+                _state.update { it.copy(loading = true, error = null) }
+            } else {
+                _state.update { it.copy(loadingMore = true) }
+            }
+            try {
+                val (items, after) = RedditAdultRepository.fetch(
+                    subreddit = currentSubreddit,
+                    sort = "hot",
+                    after = if (replace) null else redditAfter,
+                )
+                redditAfter = after
+                val hasMore = after != null && items.isNotEmpty()
+                if (replace) {
+                    _state.update {
+                        it.copy(
+                            items      = items,
+                            loading    = false,
+                            hasMore    = hasMore,
+                            currentPage = 1,
+                        )
+                    }
+                } else {
+                    val existingIds = _state.value.items.map { it.id }.toHashSet()
+                    val deduped = items.filterNot { existingIds.contains(it.id) }
+                    _state.update {
+                        it.copy(
+                            items       = it.items + deduped,
+                            loadingMore = false,
+                            hasMore     = hasMore,
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        loading     = false,
+                        loadingMore = false,
+                        error       = "Reddit unavailable: ${e.message}",
+                    )
+                }
+            }
+        }
+    }
+
     private fun List<com.streamcloud.app.data.api.EpornerVideo>.mapToAdultItems(): List<AdultItem> =
         map { v ->
             AdultItem(
@@ -224,11 +335,15 @@ class AdultViewModel : ViewModel() {
     }
 
     companion object {
-        fun factory(@Suppress("UNUSED_PARAMETER") context: Context) =
+        private const val DEFAULT_REDDIT_SUB = "nsfw"
+
+        fun factory(context: Context) =
             object : ViewModelProvider.Factory {
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     @Suppress("UNCHECKED_CAST")
-                    return AdultViewModel() as T
+                    return AdultViewModel(
+                        settings = SettingsRepository(context.applicationContext),
+                    ) as T
                 }
             }
     }

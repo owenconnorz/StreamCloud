@@ -98,6 +98,8 @@ object SettingsKeys {
     val NUVIO_USER_ID       = stringPreferencesKey("nuvio_user_id")
 
     val MUSIC_SEARCH_HISTORY = stringPreferencesKey("music_search_history")
+
+    val ADULT_SOURCE = stringPreferencesKey("adult_source")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -222,6 +224,12 @@ class SettingsRepository(private val context: Context) {
     }
     suspend fun setAdultRedditSubs(csv: String) =
         context.dataStore.edit { it[SettingsKeys.ADULT_REDDIT_SUBS] = csv }
+
+    val adultSource: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.ADULT_SOURCE] ?: "Eporner"
+    }
+    suspend fun setAdultSource(source: String) =
+        context.dataStore.edit { it[SettingsKeys.ADULT_SOURCE] = source }
 
 
     val highRefreshRate: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HIGH_REFRESH_RATE] ?: true }
