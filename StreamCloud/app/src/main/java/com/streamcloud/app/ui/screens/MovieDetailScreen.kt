@@ -54,7 +54,6 @@ import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import android.util.Log
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -90,14 +89,6 @@ fun MovieDetailScreen(
     var resolving by remember { mutableStateOf(false) }
     var resolverMessage by remember { mutableStateOf<String?>(null) }
     var resolutionJob by remember { mutableStateOf<Job?>(null) }
-
-    // Nuvio pre-fetch: started as soon as imdbId resolves so streams are ready before Play is pressed.
-    var nuvioPrefetchJob by remember { mutableStateOf<Deferred<List<PlayerSource>>?>(null) }
-    var nuvioPrefetching by remember { mutableStateOf(false) }
-
-    // CloudStream pre-fetch: started as soon as movie title is known (no imdbId required).
-    var csPrefetchJob by remember { mutableStateOf<Deferred<List<PlayerSource>>?>(null) }
-    var csPrefetching by remember { mutableStateOf(false) }
 
     // Stream picker overlay
     var showStreamPicker by remember { mutableStateOf(false) }
@@ -160,71 +151,8 @@ fun MovieDetailScreen(
         loadingEpisodes = false
     }
 
-    // Pre-fetch CloudStream plugin streams as soon as movie title is available.
-    // Only for movies — CS plugins can't resolve TV episodes without season/episode selection,
-    // so pre-fetching for TV would waste time and return empty results.
-    LaunchedEffect(movie?.id, installedCsPlugins.size) {
-        if (mediaType == "tv") return@LaunchedEffect      // TV series handled via episode picker
-        val m = movie ?: return@LaunchedEffect
-        val title = m.displayTitle.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        val year  = m.year()
-        val relevant = installedCsPlugins.filter { plugin ->
-            !plugin.isAdultPlugin() && run {
-                val types = plugin.tvTypes
-                types == null || types.any { t ->
-                    val lt = t.lowercase()
-                    lt.contains("movie") || lt == "others" || lt == "live"
-                }
-            }
-        }
-        if (relevant.isEmpty()) return@LaunchedEffect
-        csPrefetchJob?.takeIf { !it.isCompleted }?.cancel()
-        Log.d("StreamCloud", "CS pre-fetch: starting ${relevant.size} plugins for '$title' ($year)")
-        csPrefetching = true
-        val job = scope.async {
-            relevant.map { plugin ->
-                async {
-                    val sources = withTimeoutOrNull(30_000L) {
-                        resolveCsPluginForMovie(context, plugin, title, year)
-                    } ?: emptyList()
-                    Log.d("StreamCloud", "CS pre-fetch ${plugin.name}: ${sources.size} streams")
-                    sources
-                }
-            }.awaitAll().flatten()
-        }
-        csPrefetchJob = job
-        val result = job.await()
-        csPrefetching = false
-        Log.d("StreamCloud", "CS pre-fetch: complete (${result.size} streams ready)")
-    }
-
-    // Pre-fetch Nuvio streams the moment imdbId is resolved — before the user presses Play.
-    // This hides the Nuvio latency (JS execution + network) behind the time the user spends
-    // reading the movie description. The Deferred is reused in playMovie() so no duplicate work.
-    LaunchedEffect(imdbId, installedNuvio.size) {
-        val tt = imdbId ?: return@LaunchedEffect
-        if (installedNuvio.isEmpty()) return@LaunchedEffect
-        // Cancel any stale job (e.g. imdbId changed unexpectedly)
-        nuvioPrefetchJob?.takeIf { !it.isCompleted }?.cancel()
-        Log.d("StreamCloud", "Nuvio pre-fetch: starting for tmdbId=$movieId imdbId=$tt (${installedNuvio.size} providers)")
-        nuvioPrefetching = true
-        val job = scope.async {
-            runCatching {
-                sl.nuvio.resolveAll(movieId.toString(), mediaType, imdbId = tt)
-                    .map { (provider, stream) -> stream.toPlayerSource(provider) }
-            }.getOrElse { e ->
-                Log.d("StreamCloud", "Nuvio pre-fetch error: ${e.message}")
-                emptyList()
-            }
-        }
-        nuvioPrefetchJob = job
-        val nuvioResult = job.await()
-        nuvioPrefetching = false
-        Log.d("StreamCloud", "Nuvio pre-fetch: complete (${nuvioResult.size} streams ready)")
-    }
-
     fun playMovie() {
-        imdbId ?: run {
+        val tt = imdbId ?: run {
             resolverMessage = "Loading IMDB id… try again in a second."
             return
         }
@@ -232,10 +160,96 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed. Add some from Settings → Plugins."
             return
         }
+        if (resolving) return
+        resolving = true
+        resolverMessage = null
         pickerSeason = null
         pickerEpisode = null
         pickerEpTitle = null
-        showStreamPicker = true
+        resolutionJob?.cancel()
+        val job = scope.launch {
+            try {
+                val movieTitle = movie?.displayTitle.orEmpty()
+                val movieYear  = movie?.year()
+                val eligibleCs = installedCsPlugins.filter { plugin ->
+                    !plugin.isAdultPlugin() && run {
+                        val types = plugin.tvTypes
+                        types == null || types.any { t ->
+                            val lt = t.lowercase()
+                            lt.contains("movie") || lt == "others" || lt == "live"
+                        }
+                    }
+                }
+
+                val stremioJobs = installedAddons.map { addon ->
+                    async(Dispatchers.IO) {
+                        withTimeoutOrNull(20_000L) {
+                            runCatching {
+                                val seen = mutableSetOf<String>()
+                                buildList {
+                                    if (tt.isNotBlank()) add(tt)
+                                    if (!tt.startsWith("tmdb:")) add("tmdb:$movieId")
+                                }.flatMap { id ->
+                                    sl.stremio.fetchStreams(addon, "movie", id)
+                                        .mapNotNull { it.toPlayerSource(addon) }
+                                }.filter { seen.add(it.url) }
+                            }.getOrElse { emptyList() }
+                        } ?: emptyList()
+                    }
+                }
+                val nuvioJob = if (installedNuvio.isNotEmpty()) {
+                    async(Dispatchers.IO) {
+                        withTimeoutOrNull(60_000L) {
+                            runCatching {
+                                sl.nuvio.resolveAll(movieId.toString(), mediaType, imdbId = tt)
+                                    .map { (provider, stream) -> stream.toPlayerSource(provider) }
+                            }.getOrElse { emptyList() }
+                        } ?: emptyList()
+                    }
+                } else null
+                val csJobs = eligibleCs.map { plugin ->
+                    async(Dispatchers.IO) {
+                        withTimeoutOrNull(30_000L) {
+                            resolveCsPluginForMovie(context, plugin, movieTitle, movieYear)
+                        } ?: emptyList()
+                    }
+                }
+
+                val allSources = (stremioJobs + listOfNotNull(nuvioJob) + csJobs)
+                    .awaitAll().flatten()
+
+                if (allSources.isEmpty()) {
+                    resolverMessage = "No streams found. Check your plugins in Settings or try again."
+                    return@launch
+                }
+
+                fun score(s: PlayerSource): Int {
+                    val q = when (s.qualityTag) {
+                        "4K" -> 5; "1440p" -> 4; "1080p" -> 3; "720p" -> 2; "480p" -> 1; else -> 0
+                    }
+                    return q * 10 + if (!s.isMagnet) 1 else 0
+                }
+                val sorted = allSources.sortedByDescending { score(it) }
+                val best   = sorted.first()
+
+                val m            = movie
+                val displayTitle = m?.displayTitle ?: "Playback"
+                val progressKey  = WatchProgressKey(
+                    tmdbId    = movieId,
+                    title     = displayTitle,
+                    posterUrl = m?.posterUrl ?: m?.backdropUrl,
+                    mediaType = mediaType,
+                )
+                onPlay(best.url, displayTitle, sorted, progressKey)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                resolverMessage = "Error finding streams: ${e.message}"
+            } finally {
+                resolving = false
+            }
+        }
+        resolutionJob = job
     }
 
     fun playEpisode(seasonNum: Int, episodeNum: Int, episodeTitle: String?) {
@@ -356,30 +370,6 @@ fun MovieDetailScreen(
                 val moviesVm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
                 val watchlistIds = moviesVm.state.collectAsState().value.watchlist.map { it.tmdbId }.toSet()
                 val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
-                // Show a subtle "fetching sources" pulse while any pre-fetch is in flight
-                if ((nuvioPrefetching || csPrefetching) && !resolving) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(bottom = 6.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            strokeWidth = 1.5.dp,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        val who = buildString {
-                            if (csPrefetching) append("CloudStream")
-                            if (csPrefetching && nuvioPrefetching) append(" + ")
-                            if (nuvioPrefetching) append("Nuvio")
-                        }
-                        Text(
-                            "Fetching sources ($who)…",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (mediaType != "tv") {
                         Box(Modifier.weight(1f)) {
@@ -875,6 +865,19 @@ fun MovieDetailScreen(
                     mediaType = mediaType,
                 )
                 onPlay(url, displayTitle, sources, progressKey)
+            },
+        )
+    }
+
+    // Show full-screen loading overlay while source resolution runs for movies.
+    if (resolving && mediaType != "tv") {
+        StreamingLoadingOverlay(
+            title = movie?.displayTitle ?: "Loading…",
+            backdropUrl = movie?.backdropUrl ?: movie?.posterUrl,
+            onBack = {
+                resolutionJob?.cancel()
+                resolving = false
+                resolverMessage = null
             },
         )
     }

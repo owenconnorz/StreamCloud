@@ -323,6 +323,7 @@ fun NativePlayerScreen(
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var bufferingMs by remember { mutableStateOf(0L) }
+    var isBuffering by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
     var resizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -334,8 +335,10 @@ fun NativePlayerScreen(
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
             override fun onPlaybackStateChanged(state: Int) {
                 durationMs = ex.duration.coerceAtLeast(0L)
+                isBuffering = state == Player.STATE_BUFFERING
             }
             override fun onPlayerError(error: PlaybackException) {
+                isBuffering = false
                 if (sources.size <= 1) return
                 // Mark the current URL as failed
                 val failedUrl = activeAutoSource?.url ?: streamUrl
@@ -357,6 +360,7 @@ fun NativePlayerScreen(
             durationMs = ex.duration.coerceAtLeast(0L)
             bufferingMs = ex.bufferedPosition.coerceAtLeast(0L)
             isPlaying = ex.isPlaying
+            isBuffering = ex.playbackState == Player.STATE_BUFFERING
             delay(500)
         }
     }
@@ -465,6 +469,21 @@ fun NativePlayerScreen(
             )
         }
 
+        // Buffering / initial-load spinner — shown while the player is buffering
+        // or while the URL is still being resolved (e.g. torrent proxy setup).
+        val showSpinner = isBuffering || (resolvedUrl == null && resolveError == null && !needsWebView)
+        if (showSpinner) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier.size(52.dp),
+                    strokeWidth = 4.dp,
+                )
+            }
+        }
 
         val density = LocalDensity.current
         BoxWithConstraints(Modifier.fillMaxSize()) {
