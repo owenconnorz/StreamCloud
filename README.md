@@ -125,6 +125,68 @@ Requires Android Studio Hedgehog or later, minSdk 26, targetSdk 35.
 
 ---
 
+## 🔄 Cloudstream Compatibility Improvements
+
+This section summarises improvements made to bring StreamCloud's CloudStream 3
+compatibility closer to the reference [`recloudstream/cloudstream`](https://github.com/recloudstream/cloudstream)
+implementation.
+
+### Comparison Findings
+
+| Area | recloudstream/cloudstream | StreamCloud (before) | Gap |
+|---|---|---|---|
+| `SubtitleHelper` language DB | 170 languages, 4 lookup indexes | ~25 hardcoded entries, 1 index | Plugins calling `fromTwoLettersToLanguage()` got `null` |
+| `SubtitleHelper` API | `fromTwoLettersToLanguage`, `fromThreeLettersToLanguage`, `fromTagToEnglishLanguageName`, `fromTagToLanguageName` | `fromCodeToLangTagIETF`, `fromLanguageToTagIETF` only | Missing methods = broken subtitle track names |
+| `getQualityFromName` | "4k" only | "4k" only | "uhd", "fhd", "hd", "sd", "qhd" → `Unknown` |
+| Plugin error messages | — | Covered ~7 error patterns | ~500xx, timeout, no-results patterns missing |
+
+### Implemented Changes
+
+1. **`SubtitleHelper.kt` — Comprehensive language database (170 entries)**
+   - Replaced the 25-entry hardcoded map with the full 170-language database from
+     `recloudstream/cloudstream`, indexed on IETF tag, ISO 639-1, ISO 639-2/B, ISO 639-3,
+     and OpenSubtitles codes.
+   - Added `fromTwoLettersToLanguage(input)` — deprecated in the canonical library but still
+     called by many existing plugins; without it subtitle track names were `null`.
+   - Added `fromThreeLettersToLanguage(input)` — same compat reason.
+   - Added `fromTagToEnglishLanguageName(languageCode)` — returns the English name for any
+     recognized code, used by the player's subtitle track picker.
+   - Added `fromTagToLanguageName(languageCode, localizedTo)` — returns a JVM-localised name
+     with English fallback.
+   - Improved `fromCodeToLangTagIETF` and `fromLanguageToTagIETF` to use the database rather
+     than a small fixed `when` block, so all 170 languages resolve correctly.
+
+2. **`ExtractorApi.kt` — `getQualityFromName` quality-string aliases**
+   - Added aliases: `uhd`→2160p, `fhd`/`full hd`/`fullhd`→1080p, `hd`→720p, `sd`→480p,
+     `qhd`/`2k`→1440p, interlaced suffixes (`1080i`, `720i`, …).
+   - Improves quality-based source sorting for plugins that label streams with these strings
+     instead of numeric values.
+
+3. **`CloudStreamDetailScreen.kt` — Expanded `friendlyPluginError` patterns**
+   - Added recognition for: `MalformedJsonException`, `JsonParseException`, `NoSuchMethodError`,
+     `Connection refused`, `CertPathValidatorException`, HTTP 5xx status codes, timeout strings,
+     and "no links found" / "0 results" diagnostics.
+   - Users see concise, actionable messages instead of raw stack-trace excerpts.
+
+### Validation
+
+- 34 new `SubtitleHelperTest` unit tests — all pass.
+- 26 new `QualityFromNameTest` unit tests — all pass.
+- Existing `NuvioCompatTest`, `NuvioTmdbSanitizerTest`, and `PluginCompatibilityTest` are
+  unaffected.
+
+### Known Limitations / Follow-up Suggestions
+
+- `SubtitleHelper.getFlagFromIso()` (flag-emoji helper) is not yet ported; requires the
+  `lang2country` mapping table (~200 entries). Low priority for functionality.
+- `SubtitleHelper.fromLanguageToTagIETF` does not yet perform Levenshtein fuzzy matching
+  (used by cloudstream for partial names like "English Subtitle"). Can be added if plugins
+  need it.
+- DRM (`DrmExtractorLink`) key-rotation and licence-URL fallback logic from cloudstream has
+  not been ported as StreamCloud does not yet expose a DRM licence-request flow.
+
+---
+
 ## 💬 Community
 
 Join our Discord community for support, feature requests and updates.
