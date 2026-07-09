@@ -535,7 +535,12 @@ object NuvioRuntime {
         context: Context? = null,
     ): String {
         return try {
-            val headers = buildNuvioRequestHeaders(url, method, parseHeaders(headersJson))
+            // Fix URL scheme typos (e.g. nttps:// → https://) before handing to OkHttp.
+            val sanitizedUrl = sanitizeNuvioUrlScheme(url)
+            if (sanitizedUrl != url) {
+                Log.w(TAG, "fetchSync: corrected URL scheme typo '$url' → '$sanitizedUrl'")
+            }
+            val headers = buildNuvioRequestHeaders(sanitizedUrl, method, parseHeaders(headersJson))
             val client = if (followRedirects) http else http.newBuilder().followRedirects(false).build()
 
             val requestBody = when {
@@ -555,10 +560,13 @@ object NuvioRuntime {
                 put("status", responseCode)
                 put("statusText", responseMessage)
                 put("url", responseUrl)
-                put("body", responseBody)
+                // Strip leading UTF-8 BOM before returning body to JS so that
+                // provider scripts calling JSON.parse(responseText) directly do
+                // not crash with "SyntaxError: invalid character" (UHDMovies fix).
+                put("body", responseBody.stripLeadingBom())
                 put("headers", responseHeaders)
             }
-            val req = Request.Builder().url(url).apply {
+            val req = Request.Builder().url(sanitizedUrl).apply {
                 headers.forEach { (k, v) -> header(k, v) }
                 method(method, requestBody)
             }.build()
@@ -986,6 +994,38 @@ object NuvioRuntime {
             return normalized;
         }
 
+        // Fix common URL scheme typos that appear in some Nuvio provider scripts.
+        // e.g. "nttps://vidfast.vc/..." → "https://vidfast.vc/..."
+        // Returns the corrected URL, or the original if no typo is detected.
+        function __sanitizeUrlScheme(url) {
+            if (!url) return url;
+            var lower = url.toLowerCase();
+            if (lower.indexOf('nttps://') === 0) return 'https://' + url.substring('nttps://'.length);
+            if (lower.indexOf('htps://')  === 0) return 'https://' + url.substring('htps://'.length);
+            if (lower.indexOf('htts://')  === 0) return 'https://' + url.substring('htts://'.length);
+            if (lower.indexOf('htttp://') === 0) return 'http://'  + url.substring('htttp://'.length);
+            if (lower.indexOf('htp://')   === 0) return 'http://'  + url.substring('htp://'.length);
+            return url;
+        }
+
+        // Rewrite provider-specific URL patterns that are known to be wrong.
+        //
+        // VidSrc family: the embed path must include the media type.
+        //   Wrong:   https://vidsrc.me/embed/1108427
+        //   Correct: https://vidsrc.me/embed/movie/1108427
+        //
+        // The media type is taken from the __mediaType global injected per-execution
+        // (value is "movie" or "tv"), so it is always available here.
+        function __rewriteProviderUrl(url) {
+            // Match vidsrc.*/embed/{digits}[/] — missing media-type segment
+            if (/\/embed\/\d+\/?$/.test(url) &&
+                /vidsrc\.(me|to|xyz|pm|in|net|cc)/.test(url)) {
+                var mt = (typeof __mediaType === 'string' && __mediaType === 'tv') ? 'tv' : 'movie';
+                return url.replace(/(\/embed\/)(\d+)(\/?)$/, '$1' + mt + '/$2$3');
+            }
+            return url;
+        }
+
         // Returns true when the URL looks like a TMDB-style API request
         // (direct or via a known mirror/proxy that uses the same path structure).
         function __isTmdbApiStyleUrl(url) {
@@ -1022,6 +1062,13 @@ object NuvioRuntime {
         function __normalizeTmdbRequestUrl(url) {
             var rawUrl = String(url == null ? '' : url);
             if (!rawUrl) return rawUrl;
+
+            // 1. Fix URL scheme typos (e.g. nttps:// → https://) before any other processing.
+            rawUrl = __sanitizeUrlScheme(rawUrl);
+
+            // 2. Rewrite known provider-specific URL patterns (e.g. VidSrc missing media type).
+            rawUrl = __rewriteProviderUrl(rawUrl);
+
             var hasTmdbParam = rawUrl.indexOf('tmdb=') !== -1;
             var isTmdbApi    = __isTmdbApiStyleUrl(rawUrl);
             if (!hasTmdbParam && !isTmdbApi) return rawUrl;
@@ -1180,6 +1227,39 @@ object NuvioRuntime {
             return await fetch(url, { method: method || 'GET', headers: headers || {}, body: body });
         }
         globalThis.fetchv2 = fetchv2;
+
+        // ── fetchJson helper ─────────────────────────────────────────────────────
+        // A BOM-safe, content-type-aware fetchJson polyfill that providers can use
+        // as a global when they don't define their own.  Providers that define
+        // their own fetchJson (e.g. UHDMovies / getTmdbDetails) shadow this with
+        // their own implementation, but BOM is already stripped from the response
+        // body by the native Kotlin bridge before JS ever sees it, so the crash
+        // from "SyntaxError: invalid character in a JSON string" is avoided at the
+        // source rather than here.  This polyfill is a safety net for providers
+        // that call fetchJson as a free variable or re-export it.
+        if (typeof globalThis.fetchJson === 'undefined') {
+            globalThis.fetchJson = async function fetchJson(url, options) {
+                try {
+                    var resp = await fetch(url, options || {});
+                    var text = await resp.text();
+                    // Strip UTF-8 BOM and leading whitespace before parsing.
+                    if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+                    text = text ? text.trim() : '';
+                    if (!text) return null;
+                    // Reject obvious non-JSON responses (HTML error pages, plain text).
+                    var ct = resp.headers ? resp.headers.get('content-type') : null;
+                    var isJson = !ct || ct.indexOf('json') !== -1 || ct.indexOf('javascript') !== -1;
+                    if (!isJson && text[0] !== '{' && text[0] !== '[') {
+                        console.warn('[runtime] fetchJson: non-JSON response from ' + url + ' (content-type: ' + ct + ')');
+                        return null;
+                    }
+                    return JSON.parse(text);
+                } catch (e) {
+                    console.warn('[runtime] fetchJson error for ' + url + ': ' + ((e && e.message) || String(e)));
+                    return null;
+                }
+            };
+        }
 
         // ── XMLHttpRequest polyfill ──────────────────────────────────────────────
         // Many Nuvio providers (Cineby, MovieBox, Dahmermovies, VidLink, MoviesMod,
