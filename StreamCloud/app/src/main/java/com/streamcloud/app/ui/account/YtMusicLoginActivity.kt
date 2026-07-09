@@ -142,6 +142,7 @@ class YtMusicLoginActivity : ComponentActivity() {
 
 
         val avatar = avatarMatch?.groupValues?.getOrNull(1).orEmpty()
+            .let { if (it.startsWith("//")) "https:$it" else it }
             .replace(Regex("=s\\d+.*$"), "=s256")
         return name to avatar
     }
