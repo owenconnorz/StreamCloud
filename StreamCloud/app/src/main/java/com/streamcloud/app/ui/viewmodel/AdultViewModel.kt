@@ -10,12 +10,15 @@ import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerApi
 import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.api.RedditAdultRepository
+import com.streamcloud.app.data.api.RedditAuthRequiredException
+import com.streamcloud.app.data.api.RedditRateLimitException
 import com.streamcloud.app.data.network.Net
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -33,6 +36,12 @@ data class AdultState(
     val loadingCategories: Boolean = false,
     val selectedCategory: EpornerCategory? = null,
     val categorySearch: String = "",
+    /** True when Reddit returns a 401/403 — the user must log in. */
+    val redditNeedsAuth: Boolean = false,
+    /** Currently-browsed subreddit (without r/ prefix). */
+    val currentSubreddit: String = "nsfw",
+    /** Signed-in Reddit username, or empty if not logged in. */
+    val redditUsername: String = "",
 )
 
 private val SORT_ORDERS = listOf("most-popular", "newest", "top-rated", "most-viewed", "longest")
@@ -51,9 +60,20 @@ class AdultViewModel(
     private var currentQuery: String = ""
     private var currentOrder: String = "most-popular"
     private var redditAfter: String? = null
-    private var currentSubreddit: String = DEFAULT_REDDIT_SUB
 
     init {
+        // Observe the saved Reddit username and reflect it in state
+        viewModelScope.launch {
+            settings.redditUsername.collectLatest { username ->
+                val hadAuthError = _state.value.redditNeedsAuth
+                _state.update { it.copy(redditUsername = username) }
+                // Auto-retry after a successful login that resolved an auth error
+                if (hadAuthError && username.isNotBlank() && _state.value.source == AdultSource.Reddit) {
+                    redditAfter = null
+                    fetchRedditPage(replace = true)
+                }
+            }
+        }
         viewModelScope.launch {
             val savedSource = try {
                 AdultSource.valueOf(settings.adultSource.first())
@@ -96,7 +116,7 @@ class AdultViewModel(
             }
             AdultSource.Reddit -> {
                 redditAfter = null
-                currentSubreddit = DEFAULT_REDDIT_SUB
+                _state.update { it.copy(currentSubreddit = DEFAULT_REDDIT_SUB) }
                 fetchRedditPage(replace = true)
             }
             else -> {}
@@ -111,6 +131,32 @@ class AdultViewModel(
         loadMoreJob?.cancel()
         loadMoreJob = null
         fetchPage(query = q, page = 1, order = currentOrder, replaceItems = true, isInitial = false)
+    }
+
+    /** Switch to a different subreddit and reload the Reddit feed. */
+    fun setSubreddit(subreddit: String) {
+        val clean = subreddit.removePrefix("r/").trim()
+        if (clean == _state.value.currentSubreddit && _state.value.items.isNotEmpty()) return
+        redditAfter = null
+        _state.update {
+            it.copy(
+                currentSubreddit = clean,
+                items    = emptyList(),
+                hasMore  = true,
+                error    = null,
+                redditNeedsAuth = false,
+            )
+        }
+        fetchRedditPage(replace = true)
+    }
+
+    /** Clear the auth-required flag (e.g. after the user has logged in). */
+    fun clearRedditAuthError() {
+        _state.update { it.copy(redditNeedsAuth = false, error = null) }
+        if (_state.value.source == AdultSource.Reddit) {
+            redditAfter = null
+            fetchRedditPage(replace = true)
+        }
     }
 
     /** Reload the current feed with a fresh randomised sort order for varied content. */
@@ -244,13 +290,13 @@ class AdultViewModel(
         loadMoreJob?.cancel()
         loadMoreJob = viewModelScope.launch {
             if (replace) {
-                _state.update { it.copy(loading = true, error = null) }
+                _state.update { it.copy(loading = true, error = null, redditNeedsAuth = false) }
             } else {
                 _state.update { it.copy(loadingMore = true) }
             }
             try {
                 val (items, after) = RedditAdultRepository.fetch(
-                    subreddit = currentSubreddit,
+                    subreddit = _state.value.currentSubreddit,
                     sort = "hot",
                     after = if (replace) null else redditAfter,
                 )
@@ -275,6 +321,23 @@ class AdultViewModel(
                             hasMore     = hasMore,
                         )
                     }
+                }
+            } catch (e: RedditAuthRequiredException) {
+                _state.update {
+                    it.copy(
+                        loading         = false,
+                        loadingMore     = false,
+                        redditNeedsAuth = true,
+                        error           = e.message,
+                    )
+                }
+            } catch (e: RedditRateLimitException) {
+                _state.update {
+                    it.copy(
+                        loading     = false,
+                        loadingMore = false,
+                        error       = e.message,
+                    )
                 }
             } catch (e: Exception) {
                 _state.update {
