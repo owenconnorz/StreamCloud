@@ -280,10 +280,14 @@ fun NowPlayingShell(
         // Resolving a stream URL in the background should not hide the canvas —
         // the user controls whether to open the video player via the PlayCircle badge.
         val hasWorkingVideo = showVideoPlayer && videoStreamUrl != null
-        if (!canvasEnabled || title.isBlank() || videoId.isBlank() ||
+        // Use mediaId as the canvas cache key — videoId is blank for regular (non-music-video)
+        // tracks because selectedMusicVideoId() returns "" when isMusicVideo=false.
+        // Every track has a mediaId, so this unblocks canvas for all songs.
+        val cacheKey = mediaId ?: return@LaunchedEffect
+        if (!canvasEnabled || title.isBlank() || cacheKey.isBlank() ||
             spotifyCookie.isBlank() || hasWorkingVideo) return@LaunchedEffect
         canvasUrl = runCatching {
-            SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
+            SpotifyCanvasRepository.getCanvasUrl(cacheKey, title, artist)
         }.getOrNull()
     }
     // Auto-reveal the inline video player as soon as the stream URL is ready
