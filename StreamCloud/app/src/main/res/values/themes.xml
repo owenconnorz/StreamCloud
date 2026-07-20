@@ -1,9 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Plain framework theme. The app uses Jetpack Compose Material 3 entirely, so
-         we don't need com.google.android.material XML themes here.
-         Using android:Theme.Material.NoActionBar avoids dependency on Material lib styles
-         while still giving us a no-action-bar Activity host. -->
-    <style name="Theme.StreamCloud" parent="android:Theme.Material.NoActionBar">
+    <!-- AppCompat-based theme. AppCompatActivity (used by MainActivity to satisfy
+         CloudStream plugin casts) requires a Theme.AppCompat ancestor or it throws
+         IllegalStateException on launch. Compose works fine with AppCompat themes. -->
+    <style name="Theme.StreamCloud" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">@color/bg_primary</item>
         <item name="android:statusBarColor">@color/bg_primary</item>
         <item name="android:navigationBarColor">@color/bg_primary</item>
@@ -16,11 +15,10 @@
         <item name="android:windowBackground">@drawable/splash_background</item>
     </style>
 
-    <!-- AppCompat-rooted theme required by PluginSettingsActivity (AppCompatActivity).
-         AppCompatActivity crashes with IllegalStateException if the activity theme does
-         not descend from Theme.AppCompat. MainActivity uses the Compose-only
-         android:Theme.Material path and is unaffected. -->
-    <style name="Theme.StreamCloud.AppCompat" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <!-- AppCompat variant — now inherits from Theme.StreamCloud which is already
+         AppCompat-based. Kept as a named style because AndroidManifest references it
+         directly for PluginSettingsActivity. -->
+    <style name="Theme.StreamCloud.AppCompat" parent="Theme.StreamCloud">
         <item name="android:windowBackground">@color/bg_primary</item>
         <item name="android:statusBarColor">@color/bg_primary</item>
         <item name="android:navigationBarColor">@color/bg_primary</item>
