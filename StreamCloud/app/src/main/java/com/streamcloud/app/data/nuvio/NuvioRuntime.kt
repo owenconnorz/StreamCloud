@@ -2132,6 +2132,42 @@ object NuvioRuntime {
                 return _origApply.call(this, thisArg, args == null ? [] : args);
             };
         })();
+
+        // ── ESBuild / TypeScript compiled-async helpers ─────────────────────────
+        // Most Nuvio providers are TypeScript compiled with esbuild targeting ES2017
+        // or older.  `async function` compiles to a generator wrapped in __async.
+        // QuickJS supports native generators but does NOT ship these helpers, so we
+        // define them here.  Providers that already bundle their own copy won't be
+        // affected — their local `var __async = ...` simply shadows this one.
+        //
+        // __async(thisArg, argsArray, generatorFn)
+        //   → wraps a generator in a Promise so `yield` acts like `await`.
+        if (typeof __async === 'undefined') {
+            var __async = function(__this, __arguments, generator) {
+                return new Promise(function(resolve, reject) {
+                    var fulfilled = function(value) {
+                        try { step(generator.next(value)); } catch (e) { reject(e); }
+                    };
+                    var rejected = function(value) {
+                        try { step(generator.throw(value)); } catch (e) { reject(e); }
+                    };
+                    var step = function(x) {
+                        return x.done
+                            ? resolve(x.value)
+                            : Promise.resolve(x.value).then(fulfilled, rejected);
+                    };
+                    step((generator = generator.apply(__this, __arguments || [])).next());
+                });
+            };
+        }
+
+        // fetchText(url, options?) → Promise<string>
+        // Convenience wrapper used by several providers (e.g. kisskh, some AllAnime forks).
+        if (typeof fetchText === 'undefined') {
+            var fetchText = function(url, options) {
+                return fetch(url, options).then(function(r) { return r.text(); });
+            };
+        }
         var __module_cache__ = {};
         var require = function(name) {
             if (name === 'cheerio' || name === 'cheerio-without-node-native' || name === 'react-native-cheerio') return cheerio;
