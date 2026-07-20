@@ -187,17 +187,6 @@ object NuvioRuntime {
                                 __capture_result('[]');
                                 return;
                             }
-                            // Wrap __fn so any silent exit is logged:
-                            // "pre-call" appears if __fn is invoked.
-                            // "post-call N" appears if __fn resolves (N = result length).
-                            // No "post-call" → __fn hung or threw (caught by outer catch).
-                            var __origFn = __fn;
-                            __fn = async function() {
-                                console.log('[runtime] pre-call type=' + $mediaTypeArg + ' req0=' + (typeof __native_fetch));
-                                var __r = await __origFn.apply(this, arguments);
-                                console.log('[runtime] post-call len=' + (__r ? __r.length : -1));
-                                return __r;
-                            };
                             var __result = await __fn($tmdbIdArg, $mediaTypeArg, $seasonArg, $episodeArg);
                             __capture_result(JSON.stringify(__result || []));
                         } catch (__e) {
@@ -1108,21 +1097,9 @@ object NuvioRuntime {
             }
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
-            var normalizedUrl = __normalizeTmdbRequestUrl(url);
-            // __native_fetch is a synchronous blocking function (returns a String directly).
-            // Do NOT await it — it is not a Promise. The fetch shim itself is still async
-            // so providers that use .then() chaining still get a proper Promise from fetch().
-            var requestUrl = normalizedUrl == null ? String(url == null ? '' : url) : normalizedUrl;
-            var result = normalizedUrl == null
-                ? __makeSyntheticResponse(requestUrl, 400, 'Bad Request', '')
-                : __native_fetch(requestUrl, method, JSON.stringify(headers), body, followRedirects);
+            var requestUrl = String(url == null ? '' : url);
+            var result = __native_fetch(requestUrl, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
-            // Compact response trace (same format as XHR so the picker shows real API output).
-            try {
-                var _fPath = requestUrl.replace(/^https?:\/\/[^\/]+/, '').substring(0, 50);
-                var _fBody = String(parsed.body || '').substring(0, 55);
-                console.log('[rsp] ' + method + ' ' + _fPath + ' \u2192 ' + parsed.status + ' ' + _fBody);
-            } catch(_fErr) {}
             return {
                 ok: parsed.ok, status: parsed.status, statusText: parsed.statusText,
                 url: parsed.url, redirected: parsed.redirected || false, type: 'basic',
@@ -1288,16 +1265,13 @@ object NuvioRuntime {
                 // the outer await picks it up correctly.
                 var _doSend = function() {
                     try {
-                        var normalizedUrl = __normalizeTmdbRequestUrl(self._url);
-                        var requestUrl = normalizedUrl == null ? String(self._url == null ? '' : self._url) : normalizedUrl;
-                        var result = normalizedUrl == null
-                            ? __makeSyntheticResponse(requestUrl, 400, 'Bad Request', '')
-                            : __native_fetch(
-                                requestUrl, self._method,
-                                JSON.stringify(self._headers),
-                                (body == null ? '' : String(body)),
-                                true   // followRedirects
-                            );
+                        var requestUrl = String(self._url == null ? '' : self._url);
+                        var result = __native_fetch(
+                            requestUrl, self._method,
+                            JSON.stringify(self._headers),
+                            (body == null ? '' : String(body)),
+                            true
+                        );
                         var parsed = JSON.parse(result);
                         self.status      = parsed.status      || 0;
                         self.statusText  = parsed.statusText  || '';
@@ -1311,13 +1285,6 @@ object NuvioRuntime {
                         }
                         self.responseText = rawBody;
                         self.readyState   = 4; // DONE
-                        // Compact HTTP response trace — visible as lastLog in the stream picker.
-                        // Format: "[rsp] METHOD /path/... → STATUS body_preview"
-                        try {
-                            var _rspPath = requestUrl.replace(/^https?:\/\/[^\/]+/, '').substring(0, 50);
-                            var _rspBody = String(rawBody || '').substring(0, 55);
-                            console.log('[rsp] ' + (self._method||'?') + ' ' + _rspPath + ' \u2192 ' + self.status + ' ' + _rspBody);
-                        } catch(_rspErr) {}
                         if (typeof self.onreadystatechange === 'function') {
                             try { self.onreadystatechange(); } catch(e) {}
                         }
