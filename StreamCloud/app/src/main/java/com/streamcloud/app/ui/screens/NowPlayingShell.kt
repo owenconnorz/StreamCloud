@@ -272,11 +272,14 @@ fun NowPlayingShell(
     }
 
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, isMusicVideo, videoStreamUrl) {
+    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, isMusicVideo, videoStreamUrl, showVideoPlayer) {
         canvasUrl = null
         // Only skip canvas when a music video stream is confirmed and ready — if the video
         // player failed to resolve a stream, fall back to canvas instead of showing nothing.
-        val hasWorkingVideo = isMusicVideo == true && videoStreamUrl != null
+        // Only suppress canvas when the music video player is actively on screen.
+        // Resolving a stream URL in the background should not hide the canvas —
+        // the user controls whether to open the video player via the PlayCircle badge.
+        val hasWorkingVideo = showVideoPlayer && videoStreamUrl != null
         if (!canvasEnabled || title.isBlank() || videoId.isBlank() ||
             spotifyCookie.isBlank() || hasWorkingVideo) return@LaunchedEffect
         canvasUrl = runCatching {
