@@ -2377,8 +2377,26 @@ object NuvioRuntime {
 
 
 
-    private fun jsString(s: String): String =
-        "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    private fun jsString(s: String): String = buildString {
+        append('"')
+        for (ch in s) {
+            when (ch) {
+                '\'    -> append("\\\\")
+                '"'     -> append("\\\"")
+                '\n'   -> append("\\n")
+                '\r'   -> append("\\r")
+                '\t'   -> append("\\t")
+                '\b'   -> append("\\b")
+                '\u000C' -> append("\\f")
+                else    -> if (ch.code < 0x20 || ch == '\u2028' || ch == '\u2029') {
+                    append("\\u%04x".format(ch.code))
+                } else {
+                    append(ch)
+                }
+            }
+        }
+        append('"')
+    }
 
     private fun parseHeaders(headersJson: String): Map<String, String> = runCatching {
         val obj = kotlinx.serialization.json.Json.parseToJsonElement(headersJson) as?
