@@ -6,7 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -376,35 +378,63 @@ fun StreamPickerOverlay(
                 }
             }
 
+            // Provider filter chips (All + one per provider) – pill-style like Nuvio
             if (tabs.size > 1) {
-                ScrollableTabRow(
-                    selectedTabIndex = safeTab,
-                    containerColor = MaterialTheme.colorScheme.background,
-                    contentColor = MaterialTheme.colorScheme.onBackground,
-                    edgePadding = 8.dp,
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    tabs.forEachIndexed { i, tab ->
-                        Tab(
-                            selected = i == safeTab,
-                            onClick = { selectedTab = i },
-                            text = {
-                                Text(
-                                    tab,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontWeight = if (i == safeTab) FontWeight.Bold else FontWeight.Normal,
+                    itemsIndexed(tabs) { i, tab ->
+                        val isSelected = i == safeTab
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary
+                                    else Color.White.copy(alpha = 0.14f)
                                 )
-                            },
+                                .clickable { selectedTab = i }
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                tab,
+                                color = Color.White,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // When no streams have arrived yet, show Nuvio-style centred loading state
+            if (isAnyLoading && allSources.isEmpty()) {
+                Box(
+                    Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(42.dp),
+                            strokeWidth = 3.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.height(18.dp))
+                        Text(
+                            "Finding streams…",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium,
                         )
                     }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-            }
-
+            } else {
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxWidth().weight(1f),
             ) {
                 visibleGroups.forEach { (key, addonName, groupState) ->
                     if (safeTab == 0) {
@@ -501,6 +531,7 @@ fun StreamPickerOverlay(
 
                 item { Spacer(Modifier.height(24.dp)) }
             }
+            } // end else (streams visible)
         }
     }
 }
