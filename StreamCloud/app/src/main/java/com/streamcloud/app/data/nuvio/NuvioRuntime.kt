@@ -187,6 +187,17 @@ object NuvioRuntime {
                                 __capture_result('[]');
                                 return;
                             }
+                            // Wrap __fn so any silent exit is logged:
+                            // "pre-call" appears if __fn is invoked.
+                            // "post-call N" appears if __fn resolves (N = result length).
+                            // No "post-call" → __fn hung or threw (caught by outer catch).
+                            var __origFn = __fn;
+                            __fn = async function() {
+                                console.log('[runtime] pre-call type=' + $mediaTypeArg + ' req0=' + (typeof __native_fetch));
+                                var __r = await __origFn.apply(this, arguments);
+                                console.log('[runtime] post-call len=' + (__r ? __r.length : -1));
+                                return __r;
+                            };
                             var __result = await __fn($tmdbIdArg, $mediaTypeArg, $seasonArg, $episodeArg);
                             __capture_result(JSON.stringify(__result || []));
                         } catch (__e) {
