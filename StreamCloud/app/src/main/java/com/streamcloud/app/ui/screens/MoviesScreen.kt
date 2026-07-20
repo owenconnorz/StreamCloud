@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
+import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -83,6 +84,7 @@ fun MoviesScreen(
     val state by vm.state.collectAsState()
     val settingsRepo = remember { SettingsRepository(context) }
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
+    val moviesThemeName by settingsRepo.moviesTheme.collectAsState(initial = "violet")
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
@@ -103,6 +105,7 @@ fun MoviesScreen(
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    MoviesThemeWrapper(moviesThemeName) {
     val bgTintColor by AlbumArtThemeBus.bgTint.collectAsState()
     Box(Modifier.fillMaxSize().background(bgTintColor)) {
         LazyColumn(
@@ -464,6 +467,7 @@ fun MoviesScreen(
             hasPlugins = state.installedPlugins.isNotEmpty(),
         )
     }
+    } // MoviesThemeWrapper
 }
 
 @Composable
