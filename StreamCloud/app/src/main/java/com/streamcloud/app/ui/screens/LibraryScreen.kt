@@ -65,8 +65,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -815,7 +813,6 @@ private fun LocalPlaylistGridTile(
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showThumbSheet by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val pickMedia = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -843,59 +840,27 @@ private fun LocalPlaylistGridTile(
         )
     }
     if (showThumbSheet) {
-        ModalBottomSheet(
+        AlertDialog(
             onDismissRequest = { showThumbSheet = false },
-            sheetState = sheetState,
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 32.dp),
-            ) {
-                // Sheet header — puts visual space between the drag handle and
-                // the first option so a tap on the pencil button can never
-                // accidentally land on "Choose from library".
-                Text(
-                    "Playlist thumbnail",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                )
-                HorizontalDivider()
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            // Do NOT close sheet before launching — keep the sheet visible
-                            // so the user can see it before the picker covers the screen.
-                            // showThumbSheet = false is handled in the launcher callback.
-                            pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        }
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
-                    Text("Choose from library", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-                }
+            title = { Text("Playlist thumbnail") },
+            text = { Text("Choose what to do with this playlist's cover image.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showThumbSheet = false
+                    pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Text("Choose from library") }
+            },
+            dismissButton = {
                 if (!customThumb.isNullOrBlank()) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onSetThumb(null)
-                                showThumbSheet = false
-                            }
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        Text("Remove custom image", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
-                    }
+                    TextButton(onClick = {
+                        onSetThumb(null)
+                        showThumbSheet = false
+                    }) { Text("Remove image", color = MaterialTheme.colorScheme.error) }
+                } else {
+                    TextButton(onClick = { showThumbSheet = false }) { Text("Cancel") }
                 }
-            }
-        }
+            },
+        )
     }
     Column(
         modifier = Modifier.clickable { },
