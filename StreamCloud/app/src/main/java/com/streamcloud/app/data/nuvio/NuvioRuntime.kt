@@ -2385,7 +2385,7 @@ object NuvioRuntime {
         append('"')
         for (ch in s) {
             when (ch) {
-                '\'    -> append("\\\\")
+                '\\'   -> append("\\\\")
                 '"'     -> append("\\\"")
                 '\n'   -> append("\\n")
                 '\r'   -> append("\\r")
