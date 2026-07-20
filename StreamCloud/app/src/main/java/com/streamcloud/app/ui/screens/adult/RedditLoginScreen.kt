@@ -103,17 +103,17 @@ fun RedditLoginScreen(
                 )
             }
 
-            if (pageLoading) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = Color(0xFFFF4500),
-                )
-            }
-
-            // ── WebView ──────────────────────────────────────────────────
+            // ── WebView + floating progress bar ─────────────────────────
+            // NOTE: The progress bar is an overlay inside a Box rather than
+            // a sibling above the AndroidView in a Column. If it were a
+            // Column sibling, every pageLoading flip would shift the layout,
+            // which steals WebView focus and instantly dismisses the keyboard.
+            Box(Modifier.fillMaxSize()) {
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).apply {
+                        isFocusable = true
+                        isFocusableInTouchMode = true
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.loadWithOverviewMode = true
@@ -168,6 +168,17 @@ fun RedditLoginScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
+
+            // Progress bar floats at the top edge — never changes WebView layout
+            if (pageLoading) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopStart),
+                    color = Color(0xFFFF4500),
+                )
+            }
+            } // end Box (WebView + progress overlay)
         }
 
         // Spinner shown while fetching username after login
