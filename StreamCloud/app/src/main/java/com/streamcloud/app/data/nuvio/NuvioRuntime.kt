@@ -159,18 +159,17 @@ object NuvioRuntime {
                 """.trimIndent())
 
                 // Step B: run plugin code — module/exports as globals (NuvioMobile pattern).
-                //         PRIMARY_KEY, TMDB_API_KEY, SCRAPER_SETTINGS, SCRAPER_ID, params are passed
-                //         as NAMED PARAMETERS so that `var PRIMARY_KEY = PRIMARY_KEY || ''` inside
-                //         the provider sees the PARAMETER value (truthy), not the hoisted-undefined
-                //         local binding.  fetch/require/cheerio/CryptoJS remain as globals.
+                //         Only PRIMARY_KEY is a named parameter, defeating `var PRIMARY_KEY = PRIMARY_KEY || ''`
+                //         hoisting trap (var re-declares fine, and RHS reads the parameter value, not undefined).
+                //         TMDB_API_KEY and others are NOT parameters: some providers redeclare them with const/let
+                //         which would throw SyntaxError if they were also parameters (e.g. VixSrc).
                 evaluate<Any?>(buildString {
                     appendLine("var module = { exports: {} };")
                     appendLine("var exports = module.exports;")
-                    appendLine("(function(PRIMARY_KEY, TMDB_API_KEY, SCRAPER_SETTINGS, SCRAPER_ID, params) {")
+                    appendLine("(function(PRIMARY_KEY) {")
                     append(scriptText.trimStart('﻿'))
                     appendLine()
-                    appendLine("})(globalThis.PRIMARY_KEY, globalThis.TMDB_API_KEY,")
-                    appendLine("  globalThis.SCRAPER_SETTINGS, globalThis.SCRAPER_ID, globalThis.params);")
+                    appendLine("})(globalThis.PRIMARY_KEY);")
                 })
 
                 // Step C: call getStreams with async/await — NuvioMobile's exact async IIFE pattern.
