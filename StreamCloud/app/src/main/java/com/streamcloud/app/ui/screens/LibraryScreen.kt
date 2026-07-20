@@ -815,7 +815,7 @@ private fun LocalPlaylistGridTile(
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showThumbSheet by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val pickMedia = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -852,11 +852,23 @@ private fun LocalPlaylistGridTile(
                     .fillMaxWidth()
                     .padding(bottom = 32.dp),
             ) {
+                // Sheet header — puts visual space between the drag handle and
+                // the first option so a tap on the pencil button can never
+                // accidentally land on "Choose from library".
+                Text(
+                    "Playlist thumbnail",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                )
+                HorizontalDivider()
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .clickable {
-                            showThumbSheet = false
+                            // Do NOT close sheet before launching — keep the sheet visible
+                            // so the user can see it before the picker covers the screen.
+                            // showThumbSheet = false is handled in the launcher callback.
                             pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         }
                         .padding(horizontal = 20.dp, vertical = 16.dp),
