@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.streamcloud.app.data.SettingsRepository
+import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.viewmodel.CsSearchResult
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.ui.viewmodel.StremioSearchResult
@@ -45,6 +47,8 @@ fun MovieSearchScreen(
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
     val state by vm.state.collectAsState()
+    val settingsRepo = remember { SettingsRepository(context) }
+    val moviesThemeName by settingsRepo.moviesTheme.collectAsState(initial = "violet")
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
 
@@ -59,6 +63,7 @@ fun MovieSearchScreen(
         }
     }
 
+    MoviesThemeWrapper(moviesThemeName) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -275,6 +280,7 @@ private fun CombinedResultsList(
             }
         }
     }
+    } // MoviesThemeWrapper
 }
 
 @Composable
