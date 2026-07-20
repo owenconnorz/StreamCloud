@@ -45,6 +45,7 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
+import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.player.StreamCacheRepository
 import com.streamcloud.app.player.WatchProgressKey
 import com.lagradost.cloudstream3.AnimeLoadResponse
@@ -77,6 +78,7 @@ fun MovieDetailScreen(
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
     val scope = rememberCoroutineScope()
+    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
 
     var movie by remember { mutableStateOf<TmdbMovie?>(null) }
     var videos by remember { mutableStateOf<List<TmdbVideo>>(emptyList()) }
@@ -233,6 +235,7 @@ fun MovieDetailScreen(
         }
     }
 
+    MoviesThemeWrapper(moviesThemeName) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Box(Modifier.fillMaxWidth().height(280.dp)) {
@@ -796,6 +799,7 @@ fun MovieDetailScreen(
             },
         )
     }
+    } // MoviesThemeWrapper
 }
 
 @Composable
