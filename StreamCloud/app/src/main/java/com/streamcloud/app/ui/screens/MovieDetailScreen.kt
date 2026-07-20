@@ -152,7 +152,7 @@ fun MovieDetailScreen(
     }
 
     fun playMovie() {
-        val tt = imdbId ?: run {
+        imdbId ?: run {
             resolverMessage = "Loading IMDB id… try again in a second."
             return
         }
@@ -160,96 +160,11 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed. Add some from Settings → Plugins."
             return
         }
-        if (resolving) return
-        resolving = true
         resolverMessage = null
         pickerSeason = null
         pickerEpisode = null
         pickerEpTitle = null
-        resolutionJob?.cancel()
-        val job = scope.launch {
-            try {
-                val movieTitle = movie?.displayTitle.orEmpty()
-                val movieYear  = movie?.year()
-                val eligibleCs = installedCsPlugins.filter { plugin ->
-                    !plugin.isAdultPlugin() && run {
-                        val types = plugin.tvTypes
-                        types == null || types.any { t ->
-                            val lt = t.lowercase()
-                            lt.contains("movie") || lt == "others" || lt == "live"
-                        }
-                    }
-                }
-
-                val stremioJobs = installedAddons.map { addon ->
-                    async(Dispatchers.IO) {
-                        withTimeoutOrNull(20_000L) {
-                            runCatching {
-                                val seen = mutableSetOf<String>()
-                                buildList {
-                                    if (tt.isNotBlank()) add(tt)
-                                    if (!tt.startsWith("tmdb:")) add("tmdb:$movieId")
-                                }.flatMap { id ->
-                                    sl.stremio.fetchStreams(addon, "movie", id)
-                                        .mapNotNull { it.toPlayerSource(addon) }
-                                }.filter { seen.add(it.url) }
-                            }.getOrElse { emptyList() }
-                        } ?: emptyList()
-                    }
-                }
-                val nuvioJob = if (installedNuvio.isNotEmpty()) {
-                    async(Dispatchers.IO) {
-                        withTimeoutOrNull(60_000L) {
-                            runCatching {
-                                sl.nuvio.resolveAll(movieId.toString(), mediaType, imdbId = tt)
-                                    .map { (provider, stream) -> stream.toPlayerSource(provider) }
-                            }.getOrElse { emptyList() }
-                        } ?: emptyList()
-                    }
-                } else null
-                val csJobs = eligibleCs.map { plugin ->
-                    async(Dispatchers.IO) {
-                        withTimeoutOrNull(30_000L) {
-                            resolveCsPluginForMovie(context, plugin, movieTitle, movieYear)
-                        } ?: emptyList()
-                    }
-                }
-
-                val allSources = (stremioJobs + listOfNotNull(nuvioJob) + csJobs)
-                    .awaitAll().flatten()
-
-                if (allSources.isEmpty()) {
-                    resolverMessage = "No streams found. Check your plugins in Settings or try again."
-                    return@launch
-                }
-
-                fun score(s: PlayerSource): Int {
-                    val q = when (s.qualityTag) {
-                        "4K" -> 5; "1440p" -> 4; "1080p" -> 3; "720p" -> 2; "480p" -> 1; else -> 0
-                    }
-                    return q * 10 + if (!s.isMagnet) 1 else 0
-                }
-                val sorted = allSources.sortedByDescending { score(it) }
-                val best   = sorted.first()
-
-                val m            = movie
-                val displayTitle = m?.displayTitle ?: "Playback"
-                val progressKey  = WatchProgressKey(
-                    tmdbId    = movieId,
-                    title     = displayTitle,
-                    posterUrl = m?.posterUrl ?: m?.backdropUrl,
-                    mediaType = mediaType,
-                )
-                onPlay(best.url, displayTitle, sorted, progressKey)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                resolverMessage = "Error finding streams: ${e.message}"
-            } finally {
-                resolving = false
-            }
-        }
-        resolutionJob = job
+        showStreamPicker = true
     }
 
     fun playEpisode(seasonNum: Int, episodeNum: Int, episodeTitle: String?) {
