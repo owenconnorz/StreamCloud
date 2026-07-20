@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.streamcloud.app.data.network.Net
+import com.streamcloud.app.data.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -39,6 +40,9 @@ class NuvioRepository(private val context: Context) {
 
     private fun cacheDir(): File =
         File(context.filesDir, "nuvio").apply { mkdirs() }
+
+    private suspend fun backendProxyUrl(): String? =
+        SettingsRepository(context).backendUrl.first().trim().takeIf { it.isNotBlank() }
 
     val installed: Flow<List<InstalledNuvioProvider>> = context.nuvioStore.data.map { prefs ->
         prefs[KEY_INSTALLED]?.let {
@@ -145,6 +149,7 @@ class NuvioRepository(private val context: Context) {
                     scriptKey = provider.id,
                     context = context,
                     filePath = provider.filePath,
+                    proxyBaseUrl = backendProxyUrl(),
                 )
                 streams.map { provider to it }
             }
@@ -219,6 +224,7 @@ class NuvioRepository(private val context: Context) {
             scriptKey = provider.id,
             context = context,
             filePath = provider.filePath,
+            proxyBaseUrl = backendProxyUrl(),
         )
     }
 
@@ -246,6 +252,7 @@ class NuvioRepository(private val context: Context) {
                 scriptKey = "test__${provider.id}",
                 context = context,
                 filePath = provider.filePath,
+                proxyBaseUrl = backendProxyUrl(),
             )
             streams.size to null
         } catch (e: Exception) {
