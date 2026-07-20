@@ -149,6 +149,7 @@ fun MovieSearchScreen(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -280,7 +281,6 @@ private fun CombinedResultsList(
             }
         }
     }
-    } // MoviesThemeWrapper
 }
 
 @Composable
