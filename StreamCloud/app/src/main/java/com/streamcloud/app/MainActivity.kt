@@ -5,7 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,7 +17,7 @@ import com.streamcloud.app.ui.StreamCloudApp
 import com.streamcloud.app.ui.theme.StreamCloudTheme
 import java.io.File
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {  }
