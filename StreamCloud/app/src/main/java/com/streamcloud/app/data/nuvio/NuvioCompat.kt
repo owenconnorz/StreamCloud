@@ -113,7 +113,6 @@ internal fun buildNuvioRequestHeaders(
     setIfMissing("User-Agent", NUVIO_DEFAULT_USER_AGENT)
     setIfMissing("Accept", "application/json, text/html, */*")
     setIfMissing("Accept-Language", "en-US,en;q=0.9")
-    setIfMissing("Accept-Encoding", "gzip, deflate")
     setIfMissing("Cache-Control", "no-cache")
     setIfMissing("Pragma", "no-cache")
     setIfMissing("Referer", origin?.plus("/"))
