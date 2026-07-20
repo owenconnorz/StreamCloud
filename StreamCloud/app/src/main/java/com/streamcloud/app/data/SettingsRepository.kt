@@ -44,6 +44,7 @@ object SettingsKeys {
     val REDDIT_USERNAME     = stringPreferencesKey("reddit_username")
     val REDDIT_ACCOUNTS_RAW = stringPreferencesKey("reddit_accounts_raw")
     val COLOR_PALETTE = stringPreferencesKey("color_palette")
+    val MOVIES_THEME = stringPreferencesKey("movies_theme")
 
 
     val HIGH_REFRESH_RATE       = booleanPreferencesKey("high_refresh_rate")
@@ -217,6 +218,9 @@ class SettingsRepository(private val context: Context) {
 
     val colorPalette: Flow<String> = context.dataStore.data.map { it[SettingsKeys.COLOR_PALETTE] ?: "default" }
     suspend fun setColorPalette(s: String) = context.dataStore.edit { it[SettingsKeys.COLOR_PALETTE] = s }
+
+    val moviesTheme: Flow<String> = context.dataStore.data.map { it[SettingsKeys.MOVIES_THEME] ?: "violet" }
+    suspend fun setMoviesTheme(s: String) = context.dataStore.edit { it[SettingsKeys.MOVIES_THEME] = s }
 
 
     val adultRedditSubsCsv: Flow<String> = context.dataStore.data.map {
