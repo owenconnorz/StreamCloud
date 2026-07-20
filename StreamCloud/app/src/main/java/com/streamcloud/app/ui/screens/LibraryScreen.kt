@@ -59,6 +59,13 @@ import com.streamcloud.app.data.ytmusic.YtmSong
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import kotlinx.coroutines.Dispatchers
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -377,6 +384,9 @@ fun LibraryScreen(
                                         dao.clearPlaylistTracks(pl.id)
                                         dao.deletePlaylist(pl.id)
                                     }
+                                },
+                                onSetThumb = { uri ->
+                                    scope.launch { sl.settings.setPlaylistThumb(pl.id.toString(), uri) }
                                 },
                             )
                         }
@@ -793,13 +803,31 @@ private fun LocalSystemTile(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LocalPlaylistGridTile(
     name: String,
     customThumb: String?,
     onDelete: () -> Unit,
+    onSetThumb: (String?) -> Unit,
 ) {
+    val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showThumbSheet by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val pickMedia = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            onSetThumb(uri.toString())
+        }
+        showThumbSheet = false
+    }
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
@@ -812,6 +840,49 @@ private fun LocalPlaylistGridTile(
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
             },
         )
+    }
+    if (showThumbSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showThumbSheet = false },
+            sheetState = sheetState,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
+            ) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showThumbSheet = false
+                            pickMedia.launch(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        }
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+                    Text("Choose from library", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                }
+                if (!customThumb.isNullOrBlank()) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSetThumb(null)
+                                showThumbSheet = false
+                            }
+                            .padding(horizontal = 20.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Text("Remove custom image", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
     }
     Column(
         modifier = Modifier.clickable { },
@@ -837,6 +908,21 @@ private fun LocalPlaylistGridTile(
                     contentDescription = name,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(48.dp),
+                )
+            }
+            IconButton(
+                onClick = { showThumbSheet = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+            ) {
+                Icon(
+                    Icons.Default.Edit, "Edit thumbnail",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(16.dp),
                 )
             }
             IconButton(
