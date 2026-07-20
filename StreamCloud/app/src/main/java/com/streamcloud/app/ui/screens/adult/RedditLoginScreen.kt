@@ -7,8 +7,12 @@ import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.app.Activity
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -46,6 +50,19 @@ fun RedditLoginScreen(
     var fetchingName   by remember { mutableStateOf(false) }
 
     BackHandler(onBack = onBack)
+
+    // enableEdgeToEdge() in MainActivity disables the manifest windowSoftInputMode,
+    // so we must set ADJUST_RESIZE programmatically for this screen only.
+    // Without it the keyboard dismisses instantly inside the WebView on every device.
+    val activity = LocalContext.current as Activity
+    DisposableEffect(Unit) {
+        val prev = activity.window.attributes.softInputMode
+        @Suppress("DEPRECATION")
+        activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        onDispose {
+            activity.window.setSoftInputMode(prev)
+        }
+    }
 
     // Once WebView signals a successful login, fetch the username in the background.
     LaunchedEffect(loginDetected) {
