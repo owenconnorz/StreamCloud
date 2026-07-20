@@ -93,6 +93,7 @@ object NuvioRuntime {
         scriptKey: String = "default",
         context: Context? = null,
         filePath: String? = null,
+        proxyBaseUrl: String? = null,
     ): List<NuvioStream> {
         val documentCache = mutableMapOf<String, Document>()
         val elementCache = mutableMapOf<String, Element>()
@@ -109,7 +110,7 @@ object NuvioRuntime {
             withTimeoutOrNull(90_000L) {
             quickJs(Dispatchers.IO) {
                 installConsole(scriptKey)
-                installFetchBridge(context, scriptKey)
+                installFetchBridge(context, scriptKey, proxyBaseUrl)
                 installCryptoBindings()
                 installUrlBinding()
                 installCheerioBindings(documentCache, elementCache, idCounter)
@@ -297,7 +298,7 @@ object NuvioRuntime {
 
 
 
-    private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?, scriptKey: String) {
+    private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?, scriptKey: String, proxyBaseUrl: String? = null) {
         // performFetchSync is a fully blocking, non-suspend function — it calls
         // OkHttp's .execute() directly so no coroutine or runBlocking wrapper is
         // needed here.  Keeping this as a plain function() (not asyncFunction) means
@@ -321,7 +322,7 @@ object NuvioRuntime {
                     exitedEarly = false,
                 )
             }
-            val result = performFetchSync(url, method, headersJson, body, followRedirects, context)
+            val result = performFetchSync(url, method, headersJson, body, followRedirects, context, proxyBaseUrl)
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
             // Providers that silently return [] on !response.ok would otherwise show only the
             // generic "provider returned empty list" message — with this we show the real cause.
@@ -480,7 +481,13 @@ object NuvioRuntime {
         body: String,
         followRedirects: Boolean,
         context: Context? = null,
+        proxyBaseUrl: String? = null,
     ): String {
+        if (!proxyBaseUrl.isNullOrBlank()) {
+            val sanitizedForProxy = sanitizeNuvioUrlScheme(url)
+            if (sanitizedForProxy != url) Log.w(TAG, "proxyFetch: corrected URL scheme '$url' → '$sanitizedForProxy'")
+            return performFetchViaProxy(proxyBaseUrl, sanitizedForProxy, method, headersJson, body)
+        }
         return try {
             // Fix URL scheme typos (e.g. nttps:// → https://) before handing to OkHttp.
             val sanitizedUrl = sanitizeNuvioUrlScheme(url)
@@ -2447,6 +2454,46 @@ object NuvioRuntime {
         }
         fun build(): String { sb.append('}'); return sb.toString() }
     }
+    private fun performFetchViaProxy(
+        proxyBaseUrl: String,
+        url: String,
+        method: String,
+        headersJson: String,
+        body: String,
+    ): String {
+        val proxyUrl = "${proxyBaseUrl.trimEnd('/')}/nuvio-proxy"
+        return try {
+            val J = kotlinx.serialization.json.Json
+            val hdrsElement = runCatching { J.parseToJsonElement(headersJson) }
+                .getOrElse { kotlinx.serialization.json.buildJsonObject {} }
+            val payload = kotlinx.serialization.json.buildJsonObject {
+                put("url", kotlinx.serialization.json.JsonPrimitive(url))
+                put("method", kotlinx.serialization.json.JsonPrimitive(method))
+                put("headers", hdrsElement)
+                put("body", kotlinx.serialization.json.JsonPrimitive(body))
+                put("follow_redirects", kotlinx.serialization.json.JsonPrimitive(true))
+            }.toString()
+            val req = Request.Builder()
+                .url(proxyUrl)
+                .header("Content-Type", "application/json")
+                .post(payload.toByteArray(Charsets.UTF_8).toRequestBody())
+                .build()
+            http.newCall(req).execute().use { resp ->
+                resp.bodyText().stripLeadingBom()
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "proxyFetch($url) via $proxyUrl failed: ${t.message}")
+            buildJson {
+                put("ok", false)
+                put("status", 0)
+                put("statusText", t.message ?: "Proxy fetch failed")
+                put("url", url)
+                put("body", "")
+                put("headers", emptyMap<String, String>())
+            }
+        }
+    }
+
     private fun buildJson(block: JsonBuilder.() -> Unit): String = JsonBuilder().also(block).build()
 
     /**
