@@ -158,15 +158,19 @@ object NuvioRuntime {
                     };
                 """.trimIndent())
 
-                // Step B: run plugin code — module/exports in global scope, no IIFE shadowing.
-                //         NuvioMobile does exactly this: var module = { exports:{} } then (function(){code})()
+                // Step B: run plugin code — module/exports as globals (NuvioMobile pattern).
+                //         PRIMARY_KEY, TMDB_API_KEY, SCRAPER_SETTINGS, SCRAPER_ID, params are passed
+                //         as NAMED PARAMETERS so that `var PRIMARY_KEY = PRIMARY_KEY || ''` inside
+                //         the provider sees the PARAMETER value (truthy), not the hoisted-undefined
+                //         local binding.  fetch/require/cheerio/CryptoJS remain as globals.
                 evaluate<Any?>(buildString {
                     appendLine("var module = { exports: {} };")
                     appendLine("var exports = module.exports;")
-                    appendLine("(function() {")
+                    appendLine("(function(PRIMARY_KEY, TMDB_API_KEY, SCRAPER_SETTINGS, SCRAPER_ID, params) {")
                     append(scriptText.trimStart('﻿'))
                     appendLine()
-                    appendLine("})();")
+                    appendLine("})(globalThis.PRIMARY_KEY, globalThis.TMDB_API_KEY,")
+                    appendLine("  globalThis.SCRAPER_SETTINGS, globalThis.SCRAPER_ID, globalThis.params);")
                 })
 
                 // Step C: call getStreams with async/await — NuvioMobile's exact async IIFE pattern.
