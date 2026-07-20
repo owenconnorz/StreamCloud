@@ -415,7 +415,7 @@ object NuvioRuntime {
 
             client.newCall(req).execute().use { resp ->
                 val respCode = resp.code
-                val respBody = resp.body?.string().orEmpty()
+                val respBody = resp.bodyText()
                 val respMultimap = resp.headers.toMultimap()
 
                 // Cloudflare challenge — try WebView bypass and retry once
@@ -424,7 +424,7 @@ object NuvioRuntime {
                     val bypassed = CloudflareKiller.bypass(context, url, ua, BrowserCookieJar)
                     if (bypassed) {
                         return client.newCall(req).execute().use { r2 ->
-                            val raw2 = r2.body?.string().orEmpty()
+                            val raw2 = r2.bodyText()
                             val text2 = if (raw2.length > MAX_FETCH_BODY_CHARS) {
                                 Log.w(TAG, "performFetch CF-retry: response truncated ${raw2.length} → $MAX_FETCH_BODY_CHARS chars for $url")
                                 raw2.substring(0, MAX_FETCH_BODY_CHARS)
@@ -520,7 +520,7 @@ object NuvioRuntime {
 
             client.newCall(req).execute().use { resp ->
                 val respCode = resp.code
-                val respBody = resp.body?.string().orEmpty()
+                val respBody = resp.bodyText()
                 val respMultimap = resp.headers.toMultimap()
 
                 // Cloudflare challenge — WebView bypass requires Dispatchers.Main.
@@ -534,7 +534,7 @@ object NuvioRuntime {
                     }
                     if (bypassed) {
                         return client.newCall(req).execute().use { r2 ->
-                            val raw2 = r2.body?.string().orEmpty()
+                            val raw2 = r2.bodyText()
                             val text2 = if (raw2.length > MAX_FETCH_BODY_CHARS) {
                                 Log.w(TAG, "fetchSync CF-retry: response truncated ${raw2.length} → $MAX_FETCH_BODY_CHARS chars for $url")
                                 raw2.substring(0, MAX_FETCH_BODY_CHARS)
@@ -573,7 +573,7 @@ object NuvioRuntime {
                         method(method, requestBody)
                     }.build()
                     client.newCall(fallbackReq).execute().use { fallbackResp ->
-                        val fallbackRaw = fallbackResp.body?.string().orEmpty()
+                        val fallbackRaw = fallbackResp.bodyText()
                         val fallbackText = if (fallbackRaw.length > MAX_FETCH_BODY_CHARS) {
                             Log.w(TAG, "fetchSync fallback: response truncated ${fallbackRaw.length} → $MAX_FETCH_BODY_CHARS chars for $tmdbFallbackUrl")
                             fallbackRaw.substring(0, MAX_FETCH_BODY_CHARS)
@@ -2434,6 +2434,29 @@ object NuvioRuntime {
         fun build(): String { sb.append('}'); return sb.toString() }
     }
     private fun buildJson(block: JsonBuilder.() -> Unit): String = JsonBuilder().also(block).build()
+
+    /**
+     * Reads the response body as a UTF-8 string, transparently decompressing
+     * gzip-encoded bodies.  OkHttp only auto-decompresses when it added the
+     * Accept-Encoding header itself; when the header was set manually (by a
+     * provider), the raw compressed bytes are returned.  This helper handles
+     * both cases so provider scripts always receive readable text.
+     */
+    private fun okhttp3.Response.bodyText(): String {
+        val body = this.body ?: return ""
+        val enc  = this.header("Content-Encoding") ?: ""
+        return if (enc.equals("gzip", ignoreCase = true) || enc.equals("x-gzip", ignoreCase = true)) {
+            try {
+                java.util.zip.GZIPInputStream(body.byteStream())
+                    .bufferedReader(Charsets.UTF_8)
+                    .use { it.readText() }
+            } catch (e: Exception) {
+                Log.w(TAG, "GZIP decompress failed for ${this.request.url}: ${e.message}")
+                ""
+            }
+        } else body.string()
+    }
+
 
 
     private fun String.looksLikeUrl(): Boolean {
