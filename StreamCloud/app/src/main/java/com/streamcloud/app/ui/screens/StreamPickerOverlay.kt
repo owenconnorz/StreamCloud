@@ -249,10 +249,13 @@ fun StreamPickerOverlay(
         groupOrder.mapNotNull { (key, _) -> groups[key]?.streams }.flatten()
     }
 
-    val addonTabs = remember(groups) {
+    val addonTabs = remember(groups, eligibleCs) {
+        val csKeys = eligibleCs.map { "cs:${it.internalName}" }.toSet()
         groupOrder.mapNotNull { (key, name) ->
             val g = groups[key]
-            if (g != null && (g.isLoading || g.streams.isNotEmpty())) name else null
+            // CS plugin tabs always stay visible (even with 0 streams) so the user can
+            // see the error. Other provider types only appear while loading or with streams.
+            if (g != null && (g.isLoading || g.streams.isNotEmpty() || key in csKeys)) name else null
         }.distinct()
     }
     val tabs = remember(addonTabs) { listOf("All") + addonTabs }
@@ -461,19 +464,17 @@ fun StreamPickerOverlay(
                             )
                         }
                     } else if (groupState.streams.isEmpty()) {
-                        if (safeTab == 0) {
-                            item(key = "empty:$key") {
-                                val msg = groupState.error
-                                    ?.takeIf { it.isNotBlank() }
-                                    ?.let { "No streams — $it" }
-                                    ?: "No streams found"
-                                Text(
-                                    msg,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
-                                )
-                            }
+                        item(key = "empty:$key") {
+                            val msg = groupState.error
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { "No streams — $it" }
+                                ?: "No streams found"
+                            Text(
+                                msg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+                            )
                         }
                     } else {
                         val sections = groupState.streams.pickerInnerSections(addonName)
