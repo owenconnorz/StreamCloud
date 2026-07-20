@@ -141,91 +141,59 @@ object NuvioRuntime {
 
 
 
-                val directResult = evaluate<Any?>(buildString {
-                    // NuvioMobile passes fetch/PRIMARY_KEY/etc as named parameters to new Function()
-                    // so they are direct bindings inside the plugin, not global lookups.
-                    // We replicate that exactly: (function(module, exports, fetch, PRIMARY_KEY, ...) {
-                    //   ${code}
-                    //   return getStreams(...)
-                    // })(moduleObj, moduleExports, globalThis.fetch, primaryKey, ...)
-                    appendLine("(function(module, exports, fetch, PRIMARY_KEY, TMDB_API_KEY, SCRAPER_SETTINGS, SCRAPER_ID) {")
-                    appendLine("  // ── Globals — also set on globalScope for providers that read them as free vars ─")
-                    appendLine("  var params = {")
-                    appendLine("    tmdbId:       ${jsString(tmdbId)},")
-                    appendLine("    mediaType:    ${jsString(mediaType)},")
-                    appendLine("    season:       $seasonArg,")
-                    appendLine("    episode:      $episodeArg,")
-                    appendLine("    scraperId:    ${jsString(scriptKey)},")
-                    appendLine("    functionName: 'getStreams',")
-                    appendLine("    imdbId:       ${if (imdbId != null) jsString(imdbId) else "undefined"}")
-                    appendLine("  };")
-                    appendLine("  var globalScope = globalThis;")
-                    appendLine("  globalScope.PRIMARY_KEY      = PRIMARY_KEY;")
-                    appendLine("  globalScope.TMDB_API_KEY     = TMDB_API_KEY;")
-                    appendLine("  globalScope.SCRAPER_SETTINGS = SCRAPER_SETTINGS;")
-                    appendLine("  globalScope.SCRAPER_ID       = SCRAPER_ID;")
-                    appendLine("  globalScope.params           = params;")
-                    appendLine("  // ── Provider code — runs at function scope (same as NuvioMobile new Function) ──")
-                    append(scriptText.trimStart('\uFEFF'))
+                // ── NuvioMobile-Enhanced exact execution pattern ─────────────────────────────
+                // Step A: set per-call globals (params, PRIMARY_KEY, SCRAPER_ID, TMDB_API_KEY)
+                //         PRIMARY_KEY = scraperId makes it truthy — bypasses any !PRIMARY_KEY guard.
+                evaluate<Any?>("""
+                    globalThis.PRIMARY_KEY   = ${jsString(scriptKey)};
+                    globalThis.TMDB_API_KEY  = ${jsString(com.streamcloud.app.BuildConfig.TMDB_API_KEY)};
+                    globalThis.params = {
+                        tmdbId:       ${jsString(tmdbId)},
+                        mediaType:    ${jsString(mediaType)},
+                        season:       $seasonArg,
+                        episode:      $episodeArg,
+                        scraperId:    ${jsString(scriptKey)},
+                        functionName: 'getStreams',
+                        imdbId:       ${if (imdbId != null) jsString(imdbId) else "undefined"}
+                    };
+                """.trimIndent())
+
+                // Step B: run plugin code — module/exports in global scope, no IIFE shadowing.
+                //         NuvioMobile does exactly this: var module = { exports:{} } then (function(){code})()
+                evaluate<Any?>(buildString {
+                    appendLine("var module = { exports: {} };")
+                    appendLine("var exports = module.exports;")
+                    appendLine("(function() {")
+                    append(scriptText.trimStart('﻿'))
                     appendLine()
-                    appendLine("  // ── Locate getStreams (NuvioMobile 3-option lookup, exact order) ────────")
-                    appendLine("  var __fn = null;")
-                    appendLine("  if (typeof getStreams === 'function') {")
-                    appendLine("    __fn = getStreams;")
-                    appendLine("  } else if (module.exports && typeof module.exports.getStreams === 'function') {")
-                    appendLine("    __fn = module.exports.getStreams;")
-                    appendLine("  } else if (typeof globalThis.getStreams === 'function') {")
-                    appendLine("    __fn = globalThis.getStreams;")
-                    appendLine("  }")
-                    appendLine("  if (!__fn) {")
-                    appendLine("    console.error('[provider] getStreams not found. exports keys:', Object.keys(module.exports || {}).join(', '));")
-                    appendLine("    __capture_result('[]');")
-                    appendLine("    return '[]';")
-                    appendLine("  }")
-                    appendLine("  // ── Call (NuvioMobile exact convention) — wrapped for synchronous throw capture")
-                    appendLine("  var __result;")
-                    appendLine("  try {")
-                    appendLine("    __result = __fn(params.tmdbId, params.mediaType, params.season, params.episode);")
-                    appendLine("  } catch (__callErr) {")
-                    appendLine("    console.error('[provider] sync throw in getStreams:', (__callErr && __callErr.message) || String(__callErr));")
-                    appendLine("    __capture_result('[]');")
-                    appendLine("    return '[]';")
-                    appendLine("  }")
-                    // Diagnostic: log what __fn returned so picker shows it when generator never starts.
-                    // This is overwritten by provider's own console.log if the generator runs, or by
-                    // [rsp] logs if a fetch is made — either way the info is visible to the developer.
-                    appendLine("  (function(){")
-                    appendLine("    var __rt = typeof __result;")
-                    appendLine("    var __rv = __result == null ? String(__result)")
-                    appendLine("      : (typeof __result.then === 'function' ? 'Promise'")
-                    appendLine("      : (Array.isArray(__result) ? 'Array(' + __result.length + ')' : __rt));")
-                    appendLine("    console.log('[runtime] getStreams returned: ' + __rv);")
-                    appendLine("  })();")
-                    appendLine("  if (__result && typeof __result.then === 'function') {")
-                    appendLine("    __result.then(function(__arr) {")
-                    appendLine("      __capture_result(JSON.stringify(__arr || []));")
-                    appendLine("    }).catch(function(__e) {")
-                    appendLine("      console.error('[provider] async error in getStreams:', (__e && __e.message) || String(__e));")
-                    appendLine("      __capture_result('[]');")
-                    appendLine("    });")
-                    appendLine("    return __result;")
-                    appendLine("  } else {")
-                    appendLine("    var __r = JSON.stringify(__result || []);")
-                    appendLine("    __capture_result(__r);")
-                    appendLine("    return __r;")
-                    appendLine("  }")
-                    // Pass named args: module obj, exports alias, fetch (direct ref), PRIMARY_KEY (truthy),
-                    // TMDB_API_KEY, SCRAPER_SETTINGS, SCRAPER_ID  — matches NuvioMobile new Function args
-                    appendLine("})(")
-                    appendLine("  { exports: {} },")
-                    appendLine("  {},")
-                    appendLine("  globalThis.fetch,")
-                    appendLine("  'streamcloud',")
-                    appendLine("  ${jsString(com.streamcloud.app.BuildConfig.TMDB_API_KEY)},")
-                    appendLine("  {},")
-                    appendLine("  ${jsString(scriptKey)}")
-                    appendLine(")")
+                    appendLine("})();")
                 })
+
+                // Step C: call getStreams with async/await — NuvioMobile's exact async IIFE pattern.
+                //         await lets the QuickJS microtask queue drain naturally after each yield/fetch.
+                val tmdbIdArg  = jsString(tmdbId)
+                val mediaTypeArg = jsString(mediaType)
+                evaluate<Any?>("""
+                    (async function() {
+                        try {
+                            var __fn = (module.exports && module.exports.getStreams)
+                                    || globalThis.getStreams;
+                            if (typeof __fn !== 'function') {
+                                console.error('[provider] getStreams not found. module.exports keys:',
+                                    Object.keys(module.exports || {}).join(', '));
+                                __capture_result('[]');
+                                return;
+                            }
+                            var __result = await __fn($tmdbIdArg, $mediaTypeArg, $seasonArg, $episodeArg);
+                            __capture_result(JSON.stringify(__result || []));
+                        } catch (__e) {
+                            console.error('[provider] getStreams threw:', (__e && __e.message) || String(__e));
+                            __capture_result('[]');
+                        }
+                    })();
+                """.trimIndent())
+
+                val directResult: Any? = null  // captured via __capture_result, not evaluate return value
 
 
 
