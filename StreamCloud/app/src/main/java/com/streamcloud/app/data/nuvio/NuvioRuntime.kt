@@ -220,9 +220,14 @@ object NuvioRuntime {
                         } else ""
                     }
                     val fetchCount = fetchCountByScript[scriptKey]?.get() ?: 0
+                    // Include the last console.log message so providers that log
+                    // diagnostic info (e.g. "[PlayIMDb] Fetching: <url>") before
+                    // returning empty are visible in the stream picker UI.
+                    val lastLog = lastLogByScript[scriptKey]?.takeIf { it.isNotBlank() }
+                        ?.let { " · last log: " + it.take(200) }.orEmpty()
                     val noStreamsMsg = when {
-                        fetchCount == 0 -> "No requests made — provider may have exited early$rawPreview"
-                        else            -> "No streams found (provider returned empty list)$rawPreview"
+                        fetchCount == 0 -> "No requests made — provider may have exited early$rawPreview$lastLog"
+                        else            -> "No streams found (provider returned empty list)$rawPreview$lastLog"
                     }
                     setErrorState(
                         scriptKey = scriptKey,
