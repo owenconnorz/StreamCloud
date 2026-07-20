@@ -191,6 +191,16 @@ object NuvioRuntime {
                     appendLine("    __capture_result('[]');")
                     appendLine("    return '[]';")
                     appendLine("  }")
+                    // Diagnostic: log what __fn returned so picker shows it when generator never starts.
+                    // This is overwritten by provider's own console.log if the generator runs, or by
+                    // [rsp] logs if a fetch is made — either way the info is visible to the developer.
+                    appendLine("  (function(){")
+                    appendLine("    var __rt = typeof __result;")
+                    appendLine("    var __rv = __result == null ? String(__result)")
+                    appendLine("      : (typeof __result.then === 'function' ? 'Promise'")
+                    appendLine("      : (Array.isArray(__result) ? 'Array(' + __result.length + ')' : __rt));")
+                    appendLine("    console.log('[runtime] getStreams returned: ' + __rv);")
+                    appendLine("  })();")
                     appendLine("  if (__result && typeof __result.then === 'function') {")
                     appendLine("    __result.then(function(__arr) {")
                     appendLine("      __capture_result(JSON.stringify(__arr || []));")
