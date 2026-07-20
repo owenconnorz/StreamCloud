@@ -76,7 +76,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.streamcloud.app.ui.theme.AllMoviesThemes
+import com.streamcloud.app.ui.theme.MoviesThemePicker
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -173,6 +176,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var loudnessNorm        by remember { mutableStateOf(false) }
     var canvasEnabled       by remember { mutableStateOf(false) }
     var posterStyle         by remember { mutableStateOf("portrait") }
+    var moviesTheme         by remember { mutableStateOf("violet") }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
     var smartTrimmer        by remember { mutableStateOf(false) }
     var videoCacheMaxMb     by remember { mutableStateOf("unlimited") }
@@ -236,6 +240,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         loudnessNorm        = sl.settings.loudnessNormalization.first()
         canvasEnabled       = sl.settings.canvasEnabled.first()
         posterStyle         = sl.settings.posterStyle.first()
+        moviesTheme         = sl.settings.moviesTheme.first()
         safeSearch          = sl.settings.safeSearch.first()
         explicitContent     = sl.settings.explicitContent.first()
         contentLanguage     = sl.settings.contentLanguage.first()
@@ -442,6 +447,17 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                             }
                         }
                     }
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie theme")
+                    MoviesThemePicker(
+                        selected = moviesTheme,
+                        onSelect = { id ->
+                            moviesTheme = id
+                            scope.launch { sl.settings.setMoviesTheme(id) }
+                        },
+                    )
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
