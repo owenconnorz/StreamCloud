@@ -24,8 +24,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "NuvioAccountService"
-internal const val SUPABASE_URL = "https://dpyhjjcoabcglfmgecug.supabase.co"
-internal const val SUPABASE_ANON_KEY = "sb_publishable_zcNkgqGJjBtj8GoRlMvl9A_zkdmXhf5"
+internal const val SUPABASE_URL = "https://api.nuvio.tv"
+internal const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxNTIxMzQ2LCJleHAiOjE5MzkyMDEzNDZ9.tmQaj682pwzehpqlgCDMnySOqiUvpgRbrE43T4VJpDI"
 private val JSON_MT = "application/json; charset=utf-8".toMediaType()
 
 @Serializable
