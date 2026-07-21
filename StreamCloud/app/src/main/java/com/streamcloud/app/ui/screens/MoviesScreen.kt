@@ -496,6 +496,10 @@ fun MoviesScreen(
         )
     }
     } // MoviesThemeWrapper
+    AnnouncementOverlay(
+        seenVersion = announcementSeenVersion,
+        onDismiss = { version -> scope.launch { settingsRepo.setAnnouncementSeenVersion(version) } },
+    )
 }
 
 @Composable
