@@ -182,7 +182,6 @@ object NuvioRuntime {
                     (async function() {
                         try {
                             // Nuvio providers may export either getStreams or scrape.
-                            // Prefer getStreams; fall back to scrape.
                             var __fn = (module.exports && (module.exports.getStreams || module.exports.scrape))
                                     || globalThis.getStreams || globalThis.scrape;
                             if (typeof __fn !== 'function') {
@@ -191,14 +190,36 @@ object NuvioRuntime {
                                 __capture_result('[]');
                                 return;
                             }
-                            // Standard Nuvio providers expect a params object as the first argument:
-                            //   async getStreams({ tmdbId, imdbId, mediaType, season, episode }) { ... }
-                            // Legacy providers may use positional args: getStreams(tmdbId, type, s, e).
-                            // We always pass globalThis.params as the first arg so object-destructuring
-                            // providers get correct values.  Positional-arg providers that check
-                            // typeof arg[0] === 'string' can fall back to arg[0].tmdbId or
-                            // globalThis.params themselves.
-                            var __result = await __fn(globalThis.params, $tmdbIdArg, $mediaTypeArg, $seasonArg, $episodeArg);
+
+                            // Detect calling convention by inspecting the function source string.
+                            //
+                            //   Pattern A – object destructuring first param:
+                            //     async getStreams({ tmdbId, imdbId, mediaType }) { ... }
+                            //     → pass globalThis.params so destructuring gets real values
+                            //
+                            //   Pattern B – named plain-object first param:
+                            //     async getStreams(params) { ... params.tmdbId ... }
+                            //     → pass globalThis.params; provider reads .tmdbId/.imdbId from it
+                            //
+                            //   Pattern C – positional string args:
+                            //     async getStreams(tmdbId, mediaType, season, episode) { ... }
+                            //     → pass the raw string values; first arg must be the tmdbId string
+                            //
+                            var __fnSrc = '';
+                            try { __fnSrc = __fn.toString(); } catch (_e2) {}
+
+                            // Pattern A: first param starts with '{'
+                            var __isObjDestructure = /\(\s*\{/.test(__fnSrc);
+                            // Pattern B: plain named param that accesses .tmdbId/.imdbId/.mediaType
+                            var __isObjNamed = !__isObjDestructure &&
+                                /\b(?:params|opts?|data|options)\b[\s\S]{0,500}\.(?:tmdbId|imdbId|mediaType)/.test(__fnSrc);
+
+                            var __result;
+                            if (__isObjDestructure || __isObjNamed) {
+                                __result = await __fn(globalThis.params);
+                            } else {
+                                __result = await __fn($tmdbIdArg, $mediaTypeArg, $seasonArg, $episodeArg);
+                            }
                             __capture_result(JSON.stringify(__result || []));
                         } catch (__e) {
                             console.error('[provider] getStreams threw:', (__e && __e.message) || String(__e));
