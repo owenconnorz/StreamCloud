@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -172,6 +173,16 @@ fun LibraryScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var sectionMode by remember { mutableStateOf("Music") }
     val watchlistItems by LibraryDb.get(context).watchlist().all().collectAsState(initial = emptyList())
+    var watchlistSort by remember { mutableStateOf("added") }
+    var showSortMenu by remember { mutableStateOf(false) }
+    val sortedWatchlist = remember(watchlistItems, watchlistSort) {
+        when (watchlistSort) {
+            "az"      -> watchlistItems.sortedBy { it.title.lowercase() }
+            "za"      -> watchlistItems.sortedByDescending { it.title.lowercase() }
+            "watched" -> watchlistItems.sortedByDescending { it.addedAt }
+            else      -> watchlistItems // "added" = natural DB order
+        }
+    }
 
     val localPlaylists by remember(context) {
         LibraryDb.get(context).localPlaylists().allPlaylists()
@@ -242,7 +253,54 @@ fun LibraryScreen(
         Spacer(Modifier.height(16.dp))
 
         if (sectionMode == "Movies") {
-            if (watchlistItems.isEmpty()) {
+            if (sortedWatchlist.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val sortLabel = when (watchlistSort) {
+                        "az"      -> "A–Z"
+                        "za"      -> "Z–A"
+                        "watched" -> "Recently Watched"
+                        else      -> "Recently Added"
+                    }
+                    Box {
+                        TextButton(
+                            onClick = { showSortMenu = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Icon(Icons.Default.Sort, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(sortLabel, style = MaterialTheme.typography.bodySmall)
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false },
+                        ) {
+                            listOf(
+                                "added"   to "Recently Added",
+                                "watched" to "Recently Watched",
+                                "az"      to "A–Z",
+                                "za"      to "Z–A",
+                            ).forEach { (key, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = { watchlistSort = key; showSortMenu = false },
+                                    trailingIcon = if (watchlistSort == key) {{
+                                        Icon(androidx.compose.material.icons.Icons.Default.CheckCircle, null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp))
+                                    }} else null,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            if (sortedWatchlist.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Movie, null,
@@ -267,7 +325,7 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(watchlistItems, key = { "wl_${it.tmdbId}" }) { entry ->
+                    items(sortedWatchlist, key = { "wl_${it.tmdbId}" }) { entry ->
                         Column(
                             Modifier
                                 .clip(RoundedCornerShape(10.dp))
