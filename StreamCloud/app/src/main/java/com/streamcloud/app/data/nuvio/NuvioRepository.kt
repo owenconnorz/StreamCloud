@@ -132,6 +132,10 @@ class NuvioRepository(private val context: Context) {
     ): List<Pair<InstalledNuvioProvider, NuvioStream>> = coroutineScope {
         val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType, season, episode)
             ?: return@coroutineScope emptyList()
+        // Auto-lookup IMDb ID from TMDB when caller didn't supply one.
+        // Many Nuvio providers guard with `if (!imdbId) return` so passing null
+        // causes phase=precheck (0 req) for every plugin.
+        val effectiveImdbId = imdbId ?: lookupImdbId(resolvedTmdb, mediaType)
         val list = installed.first()
         list.map { provider ->
             async(Dispatchers.IO) {
@@ -142,7 +146,7 @@ class NuvioRepository(private val context: Context) {
                 val streams = NuvioRuntime.runProvider(
                     scriptText = js,
                     tmdbId = normalizedContentId,
-                    imdbId = imdbId,
+                    imdbId = effectiveImdbId,
                     mediaType = nuvioMediaType(mediaType),
                     season = season,
                     episode = episode,
@@ -183,6 +187,34 @@ class NuvioRepository(private val context: Context) {
                     ?.takeIf { it.isNotBlank() && it != "0" }
                 if (id != null) tmdbIdCache[cacheKey] = id
                 id
+            }.getOrNull()
+        }
+    }
+
+    // Reverse-lookup: TMDB numeric ID → IMDb "tt..." ID.
+    // Called when resolveAll is given no imdbId so that every provider receives
+    // a real imdbId — the most common cause of phase=precheck (0 req).
+    private val imdbIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private suspend fun lookupImdbId(tmdbId: String, mediaType: String): String? {
+        val num = tmdbId.trim().takeIf { it.all(Char::isDigit) } ?: return null
+        val mt  = normaliseMediaType(mediaType)
+        val cacheKey = "$num:$mt"
+        imdbIdCache[cacheKey]?.let { return it }
+        return withContext(Dispatchers.IO) {
+            val apiKey = com.streamcloud.app.BuildConfig.TMDB_API_KEY
+            if (apiKey.isBlank()) return@withContext null
+            val endpoint = if (mt == "tv") "tv" else "movie"
+            val url = "https://api.themoviedb.org/3/$endpoint/$num/external_ids?api_key=$apiKey"
+            runCatching {
+                val text = httpGet(url)
+                val root = Net.json.parseToJsonElement(text) as?
+                    kotlinx.serialization.json.JsonObject ?: return@runCatching null
+                val imdb = (root["imdb_id"] as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.content
+                    ?.trim()
+                    ?.takeIf { it.startsWith("tt") && it.length >= 7 }
+                if (imdb != null) imdbIdCache[cacheKey] = imdb
+                imdb
             }.getOrNull()
         }
     }
