@@ -196,6 +196,27 @@ object NuvioRuntime {
                     })();
                 """.trimIndent())
 
+                // Step A.2: inject a `settings` object so providers that check
+                // `settings.enabled` or read per-plugin keys don't return early.
+                // `enabled = true` fixes the most common precheck guard.
+                evaluate<Any?>(buildString {
+                    appendLine("""
+                        (function() {
+                            if (typeof globalThis.settings === 'undefined' || globalThis.settings === null) {
+                                globalThis.settings = {};
+                            }
+                            var s = globalThis.settings;
+                            // Ensure .enabled is truthy — provider guards like `if (!settings.enabled) return` pass.
+                            if (s.enabled === undefined || s.enabled === null || s.enabled === false) s.enabled = true;
+                            // Common bool aliases.
+                            if (s.active  === undefined) s.active  = true;
+                            if (s.enable  === undefined) s.enable  = true;
+                            if (s.on      === undefined) s.on      = true;
+                            if (s.disabled === undefined) s.disabled = false;
+                        })();
+                    """.trimIndent())
+                })
+
                 // Step B: run plugin code — module/exports as globals (NuvioMobile pattern).
                 //         Only PRIMARY_KEY is a named parameter, defeating `var PRIMARY_KEY = PRIMARY_KEY || ''`
                 //         hoisting trap (var re-declares fine, and RHS reads the parameter value, not undefined).
