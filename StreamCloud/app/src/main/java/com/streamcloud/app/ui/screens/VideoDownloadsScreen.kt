@@ -73,7 +73,7 @@ object VideoDownloadManager {
     }
 
     private fun sanitiseFileName(name: String): String =
-        name.replace(Regex("[^a-zA-Z0-9._\- ]"), "_").trimEnd() + ".mp4"
+        name.replace(Regex("""[^a-zA-Z0-9._\- ]"""), "_").trimEnd() + ".mp4"
 }
 
 data class DownloadItem(
