@@ -158,6 +158,42 @@ object NuvioRuntime {
                         functionName: 'getStreams',
                         imdbId:       ${if (imdbId != null) jsString(imdbId) else "undefined"}
                     };
+                    // ── Common field aliases ──────────────────────────────────────────────
+                    // Providers that destructure { id, type, s, ep, imdb, … } instead of
+                    // the canonical names get the right values via these mirror properties.
+                    (function() {
+                        var p = globalThis.params;
+                        // tmdbId aliases
+                        if (p.id        === undefined) p.id        = p.tmdbId;
+                        if (p.tmdb      === undefined) p.tmdb      = p.tmdbId;
+                        if (p.tmdbid    === undefined) p.tmdbid    = p.tmdbId;
+                        if (p.movieId   === undefined) p.movieId   = p.tmdbId;
+                        if (p.showId    === undefined) p.showId    = p.tmdbId;
+                        // imdbId aliases
+                        if (p.imdb      === undefined) p.imdb      = p.imdbId;
+                        if (p.imdbid    === undefined) p.imdbid    = p.imdbId;
+                        if (p.tt        === undefined) p.tt        = p.imdbId;
+                        // mediaType aliases
+                        if (p.type      === undefined) p.type      = p.mediaType;
+                        if (p.media     === undefined) p.media     = p.mediaType;
+                        if (p.kind      === undefined) p.kind      = p.mediaType;
+                        if (p.contentType === undefined) p.contentType = p.mediaType;
+                        // season aliases
+                        if (p.s         === undefined) p.s         = p.season;
+                        if (p.seasonNum === undefined) p.seasonNum = p.season;
+                        if (p.seasonNumber === undefined) p.seasonNumber = p.season;
+                        // episode aliases
+                        if (p.ep        === undefined) p.ep        = p.episode;
+                        if (p.e         === undefined) p.e         = p.episode;
+                        if (p.episodeNum === undefined) p.episodeNum = p.episode;
+                        if (p.episodeNumber === undefined) p.episodeNumber = p.episode;
+                        // Also set flat globals for providers that read globalThis.tmdbId etc.
+                        globalThis.tmdbId    = p.tmdbId;
+                        globalThis.imdbId    = p.imdbId;
+                        globalThis.mediaType = p.mediaType;
+                        globalThis.season    = p.season;
+                        globalThis.episode   = p.episode;
+                    })();
                 """.trimIndent())
 
                 // Step B: run plugin code — module/exports as globals (NuvioMobile pattern).
