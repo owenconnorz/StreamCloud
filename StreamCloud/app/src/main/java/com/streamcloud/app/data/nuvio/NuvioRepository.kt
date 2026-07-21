@@ -246,10 +246,11 @@ class NuvioRepository(private val context: Context) {
             ?: return@withContext emptyList()
         val normalizedContentId = normaliseNuvioContentId(resolvedTmdb, season, episode)
             ?: resolvedTmdb
+        val effectiveImdbId = imdbId ?: lookupImdbId(resolvedTmdb, mediaType)
         NuvioRuntime.runProvider(
             scriptText = js,
             tmdbId = normalizedContentId,
-            imdbId = imdbId,
+            imdbId = effectiveImdbId,
             mediaType = nuvioMediaType(mediaType),
             season = season,
             episode = episode,
