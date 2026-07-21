@@ -165,14 +165,16 @@ fun StreamPickerOverlay(
                 }
             }
 
-            if (installedNuvio.isNotEmpty()) {
+            // Each Nuvio provider gets its own coroutine so the UI updates
+            // as soon as each provider finishes — fast providers are not held
+            // back by slow ones.
+            installedNuvio.forEach { provider ->
                 launch {
-                    // Give providers up to 95s (slightly more than the per-provider 90s
-                    // timeout in NuvioRuntime) before giving up on the whole resolveAll.
-                    val allNuvio = withContext(Dispatchers.IO) {
-                        withTimeoutOrNull(95_000L) {
+                    val streams = withContext(Dispatchers.IO) {
+                        withTimeoutOrNull(90_000L) {
                             runCatching {
-                                sl.nuvio.resolveAll(
+                                sl.nuvio.resolveSingle(
+                                    provider = provider,
                                     tmdbId = tmdbId.toString(),
                                     mediaType = mediaType,
                                     season = season,
@@ -180,39 +182,31 @@ fun StreamPickerOverlay(
                                     imdbId = imdbId,
                                 )
                             }.getOrElse { e ->
-                                Log.d("StreamPicker", "Nuvio resolveAll error: ${e.message}")
+                                Log.d("StreamPicker", "Nuvio ${provider.name}: ${e.message}")
                                 emptyList()
                             }
                         } ?: run {
-                            Log.d("StreamPicker", "Nuvio resolveAll timed out after 95s")
+                            Log.d("StreamPicker", "Nuvio ${provider.name}: timed out after 90s")
                             emptyList()
                         }
                     }
-                    val byProvider = allNuvio.groupBy { (provider, _) -> provider.id }
-                    installedNuvio.forEach { provider ->
-                        val streams = byProvider[provider.id]
-                            ?.map { (prov, stream) -> stream.pickerToPlayerSource(prov) }
-                            ?: emptyList()
-                        val diagnostics = NuvioRuntime.lastDiagnostics(provider.id)
-                        val fetchCount = diagnostics?.requestCount ?: NuvioRuntime.lastFetchCount(provider.id)
-                        val lastErr    = NuvioRuntime.lastError(provider.id)
-                        val lastLog    = NuvioRuntime.lastLog(provider.id)
-                        val err = if (streams.isEmpty()) {
-                            // Prefer the specific console.log message when the only "error"
-                            // is the generic catch-all set after an empty return.  Real errors
-                            // (HTTP status codes, JS exceptions, timeouts) take priority.
-                            val base = when {
-                                lastErr != null && !lastErr.startsWith("No streams found") &&
-                                    !lastErr.startsWith("No requests made") -> lastErr
-                                lastLog != null -> lastLog
-                                diagnostics != null -> diagnostics.toSummary()
-                                lastErr != null -> lastErr
-                                else            -> "No streams found"
-                            }
-                            "$base ($fetchCount req)"
-                        } else null
-                        updateGroup("nuvio:${provider.id}", streams = streams, error = err)
-                    }
+                    val sources = streams.map { stream -> stream.pickerToPlayerSource(provider) }
+                    val diagnostics = NuvioRuntime.lastDiagnostics(provider.id)
+                    val fetchCount  = diagnostics?.requestCount ?: NuvioRuntime.lastFetchCount(provider.id)
+                    val lastErr     = NuvioRuntime.lastError(provider.id)
+                    val lastLog     = NuvioRuntime.lastLog(provider.id)
+                    val err = if (sources.isEmpty()) {
+                        val base = when {
+                            lastErr != null && !lastErr.startsWith("No streams found") &&
+                                !lastErr.startsWith("No requests made") -> lastErr
+                            lastLog != null -> lastLog
+                            diagnostics != null -> diagnostics.toSummary()
+                            lastErr != null -> lastErr
+                            else            -> "No streams found"
+                        }
+                        "${base} (${fetchCount} req)"
+                    } else null
+                    updateGroup("nuvio:${provider.id}", streams = sources, error = err)
                 }
             }
 
@@ -249,13 +243,14 @@ fun StreamPickerOverlay(
         groupOrder.mapNotNull { (key, _) -> groups[key]?.streams }.flatten()
     }
 
-    val addonTabs = remember(groups, eligibleCs) {
+    val addonTabs = remember(groups, eligibleCs, installedNuvio) {
         val csKeys = eligibleCs.map { "cs:${it.internalName}" }.toSet()
+        val nuvioKeys = installedNuvio.map { "nuvio:${it.id}" }.toSet()
         groupOrder.mapNotNull { (key, name) ->
             val g = groups[key]
             // CS plugin tabs always stay visible (even with 0 streams) so the user can
             // see the error. Other provider types only appear while loading or with streams.
-            if (g != null && (g.isLoading || g.streams.isNotEmpty() || key in csKeys)) name else null
+            if (g != null && (g.isLoading || g.streams.isNotEmpty() || key in csKeys || (key in nuvioKeys && g.error != null))) name else null
         }.distinct()
     }
     val tabs = remember(addonTabs) { listOf("All") + addonTabs }
