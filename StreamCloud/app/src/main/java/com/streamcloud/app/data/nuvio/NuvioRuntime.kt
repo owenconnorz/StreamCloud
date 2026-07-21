@@ -235,12 +235,13 @@ object NuvioRuntime {
                             // ── Calling-convention detection via fn.length ───────────────────────
                             //
                             //  fn.length = 0  → provider reads entirely from globalThis (tmdbId etc.)
-                            //  fn.length = 1  → either  ({ tmdbId, … })  destructured
-                            //                          OR  (params)  bag-name        → pass params object
-                            //                          OR  (tmdbId)  single-ID name  → pass tmdbId string
-                            //  fn.length = 2  → (tmdbId, type)  or  (tmdbId, imdbId)
-                            //                   detect from second param name
-                            //  fn.length ≥ 3  → full positional (tmdbId, imdbId, mediaType, s, ep)
+                            //  fn.length = 1  → ({ tmdbId,… }) destructured  → pass params object
+                            //               OR (params/options/…) bag name    → pass params object
+                            //               OR (tmdbId/id/…) single ID name   → pass tmdbId string
+                            //  fn.length = 2  → (tmdbId, type|mediaType)      → almost always
+                            //                   Minified names (e, t, a) default to mediaType.
+                            //                   Only pass imdbId if 2nd param is explicitly imdb-named.
+                            //  fn.length >= 3 → full positional list
                             //
                             var __p   = globalThis.params;
                             var __src = '';
@@ -252,12 +253,14 @@ object NuvioRuntime {
                                 __arr = await __fn(__p.tmdbId, __p.imdbId, __p.mediaType, __p.season, __p.episode);
 
                             } else if (__fn.length === 2) {
-                                // Two params: (tmdbId, type|mediaType) OR (tmdbId, imdbId)
-                                // Inspect the name of the second parameter.
+                                // Two params: almost always (tmdbId, mediaType/type).
+                                // The minority case is (tmdbId, imdbId) — detect by second param name.
+                                // Minified providers use single letters (e, t, a, …) that must also
+                                // default to mediaType, not imdbId.
                                 var __pm2 = __src.match(/\(\s*[^,)]+,\s*([a-zA-Z_$]\w*)/);
                                 var __p2  = __pm2 ? __pm2[1] : '';
-                                var __p2isType = /^(type|mediaType|media_type|contentType|content_type|kind|category|mediatype)$/.test(__p2);
-                                __arr = await __fn(__p.tmdbId, __p2isType ? __p.mediaType : __p.imdbId);
+                                var __p2isImdb = /^(imdb|imdbId|imdbid|imdb_id|tt|traktId|trakt)$/i.test(__p2);
+                                __arr = await __fn(__p.tmdbId, __p2isImdb ? __p.imdbId : __p.mediaType);
 
                             } else if (__fn.length === 0) {
                                 // No declared params — provider reads from globalThis directly.
