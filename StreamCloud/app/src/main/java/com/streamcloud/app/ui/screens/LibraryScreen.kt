@@ -839,29 +839,7 @@ private fun LocalPlaylistGridTile(
             },
         )
     }
-    if (showThumbSheet) {
-        AlertDialog(
-            onDismissRequest = { showThumbSheet = false },
-            title = { Text("Playlist thumbnail") },
-            text = { Text("Choose what to do with this playlist's cover image.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showThumbSheet = false
-                    pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }) { Text("Choose from library") }
-            },
-            dismissButton = {
-                if (!customThumb.isNullOrBlank()) {
-                    TextButton(onClick = {
-                        onSetThumb(null)
-                        showThumbSheet = false
-                    }) { Text("Remove image", color = MaterialTheme.colorScheme.error) }
-                } else {
-                    TextButton(onClick = { showThumbSheet = false }) { Text("Cancel") }
-                }
-            },
-        )
-    }
+
     Column(
         modifier = Modifier.clickable { },
     ) {
@@ -888,20 +866,43 @@ private fun LocalPlaylistGridTile(
                     modifier = Modifier.size(48.dp),
                 )
             }
-            IconButton(
-                onClick = { showThumbSheet = true },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(4.dp)
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
-            ) {
-                Icon(
-                    Icons.Default.Edit, "Edit thumbnail",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(16.dp),
-                )
+            Box(Modifier.align(Alignment.BottomEnd).padding(4.dp)) {
+                IconButton(
+                    onClick = { showThumbSheet = true },
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+                ) {
+                    Icon(
+                        Icons.Default.Edit, "Edit thumbnail",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                DropdownMenu(
+                    expanded = showThumbSheet,
+                    onDismissRequest = { showThumbSheet = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Choose from library") },
+                        leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
+                        onClick = {
+                            showThumbSheet = false
+                            pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                    )
+                    if (!customThumb.isNullOrBlank()) {
+                        DropdownMenuItem(
+                            text = { Text("Remove image", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                onSetThumb(null)
+                                showThumbSheet = false
+                            },
+                        )
+                    }
+                }
             }
             IconButton(
                 onClick = { showDeleteConfirm = true },
