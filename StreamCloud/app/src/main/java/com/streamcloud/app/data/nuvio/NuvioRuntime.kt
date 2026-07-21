@@ -181,9 +181,14 @@ object NuvioRuntime {
                 evaluate<Any?>("""
                     (async function() {
                         try {
-                            // Nuvio providers may export either getStreams or scrape.
-                            var __fn = (module.exports && (module.exports.getStreams || module.exports.scrape))
-                                    || globalThis.getStreams || globalThis.scrape;
+                            // ── Locate getStreams or scrape export ──────────────────────────────────
+                            var __fn =
+                                (module.exports && typeof module.exports.getStreams === 'function')               ? module.exports.getStreams :
+                                (module.exports && typeof module.exports.scrape === 'function')                   ? module.exports.scrape :
+                                (module.exports && module.exports.default && typeof module.exports.default.getStreams === 'function') ? module.exports.default.getStreams :
+                                (typeof globalThis.getStreams === 'function')                                     ? globalThis.getStreams :
+                                (typeof globalThis.scrape === 'function')                                        ? globalThis.scrape :
+                                null;
                             if (typeof __fn !== 'function') {
                                 console.error('[provider] getStreams/scrape not found. module.exports keys:',
                                     Object.keys(module.exports || {}).join(', '));
@@ -191,43 +196,48 @@ object NuvioRuntime {
                                 return;
                             }
 
-                            // Detect whether the provider uses object-destructuring for its first
-                            // parameter by inspecting ONLY the parameter list, not the body.
-                            // Body destructuring like  list.map(({ url }) => …)  must not match.
+                            // ── Calling-convention detection via fn.length ───────────────────────
                             //
-                            // We support exactly two conventions:
+                            //  fn.length = 0  → provider reads entirely from globalThis (tmdbId etc.)
+                            //  fn.length = 1  → either  ({ tmdbId, … })  destructured
+                            //                          OR  (params)  bag-name        → pass params object
+                            //                          OR  (tmdbId)  single-ID name  → pass tmdbId string
+                            //  fn.length = 2  → (tmdbId, type)  or  (tmdbId, imdbId)
+                            //                   detect from second param name
+                            //  fn.length ≥ 3  → full positional (tmdbId, imdbId, mediaType, s, ep)
                             //
-                            //   A) Object-destructuring first param  →  pass globalThis.params
-                            //        getStreams({ tmdbId, imdbId, mediaType, season, episode })
-                            //        getStreams({ tmdbId, imdbId } = {})          (with default)
-                            //
-                            //   B) Everything else  →  pass positional string args
-                            //        getStreams(tmdbId, mediaType, season, episode)
-                            //        getStreams(options)   ← named single param, uses positionals
-                            //        getStreams(id, type)
-                            //
-                            //   In case B, globalThis.params is always available on globalThis so
-                            //   providers that do  (p || globalThis.params).tmdbId  still work.
-                            //
-                            var __fnSrc = '';
-                            try { __fnSrc = __fn.toString(); } catch (_e2) {}
+                            var __p   = globalThis.params;
+                            var __src = '';
+                            try { __src = __fn.toString(); } catch(__se) {}
+                            var __arr;
 
-                            // Extract the first token(s) of the parameter list.
-                            // Handles: function(...){},  (...) => {},  async(...){},  shorthands.
-                            var __firstParam = '';
-                            var __sigMatch = __fnSrc.match(
-                                /^[^(]*\(\s*((?:\{[^}]*\}|\[[^\]]*\]|[^,)]+))/
-                            );
-                            if (__sigMatch) { __firstParam = __sigMatch[1].trim(); }
+                            if (__fn.length >= 3) {
+                                // Full positional: getStreams(tmdbId, imdbId, mediaType, season, episode)
+                                __arr = await __fn(__p.tmdbId, __p.imdbId, __p.mediaType, __p.season, __p.episode);
 
-                            // Only Pattern A is detected: first param is an object literal { ... }
-                            var __result;
-                            if (__firstParam.charAt(0) === '{') {
-                                __result = await __fn(globalThis.params);
+                            } else if (__fn.length === 2) {
+                                // Two params: (tmdbId, type|mediaType) OR (tmdbId, imdbId)
+                                // Inspect the name of the second parameter.
+                                var __pm2 = __src.match(/\(\s*[^,)]+,\s*([a-zA-Z_$]\w*)/);
+                                var __p2  = __pm2 ? __pm2[1] : '';
+                                var __p2isType = /^(type|mediaType|media_type|contentType|content_type|kind|category|mediatype)$/.test(__p2);
+                                __arr = await __fn(__p.tmdbId, __p2isType ? __p.mediaType : __p.imdbId);
+
+                            } else if (__fn.length === 0) {
+                                // No declared params — provider reads from globalThis directly.
+                                __arr = await __fn();
+
                             } else {
-                                __result = await __fn($tmdbIdArg, $mediaTypeArg, $seasonArg, $episodeArg);
+                                // 1 param — destructured object, named bag, or single ID string.
+                                var __isDestr  = /\(\s*\{/.test(__src);
+                                var __pmatch   = __src.match(/\(\s*([a-zA-Z_$]\w*)/);
+                                var __pname    = __pmatch ? __pmatch[1] : '';
+                                var __isObjArg = __isDestr ||
+                                    /^(params|options|args|data|config|info|details|meta|query|input|opts|p|o|req|request|payload|context|ctx)$/.test(__pname);
+                                __arr = await __fn(__isObjArg ? __p : __p.tmdbId);
                             }
-                            __capture_result(JSON.stringify(__result || []));
+
+                            __capture_result(JSON.stringify(__arr || []));
                         } catch (__e) {
                             console.error('[provider] getStreams threw:', (__e && __e.message) || String(__e));
                             __capture_result('[]');
