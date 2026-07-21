@@ -2887,7 +2887,7 @@ object NuvioRuntime {
         return when (element) {
             is kotlinx.serialization.json.JsonArray -> element.toList()
             is kotlinx.serialization.json.JsonObject -> {
-                val nestedKeys = listOf("streams", "sources", "data", "results", "items", "videos", "links", "list", "content", "media", "response")
+                val nestedKeys = listOf("streams", "sources", "data", "results", "items", "videos", "links", "list", "content", "media", "response", "stream", "video", "embeds", "embed", "files", "entries", "output", "rows", "tracks", "playlist", "episodes", "hls", "qualities")
                 nestedKeys.firstNotNullOfOrNull { key ->
                     element[key]?.let { nested ->
                         extractNestedStreams(nested, depth + 1).takeIf { it.isNotEmpty() }
@@ -2920,6 +2920,42 @@ object NuvioRuntime {
                 "playlistUrl",
                 "m3u8",
                 "file",
+                // Extended field names used by real-world Nuvio providers
+                "videoUrl",
+                "video_url",
+                "videourl",
+                "embedUrl",
+                "embed_url",
+                "embedurl",
+                "embed",
+                "hls",
+                "hlsUrl",
+                "hls_url",
+                "progressive",
+                "mp4",
+                "mp4Url",
+                "mp4_url",
+                "direct",
+                "directUrl",
+                "direct_url",
+                "directLink",
+                "direct_link",
+                "iframeUrl",
+                "iframe_url",
+                "iframe",
+                "playUrl",
+                "play_url",
+                "streamLink",
+                "stream_link",
+                "rawUrl",
+                "raw_url",
+                "downloadUrl",
+                "download_url",
+                "fileUrl",
+                "file_url",
+                "sourceUrl",
+                "source_url",
+                "path",
             ),
         )
             ?.takeIf { it.looksLikeUrl() }
