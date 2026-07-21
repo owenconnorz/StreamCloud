@@ -101,6 +101,13 @@ object SettingsKeys {
     val MUSIC_SEARCH_HISTORY = stringPreferencesKey("music_search_history")
 
     val ADULT_SOURCE = stringPreferencesKey("adult_source")
+    val INTRODB_API_KEY             = stringPreferencesKey("introdb_api_key")
+    val SUBTITLE_SOURCE             = stringPreferencesKey("subtitle_source")
+    val PARENTAL_GUIDE_ENABLED      = booleanPreferencesKey("parental_guide_enabled")
+    val HOLD_TO_SPEED_ENABLED       = booleanPreferencesKey("hold_to_speed_enabled")
+    val HOLD_TO_SPEED_VALUE         = stringPreferencesKey("hold_to_speed_value")
+    val ANNOUNCEMENT_SEEN_VERSION   = stringPreferencesKey("announcement_seen_version")
+    val LIBRARY_WATCHLIST_SORT      = stringPreferencesKey("library_watchlist_sort")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -433,4 +440,25 @@ class SettingsRepository(private val context: Context) {
             prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] = encodeRedditAccounts(current)
         }
     }
+
+    val introDbApiKey: Flow<String>         = context.dataStore.data.map { it[SettingsKeys.INTRODB_API_KEY] ?: "" }
+    suspend fun setIntroDbApiKey(k: String) = context.dataStore.edit { it[SettingsKeys.INTRODB_API_KEY] = k }
+
+    val subtitleSource: Flow<String>          = context.dataStore.data.map { it[SettingsKeys.SUBTITLE_SOURCE] ?: "any" }
+    suspend fun setSubtitleSource(s: String)  = context.dataStore.edit { it[SettingsKeys.SUBTITLE_SOURCE] = s }
+
+    val parentalGuideEnabled: Flow<Boolean>        = context.dataStore.data.map { it[SettingsKeys.PARENTAL_GUIDE_ENABLED] ?: true }
+    suspend fun setParentalGuideEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.PARENTAL_GUIDE_ENABLED] = b }
+
+    val holdToSpeedEnabled: Flow<Boolean>        = context.dataStore.data.map { it[SettingsKeys.HOLD_TO_SPEED_ENABLED] ?: false }
+    suspend fun setHoldToSpeedEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.HOLD_TO_SPEED_ENABLED] = b }
+
+    val holdToSpeedValue: Flow<String>          = context.dataStore.data.map { it[SettingsKeys.HOLD_TO_SPEED_VALUE] ?: "2.0" }
+    suspend fun setHoldToSpeedValue(s: String)  = context.dataStore.edit { it[SettingsKeys.HOLD_TO_SPEED_VALUE] = s }
+
+    val announcementSeenVersion: Flow<String>          = context.dataStore.data.map { it[SettingsKeys.ANNOUNCEMENT_SEEN_VERSION] ?: "" }
+    suspend fun setAnnouncementSeenVersion(v: String)  = context.dataStore.edit { it[SettingsKeys.ANNOUNCEMENT_SEEN_VERSION] = v }
+
+    val libraryWatchlistSort: Flow<String>          = context.dataStore.data.map { it[SettingsKeys.LIBRARY_WATCHLIST_SORT] ?: "added" }
+    suspend fun setLibraryWatchlistSort(s: String)  = context.dataStore.edit { it[SettingsKeys.LIBRARY_WATCHLIST_SORT] = s }
 }
