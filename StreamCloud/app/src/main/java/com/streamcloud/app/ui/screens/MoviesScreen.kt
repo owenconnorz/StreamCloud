@@ -49,6 +49,7 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
+import kotlinx.coroutines.launch
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.ui.viewmodel.PinnedCollectionRow
@@ -104,6 +105,8 @@ fun MoviesScreen(
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val announcementSeenVersion by settingsRepo.announcementSeenVersion.collectAsState(initial = "")
+    val scope = rememberCoroutineScope()
 
     MoviesThemeWrapper(moviesThemeName) {
     val bgTintColor by AlbumArtThemeBus.bgTint.collectAsState()
@@ -148,14 +151,39 @@ fun MoviesScreen(
                         )
                     }
                 }
-                if (state.continueWatching.isNotEmpty()) {
+                val cwInProgress = state.continueWatching.filter { e ->
+                    val pct = if (e.durationMs > 0L) e.positionMs.toFloat() / e.durationMs else 0f
+                    pct >= 0.02f && pct < 0.93f
+                }
+                val cwUpNext = state.continueWatching.filter { e ->
+                    val pct = if (e.durationMs > 0L) e.positionMs.toFloat() / e.durationMs else 0f
+                    pct < 0.02f
+                }
+                if (cwInProgress.isNotEmpty()) {
                     item(key = "continue_watching_t") { SectionTitle("Continue Watching") }
                     item(key = "continue_watching") {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(state.continueWatching, key = { "cw_${it.tmdbId}" }) { entry ->
+                            items(cwInProgress, key = { "cw_${it.tmdbId}" }) { entry ->
+                                ContinueWatchingCard(
+                                    entry = entry,
+                                    onClick = { openCwEntry(entry) },
+                                    onLongPress = { cwSheetEntry = entry },
+                                )
+                            }
+                        }
+                    }
+                }
+                if (cwUpNext.isNotEmpty()) {
+                    item(key = "up_next_t") { SectionTitle("Up Next") }
+                    item(key = "up_next") {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(cwUpNext, key = { "un_${it.tmdbId}" }) { entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
                                     onClick = { openCwEntry(entry) },
