@@ -1115,7 +1115,7 @@ object NuvioRuntime {
                                entries: function() { return []; }, keys: function() { return []; },
                                values: function() { return []; }, forEach: function() {} },
                     text: function() { return Promise.resolve(''); },
-                    json: function() { return Promise.resolve(null); },
+                    json: function() { return Promise.resolve({}); },  // never return null — providers throw it
                     arrayBuffer: function() { return Promise.resolve(new ArrayBuffer(0)); },
                     blob: function() { return Promise.resolve(null); },
                     clone: function() { return this; },
@@ -1142,7 +1142,13 @@ object NuvioRuntime {
                 text: function() { return Promise.resolve(parsed.body); },
                 json: function() {
                     try { return Promise.resolve(JSON.parse(parsed.body)); }
-                    catch (e) { return Promise.resolve(null); }
+                    catch (_jpe) {
+                        // Strip BOM or whitespace and retry, then fall back to {}
+                        var _b = (parsed.body || '').replace(/^\uFEFF/, '').trim();
+                        try { return Promise.resolve(JSON.parse(_b)); }
+                        catch (_jpe2) { return Promise.resolve({}); }
+                    }
+
                 },
                 arrayBuffer: function() { return Promise.resolve(new ArrayBuffer(0)); },
                 blob: function() { return Promise.resolve(null); },
@@ -2756,7 +2762,7 @@ object NuvioRuntime {
         return when (element) {
             is kotlinx.serialization.json.JsonArray -> element.toList()
             is kotlinx.serialization.json.JsonObject -> {
-                val nestedKeys = listOf("streams", "data", "results", "items")
+                val nestedKeys = listOf("streams", "sources", "data", "results", "items", "videos", "links", "list", "content", "media", "response")
                 nestedKeys.firstNotNullOfOrNull { key ->
                     element[key]?.let { nested ->
                         extractNestedStreams(nested, depth + 1).takeIf { it.isNotEmpty() }
