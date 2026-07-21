@@ -499,6 +499,17 @@ fun StreamPickerOverlay(
                                 PickerStreamCard(
                                     source = src,
                                     onClick = { onPlay(src.url, allSources) },
+                                    onDownload = if (!src.isMagnet) ({
+                                        VideoDownloadManager.enqueue(
+                                            context,
+                                            StreamDownloadRequest(
+                                                url = src.url,
+                                                title = src.label.lines().firstOrNull() ?: src.addonName,
+                                                headers = src.headers,
+                                            ),
+                                        )
+                                        Toast.makeText(context, "Download started", android.widget.Toast.LENGTH_SHORT).show()
+                                    }) else null,
                                 )
                             }
                         }
