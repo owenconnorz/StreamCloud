@@ -147,6 +147,7 @@ object NuvioRuntime {
                 //         PRIMARY_KEY = scraperId makes it truthy — bypasses any !PRIMARY_KEY guard.
                 evaluate<Any?>("""
                     globalThis.PRIMARY_KEY   = ${jsString(scriptKey)};
+                    globalThis.__mediaType   = ${jsString(mediaType)};
                     globalThis.TMDB_API_KEY  = ${jsString(com.streamcloud.app.BuildConfig.TMDB_API_KEY)};
                     globalThis.params = {
                         tmdbId:       ${jsString(tmdbId)},
@@ -1104,7 +1105,22 @@ object NuvioRuntime {
             }
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
-            var requestUrl = String(url == null ? '' : url);
+            var requestUrl = __normalizeTmdbRequestUrl(String(url == null ? '' : url));
+            if (requestUrl == null) {
+                // URL rejected by normaliser (e.g. bad tmdb param) — synthetic error
+                return {
+                    ok: false, status: 0, statusText: 'Skipped invalid URL', url: String(url || ''),
+                    redirected: false, type: 'basic',
+                    headers: { get: function() { return null; }, has: function() { return false; },
+                               entries: function() { return []; }, keys: function() { return []; },
+                               values: function() { return []; }, forEach: function() {} },
+                    text: function() { return Promise.resolve(''); },
+                    json: function() { return Promise.resolve(null); },
+                    arrayBuffer: function() { return Promise.resolve(new ArrayBuffer(0)); },
+                    blob: function() { return Promise.resolve(null); },
+                    clone: function() { return this; },
+                };
+            }
             var result = __native_fetch(requestUrl, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             return {
@@ -1449,6 +1465,83 @@ object NuvioRuntime {
         }
         if (typeof btoa === 'undefined') {
             globalThis.btoa = function(input) { return __crypto_base64_encode(input); };
+        }
+
+        // ── Buffer polyfill ────────────────────────────────────────────────────
+        // Many Nuvio providers use Buffer.from(data,'base64') / Buffer.concat() etc.
+        // Without this they crash with ReferenceError before returning any streams.
+        if (typeof Buffer === 'undefined') {
+            function __bufWrap(bytes) {
+                var arr = Array.prototype.slice.call(bytes);
+                arr.toString = function(enc) {
+                    var s = '';
+                    for (var _i = 0; _i < arr.length; _i++) s += String.fromCharCode(arr[_i] & 0xff);
+                    if (!enc || enc === 'utf8' || enc === 'utf-8') {
+                        try { return decodeURIComponent(escape(s)); } catch(_e) { return s; }
+                    }
+                    if (enc === 'base64') return __crypto_base64_encode(s);
+                    if (enc === 'hex') { var h=''; for(var _j=0;_j<arr.length;_j++) h+=('00'+arr[_j].toString(16)).slice(-2); return h; }
+                    return s;
+                };
+                arr.subarray = function(s, e) { return __bufWrap(arr.slice(s, e)); };
+                arr.slice    = function(s, e) { return __bufWrap(Array.prototype.slice.call(arr, s, e)); };
+                arr.copy     = function(dst, ds, ss, se) {
+                    ds=ds||0; ss=ss||0; se=se!==undefined?se:arr.length;
+                    for(var _i=ss;_i<se;_i++) dst[ds+(_i-ss)]=arr[_i];
+                };
+                arr.readUInt8    = function(o) { return arr[o] & 0xff; };
+                arr.writeUInt8   = function(v, o) { arr[o] = v & 0xff; };
+                arr.readUInt16BE = function(o) { return ((arr[o]&0xff)<<8)|(arr[o+1]&0xff); };
+                arr.readUInt32BE = function(o) { return (((arr[o]&0xff)<<24)|((arr[o+1]&0xff)<<16)|((arr[o+2]&0xff)<<8)|(arr[o+3]&0xff))>>>0; };
+                return arr;
+            }
+            globalThis.Buffer = {
+                from: function(data, encoding) {
+                    encoding = ((encoding || 'utf8') + '').toLowerCase().replace('-','');
+                    var bytes = [];
+                    if (data == null) return __bufWrap(bytes);
+                    if (typeof data === 'object' && data.length !== undefined) {
+                        for(var _i=0;_i<data.length;_i++) bytes.push((data[_i]||0)&0xff);
+                        return __bufWrap(bytes);
+                    }
+                    var s = String(data);
+                    if (encoding === 'base64' || encoding === 'base64url') {
+                        var dec = __crypto_base64_decode(s.replace(/-/g,'+').replace(/_/g,'/'));
+                        for(var _i=0;_i<dec.length;_i++) bytes.push(dec.charCodeAt(_i)&0xff);
+                    } else if (encoding === 'hex') {
+                        for(var _i=0;_i+1<s.length;_i+=2) bytes.push(parseInt(s.substr(_i,2),16)&0xff);
+                    } else {
+                        try { var enc2=unescape(encodeURIComponent(s)); for(var _i=0;_i<enc2.length;_i++) bytes.push(enc2.charCodeAt(_i)&0xff); }
+                        catch(_e) { for(var _i=0;_i<s.length;_i++) bytes.push(s.charCodeAt(_i)&0xff); }
+                    }
+                    return __bufWrap(bytes);
+                },
+                alloc: function(size, fill, enc) {
+                    var bytes = new Array(size).fill(typeof fill === 'number' ? (fill&0xff) : 0);
+                    if (typeof fill === 'string') {
+                        var fb = globalThis.Buffer.from(fill, enc);
+                        for(var _i=0;_i<size;_i++) bytes[_i] = fb[_i % (fb.length||1)] || 0;
+                    }
+                    return __bufWrap(bytes);
+                },
+                allocUnsafe:     function(size) { return __bufWrap(new Array(size).fill(0)); },
+                allocUnsafeSlow: function(size) { return __bufWrap(new Array(size).fill(0)); },
+                concat: function(list, totalLen) {
+                    var all = [];
+                    for(var _i=0;_i<list.length;_i++){
+                        var item=list[_i];
+                        for(var _j=0;_j<(item&&item.length||0);_j++) all.push((item[_j]||0)&0xff);
+                    }
+                    if(totalLen!==undefined) all=all.slice(0,totalLen);
+                    return __bufWrap(all);
+                },
+                isBuffer: function(obj) { return Array.isArray(obj) && typeof obj.subarray === 'function'; },
+                byteLength: function(str, enc) { return globalThis.Buffer.from(str, enc).length; },
+                compare: function(a, b) {
+                    for(var _i=0;_i<Math.min(a.length,b.length);_i++) { if(a[_i]<b[_i]) return -1; if(a[_i]>b[_i]) return 1; }
+                    return a.length-b.length;
+                },
+            };
         }
 
         // ── location stub ─────────────────────────────────────────────────────
@@ -2170,6 +2263,78 @@ object NuvioRuntime {
 
         // fetchText(url, options?) → Promise<string>
         // Convenience wrapper used by several providers (e.g. kisskh, some AllAnime forks).
+        // ── TypeScript legacy async helpers ──────────────────────────────────────
+        // Providers compiled with tsc targeting ES5/ES2015 use __awaiter+__generator.
+        // Without these they crash on the first async function call (ReferenceError).
+        if (typeof __awaiter === 'undefined') {
+            var __awaiter = function(thisArg, _arguments, P, generator) {
+                function adopt(value) { return value instanceof (P = P || Promise) ? value : new P(function(resolve) { resolve(value); }); }
+                return new (P || Promise)(function(resolve, reject) {
+                    function fulfilled(value) { try { step(generator.next(value)); } catch(e) { reject(e); } }
+                    function rejected(value) { try { step(generator['throw'](value)); } catch(e) { reject(e); } }
+                    function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+                    step((generator = generator.apply(thisArg, _arguments || [])).next());
+                });
+            };
+        }
+        if (typeof __generator === 'undefined') {
+            var __generator = function(thisArg, body) {
+                var _ = { label: 0, sent: function() { if (t[0] & 1) throw t[1]; return t[1]; }, trys: [], ops: [] }, f, y, t, g = {};
+                g.next = verb(0); g['throw'] = verb(1); g['return'] = verb(2);
+                if (typeof Symbol === 'function') g[Symbol.iterator] = function() { return g; };
+                return g;
+                function verb(n) { return function(v) { return step([n, v]); }; }
+                function step(op) {
+                    if (f) throw new TypeError('Generator is already executing.');
+                    while (_) try {
+                        if (f = 1, y && (t = op[0] & 2 ? y['return'] : op[0] ? y['throw'] || ((t = y['return']) && t.call(y), 0) : y.next) && !(t = t.call(y, op[1])).done) return t;
+                        if (y = 0, t) op = [op[0] & 2, t.value];
+                        switch (op[0]) {
+                            case 0: case 1: t = op; break;
+                            case 4: _.label++; return { value: op[1], done: false };
+                            case 5: _.label++; y = op[1]; op = [0]; continue;
+                            case 7: op = _.ops.pop(); _.trys.pop(); continue;
+                            default:
+                                if (!(t = _.trys, t = t.length > 0 && t[t.length - 1]) && (op[0] === 6 || op[0] === 2)) { _ = 0; continue; }
+                                if (op[0] === 3 && (!t || (op[1] > t[0] && op[1] < t[3]))) { _.label = op[1]; break; }
+                                if (op[0] === 6 && _.label < t[1]) { _.label = t[1]; t = op; break; }
+                                if (t && _.label < t[2]) { _.label = t[2]; t[2] = -1; break; }
+                                if (t[2] !== -1) { _.ops.push(op); break; }
+                        }
+                        op = body.call(thisArg, _);
+                    } catch(e) { op = [6, e]; y = 0; } finally { f = t = 0; }
+                    if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
+                }
+            };
+        }
+        if (typeof __assign === 'undefined') {
+            var __assign = Object.assign || function(t) {
+                for (var s, i = 1, n = arguments.length; i < n; i++) {
+                    s = arguments[i]; for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p)) t[p] = s[p];
+                }
+                return t;
+            };
+        }
+        if (typeof __spreadArray === 'undefined') {
+            var __spreadArray = function(to, from, pack) {
+                if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+                    if (ar || !(i in from)) { if (!ar) ar = Array.prototype.slice.call(from, 0, i); ar[i] = from[i]; }
+                }
+                return to.concat(ar || Array.prototype.slice.call(from));
+            };
+        }
+        if (typeof __read === 'undefined') {
+            var __read = function(o, n) {
+                var m = typeof Symbol === 'function' && o[Symbol.iterator];
+                if (!m) return o;
+                var i = m.call(o), r, ar = [], e;
+                try { while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value); }
+                catch (error) { e = { error: error }; }
+                finally { try { if (r && !r.done && (m = i['return'])) m.call(i); } finally { if (e) throw e.error; } }
+                return ar;
+            };
+        }
+
         if (typeof fetchText === 'undefined') {
             var fetchText = function(url, options) {
                 return fetch(url, options).then(function(r) { return r.text(); });
@@ -2178,7 +2343,7 @@ object NuvioRuntime {
         var __module_cache__ = {};
         var require = function(name) {
             if (name === 'cheerio' || name === 'cheerio-without-node-native' || name === 'react-native-cheerio') return cheerio;
-            if (name === 'crypto-js' || name === 'crypto-js/core') return CryptoJS;
+            if (name === 'crypto-js' || name === 'crypto-js/core' || (name.length > 10 && name.indexOf('crypto-js/') === 0)) return CryptoJS;
             if (name === 'axios') return __axiosShim;
             if (name === 'node-fetch' || name === 'cross-fetch' || name === 'isomorphic-fetch') return fetch;
             // got — supports extend({prefixUrl}) and .json()/.text() response chaining.
