@@ -181,15 +181,24 @@ object NuvioRuntime {
                 evaluate<Any?>("""
                     (async function() {
                         try {
-                            var __fn = (module.exports && module.exports.getStreams)
-                                    || globalThis.getStreams;
+                            // Nuvio providers may export either getStreams or scrape.
+                            // Prefer getStreams; fall back to scrape.
+                            var __fn = (module.exports && (module.exports.getStreams || module.exports.scrape))
+                                    || globalThis.getStreams || globalThis.scrape;
                             if (typeof __fn !== 'function') {
-                                console.error('[provider] getStreams not found. module.exports keys:',
+                                console.error('[provider] getStreams/scrape not found. module.exports keys:',
                                     Object.keys(module.exports || {}).join(', '));
                                 __capture_result('[]');
                                 return;
                             }
-                            var __result = await __fn($tmdbIdArg, $mediaTypeArg, $seasonArg, $episodeArg);
+                            // Standard Nuvio providers expect a params object as the first argument:
+                            //   async getStreams({ tmdbId, imdbId, mediaType, season, episode }) { ... }
+                            // Legacy providers may use positional args: getStreams(tmdbId, type, s, e).
+                            // We always pass globalThis.params as the first arg so object-destructuring
+                            // providers get correct values.  Positional-arg providers that check
+                            // typeof arg[0] === 'string' can fall back to arg[0].tmdbId or
+                            // globalThis.params themselves.
+                            var __result = await __fn(globalThis.params, $tmdbIdArg, $mediaTypeArg, $seasonArg, $episodeArg);
                             __capture_result(JSON.stringify(__result || []));
                         } catch (__e) {
                             console.error('[provider] getStreams threw:', (__e && __e.message) || String(__e));
