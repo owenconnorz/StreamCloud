@@ -2,8 +2,13 @@ package com.streamcloud.app.ui.screens
 
 import android.content.Context
 import android.util.Log
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -575,18 +580,31 @@ private fun PickerSectionHeader(name: String, isLoading: Boolean) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PickerStreamCard(source: PlayerSource, onClick: () -> Unit) {
+private fun PickerStreamCard(
+    source: PlayerSource,
+    onClick: () -> Unit,
+    onDownload: (() -> Unit)? = null,
+) {
     val lines = source.label.lines().map { it.trim() }.filter { it.isNotBlank() }
     val titleLine = lines.firstOrNull() ?: source.addonName
     val descLines = lines.drop(1)
+    val context = LocalContext.current
 
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Stream URL", source.url))
+                    Toast.makeText(context, "URL copied", Toast.LENGTH_SHORT).show()
+                },
+            )
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         Column(
@@ -607,10 +625,18 @@ private fun PickerStreamCard(source: PlayerSource, onClick: () -> Unit) {
                 )
                 val q = source.qualityTag
                 if (!q.isNullOrBlank()) {
+                    val (badgeBg, badgeFg) = when {
+                        q.equals("4K", ignoreCase = true)   -> Color(0xFFFFD700).copy(alpha = 0.22f) to Color(0xFFFFD700)
+                        q.contains("1080")                  -> Color(0xFF4EA8DE).copy(alpha = 0.22f) to Color(0xFF4EA8DE)
+                        q.contains("1440") || q.equals("2K", ignoreCase = true) -> Color(0xFF7B68EE).copy(alpha = 0.22f) to Color(0xFF7B68EE)
+                        q.contains("720")                   -> Color(0xFF4CAF50).copy(alpha = 0.22f) to Color(0xFF4CAF50)
+                        q.contains("480") || q.contains("360") -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f) to MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) to MaterialTheme.colorScheme.primary
+                    }
                     Box(
                         Modifier
                             .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
+                            .background(badgeBg)
                             .padding(horizontal = 5.dp, vertical = 2.dp),
                     ) {
                         Text(
@@ -618,7 +644,7 @@ private fun PickerStreamCard(source: PlayerSource, onClick: () -> Unit) {
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold
                             ),
-                            color = MaterialTheme.colorScheme.primary,
+                            color = badgeFg,
                         )
                     }
                 }
@@ -637,6 +663,19 @@ private fun PickerStreamCard(source: PlayerSource, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (onDownload != null) {
+            IconButton(
+                onClick = onDownload,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    androidx.compose.material.icons.Icons.Default.Download,
+                    contentDescription = "Download stream",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
