@@ -334,9 +334,15 @@ object NuvioRuntime {
                     // returning empty are visible in the stream picker UI.
                     val lastLog = lastLogByScript[scriptKey]?.takeIf { it.isNotBlank() }
                         ?.let { " · last log: " + it.take(200) }.orEmpty()
+                    // Include a short raw-JSON preview (first 300 chars) in the
+                    // no-streams diagnostic so developers can see what the provider
+                    // returned even when parseStreams could not extract any stream.
+                    val rawJsonHint = if (finalJson.isNotBlank() && finalJson != "[]" && finalJson != "null") {
+                        " · raw[${finalJson.length}]: " + finalJson.take(300)
+                    } else ""
                     val noStreamsMsg = when {
-                        fetchCount == 0 -> "No requests made — provider may have exited early$rawPreview$lastLog"
-                        else            -> "No streams found (provider returned empty list)$rawPreview$lastLog"
+                        fetchCount == 0 -> "No requests made — provider may have exited early$rawPreview$lastLog$rawJsonHint"
+                        else            -> "No streams found (provider returned empty list)$rawPreview$lastLog$rawJsonHint"
                     }
                     setErrorState(
                         scriptKey = scriptKey,
