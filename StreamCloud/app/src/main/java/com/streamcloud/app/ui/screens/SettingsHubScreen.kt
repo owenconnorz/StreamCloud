@@ -129,7 +129,7 @@ private enum class SettingsPage {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}) {
+fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}, onOpenDownloads: () -> Unit = {}) {
     val context = LocalContext.current
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
@@ -1475,6 +1475,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         item { HubRow(icon = Icons.Default.Person,      title = "Account",             iconTint = ColourAccount,    onClick = { onNavigate(SettingsPage.Account) }) }
         item { HubRow(icon = Icons.Default.Palette,     title = "Appearance",          iconTint = ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }) }
         item { HubRow(icon = Icons.Default.PlayArrow,   title = "Player and audio",    iconTint = ColourPlayer,     onClick = { onNavigate(SettingsPage.PlayerAudio) }) }
+        item { HubRow(icon = Icons.Default.Download,    title = "Downloads",           iconTint = ColourPlayer,     onClick = onOpenDownloads) }
         item { HubRow(icon = Icons.Default.Group,       title = "Listen Together",     iconTint = ColourSonos,      onClick = { onNavigate(SettingsPage.ListenTogether) }) }
         item { HubRow(icon = Icons.Default.Extension,   title = "Plugins & Addons",    iconTint = ColourAi,         onClick = onOpenPlugins) }
         item { HubRow(icon = Icons.Default.PlayCircle,  title = "Movies home plugins", iconTint = ColourContent,    onClick = { onNavigate(SettingsPage.CsHomeSettings) }) }
