@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -683,7 +684,7 @@ private fun PickerStreamCard(
                 modifier = Modifier.size(36.dp),
             ) {
                 Icon(
-                    androidx.compose.material.icons.Icons.Default.Download,
+                    Icons.Default.Download,
                     contentDescription = "Download stream",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.size(20.dp),
