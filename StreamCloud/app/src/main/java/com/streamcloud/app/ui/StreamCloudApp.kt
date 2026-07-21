@@ -75,6 +75,7 @@ import com.streamcloud.app.ui.screens.MusicSearchScreen
 import com.streamcloud.app.ui.screens.PluginPickerScreen
 import com.streamcloud.app.ui.screens.PluginsScreen
 import com.streamcloud.app.ui.screens.SettingsHubScreen
+import com.streamcloud.app.ui.screens.VideoDownloadsScreen
 import com.streamcloud.app.ui.screens.ProfilePickerScreen
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -1022,10 +1023,19 @@ fun StreamCloudApp() {
                         onOpenPlugins     = { nav.navigate("plugins") },
                         onOpenCollections = { nav.navigate("collections") },
                         onSwitchProfile   = { showProfilePicker = true },
+                        onOpenDownloads   = { nav.navigate("downloads") },
                     )
                 }
                 composable("plugins") {
                     PluginsScreen(onBack = { nav.popBackStack() })
+                }
+                composable("downloads") {
+                    VideoDownloadsScreen(
+                        onBack = { nav.popBackStack() },
+                        onPlayFile = { uri, title ->
+                            nav.navigate("player/url/${java.net.URLEncoder.encode(uri, "UTF-8")}/${java.net.URLEncoder.encode(title, "UTF-8")}")
+                        },
+                    )
                 }
             }
                     }
