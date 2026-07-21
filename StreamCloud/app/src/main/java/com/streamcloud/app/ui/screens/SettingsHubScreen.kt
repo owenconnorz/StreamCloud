@@ -185,6 +185,14 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var videoCacheSizeBytes by remember { mutableStateOf(0L) }
     var imageCacheSizeBytes by remember { mutableStateOf(0L) }
     var dlContentSizeBytes  by remember { mutableStateOf(0L) }
+    var introDbApiKey       by remember { mutableStateOf("") }
+    var subtitleSource      by remember { mutableStateOf("any") }
+    var parentalGuideOn     by remember { mutableStateOf(true) }
+    var holdToSpeedOn       by remember { mutableStateOf(false) }
+    var holdToSpeedVal      by remember { mutableStateOf("2.0") }
+    var showIntroKeyDialog  by remember { mutableStateOf(false) }
+    var showSubSourceDialog by remember { mutableStateOf(false) }
+    var showHoldSpeedDialog by remember { mutableStateOf(false) }
 
 
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
@@ -253,6 +261,11 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         videoCacheMaxMb     = sl.settings.videoCacheMaxMb.first()
         imageCacheMaxMb     = sl.settings.imageCacheMaxMb.first()
         posterCacheMaxCount = sl.settings.posterCacheMaxCount.first()
+        introDbApiKey       = sl.settings.introDbApiKey.first()
+        subtitleSource      = sl.settings.subtitleSource.first()
+        parentalGuideOn     = sl.settings.parentalGuideEnabled.first()
+        holdToSpeedOn       = sl.settings.holdToSpeedEnabled.first()
+        holdToSpeedVal      = sl.settings.holdToSpeedValue.first()
     }
 
 
@@ -586,6 +599,52 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                         checked = subs,
                         onChange = { subs = it; scope.launch { sl.settings.setSubtitlesEnabled(it) } },
                     )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Subtitle source preference",
+                        value = when (subtitleSource) {
+                            "internal" -> "Internal only"
+                            "external" -> "External only"
+                            else       -> "Any"
+                        },
+                        onClick = { showSubSourceDialog = true },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Skip Intro / Outro")
+                    SettingNav(
+                        icon = Icons.Default.Speed, tint = ColourPlayer,
+                        title = "IntroDB API Key",
+                        subtitle = if (introDbApiKey.isBlank()) "Optional — increases rate limits" else "Key saved",
+                        onClick = { showIntroKeyDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.VisibilityOff, tint = ColourPlayer,
+                        title = "Parental guide overlay",
+                        subtitle = "Show content warnings for ~6 s at video start",
+                        checked = parentalGuideOn,
+                        onChange = { parentalGuideOn = it; scope.launch { sl.settings.setParentalGuideEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Speed, tint = ColourPlayer,
+                        title = "Hold-to-Speed",
+                        subtitle = "Hold a button in the player to temporarily boost speed",
+                        checked = holdToSpeedOn,
+                        onChange = { holdToSpeedOn = it; scope.launch { sl.settings.setHoldToSpeedEnabled(it) } },
+                    )
+                    if (holdToSpeedOn) {
+                        SettingDivider()
+                        SettingNav(
+                            icon = Icons.Default.Speed, tint = ColourPlayer,
+                            title = "Hold speed",
+                            value = "${holdToSpeedVal}x",
+                            onClick = { showHoldSpeedDialog = true },
+                        )
+                    }
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
