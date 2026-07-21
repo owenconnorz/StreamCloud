@@ -67,6 +67,7 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.VolumeOff
@@ -293,6 +294,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                 onOpenPlugins     = onOpenPlugins,
                 onOpenCollections = onOpenCollections,
                 onSwitchProfile   = onSwitchProfile,
+                onOpenDownloads   = onOpenDownloads,
             )
 
 
@@ -1443,7 +1445,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
 }
 
 @Composable
-private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}) {
+private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}, onOpenDownloads: () -> Unit = {}) {
     val context = LocalContext.current
     val checker = remember { UpdateChecker(context.applicationContext) }
     var updateLabel by remember { mutableStateOf<String?>(null) }
