@@ -2595,6 +2595,24 @@ object NuvioRuntime {
                 try { return JSON.parse(JSON.stringify(v)); } catch(e) { return v; }
             };
         }
+        // ── JSON.parse safety shim ──────────────────────────────────────────────
+        // Some provider bundlers call JSON.parse(responseText) directly without a
+        // try-catch.  When the upstream site returns an HTML Cloudflare/block page,
+        // JSON.parse throws SyntaxError: unexpected token '<', crashing the provider.
+        // Override JSON.parse so that an HTML body silently returns {} instead.
+        (function() {
+            var __realJSONparse = JSON.parse;
+            JSON.parse = function(text, reviver) {
+                if (typeof text === 'string') {
+                    var trimmed = text.trimStart ? text.trimStart() : text.replace(/^\s+/, '');
+                    if (trimmed.charAt(0) === '<') {
+                        console.warn('[runtime] JSON.parse received HTML — returning {} (upstream returned a non-JSON page)');
+                        return {};
+                    }
+                }
+                return __realJSONparse.call(this, text, reviver);
+            };
+        })();
         // String.prototype.matchAll polyfill (ES2020)
         if (!String.prototype.matchAll) {
             String.prototype.matchAll = function(re) {
