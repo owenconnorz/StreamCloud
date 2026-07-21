@@ -191,33 +191,45 @@ object NuvioRuntime {
                                 return;
                             }
 
-                            // Detect calling convention by inspecting the function source string.
+                            // Determine calling convention by parsing the FIRST PARAMETER from the
+                            // function signature — not the body (body destructuring like forEach(({url})=>{})
+                            // would give false positives).
                             //
-                            //   Pattern A – object destructuring first param:
-                            //     async getStreams({ tmdbId, imdbId, mediaType }) { ... }
-                            //     → pass globalThis.params so destructuring gets real values
+                            //   Pattern A – object-destructure first param: ({ tmdbId, imdbId, ... })
+                            //     → pass globalThis.params so every destructured field has a real value
                             //
-                            //   Pattern B – named plain-object first param:
-                            //     async getStreams(params) { ... params.tmdbId ... }
-                            //     → pass globalThis.params; provider reads .tmdbId/.imdbId from it
+                            //   Pattern B – plain options-object first param: (params) / (opts) / (options)
+                            //     → pass globalThis.params; provider reads .tmdbId / .imdbId internally
                             //
-                            //   Pattern C – positional string args:
-                            //     async getStreams(tmdbId, mediaType, season, episode) { ... }
-                            //     → pass the raw string values; first arg must be the tmdbId string
+                            //   Pattern C – positional first param: (tmdbId, mediaType, ...) / (id, type, ...)
+                            //     → pass the raw TMDB ID string so the provider gets the right value
                             //
                             var __fnSrc = '';
                             try { __fnSrc = __fn.toString(); } catch (_e2) {}
 
-                            // Pattern A: first param starts with '{'
-                            var __isObjDestructure = /\(\s*\{/.test(__fnSrc);
-                            // Pattern B: plain named param that accesses .tmdbId/.imdbId/.mediaType
-                            var __isObjNamed = !__isObjDestructure &&
-                                /\b(?:params|opts?|data|options)\b[\s\S]{0,500}\.(?:tmdbId|imdbId|mediaType)/.test(__fnSrc);
+                            // Extract only the first token(s) of the parameter list.
+                            // Handles: function(...){}, (...) => {}, async(...){}, method shorthands.
+                            // We stop at the first comma or closing paren to get just the first param.
+                            var __firstParam = '';
+                            var __sigMatch = __fnSrc.match(
+                                /^[^(]*\(\s*((?:\{[^}]*\}|\[[^\]]*\]|[^,)]+))/
+                            );
+                            if (__sigMatch) { __firstParam = __sigMatch[1].trim(); }
+
+                            // Pattern A: first param starts with '{' (object destructuring)
+                            var __isObjDestructure = __firstParam.charAt(0) === '{';
+
+                            // Pattern B: first param is a conventional options-object identifier
+                            // (provider does params.tmdbId / opts.imdbId / etc. in the body)
+                            var __knownObjNames = /^(params|opts?|options?|args?|context|info|meta|cfg|config|props|input|stream)$/i;
+                            var __isObjNamed = !__isObjDestructure && __knownObjNames.test(__firstParam);
 
                             var __result;
                             if (__isObjDestructure || __isObjNamed) {
+                                // Patterns A & B: provider destructures or reads from the first arg
                                 __result = await __fn(globalThis.params);
                             } else {
+                                // Pattern C: provider uses positional string args
                                 __result = await __fn($tmdbIdArg, $mediaTypeArg, $seasonArg, $episodeArg);
                             }
                             __capture_result(JSON.stringify(__result || []));
