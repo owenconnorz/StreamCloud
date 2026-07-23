@@ -108,17 +108,17 @@ object RedditAdultRepository {
         token
     }
 
-    /** Fetch a page of posts from a subreddit via oauth.reddit.com (Bearer auth). */
+    /** Fetch a page of posts via the Replit backend proxy.
+     *  The proxy runs on a server IP — Reddit returns full listings there,
+     *  whereas residential/mobile IPs often receive empty children arrays. */
     suspend fun fetch(
         subreddit: String,
         sort: String = "hot",
         after: String? = null,
     ): Pair<List<AdultItem>, String?> {
-        val token = getAccessToken()
         val clean = subreddit.removePrefix("r/").trim()
         val url   = buildString {
-            append("https://oauth.reddit.com/r/$clean/$sort")
-            append("?limit=50&raw_json=1&include_over_18=on")
+            append("$BACKEND/reddit/r/$clean/$sort?limit=50")
             if (after != null) append("&after=$after")
         }
 
@@ -126,48 +126,36 @@ object RedditAdultRepository {
             val request = Request.Builder()
                 .url(url)
                 .get()
-                .header("Authorization", "Bearer $token")
-                .header("User-Agent", USER_AGENT)
-                .build()
+                .build()  // No auth header — backend handles Reddit OAuth
 
             var response = oauthClient.newCall(request).execute()
-            // Retry once on transient 5xx (HTTP/2 negotiation sometimes triggers a 500)
             if (response.code in 500..599) {
-                response.body?.string()  // drain
+                response.body?.string()
                 response = oauthClient.newCall(request).execute()
             }
             when (response.code) {
-                401 -> {
-                    cachedToken = null  // force refresh next time
-                    throw RedditAuthRequiredException("r/$clean requires user verification.")
-                }
-                403 -> throw RedditAuthRequiredException("r/$clean is private or quarantined.")
-                404 -> throw RedditAuthRequiredException("r/$clean was not found.")
-                429 -> throw RedditRateLimitException("Reddit rate limit. Please wait a moment.")
-                else -> if (!response.isSuccessful) {
+                401, 403 -> throw RedditAuthRequiredException("r/$clean is private or quarantined.")
+                404      -> throw RedditAuthRequiredException("r/$clean was not found.")
+                429      -> throw RedditRateLimitException("Reddit rate limit. Please wait a moment.")
+                else     -> if (!response.isSuccessful) {
                     val errBody = response.body?.string()?.take(200).orEmpty()
-                    throw Exception("Reddit API error ${response.code}: $errBody")
+                    throw Exception("Proxy error ${response.code}: $errBody")
                 }
             }
 
-            val bodyStr  = response.body?.string() ?: throw Exception("Empty response")
+            val bodyStr  = response.body?.string() ?: throw Exception("Empty response from proxy")
             val listing  = redditJson.decodeFromString<RedditListing>(bodyStr)
             val children = listing.data?.children.orEmpty()
             val validData = children.mapNotNull { it.data }
             val items     = validData.mapNotNull { post ->
                 try { post.toAdultItem() } catch (_: Exception) { null }
             }
-            // Diagnostic: surface why 0 items came back so UI shows something useful
             if (items.isEmpty()) {
-                val apiCount   = children.size
-                val parsedData = validData.size
-                if (apiCount == 0) {
-                    // Show the first 300 chars of the raw body to diagnose quarantine/redirect responses
-                    val bodyPreview = bodyStr.take(300).replace("\n", " ")
-                    throw Exception("r/$clean: 0 posts. Body: $bodyPreview")
-                }
-                if (parsedData == 0) throw Exception("r/$clean: $apiCount posts received but none could be parsed (JSON structure mismatch)")
-                throw Exception("r/$clean: $apiCount posts received, $parsedData parsed, 0 passed filter (all posts are text/link-only)")
+                val apiCount  = children.size
+                val parsed    = validData.size
+                if (apiCount == 0) throw Exception("r/$clean: proxy returned 0 posts")
+                if (parsed == 0)   throw Exception("r/$clean: $apiCount posts received but 0 parsed")
+                throw Exception("r/$clean: $apiCount received, $parsed parsed, 0 passed filter (text/link only)")
             }
             items to listing.data?.after
         }
@@ -268,6 +256,8 @@ object RedditAdultRepository {
 }
 
 object RedditAdultSubs {
+    // All verified working with Reddit API (server IP confirmed, HTTP 200 + posts).
+    // Asian_Hotties and nsfw_videos removed (HTTP 404 — banned).
     val PRESETS: List<Pair<String, String>> = listOf(
         "r/nsfw"         to "nsfw",
         "r/gonewild"     to "gonewild",
@@ -282,10 +272,10 @@ object RedditAdultSubs {
         "r/pawg"         to "pawg",
         "r/thick"        to "thick",
         "r/milf"         to "milf",
-        "r/Asian_Hotties" to "Asian_Hotties",
+        "r/OnOff"        to "OnOff",
         "r/latinas"      to "latinas",
         "r/ebony"        to "ebony",
         "r/cumsluts"     to "cumsluts",
-        "r/nsfw_videos"  to "nsfw_videos",
+        "r/petitegonewild" to "petitegonewild",
     )
 }
