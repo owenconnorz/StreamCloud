@@ -1,5 +1,7 @@
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
-package com.streamcloud.app.ui.screens
+package com.streamcloudimport android.net.Uri
+import android.content.Intent
+.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -333,6 +335,16 @@ fun LibraryScreen(
                                     when (entry.mediaType) {
                                         "tv" -> onTvClick(entry.tmdbId)
                                         "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
+                                        "reddit", "eporner" -> {
+                                            val url = entry.csUrl
+                                            if (url.isNotBlank()) {
+                                                runCatching {
+                                                    context.startActivity(
+                                                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                    )
+                                                }
+                                            }
+                                        }
                                         else -> onMovieClick(entry.tmdbId)
                                     }
                                 }
