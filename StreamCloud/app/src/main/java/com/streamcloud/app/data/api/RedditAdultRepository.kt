@@ -151,7 +151,18 @@ object RedditAdultRepository {
             val bodyStr  = response.body?.string() ?: throw Exception("Empty response")
             val listing  = redditJson.decodeFromString<RedditListing>(bodyStr)
             val children = listing.data?.children.orEmpty()
-            val items    = children.mapNotNull { it.data?.toAdultItem() }
+            val validData = children.mapNotNull { it.data }
+            val items     = validData.mapNotNull { post ->
+                try { post.toAdultItem() } catch (_: Exception) { null }
+            }
+            // Diagnostic: surface why 0 items came back so UI shows something useful
+            if (items.isEmpty()) {
+                val apiCount   = children.size
+                val parsedData = validData.size
+                if (apiCount == 0) throw Exception("r/$clean returned no posts (subreddit may be empty or quarantined)")
+                if (parsedData == 0) throw Exception("r/$clean: $apiCount posts received but none could be parsed (JSON structure mismatch)")
+                throw Exception("r/$clean: $apiCount posts received, $parsedData parsed, 0 passed filter (all posts are text/link-only)")
+            }
             items to listing.data?.after
         }
     }
