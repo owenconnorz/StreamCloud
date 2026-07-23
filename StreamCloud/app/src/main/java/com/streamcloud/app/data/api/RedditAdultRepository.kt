@@ -55,6 +55,14 @@ object RedditAdultRepository {
     @Volatile private var cachedToken: String? = null
     @Volatile private var tokenExpiry: Long    = 0L
 
+    // Dedicated Json parser: coerceInputValues handles null for non-nullable fields
+    // (Reddit sometimes sends "is_gallery": null, "is_video": null, etc.)
+    private val redditJson = kotlinx.serialization.json.Json {
+        ignoreUnknownKeys = true
+        isLenient          = true
+        coerceInputValues  = true
+    }
+
     // Dedicated client: no cookie jar, no BrowserHeaders interceptor
     private val oauthClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -131,7 +139,7 @@ object RedditAdultRepository {
             }
 
             val bodyStr  = response.body?.string() ?: throw Exception("Empty response")
-            val listing  = Net.json.decodeFromString<RedditListing>(bodyStr)
+            val listing  = redditJson.decodeFromString<RedditListing>(bodyStr)
             val children = listing.data?.children.orEmpty()
             val items    = children.mapNotNull { it.data?.toAdultItem() }
             items to listing.data?.after
@@ -181,6 +189,9 @@ object RedditAdultRepository {
             thumbnail?.takeIf {
                 it != "self" && it != "default" && it != "nsfw" && it.startsWith("http")
             },
+            // i.redd.it image URLs (with or without extension)
+            url.takeIf { it.startsWith("https://i.redd.it/") },
+            url.takeIf { it.startsWith("https://i.imgur.com/") },
             url.takeIf {
                 it.matches(Regex(".*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$", RegexOption.IGNORE_CASE))
             },
