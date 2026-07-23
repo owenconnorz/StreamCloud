@@ -10,6 +10,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -68,6 +69,8 @@ object RedditAdultRepository {
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20,  TimeUnit.SECONDS)
+            // Force HTTP/1.1: Reddit's oauth.reddit.com returns 500 with HTTP/2 from some Android OkHttp builds
+            .protocols(listOf(Protocol.HTTP_1_1))
             .build()
     }
 
@@ -125,7 +128,12 @@ object RedditAdultRepository {
                 .header("User-Agent", USER_AGENT)
                 .build()
 
-            val response = oauthClient.newCall(request).execute()
+            var response = oauthClient.newCall(request).execute()
+            // Retry once on transient 5xx (HTTP/2 negotiation sometimes triggers a 500)
+            if (response.code in 500..599) {
+                response.body?.string()  // drain
+                response = oauthClient.newCall(request).execute()
+            }
             when (response.code) {
                 401 -> {
                     cachedToken = null  // force refresh next time
@@ -134,8 +142,10 @@ object RedditAdultRepository {
                 403 -> throw RedditAuthRequiredException("r/$clean is private or quarantined.")
                 404 -> throw RedditAuthRequiredException("r/$clean was not found.")
                 429 -> throw RedditRateLimitException("Reddit rate limit. Please wait a moment.")
-                else -> if (!response.isSuccessful)
-                    throw Exception("Reddit API error ${response.code}")
+                else -> if (!response.isSuccessful) {
+                    val errBody = response.body?.string()?.take(200).orEmpty()
+                    throw Exception("Reddit API error ${response.code}: $errBody")
+                }
             }
 
             val bodyStr  = response.body?.string() ?: throw Exception("Empty response")
