@@ -118,7 +118,7 @@ object RedditAdultRepository {
     ): Pair<List<AdultItem>, String?> {
         val clean = subreddit.removePrefix("r/").trim()
         val url   = buildString {
-            append("$BACKEND/reddit/r/$clean/$sort?limit=50")
+            append("$BACKEND_BASE/reddit/r/$clean/$sort?limit=50")
             if (after != null) append("&after=$after")
         }
 
