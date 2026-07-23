@@ -151,8 +151,8 @@ object RedditAdultRepository {
         if (redditVideo != null) {
             streamUrl = redditVideo.fallbackUrl?.removeSuffix("?source=fallback")
             val base  = streamUrl
-                ?.replace(Regex("DASH_\d+\.mp4.*$"),  "")
-                ?.replace(Regex("DASH_[^/]+\.mp4.*$"), "")
+                ?.replace(Regex("DASH_\\d+\\.mp4.*$"),  "")
+                ?.replace(Regex("DASH_[^/]+\\.mp4.*$"), "")
             if (!base.isNullOrBlank() && redditVideo.hasAudio != false) {
                 audioUrl = "${base}DASH_AUDIO_128.mp4"
             }
@@ -162,7 +162,7 @@ object RedditAdultRepository {
             isVideo   = true
         } else if (url.contains("redgifs.com", ignoreCase = true)) {
             val match = Regex(
-                "redgifs\.com/(?:watch/)?([\w-]+)", RegexOption.IGNORE_CASE
+                "redgifs\\.com/(?:watch/)?([\\w-]+)", RegexOption.IGNORE_CASE
             ).find(url)
             streamUrl = if (match != null)
                 "https://www.redgifs.com/ifr/${match.groupValues[1]}"
@@ -182,7 +182,7 @@ object RedditAdultRepository {
                 it != "self" && it != "default" && it != "nsfw" && it.startsWith("http")
             },
             url.takeIf {
-                it.matches(Regex(".*\.(jpg|jpeg|png|webp|gif)(\?.*)?$", RegexOption.IGNORE_CASE))
+                it.matches(Regex(".*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$", RegexOption.IGNORE_CASE))
             },
         ).firstOrNull()
 
