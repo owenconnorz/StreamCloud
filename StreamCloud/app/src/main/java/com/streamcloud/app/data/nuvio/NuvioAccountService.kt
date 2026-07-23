@@ -3,6 +3,8 @@ package com.streamcloud.app.data.nuvio
 import android.content.Context
 import android.util.Log
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchProgressEntity
+import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.stremio.StremioRepository
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +17,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
@@ -48,6 +53,13 @@ data class NuvioSyncResult(
     val addons: Int = 0,
     val watchProgress: Int = 0,
     val library: Int = 0,
+)
+
+data class NuvioPullResult(
+    val watchProgress: Int = 0,
+    val library: Int = 0,
+    val plugins: Int = 0,
+    val addons: Int = 0,
 )
 
 class NuvioAccountService(private val context: Context) {
@@ -234,6 +246,123 @@ class NuvioAccountService(private val context: Context) {
         }
 
         NuvioSyncResult(plugins = plugins, addons = addons, watchProgress = progress, library = library)
+    }
+
+    /**
+     * Pull data FROM the Nuvio cloud into the local Room database.
+     * This is the counterpart of [syncAll] (push).  The home screen's
+     * Continue-Watching and Library rows are Flow-driven from Room, so they
+     * update automatically once this completes.
+     */
+    suspend fun syncPull(accessToken: String): NuvioPullResult = withContext(Dispatchers.IO) {
+        val db         = LibraryDb.get(context)
+        val pluginRepo = PluginRepository(context)
+        var progress = 0
+        var library  = 0
+        var plugins  = 0
+        var addons   = 0
+
+        // ── Watch progress ────────────────────────────────────────────────
+        runCatching {
+            val text = rpc(
+                "sync_pull_watch_progress",
+                buildJsonObject { put("p_profile_id", JsonPrimitive(1)) },
+                accessToken,
+            ).getOrThrow()
+            val arr = json.parseToJsonElement(text).jsonArray
+            arr.forEach { el ->
+                val obj       = el.jsonObject
+                val contentId = obj["content_id"]?.jsonPrimitive?.content ?: return@forEach
+                val tmdbId    = contentId.removePrefix("tmdb:").toLongOrNull() ?: return@forEach
+                val posMs     = obj["position"]?.jsonPrimitive?.longOrNull   ?: return@forEach
+                val durMs     = obj["duration"]?.jsonPrimitive?.longOrNull   ?: return@forEach
+                val updAt     = obj["last_watched"]?.jsonPrimitive?.longOrNull
+                                ?: System.currentTimeMillis()
+                val ctype     = obj["content_type"]?.jsonPrimitive?.content ?: "movie"
+                val title     = obj["name"]?.jsonPrimitive?.content.orEmpty()
+                val poster    = obj["poster"]?.jsonPrimitive?.content
+                if (durMs > 0 && posMs > 0) {
+                    db.watchProgress().upsert(
+                        WatchProgressEntity(
+                            tmdbId     = tmdbId,
+                            title      = title,
+                            posterUrl  = poster,
+                            mediaType  = if (ctype == "series") "tv" else "movie",
+                            positionMs = posMs,
+                            durationMs = durMs,
+                            updatedAt  = updAt,
+                        )
+                    )
+                    progress++
+                }
+            }
+        }.onFailure { Log.w(TAG, "syncPull watch_progress", it) }
+
+        // ── Library / watchlist ───────────────────────────────────────────
+        runCatching {
+            val text = rpc(
+                "sync_pull_library",
+                buildJsonObject { put("p_profile_id", JsonPrimitive(1)) },
+                accessToken,
+            ).getOrThrow()
+            val arr = json.parseToJsonElement(text).jsonArray
+            arr.forEach { el ->
+                val obj       = el.jsonObject
+                val contentId = obj["content_id"]?.jsonPrimitive?.content ?: return@forEach
+                val tmdbId    = contentId.removePrefix("tmdb:").toLongOrNull() ?: return@forEach
+                val title     = obj["name"]?.jsonPrimitive?.content ?: return@forEach
+                val poster    = obj["poster"]?.jsonPrimitive?.content
+                val ctype     = obj["content_type"]?.jsonPrimitive?.content ?: "movie"
+                val addedAt   = obj["added_at"]?.jsonPrimitive?.longOrNull
+                                ?: System.currentTimeMillis()
+                db.watchlist().add(
+                    WatchlistEntity(
+                        tmdbId    = tmdbId,
+                        title     = title,
+                        posterUrl = poster,
+                        mediaType = if (ctype == "series") "tv" else "movie",
+                        addedAt   = addedAt,
+                    )
+                )
+                library++
+            }
+        }.onFailure { Log.w(TAG, "syncPull library", it) }
+
+        // ── Plugin repos ──────────────────────────────────────────────────
+        runCatching {
+            val text = rpc(
+                "sync_pull_plugins",
+                buildJsonObject { put("p_profile_id", JsonPrimitive(1)) },
+                accessToken,
+            ).getOrThrow()
+            val arr = json.parseToJsonElement(text).jsonArray
+            arr.forEach { el ->
+                val obj  = el.jsonObject
+                val url  = obj["url"]?.jsonPrimitive?.content  ?: return@forEach
+                val name = obj["name"]?.jsonPrimitive?.content ?: url
+                pluginRepo.addRepo(name = name, url = url)
+                plugins++
+            }
+        }.onFailure { Log.w(TAG, "syncPull plugins", it) }
+
+        // ── Stremio addons ────────────────────────────────────────────────
+        runCatching {
+            val text = rpc(
+                "sync_pull_addons",
+                buildJsonObject { put("p_profile_id", JsonPrimitive(1)) },
+                accessToken,
+            ).getOrThrow()
+            val stremioRepo = StremioRepository(context)
+            val arr = json.parseToJsonElement(text).jsonArray
+            arr.forEach { el ->
+                val obj = el.jsonObject
+                val url = obj["url"]?.jsonPrimitive?.content ?: return@forEach
+                runCatching { stremioRepo.addAddon(url) }
+                addons++
+            }
+        }.onFailure { Log.w(TAG, "syncPull addons", it) }
+
+        NuvioPullResult(watchProgress = progress, library = library, plugins = plugins, addons = addons)
     }
 
     companion object {
