@@ -108,6 +108,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import com.streamcloud.app.data.nuvio.NuvioAccountService
+import com.streamcloud.app.data.nuvio.NuvioPullResult
 
 private val HubIconBg  = Color(0xFF1B2D52)
 private val HubIconFg  = Color(0xFF5B8DEF)
@@ -2913,6 +2914,24 @@ private fun NuvioAccountRow() {
     var errorMsg     by remember { mutableStateOf("") }
     var syncStatus   by remember { mutableStateOf("") }
 
+    // Auto-pull from cloud whenever we have a valid token (once per composition lifetime)
+    var didAutoSync by remember { mutableStateOf(false) }
+    LaunchedEffect(accessToken) {
+        if (accessToken.isNotBlank() && !didAutoSync) {
+            didAutoSync = true
+            syncStatus  = "Syncing from cloud…"
+            val r = runCatching { nuvioSvc.syncPull(accessToken) }
+            syncStatus  = r.fold(
+                onSuccess = { p ->
+                    if (p.watchProgress + p.library + p.plugins + p.addons > 0)
+                        "↓ Synced ${p.watchProgress} watched · ${p.library} saved · ${p.plugins} plugins · ${p.addons} addons"
+                    else ""
+                },
+                onFailure = { "" },
+            )
+        }
+    }
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -2950,15 +2969,20 @@ private fun NuvioAccountRow() {
             TextButton(onClick = {
                 scope.launch {
                     syncStatus = "Syncing…"
-                    val result = runCatching {
-                        nuvioSvc.syncAll(accessToken)
+                    val push = runCatching { nuvioSvc.syncAll(accessToken) }
+                    val pull = runCatching { nuvioSvc.syncPull(accessToken) }
+                    syncStatus = when {
+                        push.isSuccess && pull.isSuccess -> {
+                            val up   = push.getOrThrow()
+                            val down = pull.getOrThrow()
+                            "Synced ✓  ↑${up.watchProgress} ↓${down.watchProgress} watched · ↑${up.library} ↓${down.library} saved · ${up.plugins + down.plugins} plugins"
+                        }
+                        push.isSuccess -> "Pushed ✓  (pull unavailable)"
+                        pull.isSuccess -> "Pulled ✓  (push failed)"
+                        else -> "Error: ${push.exceptionOrNull()?.message?.take(60)}"
                     }
-                    syncStatus = result.fold(
-                        onSuccess = { r -> "Synced ✓  ${r.plugins} plugins · ${r.addons} addons · ${r.watchProgress} progress · ${r.library} library" },
-                        onFailure = { "Error: ${it.message?.take(60)}" },
-                    )
                 }
-            }) { Text("Sync") }
+            }) { Text("Sync ↕") }
             TextButton(onClick = {
                 scope.launch {
                     nuvioSvc.signOut(accessToken)
@@ -3056,7 +3080,23 @@ private fun NuvioAccountRow() {
                                     )
                                     showDialog = false
                                     emailInput = ""; passInput = ""; errorMsg = ""
-                                    syncStatus = "Signed in — tap Sync to push your data"
+                                    syncStatus = "Syncing your data…"
+                                    // Immediately pull cloud data so home screen shows it
+                                    scope.launch {
+                                        val push = runCatching { nuvioSvc.syncAll(session.access_token) }
+                                        val pull = runCatching { nuvioSvc.syncPull(session.access_token) }
+                                        syncStatus = when {
+                                            pull.isSuccess -> {
+                                                val d = pull.getOrThrow()
+                                                val u = push.getOrNull()
+                                                "Synced ✓  ${d.watchProgress} watched · ${d.library} saved" +
+                                                    if (u != null) " · ${u.plugins} plugins" else ""
+                                            }
+                                            push.isSuccess -> "Signed in ✓  (tap Sync ↕ to refresh)"
+                                            else -> "Signed in ✓"
+                                        }
+                                        didAutoSync = true
+                                    }
                                 },
                                 onFailure = { errorMsg = it.message ?: "Sign in failed" },
                             )
