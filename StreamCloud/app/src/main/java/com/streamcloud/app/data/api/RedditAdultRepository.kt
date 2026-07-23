@@ -52,7 +52,7 @@ object RedditAdultRepository {
     private const val CLIENT_SECRET = "BCRKFdWhHJ_Ckifv-guBVixUfQA__w"
     private const val USER_AGENT    = "android:com.streamcloud.app:v1.0.0 (by /u/streamcloud_app)"
     /** Replit backend URL — proxies Reddit API from a server IP to bypass residential IP restrictions. */
-    private const val BACKEND_BASE  = "https://3ba8c68a-5209-427d-98b0-525c8db37c04-00-2k42ymh9izy12.picard.replit.dev"
+    private const val BACKEND_BASE  = "https://3ba8c68a-5209-427d-98b0-525c8db37c04-00-2k42ymh9izy12.picard.replit.dev:8000"
 
     // In-memory token cache — same pattern as AioWeb's cachedToken
     @Volatile private var cachedToken: String? = null
