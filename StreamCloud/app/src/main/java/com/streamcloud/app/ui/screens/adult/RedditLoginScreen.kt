@@ -3,8 +3,11 @@ package com.streamcloud.app.ui.screens.adult
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -18,45 +21,33 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
-/**
- * Reads [loading] and shows a progress bar only while loading.
- * Lives in its own composable so flipping the flag only recomposes
- * this function — never the outer RedditLoginScreen that holds the
- * WebView. Keeping the WebView's parent stable prevents focus resets
- * that dismiss the soft keyboard.
- */
 @Composable
 private fun WebViewProgressBar(loading: State<Boolean>) {
     if (loading.value) {
         LinearProgressIndicator(
             modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFFFF4500),
+            color    = Color(0xFFFF4500),
         )
     }
 }
 
 /**
- * Full-screen WebView that lets the user log in to Reddit.
+ * Full-screen WebView that lets the user sign in to Reddit.
  *
- * Login detection strategy (2024+ Reddit SPA):
- *  - We do NOT rely on specific cookie names (reddit_session, token_v2…)
- *    because Reddit changes them frequently.
- *  - Instead, whenever onPageFinished fires on a URL that looks like the
- *    post-login feed (not a login/register/oauth2 path), we call
- *    /api/me.json.  Only if that returns a non-blank username do we call
- *    [onLoginSuccess]; otherwise we reset state so the user can retry.
+ * Login detection:
+ *  1. We do NOT use HttpURLConnection — it cannot replicate the WebView's
+ *     cookie jar (HttpOnly cookies, domain variants, etc.).
+ *  2. Instead, after landing on a post-login Reddit URL, we inject a
+ *     fetch('/api/me.json') call using evaluateJavascript(). Because the
+ *     fetch runs inside the WebView, it automatically carries all cookies.
+ *  3. The result is returned to Kotlin via a @JavascriptInterface bridge.
+ *  4. A LaunchedEffect watches the bridge result and calls onLoginSuccess.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -64,49 +55,29 @@ fun RedditLoginScreen(
     onLoginSuccess: (username: String) -> Unit,
     onBack: () -> Unit,
 ) {
-    val pageLoading   = remember { mutableStateOf(true) }
-    var loginDetected by remember { mutableStateOf(false) }
-    var fetchingName  by remember { mutableStateOf(false) }
+    val pageLoading = remember { mutableStateOf(true) }
+    // The username detected by the JS bridge; null until we get a response.
+    val detectedUsername = remember { mutableStateOf<String?>(null) }
 
     BackHandler(onBack = onBack)
-    // windowSoftInputMode="adjustPan" in AndroidManifest prevents the window
-    // from resizing when the keyboard appears — the root cause of WebView
-    // focus loss (and keyboard dismissal) in Compose apps.
 
-    LaunchedEffect(loginDetected) {
-        if (!loginDetected || fetchingName) return@LaunchedEffect
-        fetchingName = true
-        val name = withContext(Dispatchers.IO) {
-            runCatching {
-                val cookie = CookieManager.getInstance()
-                    .getCookie("https://www.reddit.com").orEmpty()
-                val conn = URL("https://www.reddit.com/api/me.json")
-                    .openConnection() as HttpURLConnection
-                conn.setRequestProperty("Cookie", cookie)
-                conn.setRequestProperty(
-                    "User-Agent",
-                    "android:com.streamcloud.app:v1.0.0 (by /u/streamcloud_app)"
-                )
-                conn.connectTimeout = 8_000
-                conn.readTimeout    = 8_000
-                val body = conn.inputStream.bufferedReader().readText()
-                conn.disconnect()
-                // /api/me.json shape: {"kind":"t2","data":{"name":"username",...}}
-                // Must read data.name, NOT top-level name (which doesn't exist).
-                val json = JSONObject(body)
-                val name = json.optJSONObject("data")?.optString("name", "").orEmpty()
-                    .ifBlank { null }
-                name
-            }.getOrNull()
-        }
-        if (name != null) {
-            // Confirmed: genuinely logged in.
-            onLoginSuccess(name)
-        } else {
-            // /api/me.json returned nothing — login may not have completed.
-            // Reset so the user can finish and trigger detection again.
-            fetchingName  = false
-            loginDetected = false
+    // Fire onLoginSuccess as soon as the bridge delivers a username.
+    LaunchedEffect(detectedUsername.value) {
+        val name = detectedUsername.value ?: return@LaunchedEffect
+        onLoginSuccess(name)
+    }
+
+    // Kotlin ↔ JavaScript bridge.
+    // Stable across recompositions so the WebView never loses its reference.
+    val bridge = remember {
+        object {
+            @JavascriptInterface
+            fun receiveUsername(name: String) {
+                // JavascriptInterface callbacks may arrive on a non-main thread.
+                Handler(Looper.getMainLooper()).post {
+                    if (name.isNotBlank()) detectedUsername.value = name
+                }
+            }
         }
     }
 
@@ -117,6 +88,7 @@ fun RedditLoginScreen(
     ) {
         Column(Modifier.fillMaxSize()) {
 
+            // ── Top bar ────────────────────────────────────────────────────
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -134,16 +106,19 @@ fun RedditLoginScreen(
                 }
                 Text(
                     "Sign in to Reddit",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color    = Color.White,
+                    style    = MaterialTheme.typography.titleSmall
+                        .copy(fontWeight = FontWeight.SemiBold),
                     modifier = Modifier.weight(1f),
                 )
             }
 
+            // ── WebView ────────────────────────────────────────────────────
             Box(Modifier.fillMaxSize()) {
                 AndroidView(
                     factory = { ctx ->
                         val wv: WebView = object : WebView(ctx) {
+                            // Keep keyboard up when another view briefly steals focus.
                             override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
                                 super.onWindowFocusChanged(hasWindowFocus)
                                 if (!hasWindowFocus) {
@@ -154,39 +129,46 @@ fun RedditLoginScreen(
                             }
                         }
                         wv.apply {
-                            isFocusable = true
-                            isFocusableInTouchMode = true
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
+                            isFocusable             = true
+                            isFocusableInTouchMode  = true
+                            settings.javaScriptEnabled  = true
+                            settings.domStorageEnabled  = true
                             settings.loadWithOverviewMode = true
-                            settings.useWideViewPort = true
+                            settings.useWideViewPort    = true
 
                             CookieManager.getInstance().setAcceptCookie(true)
                             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
+                            // Bridge must be added before loadUrl.
+                            addJavascriptInterface(bridge, "RedditBridge")
                             requestFocus()
 
                             webViewClient = object : WebViewClient() {
 
                                 override fun shouldOverrideUrlLoading(
-                                    view: WebView?, request: WebResourceRequest?,
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
                                 ) = false
 
                                 override fun onPageStarted(
-                                    view: WebView?, url: String?, favicon: Bitmap?,
+                                    view: WebView?,
+                                    url: String?,
+                                    favicon: Bitmap?,
                                 ) {
                                     super.onPageStarted(view, url, favicon)
                                     pageLoading.value = true
                                 }
 
-                                override fun onPageFinished(view: WebView?, url: String?) {
+                                override fun onPageFinished(
+                                    view: WebView?,
+                                    url: String?,
+                                ) {
                                     super.onPageFinished(view, url)
                                     pageLoading.value = false
                                     CookieManager.getInstance().flush()
 
                                     val u = url ?: return
-                                    // Trigger login check once we land on a post-login page.
-                                    // We do NOT inspect cookie names here — Reddit changes them.
-                                    // The LaunchedEffect will call /api/me.json to verify.
+                                    // Only act when we've navigated AWAY from the login flow.
                                     val awayFromLogin = u.contains("reddit.com") &&
                                         !u.contains("/login") &&
                                         !u.contains("/register") &&
@@ -197,9 +179,25 @@ fun RedditLoginScreen(
                                         !u.contains("/two-factor") &&
                                         !u.contains("/challenge")
 
-                                    if (awayFromLogin && !loginDetected && !fetchingName) {
-                                        loginDetected = true
-                                    }
+                                    if (!awayFromLogin || detectedUsername.value != null) return
+
+                                    // Use the WebView's own fetch() so the request carries
+                                    // ALL of Reddit's cookies automatically — no manual cookie
+                                    // header construction needed.
+                                    view?.evaluateJavascript("""
+                                        (function() {
+                                            fetch('/api/me.json', {credentials: 'include'})
+                                              .then(function(r) { return r.json(); })
+                                              .then(function(j) {
+                                                var n = (j && j.data && j.data.name)
+                                                            ? j.data.name : '';
+                                                RedditBridge.receiveUsername(n);
+                                              })
+                                              .catch(function() {
+                                                RedditBridge.receiveUsername('');
+                                              });
+                                        })();
+                                    """.trimIndent()) { /* Promise — result via bridge */ }
                                 }
                             }
 
@@ -209,13 +207,18 @@ fun RedditLoginScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                Box(Modifier.fillMaxWidth().align(Alignment.TopStart)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopStart)
+                ) {
                     WebViewProgressBar(pageLoading)
                 }
             }
         }
 
-        if (fetchingName) {
+        // Spinner overlay while verifying login
+        if (detectedUsername.value != null) {
             Box(
                 Modifier
                     .fillMaxSize()
