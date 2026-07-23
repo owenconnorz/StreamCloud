@@ -838,10 +838,6 @@ fun StreamCloudApp() {
                 }
 
                 composable(Tab.Adult.route) {
-                    val adultScope          = rememberCoroutineScope()
-                    val savedRedditAccounts by sl.settings.redditAccounts
-                        .collectAsState(initial = emptyList())
-
                     AdultScreen(
                         onPlay = { videoId, embed, title ->
                             val v = URLEncoder.encode(videoId, "UTF-8")
@@ -849,62 +845,6 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("player/eporner/$v/$e/$t")
                         },
-                        onOpenRedditLogin = { nav.navigate("reddit-login") },
-                        redditAccounts    = savedRedditAccounts.map { it.first },
-                        onSwitchAccount   = { username ->
-                            val cookies = savedRedditAccounts
-                                .firstOrNull { it.first == username }?.second ?: return@AdultScreen
-                            // Restore this account's cookies to both OkHttp and the WebView jar
-                            cookies.split("; ").forEach { part ->
-                                val eq = part.indexOf('=')
-                                if (eq > 0) {
-                                    val n = part.substring(0, eq).trim()
-                                    val v = part.substring(eq + 1).trim()
-                                    com.streamcloud.app.data.network.BrowserCookieJar
-                                        .setCookie("www.reddit.com", n, v)
-                                    com.streamcloud.app.data.network.BrowserCookieJar
-                                        .setCookie("reddit.com", n, v)
-                                    android.webkit.CookieManager.getInstance()
-                                        .setCookie("https://www.reddit.com", "$n=$v")
-                                }
-                            }
-                            android.webkit.CookieManager.getInstance().flush()
-                            adultScope.launch { sl.settings.setRedditUsername(username) }
-                        },
-                    )
-                }
-
-                // ── Reddit WebView login ──────────────────────────────────
-                composable("reddit-login") {
-                    val ctx = LocalContext.current
-                    val sl  = remember(ctx) { com.streamcloud.app.data.ServiceLocator.get(ctx) }
-                    val scope = rememberCoroutineScope()
-                    RedditLoginScreen(
-                        onLoginSuccess = { username ->
-                            // Seed BrowserCookieJar so OkHttp manages the session
-                            // from here on (handles Reddit's token rotation).
-                            val rawCookies = android.webkit.CookieManager.getInstance()
-                                .getCookie("https://www.reddit.com").orEmpty()
-                            if (rawCookies.isNotBlank()) {
-                                rawCookies.split("; ").forEach { part ->
-                                    val eq = part.indexOf('=')
-                                    if (eq > 0) {
-                                        val n = part.substring(0, eq).trim()
-                                        val v = part.substring(eq + 1).trim()
-                                        com.streamcloud.app.data.network.BrowserCookieJar
-                                            .setCookie("www.reddit.com", n, v)
-                                        com.streamcloud.app.data.network.BrowserCookieJar
-                                            .setCookie("reddit.com", n, v)
-                                    }
-                                }
-                            }
-                            scope.launch {
-                                sl.settings.setRedditUsername(username)
-                                if (rawCookies.isNotBlank()) sl.settings.addRedditAccount(username, rawCookies)
-                            }
-                            nav.popBackStack()
-                        },
-                        onBack = { nav.popBackStack() },
                     )
                 }
 
