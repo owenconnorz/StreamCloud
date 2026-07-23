@@ -1,7 +1,8 @@
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
-package com.streamcloudimport android.net.Uri
+package com.streamcloud.app.ui.screens
+
 import android.content.Intent
-.app.ui.screens
+import android.net.Uri
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
