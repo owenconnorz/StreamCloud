@@ -356,7 +356,7 @@ private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayCli
                     )
                 )
                 .navigationBarsPadding()          // system nav bar inset first
-                .padding(start = 16.dp, top = 24.dp, end = 16.dp, bottom = 20.dp),
+                .padding(start = 16.dp, top = 24.dp, end = 16.dp, bottom = 80.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
