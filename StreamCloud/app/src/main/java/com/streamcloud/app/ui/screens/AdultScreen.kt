@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,11 +57,16 @@ import kotlinx.coroutines.launch
 fun AdultScreen(
     onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
     onOpenRedditLogin: () -> Unit = {},
+    /** Called with the username to switch to; caller restores cookies + updates settings. */
+    onSwitchAccount: (String) -> Unit = {},
+    /** Usernames of all saved Reddit accounts (used in the account-switcher dropdown). */
+    redditAccounts: List<String> = emptyList(),
     screenTitle: String = "Adult",
     screenSubtitle: String = "",
 ) {
     val context = LocalContext.current
     val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(context))
+    val scope = rememberCoroutineScope()
     val state by vm.state.collectAsState()
 
     var detailItem by remember { mutableStateOf<AdultItem?>(null) }
@@ -133,18 +139,24 @@ fun AdultScreen(
         if (state.source == AdultSource.Reddit) {
             // ── Reddit swipe-up feed ─────────────────────────────────────
             RedditFeedView(
-                vm              = vm,
-                redditUsername  = state.redditUsername,
-                onLoginClick    = onOpenRedditLogin,
-                onLogoutClick   = {
-                    // Clear username — actual cookie/session clear can be done
-                    // via the login screen.
-                    onOpenRedditLogin()
+                vm             = vm,
+                redditUsername = state.redditUsername,
+                onLoginClick   = onOpenRedditLogin,
+                onLogoutClick  = { onOpenRedditLogin() },
+                accounts       = redditAccounts,
+                onSwitchAccount = { username ->
+                    onSwitchAccount(username)
+                    // Give DataStore ~250 ms to persist the new username,
+                    // then refresh the feed so it loads under the new account.
+                    scope.launch {
+                        kotlinx.coroutines.delay(250L)
+                        vm.refresh()
+                    }
                 },
-                onPlayItem      = { item ->
+                onPlayItem     = { item ->
                     onPlay(item.id, item.streamUrl.orEmpty(), item.title)
                 },
-                modifier        = Modifier
+                modifier       = Modifier
                     .fillMaxWidth()
                     .weight(1f),
             )
