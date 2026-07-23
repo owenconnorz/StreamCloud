@@ -2,9 +2,8 @@
 package com.streamcloud.app.ui.screens.adult
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.graphics.Bitmap
-import android.view.WindowManager
+import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -23,6 +22,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -71,17 +72,9 @@ fun RedditLoginScreen(
     var fetchingName   by remember { mutableStateOf(false) }
 
     BackHandler(onBack = onBack)
-
-    // enableEdgeToEdge() in MainActivity calls setDecorFitsSystemWindows(false)
-    // which silently overrides any manifest windowSoftInputMode. Set it
-    // programmatically for this screen and restore it when we leave.
-    val activity = LocalContext.current as Activity
-    DisposableEffect(Unit) {
-        val prev = activity.window.attributes.softInputMode
-        @Suppress("DEPRECATION")
-        activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN)
-        onDispose { activity.window.setSoftInputMode(prev) }
-    }
+    // windowSoftInputMode="adjustPan" in AndroidManifest prevents the window
+    // from resizing when the keyboard appears, which is the primary cause of
+    // WebView focus loss (and therefore keyboard dismissal) in Compose apps.
 
     // Once WebView signals a successful login, fetch the username in the background.
     LaunchedEffect(loginDetected) {
@@ -146,7 +139,23 @@ fun RedditLoginScreen(
             Box(Modifier.fillMaxSize()) {
                 AndroidView(
                     factory = { ctx ->
-                        WebView(ctx).apply {
+                        // Anonymous subclass guards against focus loss while the IME
+                        // is visible — a known Compose + AndroidView interaction where
+                        // recomposition or pointer-event handling can call clearFocus()
+                        // on the view tree, dismissing the soft keyboard.
+                        object : WebView(ctx) {
+                            override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+                                super.onWindowFocusChanged(hasWindowFocus)
+                                // If the window just lost focus AND the IME is currently
+                                // shown (user was typing), re-request focus on the next
+                                // frame so the keyboard stays up.
+                                if (!hasWindowFocus) {
+                                    val imeVisible = ViewCompat.getRootWindowInsets(this)
+                                        ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                                    if (imeVisible) post { requestFocus() }
+                                }
+                            }
+                        }.apply {
                             isFocusable = true
                             isFocusableInTouchMode = true
                             settings.javaScriptEnabled = true
@@ -157,9 +166,8 @@ fun RedditLoginScreen(
                             CookieManager.getInstance().setAcceptCookie(true)
                             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
-                            // Claim focus immediately so the first tap opens the
-                            // keyboard without a double-tap and without anything
-                            // stealing focus back from the WebView.
+                            // Claim focus up-front so the first tap on any input
+                            // field opens the keyboard immediately.
                             requestFocus()
 
                             webViewClient = object : WebViewClient() {
@@ -209,7 +217,7 @@ fun RedditLoginScreen(
 
                             loadUrl("https://www.reddit.com/login")
                         }
-                    },
+                    }.also { /* WebView setup complete */ },
                     modifier = Modifier.fillMaxSize(),
                 )
 
