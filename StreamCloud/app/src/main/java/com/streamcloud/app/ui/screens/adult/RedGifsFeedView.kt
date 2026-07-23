@@ -1,7 +1,11 @@
 package com.streamcloud.app.ui.screens.adult
 
 import android.content.Intent
+import android.app.DownloadManager
+import android.content.Context
 import android.net.Uri
+import android.os.Environment
+import android.widget.Toast
 import android.view.ViewGroup
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -199,7 +203,25 @@ private fun RedGifsPostCard(item: AdultItem, isActive: Boolean = false, onPlayCl
 
     fun onDownload() {
         val url = item.streamUrl ?: item.previewImage ?: return
-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        runCatching {
+            val uri      = Uri.parse(url)
+            val fileName = uri.lastPathSegment?.let {
+                if (it.contains('.')) it else "$it.mp4"
+            } ?: "redgifs_${item.id}.mp4"
+
+            val req = DownloadManager.Request(uri).apply {
+                setTitle(item.title.take(80))
+                setDescription("Downloading from RedGifs…")
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                addRequestHeader("User-Agent", "android:com.streamcloud.app:v1.0.0")
+            }
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            dm.enqueue(req)
+            Toast.makeText(context, "Downloading…", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            Toast.makeText(context, "Download failed: ${it.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
