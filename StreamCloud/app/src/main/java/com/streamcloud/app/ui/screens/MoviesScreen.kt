@@ -285,6 +285,8 @@ fun MoviesScreen(
                                     onLongPress = {
                                         posterSheet = PosterSheetItem(m.id, m.displayTitle, m.posterUrl, "movie")
                                     },
+                                    isSaved = state.watchlist.any { it.tmdbId == m.id },
+                                    onSaveClick = { vm.toggleWatchlist(m.id, m.displayTitle, m.posterUrl, "movie") },
                                 )
                             }
                         }
@@ -892,7 +894,14 @@ private fun ContinueWatchingCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: () -> Unit, onLongPress: () -> Unit = {}) {
+private fun MidPoster(
+    m: TmdbMovie,
+    posterStyle: String = "portrait",
+    onClick: () -> Unit,
+    onLongPress: () -> Unit = {},
+    isSaved: Boolean = false,
+    onSaveClick: (() -> Unit)? = null,
+) {
     val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
@@ -903,15 +912,33 @@ private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: (
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
-        AsyncImage(
-            model = imageUrl,
-            contentDescription = m.displayTitle,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth().aspectRatio(ratio)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surface),
-        )
+        Box {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = m.displayTitle,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth().aspectRatio(ratio)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+            )
+            if (onSaveClick != null) {
+                IconButton(
+                    onClick = onSaveClick,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(36.dp)
+                        .padding(4.dp),
+                ) {
+                    Icon(
+                        imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                        contentDescription = if (isSaved) "Remove from library" else "Save to library",
+                        tint = if (isSaved) Color(0xFF7C5CFF) else Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             m.displayTitle,
