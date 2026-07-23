@@ -48,6 +48,7 @@ import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.screens.adult.RedditFeedView
+import com.streamcloud.app.ui.screens.adult.RedGifsFeedView
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -117,7 +118,7 @@ fun AdultScreen(
         }
 
         // ── Source switcher tabs: Eporner / Reddit ───────────────────────
-        val sources = listOf(AdultSource.Eporner, AdultSource.Reddit)
+        val sources = listOf(AdultSource.Eporner, AdultSource.Reddit, AdultSource.RedGifs)
         val selectedTabIndex = sources.indexOfFirst { it == state.source }.coerceAtLeast(0)
         TabRow(
             selectedTabIndex = selectedTabIndex,
@@ -135,6 +136,17 @@ fun AdultScreen(
         if (state.source == AdultSource.Reddit) {
             // ── Reddit swipe-up feed ─────────────────────────────────────
             RedditFeedView(
+                vm         = vm,
+                onPlayItem = { item ->
+                    onPlay(item.id, item.streamUrl.orEmpty(), item.title)
+                },
+                modifier   = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        } else if (state.source == AdultSource.RedGifs) {
+            // ── RedGifs swipe-up feed ────────────────────────────────────
+            RedGifsFeedView(
                 vm         = vm,
                 onPlayItem = { item ->
                     onPlay(item.id, item.streamUrl.orEmpty(), item.title)
