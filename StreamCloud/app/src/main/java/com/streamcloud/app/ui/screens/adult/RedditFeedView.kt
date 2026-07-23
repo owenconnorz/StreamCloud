@@ -30,6 +30,8 @@ import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.RedditAdultSubs
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -121,12 +123,12 @@ fun RedditFeedView(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                androidx.compose.foundation.lazy.LazyRow(
+                LazyRow(
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(end = 8.dp),
                 ) {
-                    androidx.compose.foundation.lazy.items(subLabels) { sub ->
+                    items(subLabels) { sub ->
                         val clean  = sub.removePrefix("r/")
                         val active = clean == state.currentSubreddit
                         FilterChip(
