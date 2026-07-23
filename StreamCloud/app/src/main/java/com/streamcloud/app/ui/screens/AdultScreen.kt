@@ -81,6 +81,7 @@ fun AdultScreen(
     Column(
         Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .background(MaterialTheme.colorScheme.background)
     ) {
         // ── Title row (only shown for Eporner) ──────────────────────────
