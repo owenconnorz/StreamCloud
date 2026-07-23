@@ -197,7 +197,7 @@ object RedditAdultRepository {
             },
         ).firstOrNull()
 
-        if (!isVideo && thumb == null && !is_gallery) return null
+        if (!isVideo && thumb == null && is_gallery != true) return null
 
         return AdultItem(
             id           = id,
@@ -208,7 +208,7 @@ object RedditAdultRepository {
             streamUrl    = streamUrl,
             audioUrl     = audioUrl,
             isVideo      = isVideo,
-            isGallery    = is_gallery,
+            isGallery    = is_gallery == true,
             source       = AdultSource.Reddit,
             tags         = subreddit.ifBlank { null },
         )
