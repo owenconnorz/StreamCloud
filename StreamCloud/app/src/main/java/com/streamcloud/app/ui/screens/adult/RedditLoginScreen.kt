@@ -139,11 +139,10 @@ fun RedditLoginScreen(
             Box(Modifier.fillMaxSize()) {
                 AndroidView(
                     factory = { ctx ->
-                        // Anonymous subclass guards against focus loss while the IME
-                        // is visible — a known Compose + AndroidView interaction where
-                        // recomposition or pointer-event handling can call clearFocus()
-                        // on the view tree, dismissing the soft keyboard.
-                        object : WebView(ctx) {
+                        // Explicit WebView variable so Kotlin 2.0 can infer T=WebView
+                        // for AndroidView<T>. An anonymous object returned directly
+                        // from the lambda would produce an unresolvable anonymous type.
+                        val wv: WebView = object : WebView(ctx) {
                             override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
                                 super.onWindowFocusChanged(hasWindowFocus)
                                 // If the window just lost focus AND the IME is currently
@@ -155,7 +154,8 @@ fun RedditLoginScreen(
                                     if (imeVisible) post { requestFocus() }
                                 }
                             }
-                        }.apply {
+                        }
+                        wv.apply {
                             isFocusable = true
                             isFocusableInTouchMode = true
                             settings.javaScriptEnabled = true
@@ -217,7 +217,7 @@ fun RedditLoginScreen(
 
                             loadUrl("https://www.reddit.com/login")
                         }
-                    }.also { /* WebView setup complete */ },
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
 
