@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.screens.adult
 
+import android.view.ViewGroup
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,11 +22,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.RedditAdultSubs
@@ -67,7 +75,6 @@ fun RedditFeedView(
                 color    = Color(0xFFFF4500),
             )
         } else if (items.isEmpty()) {
-            // Empty state: error, or no posts found — always show something actionable
             Column(
                 Modifier.align(Alignment.Center).padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -89,7 +96,7 @@ fun RedditFeedView(
                     Text("Refresh", color = Color.White)
                 }
             }
-        } else if (items.isNotEmpty()) {
+        } else {
             val pagerState = rememberPagerState(pageCount = { items.size })
 
             LaunchedEffect(pagerState.currentPage) {
@@ -97,8 +104,10 @@ fun RedditFeedView(
             }
 
             VerticalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                val isActive = pagerState.currentPage == page
                 RedditPostCard(
                     item        = items[page],
+                    isActive    = isActive,
                     onPlayClick = { onPlayItem(items[page]) },
                 )
             }
@@ -112,6 +121,7 @@ fun RedditFeedView(
         }
 
         // ── Top bar: subreddit chips + refresh button ──────────────────────
+        // Note: no statusBarsPadding here — the parent AdultScreen Column handles it.
         Column(
             Modifier
                 .align(Alignment.TopCenter)
@@ -121,7 +131,6 @@ fun RedditFeedView(
                         listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent),
                     )
                 )
-                .statusBarsPadding()
                 .padding(top = 8.dp, bottom = 16.dp),
         ) {
             Row(
@@ -189,42 +198,107 @@ fun RedditFeedView(
 }
 
 @Composable
-private fun RedditPostCard(item: AdultItem, onPlayClick: () -> Unit) {
+private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayClick: () -> Unit) {
+    val context = LocalContext.current
+    val isVideoItem = item.isVideo && item.streamUrl != null
+
+    // Build an ExoPlayer for video/gif items; null for still images
+    val player = remember(item.streamUrl) {
+        if (isVideoItem) {
+            ExoPlayer.Builder(context).build().apply {
+                setMediaItem(MediaItem.fromUri(item.streamUrl!!))
+                repeatMode = Player.REPEAT_MODE_ONE
+                volume = 0f
+                prepare()
+            }
+        } else null
+    }
+
+    // Start / pause based on whether this card is the currently visible page
+    LaunchedEffect(isActive) {
+        player?.playWhenReady = isActive
+    }
+
+    // Release the player when this card leaves composition
+    DisposableEffect(item.streamUrl) {
+        onDispose { player?.release() }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .clickable(enabled = item.isVideo || item.streamUrl != null, onClick = onPlayClick),
+            .clickable(enabled = !isVideoItem || !isActive, onClick = onPlayClick),
     ) {
-        val imageUrl = item.previewImage ?: item.thumbnail
-        if (imageUrl != null) {
-            AsyncImage(
-                model              = imageUrl,
-                contentDescription = item.title,
-                contentScale       = ContentScale.Fit,
-                modifier           = Modifier.fillMaxSize(),
+        if (player != null) {
+            // Inline video / gif playback via ExoPlayer
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = player
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                    }
+                },
+                update = { view -> view.player = player },
+                modifier = Modifier.fillMaxSize(),
             )
-        }
-
-        if (item.isVideo && item.streamUrl != null) {
-            Box(
-                Modifier
-                    .size(72.dp)
-                    .align(Alignment.Center)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .clickable(onClick = onPlayClick),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription = "Play",
-                    tint     = Color.White,
-                    modifier = Modifier.size(44.dp),
+            // Tap-to-open-full player overlay (only visible when NOT autoplaying)
+            if (!isActive) {
+                Box(
+                    Modifier
+                        .size(72.dp)
+                        .align(Alignment.Center)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable(onClick = onPlayClick),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = "Play",
+                        tint     = Color.White,
+                        modifier = Modifier.size(44.dp),
+                    )
+                }
+            }
+        } else {
+            // Static image
+            val imageUrl = item.previewImage ?: item.thumbnail
+            if (imageUrl != null) {
+                AsyncImage(
+                    model              = imageUrl,
+                    contentDescription = item.title,
+                    contentScale       = ContentScale.Fit,
+                    modifier           = Modifier.fillMaxSize(),
                 )
+            }
+            // Play button for non-autoplaying video posts (e.g. external links)
+            if (item.streamUrl != null) {
+                Box(
+                    Modifier
+                        .size(72.dp)
+                        .align(Alignment.Center)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable(onClick = onPlayClick),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = "Play",
+                        tint     = Color.White,
+                        modifier = Modifier.size(44.dp),
+                    )
+                }
             }
         }
 
+        // Bottom info overlay
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
