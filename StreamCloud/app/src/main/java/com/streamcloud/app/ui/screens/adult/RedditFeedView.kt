@@ -66,22 +66,27 @@ fun RedditFeedView(
                 modifier = Modifier.align(Alignment.Center),
                 color    = Color(0xFFFF4500),
             )
-        } else if (items.isEmpty() && state.error != null) {
+        } else if (items.isEmpty()) {
+            // Empty state: error, or no posts found — always show something actionable
             Column(
                 Modifier.align(Alignment.Center).padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text(
-                    state.error ?: "Something went wrong.",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
+                    state.error ?: "No posts found.",
+                    color     = if (state.error != null) MaterialTheme.colorScheme.error
+                                else Color.White.copy(alpha = 0.7f),
+                    style     = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                 )
-                Button(onClick = { vm.refresh() }) {
+                Button(
+                    onClick = { vm.refresh() },
+                    colors  = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4500)),
+                ) {
                     Icon(Icons.Default.Refresh, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Retry")
+                    Text("Refresh", color = Color.White)
                 }
             }
         } else if (items.isNotEmpty()) {
