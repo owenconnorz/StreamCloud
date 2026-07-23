@@ -79,7 +79,7 @@ fun RedditLoginScreen(
     DisposableEffect(Unit) {
         val prev = activity.window.attributes.softInputMode
         @Suppress("DEPRECATION")
-        activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN)
         onDispose { activity.window.setSoftInputMode(prev) }
     }
 
@@ -157,6 +157,11 @@ fun RedditLoginScreen(
                             CookieManager.getInstance().setAcceptCookie(true)
                             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
+                            // Claim focus immediately so the first tap opens the
+                            // keyboard without a double-tap and without anything
+                            // stealing focus back from the WebView.
+                            requestFocus()
+
                             webViewClient = object : WebViewClient() {
 
                                 override fun shouldOverrideUrlLoading(
@@ -176,10 +181,18 @@ fun RedditLoginScreen(
                                     CookieManager.getInstance().flush()
 
                                     val u = url ?: return
+                                    // Only consider it a successful post-login redirect when
+                                    // the URL looks like the main Reddit feed, a subreddit, or
+                                    // the user profile — NOT an OAuth grant page or email step.
                                     val awayFromLogin = u.contains("reddit.com") &&
                                         !u.contains("/login") &&
                                         !u.contains("/register") &&
-                                        !u.contains("/account/register")
+                                        !u.contains("/account/register") &&
+                                        !u.contains("/oauth2") &&
+                                        !u.contains("/verify") &&
+                                        !u.contains("/confirm") &&
+                                        !u.contains("/two-factor") &&
+                                        !u.contains("/challenge")
 
                                     if (awayFromLogin && !loginDetected) {
                                         val cookies = CookieManager.getInstance()
