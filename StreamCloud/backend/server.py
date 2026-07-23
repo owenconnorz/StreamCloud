@@ -160,3 +160,63 @@ async def nuvio_proxy(req: ProxyRequest):
             "body": "",
             "headers": {},
         }
+
+
+# ── Reddit proxy ─────────────────────────────────────────────────────────────
+# Android devices on residential/mobile IPs get empty listings from Reddit.
+# This endpoint proxies the request server-side where Reddit responds normally.
+
+import os as _os
+import time as _time
+
+_CLIENT_ID     = _os.environ.get("REDDIT_CLIENT_ID",     "KvLG0eQTdPDIf_Buo-gkww")
+_CLIENT_SECRET = _os.environ.get("REDDIT_CLIENT_SECRET", "BCRKFdWhHJ_Ckifv-guBVixUfQA__w")
+_REDDIT_UA     = "android:com.streamcloud.app:v1.0.0 (by /u/streamcloud_app)"
+
+_cached_token: dict = {"token": None, "expiry": 0.0}
+
+
+async def _get_reddit_token() -> str:
+    now = _time.time()
+    if _cached_token["token"] and _cached_token["expiry"] > now:
+        return _cached_token["token"]
+    import base64 as _b64
+    creds = _b64.b64encode(f"{_CLIENT_ID}:{_CLIENT_SECRET}".encode()).decode()
+    async with httpx.AsyncClient(timeout=15.0) as c:
+        r = await c.post(
+            "https://www.reddit.com/api/v1/access_token",
+            content=b"grant_type=client_credentials",
+            headers={
+                "Authorization": f"Basic {creds}",
+                "User-Agent": _REDDIT_UA,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        r.raise_for_status()
+    data = r.json()
+    _cached_token["token"] = data["access_token"]
+    _cached_token["expiry"] = now + data.get("expires_in", 3600) - 60
+    return _cached_token["token"]
+
+
+@app.get("/reddit/r/{subreddit}/{sort}")
+async def reddit_listing(
+    subreddit: str,
+    sort: str = "hot",
+    limit: int = 50,
+    after: Optional[str] = None,
+):
+    """Proxy Reddit listing through server IP to avoid residential-IP restrictions."""
+    token = await _get_reddit_token()
+    url = f"https://oauth.reddit.com/r/{subreddit}/{sort}?limit={limit}&raw_json=1&include_over_18=on"
+    if after:
+        url += f"&after={after}"
+    async with httpx.AsyncClient(timeout=20.0) as c:
+        r = await c.get(url, headers={
+            "Authorization": f"Bearer {token}",
+            "User-Agent": _REDDIT_UA,
+        })
+    if r.status_code == 401:
+        _cached_token["token"] = None  # force refresh
+    return r.json()
+
