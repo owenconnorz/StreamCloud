@@ -91,7 +91,12 @@ fun RedditLoginScreen(
                 conn.readTimeout    = 8_000
                 val body = conn.inputStream.bufferedReader().readText()
                 conn.disconnect()
-                JSONObject(body).optString("name", "").ifBlank { null }
+                // /api/me.json shape: {"kind":"t2","data":{"name":"username",...}}
+                // Must read data.name, NOT top-level name (which doesn't exist).
+                val json = JSONObject(body)
+                val name = json.optJSONObject("data")?.optString("name", "").orEmpty()
+                    .ifBlank { null }
+                name
             }.getOrNull()
         }
         if (name != null) {
