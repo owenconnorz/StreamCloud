@@ -49,6 +49,8 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.screens.adult.RedditFeedView
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +62,7 @@ fun AdultScreen(
     val context = LocalContext.current
     val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(context))
     val state by vm.state.collectAsState()
+    val scope = rememberCoroutineScope()
 
     var detailItem by remember { mutableStateOf<AdultItem?>(null) }
     var query by remember { mutableStateOf("") }
