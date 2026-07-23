@@ -1,5 +1,7 @@
 package com.streamcloud.app.ui.screens.adult
 
+import android.content.Intent
+import android.net.Uri
 import android.view.ViewGroup
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -11,8 +13,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -37,9 +44,12 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.RedditAdultSubs
+import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -57,7 +67,6 @@ fun RedditFeedView(
         (preset + customSubs.map { if (it.startsWith("r/")) it else "r/$it" }).distinct()
     }
 
-    // Subreddit unavailable / quarantined
     if (state.redditNeedsAuth && items.isEmpty()) {
         SubredditUnavailablePrompt(
             subreddit = state.currentSubreddit,
@@ -120,8 +129,8 @@ fun RedditFeedView(
             }
         }
 
-        // ── Top bar: subreddit chips + refresh button ──────────────────────
-        // Note: no statusBarsPadding here — the parent AdultScreen Column handles it.
+        // ── Top bar: subreddit chips + refresh ────────────────────────────
+        // Parent AdultScreen Column already handles statusBarsPadding — no extra padding needed here.
         Column(
             Modifier
                 .align(Alignment.TopCenter)
@@ -157,7 +166,6 @@ fun RedditFeedView(
                         )
                     }
                 }
-
                 IconButton(onClick = { vm.refresh() }) {
                     Icon(
                         Icons.Default.Refresh,
@@ -169,7 +177,6 @@ fun RedditFeedView(
             }
         }
 
-        // Auth-required banner (e.g. quarantined sub) when items exist
         if (state.redditNeedsAuth && items.isNotEmpty()) {
             Surface(
                 modifier = Modifier
@@ -200,9 +207,10 @@ fun RedditFeedView(
 @Composable
 private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayClick: () -> Unit) {
     val context = LocalContext.current
+    val scope   = rememberCoroutineScope()
     val isVideoItem = item.isVideo && item.streamUrl != null
 
-    // Build an ExoPlayer for video/gif items; null for still images
+    // ── ExoPlayer for video / gif items ──────────────────────────────────
     val player = remember(item.streamUrl) {
         if (isVideoItem) {
             ExoPlayer.Builder(context).build().apply {
@@ -213,15 +221,50 @@ private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayCli
             }
         } else null
     }
+    LaunchedEffect(isActive) { player?.playWhenReady = isActive }
+    DisposableEffect(item.streamUrl) { onDispose { player?.release() } }
 
-    // Start / pause based on whether this card is the currently visible page
-    LaunchedEffect(isActive) {
-        player?.playWhenReady = isActive
+    // ── Library save state ───────────────────────────────────────────────
+    val db = remember(context) { LibraryDb.get(context) }
+    var isSaved by remember { mutableStateOf(false) }
+    LaunchedEffect(item.id) {
+        db.watchlist().isWatchlisted(redditWatchlistId(item.id)).collect { isSaved = it }
     }
 
-    // Release the player when this card leaves composition
-    DisposableEffect(item.streamUrl) {
-        onDispose { player?.release() }
+    fun onSave() {
+        scope.launch {
+            val wid = redditWatchlistId(item.id)
+            if (isSaved) {
+                db.watchlist().remove(wid)
+            } else {
+                db.watchlist().add(
+                    WatchlistEntity(
+                        tmdbId    = wid,
+                        title     = item.title,
+                        posterUrl = item.thumbnail,
+                        mediaType = "reddit",
+                        csPlugin  = "reddit",
+                        csUrl     = item.streamUrl ?: item.previewImage ?: "",
+                    )
+                )
+            }
+        }
+    }
+
+    fun onShare() {
+        val url = "https://reddit.com/${item.id}/"
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, url)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share post"))
+    }
+
+    fun onDownload() {
+        val url = item.streamUrl ?: item.previewImage ?: return
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
     }
 
     Box(
@@ -230,8 +273,8 @@ private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayCli
             .background(Color.Black)
             .clickable(enabled = !isVideoItem || !isActive, onClick = onPlayClick),
     ) {
+        // ── Media content ────────────────────────────────────────────────
         if (player != null) {
-            // Inline video / gif playback via ExoPlayer
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -244,10 +287,9 @@ private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayCli
                         )
                     }
                 },
-                update = { view -> view.player = player },
+                update   = { view -> view.player = player },
                 modifier = Modifier.fillMaxSize(),
             )
-            // Tap-to-open-full player overlay (only visible when NOT autoplaying)
             if (!isActive) {
                 Box(
                     Modifier
@@ -258,16 +300,10 @@ private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayCli
                         .clickable(onClick = onPlayClick),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint     = Color.White,
-                        modifier = Modifier.size(44.dp),
-                    )
+                    Icon(Icons.Default.PlayArrow, "Play", tint = Color.White, modifier = Modifier.size(44.dp))
                 }
             }
         } else {
-            // Static image
             val imageUrl = item.previewImage ?: item.thumbnail
             if (imageUrl != null) {
                 AsyncImage(
@@ -277,7 +313,6 @@ private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayCli
                     modifier           = Modifier.fillMaxSize(),
                 )
             }
-            // Play button for non-autoplaying video posts (e.g. external links)
             if (item.streamUrl != null) {
                 Box(
                     Modifier
@@ -288,55 +323,112 @@ private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayCli
                         .clickable(onClick = onPlayClick),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint     = Color.White,
-                        modifier = Modifier.size(44.dp),
-                    )
+                    Icon(Icons.Default.PlayArrow, "Play", tint = Color.White, modifier = Modifier.size(44.dp))
                 }
             }
         }
 
-        // Bottom info overlay
-        Box(
-            Modifier
+        // ── Title — top-right overlay ─────────────────────────────────────
+        Text(
+            text       = item.title,
+            color      = Color.White,
+            fontWeight = FontWeight.SemiBold,
+            maxLines   = 3,
+            overflow   = TextOverflow.Ellipsis,
+            style      = MaterialTheme.typography.bodyMedium,
+            textAlign  = TextAlign.End,
+            modifier   = Modifier
+                .align(Alignment.TopEnd)
+                .widthIn(max = 220.dp)
+                .padding(top = 72.dp, end = 12.dp)
+                .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+        )
+
+        // ── Bottom bar: subreddit badge + Save/Share/Download row ─────────
+        Column(
+            modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f)),
                     )
                 )
-                .padding(horizontal = 16.dp, vertical = 20.dp)
-                .navigationBarsPadding(),
+                .navigationBarsPadding()          // system nav bar inset first
+                .padding(bottom = 20.dp, top = 24.dp, horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                val subredditLabel = item.tags?.let { "r/$it" } ?: "Reddit"
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = Color(0xFFFF4500).copy(alpha = 0.8f),
-                ) {
-                    Text(
-                        subredditLabel,
-                        modifier   = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        color      = Color.White,
-                        fontSize   = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+            // Subreddit chip
+            val subredditLabel = item.tags?.let { "r/$it" } ?: "Reddit"
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = Color(0xFFFF4500).copy(alpha = 0.85f),
+            ) {
                 Text(
-                    item.title,
+                    subredditLabel,
+                    modifier   = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
                     color      = Color.White,
+                    fontSize   = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines   = 3,
-                    overflow   = TextOverflow.Ellipsis,
-                    style      = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            // ── Action buttons row ────────────────────────────────────────
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                PostActionButton(
+                    icon  = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                    label = if (isSaved) "Saved" else "Save",
+                    tint  = if (isSaved) Color(0xFFFF4500) else Color.White,
+                    onClick = ::onSave,
+                )
+                Spacer(Modifier.width(36.dp))
+                PostActionButton(
+                    icon    = Icons.Default.Share,
+                    label   = "Share",
+                    onClick = ::onShare,
+                )
+                Spacer(Modifier.width(36.dp))
+                PostActionButton(
+                    icon    = Icons.Default.Download,
+                    label   = "Download",
+                    onClick = ::onDownload,
                 )
             }
         }
     }
 }
+
+@Composable
+private fun PostActionButton(
+    icon: ImageVector,
+    label: String,
+    tint: Color = Color.White,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        IconButton(
+            onClick  = onClick,
+            modifier = Modifier
+                .size(48.dp)
+                .background(Color.White.copy(alpha = 0.12f), CircleShape),
+        ) {
+            Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(24.dp))
+        }
+        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+private fun redditWatchlistId(postId: String): Long =
+    (-8_000_000_000L) - (postId.hashCode().toLong() and 0xFFFFFL)
 
 @Composable
 private fun SubredditUnavailablePrompt(
