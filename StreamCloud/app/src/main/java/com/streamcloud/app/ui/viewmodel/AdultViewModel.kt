@@ -12,6 +12,7 @@ import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.api.RedditAdultRepository
 import com.streamcloud.app.data.api.RedditAuthRequiredException
 import com.streamcloud.app.data.api.RedditRateLimitException
+import com.streamcloud.app.data.api.RedGifsRepository
 import com.streamcloud.app.data.network.Net
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -42,6 +43,8 @@ data class AdultState(
     val currentSubreddit: String = "nsfw",
     /** Signed-in Reddit username, or empty if not logged in. */
     val redditUsername: String = "",
+    /** Currently-browsed RedGifs tag (e.g. "trending", "amateur"). */
+    val currentRedGifsTag: String = "trending",
 )
 
 private val SORT_ORDERS = listOf("most-popular", "newest", "top-rated", "most-viewed", "longest")
@@ -82,7 +85,8 @@ class AdultViewModel(
             }
             _state.update { it.copy(source = savedSource) }
             when (savedSource) {
-                AdultSource.Reddit -> fetchRedditPage(replace = true)
+                AdultSource.Reddit  -> fetchRedditPage(replace = true)
+                AdultSource.RedGifs -> fetchRedGifsPage(replace = true)
                 else -> {
                     fetchPage(query = "", page = 1, order = "most-popular", replaceItems = true, isInitial = true)
                     loadCategories()
@@ -118,6 +122,10 @@ class AdultViewModel(
                 redditAfter = null
                 _state.update { it.copy(currentSubreddit = DEFAULT_REDDIT_SUB) }
                 fetchRedditPage(replace = true)
+            }
+            AdultSource.RedGifs -> {
+                _state.update { it.copy(currentRedGifsTag = "trending", currentPage = 1) }
+                fetchRedGifsPage(replace = true)
             }
             else -> {}
         }
@@ -166,6 +174,10 @@ class AdultViewModel(
                 redditAfter = null
                 fetchRedditPage(replace = true)
             }
+            AdultSource.RedGifs -> {
+                _state.update { it.copy(currentPage = 1) }
+                fetchRedGifsPage(replace = true)
+            }
             else -> {
                 val newOrder = SORT_ORDERS.filterNot { it == currentOrder }.random()
                 currentOrder = newOrder
@@ -181,6 +193,11 @@ class AdultViewModel(
         if (_state.value.source == AdultSource.Reddit) {
             if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
             fetchRedditPage(replace = false)
+            return
+        }
+        if (_state.value.source == AdultSource.RedGifs) {
+            if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
+            fetchRedGifsPage(replace = false)
             return
         }
         if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
@@ -395,6 +412,56 @@ class AdultViewModel(
         n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
         n >= 1_000     -> "%.1fK".format(n / 1_000.0)
         else           -> n.toString()
+    }
+
+    /** Switch to a different RedGifs tag and reload the feed. */
+    fun setRedGifsTag(tag: String) {
+        if (tag == _state.value.currentRedGifsTag && _state.value.items.isNotEmpty()) return
+        _state.update {
+            it.copy(currentRedGifsTag = tag, items = emptyList(), hasMore = true, error = null, currentPage = 1)
+        }
+        fetchRedGifsPage(replace = true)
+    }
+
+    private fun fetchRedGifsPage(replace: Boolean) {
+        if (_state.value.loading || (_state.value.loadingMore && !replace)) return
+        loadMoreJob?.cancel()
+        loadMoreJob = viewModelScope.launch {
+            val tag  = _state.value.currentRedGifsTag
+            val page = if (replace) 1 else _state.value.currentPage + 1
+            if (replace) {
+                _state.update { it.copy(loading = true, error = null) }
+            } else {
+                _state.update { it.copy(loadingMore = true) }
+            }
+            try {
+                val (items, hasMore) = if (tag == "trending") {
+                    RedGifsRepository.fetchTrending(page = page)
+                } else {
+                    RedGifsRepository.fetchTag(tag = tag, page = page)
+                }
+                if (replace) {
+                    _state.update {
+                        it.copy(items = items, loading = false, hasMore = hasMore, currentPage = page)
+                    }
+                } else {
+                    val existingIds = _state.value.items.map { it.id }.toHashSet()
+                    val deduped = items.filterNot { existingIds.contains(it.id) }
+                    _state.update {
+                        it.copy(
+                            items       = it.items + deduped,
+                            loadingMore = false,
+                            hasMore     = hasMore,
+                            currentPage = page,
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(loading = false, loadingMore = false, error = "RedGifs unavailable: ${e.message}")
+                }
+            }
+        }
     }
 
     companion object {
