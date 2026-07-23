@@ -12,6 +12,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -42,7 +45,9 @@ fun RedditFeedView(
     onLogoutClick: () -> Unit = {},
     onAddSub: (String) -> Unit = {},
     onRemoveSub: (String) -> Unit = {},
-    onSwitchAccount: (String, String) -> Unit = { _, _ -> },
+    /** Called with the username the user wants to switch to. */
+    onSwitchAccount: (String) -> Unit = {},
+    /** Usernames of all saved accounts (including the current one). */
     accounts: List<String> = emptyList(),
     onSwitchSource: () -> Unit = {},
     onPlayItem: (AdultItem) -> Unit = {},
@@ -50,18 +55,16 @@ fun RedditFeedView(
     val state by vm.state.collectAsState()
     val items = state.items
 
-    // Subreddit list: presets + any custom ones the user has added
     val subLabels = remember(customSubs) {
         val preset = RedditAdultSubs.PRESETS.map { it.first }
         (preset + customSubs.map { if (it.startsWith("r/")) it else "r/$it" })
             .distinct()
     }
 
-    // Auth-required state: prompt the user to log in
     if (state.redditNeedsAuth && items.isEmpty()) {
         RedditSignInPrompt(
             message = state.error
-                ?: "Sign in to your Reddit account to browse NSFW content.",
+                ?: "Reddit requires sign-in for this content (HTTP 403). Please log in to your Reddit account.",
             onLoginClick = onLoginClick,
             modifier = modifier,
         )
@@ -70,13 +73,11 @@ fun RedditFeedView(
 
     Box(modifier.fillMaxSize()) {
         if (state.loading && items.isEmpty()) {
-            // First load spinner
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
                 color    = Color(0xFFFF4500),
             )
         } else if (items.isEmpty() && state.error != null) {
-            // Generic error with retry
             Column(
                 Modifier
                     .align(Alignment.Center)
@@ -98,11 +99,8 @@ fun RedditFeedView(
         } else if (items.isNotEmpty()) {
             val pagerState = rememberPagerState(pageCount = { items.size })
 
-            // Pre-fetch next page when approaching the end
             LaunchedEffect(pagerState.currentPage) {
-                if (pagerState.currentPage >= items.size - 3) {
-                    vm.loadMore()
-                }
+                if (pagerState.currentPage >= items.size - 3) vm.loadMore()
             }
 
             VerticalPager(
@@ -110,12 +108,11 @@ fun RedditFeedView(
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
                 RedditPostCard(
-                    item       = items[page],
+                    item        = items[page],
                     onPlayClick = { onPlayItem(items[page]) },
                 )
             }
 
-            // Loading-more indicator at bottom
             if (state.loadingMore) {
                 LinearProgressIndicator(
                     modifier = Modifier
@@ -126,7 +123,7 @@ fun RedditFeedView(
             }
         }
 
-        // ── Top bar: subreddit chips + account button ──────────────────
+        // ── Top bar: subreddit chips + account button ──────────────
         Column(
             Modifier
                 .align(Alignment.TopCenter)
@@ -145,21 +142,20 @@ fun RedditFeedView(
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Subreddit chips (horizontal scroll)
                 androidx.compose.foundation.lazy.LazyRow(
                     modifier              = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding        = PaddingValues(end = 8.dp),
                 ) {
                     items(subLabels) { sub ->
-                        val clean = sub.removePrefix("r/")
+                        val clean  = sub.removePrefix("r/")
                         val active = clean == state.currentSubreddit
                         FilterChip(
-                            selected  = active,
-                            onClick   = { vm.setSubreddit(clean) },
-                            label     = { Text(sub, fontSize = 12.sp, maxLines = 1) },
-                            shape     = RoundedCornerShape(50),
-                            colors    = FilterChipDefaults.filterChipColors(
+                            selected = active,
+                            onClick  = { vm.setSubreddit(clean) },
+                            label    = { Text(sub, fontSize = 12.sp, maxLines = 1) },
+                            shape    = RoundedCornerShape(50),
+                            colors   = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = Color(0xFFFF4500),
                                 selectedLabelColor     = Color.White,
                             ),
@@ -167,44 +163,141 @@ fun RedditFeedView(
                     }
                 }
 
-                // Account / login button
-                IconButton(onClick = if (redditUsername.isBlank()) onLoginClick else onLogoutClick) {
-                    if (redditUsername.isBlank()) {
-                        Icon(
-                            Icons.Default.AccountCircle,
-                            contentDescription = "Sign in to Reddit",
-                            tint   = Color.White,
-                            modifier = Modifier.size(28.dp),
+                // ── Account button ─────────────────────────────────
+                var showMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = {
+                        if (redditUsername.isBlank()) onLoginClick() else showMenu = true
+                    }) {
+                        if (redditUsername.isBlank()) {
+                            Icon(
+                                Icons.Default.AccountCircle,
+                                contentDescription = "Sign in to Reddit",
+                                tint     = Color.White,
+                                modifier = Modifier.size(28.dp),
+                            )
+                        } else {
+                            Box(
+                                Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF4500)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    redditUsername.take(1).uppercase(),
+                                    color      = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize   = 14.sp,
+                                )
+                            }
+                        }
+                    }
+
+                    // Account switcher dropdown (shown when logged in)
+                    DropdownMenu(
+                        expanded         = showMenu,
+                        onDismissRequest = { showMenu = false },
+                    ) {
+                        // Section header
+                        Text(
+                            "Switch account",
+                            style    = MaterialTheme.typography.labelMedium,
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
-                    } else {
-                        Box(
-                            Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFF4500)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                redditUsername.take(1).uppercase(),
-                                color      = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize   = 14.sp,
+                        HorizontalDivider()
+
+                        // One entry per saved account
+                        val allAccounts = if (accounts.contains(redditUsername) || redditUsername.isBlank())
+                            accounts
+                        else
+                            listOf(redditUsername) + accounts
+
+                        allAccounts.distinct().forEach { account ->
+                            val isCurrent = account == redditUsername
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .size(26.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (isCurrent) Color(0xFFFF4500)
+                                                    else MaterialTheme.colorScheme.surfaceVariant
+                                                ),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                account.take(1).uppercase(),
+                                                color      = if (isCurrent) Color.White
+                                                             else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize   = 12.sp,
+                                            )
+                                        }
+                                        Text(
+                                            "u/$account",
+                                            style  = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                    }
+                                },
+                                trailingIcon = {
+                                    if (isCurrent) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "Current account",
+                                            tint = Color(0xFFFF4500),
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    if (!isCurrent) onSwitchAccount(account)
+                                },
                             )
                         }
+
+                        HorizontalDivider()
+
+                        // Add another account
+                        DropdownMenuItem(
+                            text = { Text("Add account") },
+                            leadingIcon = {
+                                Icon(Icons.Default.PersonAdd, contentDescription = null,
+                                     tint = MaterialTheme.colorScheme.primary)
+                            },
+                            onClick = { showMenu = false; onLoginClick() },
+                        )
+
+                        // Sign out current account
+                        DropdownMenuItem(
+                            text = { Text("Sign out", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Logout, contentDescription = null,
+                                     tint = MaterialTheme.colorScheme.error)
+                            },
+                            onClick = { showMenu = false; onLogoutClick() },
+                        )
                     }
                 }
             }
         }
 
-        // Auth-required warning banner (items may still exist from a prior load)
+        // Auth-required banner when items exist but Reddit returned 403
         if (state.redditNeedsAuth && items.isNotEmpty()) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(16.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.errorContainer,
+                shape          = RoundedCornerShape(12.dp),
+                color          = MaterialTheme.colorScheme.errorContainer,
                 tonalElevation = 4.dp,
             ) {
                 Row(
@@ -235,18 +328,16 @@ private fun RedditPostCard(
             .background(Color.Black)
             .clickable(enabled = item.isVideo || item.streamUrl != null, onClick = onPlayClick),
     ) {
-        // Thumbnail / preview image
         val imageUrl = item.previewImage ?: item.thumbnail
         if (imageUrl != null) {
             AsyncImage(
-                model             = imageUrl,
+                model              = imageUrl,
                 contentDescription = item.title,
-                contentScale      = ContentScale.Fit,
-                modifier          = Modifier.fillMaxSize(),
+                contentScale       = ContentScale.Fit,
+                modifier           = Modifier.fillMaxSize(),
             )
         }
 
-        // Play button overlay for videos
         if (item.isVideo && item.streamUrl != null) {
             Box(
                 Modifier
@@ -266,7 +357,6 @@ private fun RedditPostCard(
             }
         }
 
-        // Bottom gradient with title + subreddit
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -280,18 +370,16 @@ private fun RedditPostCard(
                 .navigationBarsPadding(),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                // Subreddit label
                 val subredditLabel = item.tags?.let { "r/$it" } ?: "Reddit"
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = Color(0xFFFF4500).copy(alpha = 0.8f),
-                    modifier = Modifier,
                 ) {
                     Text(
                         subredditLabel,
-                        modifier  = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        color     = Color.White,
-                        fontSize  = 11.sp,
+                        modifier   = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        color      = Color.White,
+                        fontSize   = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -339,8 +427,8 @@ private fun RedditSignInPrompt(
             )
             Text(
                 message,
-                color = Color.White.copy(alpha = 0.7f),
-                style = MaterialTheme.typography.bodyMedium,
+                color     = Color.White.copy(alpha = 0.7f),
+                style     = MaterialTheme.typography.bodyMedium,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             Button(
