@@ -159,7 +159,11 @@ object RedditAdultRepository {
             if (items.isEmpty()) {
                 val apiCount   = children.size
                 val parsedData = validData.size
-                if (apiCount == 0) throw Exception("r/$clean returned no posts (subreddit may be empty or quarantined)")
+                if (apiCount == 0) {
+                    // Show the first 300 chars of the raw body to diagnose quarantine/redirect responses
+                    val bodyPreview = bodyStr.take(300).replace("\n", " ")
+                    throw Exception("r/$clean: 0 posts. Body: $bodyPreview")
+                }
                 if (parsedData == 0) throw Exception("r/$clean: $apiCount posts received but none could be parsed (JSON structure mismatch)")
                 throw Exception("r/$clean: $apiCount posts received, $parsedData parsed, 0 passed filter (all posts are text/link-only)")
             }
