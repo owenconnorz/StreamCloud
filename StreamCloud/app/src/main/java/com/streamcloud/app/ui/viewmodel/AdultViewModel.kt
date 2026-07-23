@@ -398,7 +398,7 @@ class AdultViewModel(
     }
 
     companion object {
-        private const val DEFAULT_REDDIT_SUB = "nsfw"
+        private const val DEFAULT_REDDIT_SUB = "gonewild"
 
         fun factory(context: Context) =
             object : ViewModelProvider.Factory {
