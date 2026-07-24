@@ -2923,8 +2923,16 @@ private fun NuvioAccountRow() {
             val r = runCatching { nuvioSvc.syncPull(accessToken) }
             syncStatus  = r.fold(
                 onSuccess = { p ->
-                    if (p.watchProgress + p.library + p.plugins + p.addons > 0)
-                        "↓ Synced ${p.watchProgress} watched · ${p.library} saved · ${p.plugins} plugins · ${p.addons} addons"
+                    val total = p.watchProgress + p.library + p.collections + p.watchedItems
+                    if (total > 0)
+                        buildString {
+                            append("↓ Synced ")
+                            if (p.watchProgress > 0) append("${p.watchProgress} in-progress · ")
+                            if (p.library > 0)       append("${p.library} saved · ")
+                            if (p.collections > 0)   append("${p.collections} collections · ")
+                            if (p.addons > 0)        append("${p.addons} addons · ")
+                            if (p.plugins > 0)       append("${p.plugins} plugins · ")
+                        }.trimEnd(' ', '·')
                     else ""
                 },
                 onFailure = { "" },
@@ -2975,10 +2983,20 @@ private fun NuvioAccountRow() {
                         push.isSuccess && pull.isSuccess -> {
                             val up   = push.getOrThrow()
                             val down = pull.getOrThrow()
-                            "Synced ✓  ↑${up.watchProgress} ↓${down.watchProgress} watched · ↑${up.library} ↓${down.library} saved · ${up.plugins + down.plugins} plugins"
+                            buildString {
+                                append("Synced ✓  ")
+                                append("↑${up.watchProgress} ↓${down.watchProgress} watched · ")
+                                append("↑${up.library} ↓${down.library} saved")
+                                if (down.collections > 0) append(" · ${down.collections} collections")
+                                if (up.plugins + down.plugins > 0) append(" · ${up.plugins + down.plugins} plugins")
+                                if (up.addons + down.addons > 0)   append(" · ${up.addons + down.addons} addons")
+                            }
                         }
                         push.isSuccess -> "Pushed ✓  (pull unavailable)"
-                        pull.isSuccess -> "Pulled ✓  (push failed)"
+                        pull.isSuccess -> {
+                            val down = pull.getOrThrow()
+                            "Pulled ✓  ${down.watchProgress} watched · ${down.library} saved · ${down.collections} collections"
+                        }
                         else -> "Error: ${push.exceptionOrNull()?.message?.take(60)}"
                     }
                 }
@@ -3088,9 +3106,14 @@ private fun NuvioAccountRow() {
                                         syncStatus = when {
                                             pull.isSuccess -> {
                                                 val d = pull.getOrThrow()
-                                                val u = push.getOrNull()
-                                                "Synced ✓  ${d.watchProgress} watched · ${d.library} saved" +
-                                                    if (u != null) " · ${u.plugins} plugins" else ""
+                                                buildString {
+                                                    append("Synced ✓  ")
+                                                    if (d.watchProgress > 0) append("${d.watchProgress} watching · ")
+                                                    if (d.library > 0)       append("${d.library} saved · ")
+                                                    if (d.collections > 0)   append("${d.collections} collections · ")
+                                                    if (d.addons > 0)        append("${d.addons} addons · ")
+                                                    if (d.plugins > 0)       append("${d.plugins} plugins · ")
+                                                }.trimEnd(' ', '·').ifBlank { "Synced ✓" }
                                             }
                                             push.isSuccess -> "Signed in ✓  (tap Sync ↕ to refresh)"
                                             else -> "Signed in ✓"
