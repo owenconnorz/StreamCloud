@@ -10,9 +10,12 @@ import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerApi
 import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.api.RedditAdultRepository
+import com.streamcloud.app.data.api.RedtubeRepository
 import com.streamcloud.app.data.api.RedditAuthRequiredException
 import com.streamcloud.app.data.api.RedditRateLimitException
 import com.streamcloud.app.data.api.RedGifsRepository
+import com.streamcloud.app.data.library.AdultHistoryEntity
+import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.network.Net
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -45,12 +48,21 @@ data class AdultState(
     val redditUsername: String = "",
     /** Currently-browsed RedGifs tag (e.g. "trending", "amateur"). */
     val currentRedGifsTag: String = "trending",
+    /** True after the 18+ age gate has been confirmed by the user. */
+    val ageGateConfirmed: Boolean = false,
+    /** True when adult tab lock is enabled in settings. */
+    val adultLockEnabled: Boolean = false,
+    /** True once correct PIN has been entered this session. */
+    val lockUnlocked: Boolean = false,
+    /** The configured safe-mode PIN (empty = none). */
+    val safeModePin: String = "",
 )
 
 private val SORT_ORDERS = listOf("most-popular", "newest", "top-rated", "most-viewed", "longest")
 
 class AdultViewModel(
     private val settings: SettingsRepository,
+    private val appContext: android.content.Context,
 ) : ViewModel() {
     private val _state = MutableStateFlow(AdultState())
     val state: StateFlow<AdultState> = _state.asStateFlow()
@@ -78,6 +90,21 @@ class AdultViewModel(
             }
         }
         viewModelScope.launch {
+            settings.ageGateConfirmed.collectLatest { c ->
+                _state.update { it.copy(ageGateConfirmed = c) }
+            }
+        }
+        viewModelScope.launch {
+            settings.adultLockEnabled.collectLatest { e ->
+                _state.update { it.copy(adultLockEnabled = e) }
+            }
+        }
+        viewModelScope.launch {
+            settings.safeModePin.collectLatest { p ->
+                _state.update { it.copy(safeModePin = p) }
+            }
+        }
+        viewModelScope.launch {
             val savedSource = try {
                 AdultSource.valueOf(settings.adultSource.first())
             } catch (_: Exception) {
@@ -87,6 +114,7 @@ class AdultViewModel(
             when (savedSource) {
                 AdultSource.Reddit  -> fetchRedditPage(replace = true)
                 AdultSource.RedGifs -> fetchRedGifsPage(replace = true)
+                AdultSource.Redtube -> fetchRedtubePage(replace = true)
                 else -> {
                     fetchPage(query = "", page = 1, order = "most-popular", replaceItems = true, isInitial = true)
                     loadCategories()
@@ -126,6 +154,11 @@ class AdultViewModel(
             AdultSource.RedGifs -> {
                 _state.update { it.copy(currentRedGifsTag = "trending", currentPage = 1) }
                 fetchRedGifsPage(replace = true)
+            }
+            AdultSource.Redtube -> {
+                currentQuery = ""
+                _state.update { it.copy(currentPage = 1) }
+                fetchRedtubePage(replace = true)
             }
             else -> {}
         }
@@ -178,6 +211,10 @@ class AdultViewModel(
                 _state.update { it.copy(currentPage = 1) }
                 fetchRedGifsPage(replace = true)
             }
+            AdultSource.Redtube -> {
+                _state.update { it.copy(currentPage = 1) }
+                fetchRedtubePage(replace = true)
+            }
             else -> {
                 val newOrder = SORT_ORDERS.filterNot { it == currentOrder }.random()
                 currentOrder = newOrder
@@ -198,6 +235,11 @@ class AdultViewModel(
         if (_state.value.source == AdultSource.RedGifs) {
             if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
             fetchRedGifsPage(replace = false)
+            return
+        }
+        if (_state.value.source == AdultSource.Redtube) {
+            if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
+            fetchRedtubePage(replace = false)
             return
         }
         if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
@@ -464,7 +506,111 @@ class AdultViewModel(
         }
     }
 
-    companion object {
+
+    // ── Age gate & lock ────────────────────────────────────────────────────────
+
+    fun confirmAgeGate() {
+        viewModelScope.launch { settings.setAgeGateConfirmed(true) }
+    }
+
+    /** Checks pin against stored safe-mode PIN; unlocks in-memory state if correct. */
+    fun unlockWithPin(enteredPin: String): Boolean {
+        val correct = enteredPin.isNotBlank() && enteredPin == _state.value.safeModePin
+        if (correct) _state.update { it.copy(lockUnlocked = true) }
+        return correct
+    }
+
+    // ── Watch history ──────────────────────────────────────────────────────────
+
+    fun recordHistory(item: AdultItem) {
+        viewModelScope.launch {
+            try {
+                LibraryDb.get(appContext).adultHistory().insert(
+                    AdultHistoryEntity(
+                        id            = "${item.source.name}:${item.id}",
+                        title         = item.title,
+                        thumbnail     = item.thumbnail,
+                        source        = item.source.name,
+                        embedUrl      = item.embedUrl ?: item.streamUrl,
+                        durationLabel = item.durationLabel,
+                        watchedAt     = System.currentTimeMillis(),
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    // ── Download ────────────────────────────────────────────────────────────────
+
+    fun downloadVideo(item: AdultItem) {
+        viewModelScope.launch {
+            try {
+                val url: String = when {
+                    item.source == AdultSource.Eporner && item.epornerId != null ->
+                        resolveStreamUrl(item.id, item.embedUrl.orEmpty())
+                    item.streamUrl?.startsWith("http") == true -> item.streamUrl!!
+                    item.embedUrl?.startsWith("http") == true  -> item.embedUrl!!
+                    else -> return@launch
+                }
+                if (url.isBlank() || !url.startsWith("http")) return@launch
+                val safeName = item.title.take(60).replace(Regex("[^\\w \\-]"), "_").trim() + ".mp4"
+                val req = android.app.DownloadManager.Request(android.net.Uri.parse(url))
+                    .setTitle(item.title.take(100))
+                    .setDescription("Downloading via StreamCloud…")
+                    .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "StreamCloud/$safeName")
+                    .setAllowedNetworkTypes(
+                        android.app.DownloadManager.Request.NETWORK_WIFI or
+                        android.app.DownloadManager.Request.NETWORK_MOBILE,
+                    )
+                (appContext.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)
+                    .enqueue(req)
+            } catch (e: Exception) {
+                _state.update { it.copy(error = "Download failed: ${e.message}") }
+            }
+        }
+    }
+
+    // ── PornHub (Redtube) ──────────────────────────────────────────────────────
+
+    private fun fetchRedtubePage(replace: Boolean) {
+        if (_state.value.loading || (_state.value.loadingMore && !replace)) return
+        loadMoreJob?.cancel()
+        loadMoreJob = viewModelScope.launch {
+            val page = if (replace) 1 else _state.value.currentPage + 1
+            if (replace) {
+                _state.update { it.copy(loading = true, error = null) }
+            } else {
+                _state.update { it.copy(loadingMore = true) }
+            }
+            try {
+                val items = RedtubeRepository.search(query = currentQuery, page = page)
+                val hasMore = items.isNotEmpty()
+                if (replace) {
+                    _state.update {
+                        it.copy(items = items, loading = false, hasMore = hasMore, currentPage = page)
+                    }
+                } else {
+                    val existingIds = _state.value.items.map { it.id }.toHashSet()
+                    val deduped = items.filterNot { existingIds.contains(it.id) }
+                    _state.update {
+                        it.copy(
+                            items       = it.items + deduped,
+                            loadingMore = false,
+                            hasMore     = deduped.isNotEmpty(),
+                            currentPage = page,
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(loading = false, loadingMore = false, error = "PornHub unavailable: ${e.message}")
+                }
+            }
+        }
+    }
+
+        companion object {
         private const val DEFAULT_REDDIT_SUB = "gonewild"
 
         fun factory(context: Context) =
@@ -472,7 +618,8 @@ class AdultViewModel(
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     @Suppress("UNCHECKED_CAST")
                     return AdultViewModel(
-                        settings = SettingsRepository(context.applicationContext),
+                        settings   = SettingsRepository(context.applicationContext),
+                        appContext  = context.applicationContext,
                     ) as T
                 }
             }
