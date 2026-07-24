@@ -300,6 +300,35 @@ interface FollowedArtistDao {
     suspend fun updateLatestRelease(channelId: String, releaseId: String)
 }
 
+
+// ── Adult History ─────────────────────────────────────────────────────────────
+
+@Entity(tableName = "adult_history")
+data class AdultHistoryEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val thumbnail: String?,
+    val source: String,
+    @ColumnInfo(name = "embed_url") val embedUrl: String?,
+    @ColumnInfo(name = "duration_label") val durationLabel: String?,
+    @ColumnInfo(name = "watched_at") val watchedAt: Long = System.currentTimeMillis(),
+)
+
+@Dao
+interface AdultHistoryDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entry: AdultHistoryEntity)
+
+    @Query("SELECT * FROM adult_history ORDER BY watched_at DESC LIMIT 100")
+    fun recent(): Flow<List<AdultHistoryEntity>>
+
+    @Query("DELETE FROM adult_history WHERE id = :id")
+    suspend fun remove(id: String)
+
+    @Query("DELETE FROM adult_history")
+    suspend fun clearAll()
+}
+
 // ── Database ─────────────────────────────────────────────────────────────────
 
 @Database(
@@ -313,8 +342,9 @@ interface FollowedArtistDao {
         UserCollectionEntity::class,
         CollectionFolderEntity::class,
         FollowedArtistEntity::class,
+        AdultHistoryEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -326,6 +356,7 @@ abstract class LibraryDb : RoomDatabase() {
     abstract fun userCollections(): UserCollectionDao
     abstract fun collectionFolders(): CollectionFolderDao
     abstract fun followedArtists(): FollowedArtistDao
+    abstract fun adultHistory(): AdultHistoryDao
 
     companion object {
         private val MIGRATION_5_6 = object : Migration(5, 6) {
@@ -349,7 +380,25 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_9_10 = object : Migration(9, 10) {
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS adult_history (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        thumbnail TEXT,
+                        source TEXT NOT NULL,
+                        embed_url TEXT,
+                        duration_label TEXT,
+                        watched_at INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+                private val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     """
@@ -400,7 +449,7 @@ abstract class LibraryDb : RoomDatabase() {
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
 }
