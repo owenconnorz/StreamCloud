@@ -220,7 +220,7 @@ object TraktRepository {
         progress: Double = 100.0,
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val safeTitle = showTitle.replace(""", "'")
+            val safeTitle = showTitle.replace("\"", "'")
             val body = """{
                 "show": { "title": "$safeTitle", "ids": { "tmdb": $showTmdbId } },
                 "episode": { "season": $season, "number": $episode },
