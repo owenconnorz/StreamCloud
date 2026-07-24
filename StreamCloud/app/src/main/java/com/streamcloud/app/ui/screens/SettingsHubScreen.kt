@@ -779,106 +779,106 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                         )
                     }
                 }
-            }
 
-            // ── Trakt.tv dialog ──────────────────────────────────────────────────────
-            if (showTraktDialog) {
-                AlertDialog(
-                    onDismissRequest = { showTraktDialog = false },
-                    title = { Text("Trakt.tv") },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // ── Trakt.tv dialog ──────────────────────────────────────────────────────
+                if (showTraktDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showTraktDialog = false },
+                        title = { Text("Trakt.tv") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (traktUsername.isNotBlank()) {
+                                    Text("Signed in as @$traktUsername")
+                                } else {
+                                    Text("Enter your Trakt client ID (from trakt.tv/oauth/applications/new), then follow the device auth steps.")
+                                    OutlinedTextField(
+                                        value = traktClientId,
+                                        onValueChange = { traktClientId = it },
+                                        label = { Text("Client ID") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
                             if (traktUsername.isNotBlank()) {
-                                Text("Signed in as @$traktUsername")
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        sl.settings.clearTraktSession()
+                                        traktUsername = ""
+                                    }
+                                    showTraktDialog = false
+                                }) { Text("Sign out") }
                             } else {
-                                Text("Enter your Trakt client ID (from trakt.tv/oauth/applications/new), then follow the device auth steps.")
-                                OutlinedTextField(
-                                    value = traktClientId,
-                                    onValueChange = { traktClientId = it },
-                                    label = { Text("Client ID") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        sl.settings.setTraktClientId(traktClientId)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Client ID saved. Device auth will be available in a future update.",
+                                            android.widget.Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                    showTraktDialog = false
+                                }) { Text("Save") }
                             }
-                        }
-                    },
-                    confirmButton = {
-                        if (traktUsername.isNotBlank()) {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    sl.settings.clearTraktSession()
-                                    traktUsername = ""
-                                }
-                                showTraktDialog = false
-                            }) { Text("Sign out") }
-                        } else {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    sl.settings.setTraktClientId(traktClientId)
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Client ID saved. Device auth will be available in a future update.",
-                                        android.widget.Toast.LENGTH_LONG,
-                                    ).show()
-                                }
-                                showTraktDialog = false
-                            }) { Text("Save") }
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showTraktDialog = false }) { Text("Cancel") }
-                    },
-                )
-            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showTraktDialog = false }) { Text("Cancel") }
+                        },
+                    )
+                }
 
-            // ── Simkl dialog ─────────────────────────────────────────────────────────
-            if (showSimklDialog) {
-                AlertDialog(
-                    onDismissRequest = { showSimklDialog = false },
-                    title = { Text("Simkl") },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            if (simklToken.isNotBlank()) {
-                                Text("Connected to Simkl.")
-                            } else {
-                                Text("Enter your Simkl client ID (from simkl.com/settings/developer).")
-                                OutlinedTextField(
-                                    value = simklClientId,
-                                    onValueChange = { simklClientId = it },
-                                    label = { Text("Client ID") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                // ── Simkl dialog ─────────────────────────────────────────────────────────
+                if (showSimklDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showSimklDialog = false },
+                        title = { Text("Simkl") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (simklToken.isNotBlank()) {
+                                    Text("Connected to Simkl.")
+                                } else {
+                                    Text("Enter your Simkl client ID (from simkl.com/settings/developer).")
+                                    OutlinedTextField(
+                                        value = simklClientId,
+                                        onValueChange = { simklClientId = it },
+                                        label = { Text("Client ID") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
                             }
-                        }
-                    },
-                    confirmButton = {
-                        if (simklToken.isNotBlank()) {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    sl.settings.clearSimklSession()
-                                    simklToken = ""
-                                }
-                                showSimklDialog = false
-                            }) { Text("Disconnect") }
-                        } else {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    sl.settings.setSimklClientId(simklClientId)
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Client ID saved.",
-                                        android.widget.Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
-                                showSimklDialog = false
-                            }) { Text("Save") }
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showSimklDialog = false }) { Text("Cancel") }
-                    },
-                )
+                        },
+                        confirmButton = {
+                            if (simklToken.isNotBlank()) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        sl.settings.clearSimklSession()
+                                        simklToken = ""
+                                    }
+                                    showSimklDialog = false
+                                }) { Text("Disconnect") }
+                            } else {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        sl.settings.setSimklClientId(simklClientId)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Client ID saved.",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                    showSimklDialog = false
+                                }) { Text("Save") }
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showSimklDialog = false }) { Text("Cancel") }
+                        },
+                    )
+                }
             }
 
 
