@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -76,6 +77,7 @@ fun YtPlaylistScreen(
     val scope = rememberCoroutineScope()
 
     var showPlaylistMenu by remember { mutableStateOf(false) }
+    var showThumbSheet   by remember { mutableStateOf(false) }
     var syncTrigger by remember { mutableStateOf(0) }
 
     // ── Search ────────────────────────────────────────────────────────────────
@@ -120,6 +122,10 @@ fun YtPlaylistScreen(
             regex.find(playlistThumbsJson)?.groupValues?.getOrNull(1)
         }
         saved ?: initialThumb
+    }
+    val hasCustomThumb = remember(playlistThumbsJson, playlistId) {
+        Regex("\"\${Regex.escape(playlistId)}\"\\s*:\\s*\"([^\"]+)\"")
+            .containsMatchIn(playlistThumbsJson)
     }
     val pickThumb = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
@@ -341,7 +347,7 @@ fun YtPlaylistScreen(
                                     runCatching { YtPlayback.playPlaylist(context, shuffled, 0) }
                                 }
                             },
-                            onEditCover = { pickThumb.launch(arrayOf("image/*")) },
+                            onEditCover = { showThumbSheet = true },
                             onMoreOptions = { showPlaylistMenu = true },
                         )
                     }
@@ -376,6 +382,29 @@ fun YtPlaylistScreen(
 
         }
 
+        if (showThumbSheet) {
+            ModalBottomSheet(onDismissRequest = { showThumbSheet = false }) {
+                ListItem(
+                    headlineContent = { Text("Choose from library") },
+                    leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
+                    modifier = Modifier.clickable {
+                        showThumbSheet = false
+                        pickThumb.launch(arrayOf("image/*"))
+                    },
+                )
+                if (hasCustomThumb) {
+                    ListItem(
+                        headlineContent = { Text("Remove custom image", color = MaterialTheme.colorScheme.error) },
+                        leadingContent = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                        modifier = Modifier.clickable {
+                            scope.launch { sl.settings.setPlaylistThumb(playlistId, null) }
+                            showThumbSheet = false
+                        },
+                    )
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
         if (showPlaylistMenu) {
             val currentList = tracks ?: emptyList()
             PlaylistActionsSheet(
