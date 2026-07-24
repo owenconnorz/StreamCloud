@@ -167,9 +167,10 @@ object SimklRepository {
         year: Int = 0,
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
+            val safeTitle = title.replace(""", "'")
             val body = """{
                 "movies": [
-                    { "title": "${title.replace(""","'")}",  "year": $year, "ids": { "tmdb": $tmdbId } }
+                    { "title": "$safeTitle", "year": $year, "ids": { "tmdb": $tmdbId } }
                 ]
             }""".toRequestBody("application/json".toMediaType())
             val req = Request.Builder()
