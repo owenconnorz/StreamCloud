@@ -13,9 +13,12 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Close
@@ -37,9 +40,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.AdultItem
@@ -69,6 +76,18 @@ fun AdultScreen(
     var query by remember { mutableStateOf("") }
     var showCategoryPicker by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
+
+    // Age gate: show blocking overlay until user confirms 18+
+    if (!state.ageGateConfirmed) {
+        AgeGateOverlay(onConfirm = { vm.confirmAgeGate() })
+        return
+    }
+
+    // PIN lock: show lock screen if adult lock is enabled and not yet unlocked this session
+    if (state.adultLockEnabled && state.safeModePin.isNotBlank() && !state.lockUnlocked) {
+        PinLockScreen(onUnlock = { pin -> vm.unlockWithPin(pin) })
+        return
+    }
 
     // Infinite scroll for Eporner grid: trigger loadMore when near the bottom
     LaunchedEffect(gridState) {
@@ -118,7 +137,7 @@ fun AdultScreen(
         }
 
         // ── Source switcher tabs: Eporner / Reddit ───────────────────────
-        val sources = listOf(AdultSource.Eporner, AdultSource.Reddit, AdultSource.RedGifs)
+        val sources = listOf(AdultSource.Eporner, AdultSource.Redtube, AdultSource.Reddit, AdultSource.RedGifs)
         val selectedTabIndex = sources.indexOfFirst { it == state.source }.coerceAtLeast(0)
         TabRow(
             selectedTabIndex = selectedTabIndex,
@@ -188,8 +207,8 @@ fun AdultScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Category + active-category chip row
-            Row(
+            // Category + active-category chip row (Eporner only)
+            if (state.source == AdultSource.Eporner) Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
@@ -216,6 +235,7 @@ fun AdultScreen(
                     )
                 }
             }
+}
 
             Spacer(Modifier.height(4.dp))
 
@@ -278,18 +298,19 @@ fun AdultScreen(
 
     detailItem?.let { item ->
         EpornerDetailSheet(
-            item     = item,
-            context  = context,
-            onPlay   = {
+            item       = item,
+            context    = context,
+            onDownload = { vm.downloadVideo(item) },
+            onPlay     = {
+                vm.recordHistory(item)
                 detailItem = null
                 if (item.source == AdultSource.Reddit) {
-                    // Reddit items: pass the stream URL directly as the embed
                     onPlay(item.id, item.streamUrl.orEmpty(), item.title)
                 } else {
                     onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
                 }
             },
-            onDismiss = { detailItem = null },
+            onDismiss  = { detailItem = null },
         )
     }
 }
@@ -479,6 +500,7 @@ private fun EpornerDetailSheet(
     context: Context,
     onPlay: () -> Unit,
     onDismiss: () -> Unit,
+    onDownload: (() -> Unit)? = null,
 ) {
     val scope      = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -608,6 +630,24 @@ private fun EpornerDetailSheet(
                     Text(if (saved) "Saved" else "Save")
                 }
             }
+
+            onDownload?.let { dl ->
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                ) {
+                    OutlinedButton(
+                        onClick  = dl,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Download Video")
+                    }
+                }
+            }
         }
     }
 }
@@ -625,6 +665,126 @@ private fun InfoPill(icon: ImageVector, label: String) {
 
 private fun epornerWatchlistId(epornerId: String): Long =
     (-9_000_000_000L) - (epornerId.hashCode().toLong() and 0xFFFFFL)
+
+
+@Composable
+private fun AgeGateOverlay(onConfirm: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 40.dp),
+        ) {
+            Text(
+                "18+",
+                fontSize   = 64.sp,
+                fontWeight = FontWeight.Black,
+                color      = Color(0xFF7C5CFF),
+            )
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "Adult Content",
+                style      = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "This section contains explicit 18+ content. By continuing you confirm you are at least 18 years old.",
+                style     = MaterialTheme.typography.bodyMedium,
+                color     = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(32.dp))
+            Button(
+                onClick  = onConfirm,
+                colors   = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C5CFF)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("I am 18 or older — Enter", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PinLockScreen(onUnlock: (String) -> Boolean) {
+    var pin      by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf(false) }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 40.dp),
+        ) {
+            Icon(
+                Icons.Default.Lock,
+                contentDescription = null,
+                modifier = Modifier.size(56.dp),
+                tint     = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Adult Content Locked",
+                style      = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color      = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Enter your PIN to access this section.",
+                style     = MaterialTheme.typography.bodyMedium,
+                color     = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(24.dp))
+            OutlinedTextField(
+                value           = pin,
+                onValueChange   = { pin = it.take(8); pinError = false },
+                label           = { Text("PIN") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.NumberPassword,
+                    imeAction    = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (!onUnlock(pin)) pinError = true
+                }),
+                isError    = pinError,
+                singleLine = true,
+                modifier   = Modifier.fillMaxWidth(),
+                shape      = RoundedCornerShape(14.dp),
+            )
+            if (pinError) {
+                Text(
+                    "Incorrect PIN",
+                    color    = MaterialTheme.colorScheme.error,
+                    style    = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            Spacer(Modifier.height(20.dp))
+            Button(
+                onClick  = { if (!onUnlock(pin)) pinError = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors   = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C5CFF)),
+            ) {
+                Text("Unlock", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
 
 @Composable
 private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
