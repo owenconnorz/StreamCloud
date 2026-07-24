@@ -28,12 +28,26 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
 
+data class NuvioProviderDiagnostics(
+    val requestCount: Int,
+    val error: String? = null,
+    val log: String? = null,
+)
+
+fun NuvioProviderDiagnostics.toSummary(): String =
+    error?.takeIf { it.isNotBlank() }
+        ?: log?.takeIf { it.isNotBlank() }
+        ?: "No streams found"
+
 object NuvioRuntime {
     private const val TAG = "NuvioRuntime"
 
 
     private const val MAX_FETCH_BODY_CHARS = 5 * 1024 * 1024
-    private val lastErrorByScript = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val lastErrorByScript     = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val lastFetchCountByScript = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val lastLogByScript        = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val lastDiagnosticsByScript = java.util.concurrent.ConcurrentHashMap<String, NuvioProviderDiagnostics>()
 
     private val http = OkHttpClient.Builder()
         .cookieJar(BrowserCookieJar)
@@ -44,6 +58,9 @@ object NuvioRuntime {
 
 
     fun lastError(scriptKey: String): String? = lastErrorByScript[scriptKey]
+    fun lastFetchCount(scriptKey: String): Int = lastFetchCountByScript[scriptKey] ?: 0
+    fun lastLog(scriptKey: String): String? = lastLogByScript[scriptKey]
+    fun lastDiagnostics(scriptKey: String): NuvioProviderDiagnostics? = lastDiagnosticsByScript[scriptKey]
 
     suspend fun runProvider(
         scriptText: String,
@@ -54,12 +71,16 @@ object NuvioRuntime {
         episode: Int? = null,
         scriptKey: String = "default",
         context: Context? = null,
+        filePath: String = "",
+        proxyBaseUrl: String? = null,
     ): List<NuvioStream> {
         val documentCache = mutableMapOf<String, Document>()
         val elementCache = mutableMapOf<String, Element>()
         val idCounter = AtomicInteger()
 
 
+        lastFetchCountByScript[scriptKey] = 0
+        lastLogByScript.remove(scriptKey)
         var capturedJson = "[]"
         return try {
             withTimeoutOrNull(60_000L) {
@@ -232,6 +253,11 @@ object NuvioRuntime {
                 } else if (streams.isNotEmpty()) {
                     lastErrorByScript.remove(scriptKey)
                 }
+                lastDiagnosticsByScript[scriptKey] = NuvioProviderDiagnostics(
+                    requestCount = lastFetchCountByScript[scriptKey] ?: 0,
+                    error = lastErrorByScript[scriptKey],
+                    log = lastLogByScript[scriptKey],
+                )
                 streams
             }
             } ?: run {
@@ -267,7 +293,10 @@ object NuvioRuntime {
                             lastErrorByScript[scriptKey] = msg
                         }
                         "debug" -> Log.d("$TAG/$scriptKey", msg)
-                        else -> Log.i("$TAG/$scriptKey", msg)
+                        else -> {
+                            Log.i("$TAG/$scriptKey", msg)
+                            lastLogByScript[scriptKey] = msg
+                        }
                     }
                     null
                 }
@@ -285,6 +314,7 @@ object NuvioRuntime {
             val body = args.getOrNull(3)?.toString().orEmpty()
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
             Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
+            lastFetchCountByScript.merge(scriptKey, 1, Int::plus)
             val result = performFetch(url, method, headersJson, body, followRedirects, context)
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
             // Providers that silently return [] on !response.ok would otherwise show only the
