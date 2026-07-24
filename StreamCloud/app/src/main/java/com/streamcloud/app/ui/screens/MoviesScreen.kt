@@ -106,7 +106,6 @@ fun MoviesScreen(
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val announcementSeenVersion by settingsRepo.announcementSeenVersion.collectAsState(initial = "")
     val scope = rememberCoroutineScope()
 
     MoviesThemeWrapper(moviesThemeName) {
@@ -499,10 +498,6 @@ fun MoviesScreen(
         )
     }
     } // MoviesThemeWrapper
-    AnnouncementOverlay(
-        seenVersion = announcementSeenVersion,
-        onDismiss = { version -> scope.launch { settingsRepo.setAnnouncementSeenVersion(version) } },
-    )
 }
 
 @Composable
