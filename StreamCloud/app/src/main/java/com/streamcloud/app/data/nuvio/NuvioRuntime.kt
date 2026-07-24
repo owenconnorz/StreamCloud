@@ -490,6 +490,121 @@ object NuvioRuntime {
                 cipher.doFinal(encData).joinToString("") { "%02x".format(it) }
             }.getOrDefault("")
         }
+
+        // ── Official NuvioMobile bridge function names ────────────────────────────
+        // These use hex-encoded bytes (not UTF-8 strings) for all data — matching
+        // the official __nativeDigestBytes/__nativeAesBytes helper convention.
+
+        // __crypto_digest_hex_raw(algo, dataHex) → hexResult
+        function("__crypto_digest_hex_raw") { args ->
+            val algorithm = args.getOrNull(0)?.toString() ?: "SHA256"
+            val dataHex = args.getOrNull(1)?.toString() ?: ""
+            runCatching {
+                val md = MessageDigest.getInstance(normalizeDigestAlgo(algorithm))
+                md.digest(hexToBytes(dataHex)).joinToString("") { "%02x".format(it) }
+            }.getOrDefault("")
+        }
+        // __crypto_hmac_hex_raw(algo, keyHex, dataHex) → hexResult
+        function("__crypto_hmac_hex_raw") { args ->
+            val algorithm = args.getOrNull(0)?.toString() ?: "SHA256"
+            val keyHex = args.getOrNull(1)?.toString() ?: ""
+            val dataHex = args.getOrNull(2)?.toString() ?: ""
+            runCatching {
+                val macAlgo = "Hmac" + normalizeDigestAlgo(algorithm).replace("-", "")
+                val mac = Mac.getInstance(macAlgo)
+                mac.init(SecretKeySpec(hexToBytes(keyHex), macAlgo))
+                mac.doFinal(hexToBytes(dataHex)).joinToString("") { "%02x".format(it) }
+            }.getOrDefault("")
+        }
+        // __crypto_aes_encrypt_hex(mode, keyHex, ivHex, dataHex) → hexResult
+        // mode: "AES-CBC", "AES-GCM", "AES-ECB", "AES-CBC-NoPadding", etc.
+        function("__crypto_aes_encrypt_hex") { args ->
+            val mode = args.getOrNull(0)?.toString()?.uppercase() ?: "AES-CBC"
+            val keyHex = args.getOrNull(1)?.toString() ?: ""
+            val ivHex  = args.getOrNull(2)?.toString() ?: ""
+            val dataHex = args.getOrNull(3)?.toString() ?: ""
+            runCatching {
+                val noPad = "NOPADDING" in mode
+                val transformation = when {
+                    "GCM" in mode -> "AES/GCM/NoPadding"
+                    "ECB" in mode -> if (noPad) "AES/ECB/NoPadding" else "AES/ECB/PKCS5Padding"
+                    noPad -> "AES/CBC/NoPadding"
+                    else -> "AES/CBC/PKCS5Padding"
+                }
+                val cipher = javax.crypto.Cipher.getInstance(transformation)
+                val keySpec = javax.crypto.spec.SecretKeySpec(normalizeAesKey(hexToBytes(keyHex)), "AES")
+                when {
+                    "GCM" in mode -> {
+                        val iv = hexToBytes(ivHex).let { if (it.isEmpty()) ByteArray(12) else it }
+                        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, javax.crypto.spec.GCMParameterSpec(128, iv))
+                    }
+                    "ECB" in mode -> cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec)
+                    else -> {
+                        val iv = hexToBytes(ivHex).let { if (it.isEmpty()) ByteArray(16) else it }
+                        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, javax.crypto.spec.IvParameterSpec(iv))
+                    }
+                }
+                cipher.doFinal(hexToBytes(dataHex)).joinToString("") { "%02x".format(it) }
+            }.getOrDefault("")
+        }
+        // __crypto_aes_decrypt_hex(mode, keyHex, ivHex, dataHex) → hexResult
+        function("__crypto_aes_decrypt_hex") { args ->
+            val mode = args.getOrNull(0)?.toString()?.uppercase() ?: "AES-CBC"
+            val keyHex = args.getOrNull(1)?.toString() ?: ""
+            val ivHex  = args.getOrNull(2)?.toString() ?: ""
+            val dataHex = args.getOrNull(3)?.toString() ?: ""
+            runCatching {
+                val noPad = "NOPADDING" in mode
+                val transformation = when {
+                    "GCM" in mode -> "AES/GCM/NoPadding"
+                    "ECB" in mode -> if (noPad) "AES/ECB/NoPadding" else "AES/ECB/PKCS5Padding"
+                    noPad -> "AES/CBC/NoPadding"
+                    else -> "AES/CBC/PKCS5Padding"
+                }
+                val cipher = javax.crypto.Cipher.getInstance(transformation)
+                val keySpec = javax.crypto.spec.SecretKeySpec(normalizeAesKey(hexToBytes(keyHex)), "AES")
+                when {
+                    "GCM" in mode -> {
+                        val iv = hexToBytes(ivHex).let { if (it.isEmpty()) ByteArray(12) else it }
+                        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, javax.crypto.spec.GCMParameterSpec(128, iv))
+                    }
+                    "ECB" in mode -> cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec)
+                    else -> {
+                        val iv = hexToBytes(ivHex).let { if (it.isEmpty()) ByteArray(16) else it }
+                        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, javax.crypto.spec.IvParameterSpec(iv))
+                    }
+                }
+                cipher.doFinal(hexToBytes(dataHex)).joinToString("") { "%02x".format(it) }
+            }.getOrDefault("")
+        }
+        // __crypto_pbkdf2_hex(passwordHex, saltHex, iterations, keySizeBits, hash) → hexResult
+        function("__crypto_pbkdf2_hex") { args ->
+            val passwordHex = args.getOrNull(0)?.toString() ?: ""
+            val saltHex     = args.getOrNull(1)?.toString() ?: ""
+            val iterations  = args.getOrNull(2)?.toString()?.toDoubleOrNull()?.toInt() ?: 1000
+            val keySizeBits = args.getOrNull(3)?.toString()?.toDoubleOrNull()?.toInt() ?: 256
+            val hash        = args.getOrNull(4)?.toString() ?: "SHA1"
+            runCatching {
+                val spec = javax.crypto.spec.PBEKeySpec(
+                    String(hexToBytes(passwordHex), Charsets.UTF_8).toCharArray(),
+                    hexToBytes(saltHex), iterations, keySizeBits
+                )
+                val factory = javax.crypto.SecretKeyFactory.getInstance(
+                    "PBKDF2WithHmac" + normalizeDigestAlgo(hash).replace("-", "")
+                )
+                factory.generateSecret(spec).encoded.joinToString("") { "%02x".format(it) }
+            }.getOrDefault("")
+        }
+        // __crypto_get_random_values_hex(byteLength) → hexResult
+        function("__crypto_get_random_values_hex") { args ->
+            val byteLength = args.getOrNull(0)?.toString()?.toDoubleOrNull()?.toInt() ?: 16
+            val bytes = ByteArray(byteLength.coerceIn(0, 65536))
+            java.security.SecureRandom().nextBytes(bytes)
+            bytes.joinToString("") { "%02x".format(it) }
+        }
+        // Stubs for RSA/ECDSA sign/verify (rarely needed by providers)
+        function("__crypto_sign_hex") { _ -> "" }
+        function("__crypto_verify_hex") { _ -> false }
     }
 
     private fun normalizeDigestAlgo(algorithm: String): String {
@@ -500,6 +615,17 @@ object NuvioRuntime {
             a == "MD5" -> "MD5"
             else -> a
         }
+    }
+
+    private fun hexToBytes(hex: String): ByteArray {
+        val s = hex.replace(Regex("[^0-9a-fA-F]"), "").let { if (it.length % 2 == 1) "0$it" else it }
+        return ByteArray(s.length / 2) { s.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+    }
+
+    private fun normalizeAesKey(key: ByteArray): ByteArray = when {
+        key.size <= 16 -> key.copyOf(16)
+        key.size <= 24 -> key.copyOf(24)
+        else -> key.copyOf(32)
     }
 
 
@@ -1375,43 +1501,356 @@ object NuvioRuntime {
         };
         globalThis.cheerio = cheerio;
 
-        // ── CryptoJS shim ──────────────────────────────────────────────
-        function __hexWrap(hex) {
-            var lo = (hex || '').toLowerCase();
-            return {
-                __hex: lo, sigBytes: lo.length / 2,
-                toString: function(enc) {
-                    if (!enc || enc === CryptoJS.enc.Hex) return this.__hex;
-                    if (enc === CryptoJS.enc.Utf8) return __crypto_hex_to_utf8(this.__hex);
-                    if (enc === CryptoJS.enc.Base64) return __crypto_base64_encode(__crypto_hex_to_utf8(this.__hex));
-                    return this.__hex;
+        // ── Full official NuvioMobile CryptoJS polyfill ───────────────────
+        // Matches NuvioMedia/NuvioMobile JsBindings.kt cryptoPolyfill() exactly.
+        var WordArray = {
+            init: function(words, sigBytes) {
+                this.words = words || [];
+                this.sigBytes = sigBytes != undefined ? sigBytes : this.words.length * 4;
+            },
+            toString: function(encoder) { return (encoder || CryptoJS.enc.Hex).stringify(this); },
+            concat: function(wordArray) {
+                var thisWords = this.words, thatWords = wordArray.words;
+                var thisSigBytes = this.sigBytes, thatSigBytes = wordArray.sigBytes;
+                this.clamp();
+                for (var i = 0; i < thatSigBytes; i++) {
+                    var thatByte = (thatWords[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
+                    thisWords[(thisSigBytes + i) >>> 2] |= thatByte << (24 - ((thisSigBytes + i) % 4) * 8);
                 }
-            };
+                this.sigBytes += thatSigBytes;
+                return this;
+            },
+            clamp: function() {
+                var words = this.words, sigBytes = this.sigBytes;
+                if (sigBytes % 4) words[sigBytes >>> 2] &= 0xffffffff << (32 - (sigBytes % 4) * 8);
+                words.length = Math.ceil(sigBytes / 4);
+                return this;
+            },
+            clone: function() { return __crWaCreate(this.words.slice(0), this.sigBytes); }
+        };
+        function __crWaCreate(words, sigBytes) { var wa = Object.create(WordArray); wa.init(words, sigBytes); return wa; }
+        function __crIsWa(v) { return v && typeof v === 'object' && Array.isArray(v.words) && typeof v.sigBytes === 'number'; }
+        function __crToU8(data) {
+            if (!data) return new Uint8Array(0);
+            if (data instanceof Uint8Array) return data;
+            if (data instanceof ArrayBuffer) return new Uint8Array(data);
+            if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data))
+                return new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength);
+            if (Array.isArray(data)) return new Uint8Array(data);
+            if (typeof data.length === 'number') return new Uint8Array(Array.prototype.slice.call(data));
+            return new Uint8Array(0);
         }
-        function __normUtf8(v) {
-            if (v == null) return '';
-            if (typeof v === 'object' && typeof v.__hex === 'string') return __crypto_hex_to_utf8(v.__hex);
-            return String(v);
+        function __crCopyU8(bytes) { bytes = __crToU8(bytes); var c = new Uint8Array(bytes.length); c.set(bytes); return c; }
+        function __crU8ToAb(bytes) { return __crCopyU8(bytes).buffer; }
+        function __crWaToBytes(wa) {
+            if (!__crIsWa(wa)) return typeof wa === 'string' ? new TextEncoder().encode(wa) : __crToU8(wa);
+            var bytes = new Uint8Array(wa.sigBytes);
+            for (var i = 0; i < wa.sigBytes; i++) bytes[i] = (wa.words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
+            return bytes;
+        }
+        function __crBytesToWa(bytes) {
+            bytes = __crToU8(bytes);
+            var words = [];
+            for (var i = 0; i < bytes.length; i++) words[i >>> 2] |= (bytes[i] & 0xff) << (24 - (i % 4) * 8);
+            return __crWaCreate(words, bytes.length);
+        }
+        function __crNormInput(v) {
+            if (__crIsWa(v)) return __crWaToBytes(v);
+            if (typeof v === 'string') return new TextEncoder().encode(v);
+            return __crToU8(v);
+        }
+        function __crBytesToHex(bytes) {
+            bytes = __crToU8(bytes);
+            var out = [];
+            for (var i = 0; i < bytes.length; i++) { var h = bytes[i].toString(16); out.push(h.length < 2 ? '0' + h : h); }
+            return out.join('');
+        }
+        function __crHexToBytes(hex) {
+            hex = String(hex || '').replace(/[^0-9a-fA-F]/g, '');
+            if (hex.length % 2) hex = '0' + hex;
+            var bytes = new Uint8Array(hex.length / 2);
+            for (var i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.substr(i, 2), 16) & 0xff;
+            return bytes;
+        }
+        function __crConcat() {
+            var total = 0, parts = [];
+            for (var i = 0; i < arguments.length; i++) { var p = __crToU8(arguments[i]); parts.push(p); total += p.length; }
+            var out = new Uint8Array(total), off = 0;
+            for (var j = 0; j < parts.length; j++) { out.set(parts[j], off); off += parts[j].length; }
+            return out;
+        }
+        function __crNormHash(hash) {
+            var name = hash && hash.name ? hash.name : hash;
+            name = String(name || 'SHA-256').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            if (name === 'SHA1' || name === 'SHA256' || name === 'SHA384' || name === 'SHA512' || name === 'MD5') return name;
+            throw new Error('Unsupported hash: ' + name);
+        }
+        function __crNormAlgo(algo) {
+            var name = algo && algo.name ? algo.name : algo;
+            name = String(name || '').toUpperCase();
+            if (name.indexOf('AES-GCM') >= 0) return 'AES-GCM';
+            if (name.indexOf('AES-CBC') >= 0) return 'AES-CBC';
+            if (name.indexOf('AES-ECB') >= 0 || name === 'ECB') return 'AES-ECB';
+            if (name.indexOf('PBKDF2') >= 0) return 'PBKDF2';
+            if (name.indexOf('HMAC') >= 0) return 'HMAC';
+            return name;
+        }
+        function __crAesMode(mode, padding) {
+            var n = __crNormAlgo(mode || 'AES-CBC');
+            if (padding === 'NoPadding' || (CryptoJS.pad && padding === CryptoJS.pad.NoPadding)) n += '-NoPadding';
+            return n;
+        }
+        function __crDigestBytes(hash, dataBytes) {
+            return __crHexToBytes(__crypto_digest_hex_raw(__crNormHash(hash), __crBytesToHex(dataBytes)));
+        }
+        function __crHmacBytes(hash, keyBytes, dataBytes) {
+            return __crHexToBytes(__crypto_hmac_hex_raw(__crNormHash(hash), __crBytesToHex(keyBytes), __crBytesToHex(dataBytes)));
+        }
+        function __crPbkdf2Bytes(passBytes, saltBytes, iterations, keySizeBits, hash) {
+            return __crHexToBytes(__crypto_pbkdf2_hex(__crBytesToHex(passBytes), __crBytesToHex(saltBytes), iterations, keySizeBits, __crNormHash(hash)));
+        }
+        function __crAesBytes(encrypt, mode, keyBytes, ivBytes, dataBytes) {
+            var fn = encrypt ? __crypto_aes_encrypt_hex : __crypto_aes_decrypt_hex;
+            return __crHexToBytes(fn(mode, __crBytesToHex(keyBytes), __crBytesToHex(ivBytes), __crBytesToHex(dataBytes)));
+        }
+        function __crEvpKdf(passBytes, saltBytes, keySizeBytes, ivSizeBytes) {
+            var target = keySizeBytes + ivSizeBytes, derived = new Uint8Array(target), block = new Uint8Array(0), off = 0;
+            while (off < target) {
+                block = __crDigestBytes('MD5', __crConcat(block, passBytes, saltBytes || new Uint8Array(0)));
+                var take = Math.min(block.length, target - off);
+                derived.set(block.subarray(0, take), off); off += take;
+            }
+            return { key: derived.subarray(0, keySizeBytes), iv: derived.subarray(keySizeBytes) };
+        }
+        function __crSaltHdr() { return new Uint8Array([83,97,108,116,101,100,95,95]); }
+        function __crHasSalt(bytes) {
+            var h = __crSaltHdr(); if (!bytes || bytes.length < 16) return false;
+            for (var i = 0; i < h.length; i++) { if (bytes[i] !== h[i]) return false; } return true;
+        }
+        function __crMakeCp(ct, key, iv, salt, mode) {
+            return { ciphertext: __crBytesToWa(ct), key: key ? __crBytesToWa(key) : undefined,
+                     iv: iv ? __crBytesToWa(iv) : undefined, salt: salt ? __crBytesToWa(salt) : undefined, mode: mode,
+                     toString: function(f) { return (f || CryptoJS.format.OpenSSL).stringify(this); } };
         }
         var CryptoJS = {
             enc: {
-                Hex:    { stringify: function(w) { return w.__hex || __crypto_utf8_to_hex(__normUtf8(w)); },
-                          parse: function(s) { return __hexWrap(s); } },
-                Utf8:   { stringify: function(w) { return __normUtf8(w); },
-                          parse: function(s) { return __hexWrap(__crypto_utf8_to_hex(s || '')); } },
-                Base64: { stringify: function(w) { return __crypto_base64_encode(__normUtf8(w)); },
-                          parse: function(s) { return __hexWrap(__crypto_utf8_to_hex(__crypto_base64_decode(s || ''))); } },
+                Hex: {
+                    stringify: function(wa) { return __crBytesToHex(__crWaToBytes(wa)); },
+                    parse: function(s) { return __crBytesToWa(__crHexToBytes(s)); }
+                },
+                Utf8: {
+                    stringify: function(wa) { return new TextDecoder('utf-8').decode(__crWaToBytes(wa)); },
+                    parse: function(s) { return __crBytesToWa(new TextEncoder().encode(String(s))); }
+                },
+                Latin1: {
+                    stringify: function(wa) {
+                        var bytes = __crWaToBytes(wa), out = '';
+                        for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+                        return out;
+                    },
+                    parse: function(s) {
+                        s = String(s || ''); var bytes = new Uint8Array(s.length);
+                        for (var i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i) & 0xff;
+                        return __crBytesToWa(bytes);
+                    }
+                },
+                Base64: {
+                    stringify: function(wa) {
+                        var bytes = __crWaToBytes(wa), bin = '';
+                        for (var j = 0; j < bytes.length; j++) bin += String.fromCharCode(bytes[j]);
+                        return btoa(bin);
+                    },
+                    parse: function(s) {
+                        var bin = atob(String(s || '')), bytes = new Uint8Array(bin.length);
+                        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
+                        return __crBytesToWa(bytes);
+                    }
+                },
+                Base64url: {
+                    stringify: function(wa) {
+                        return CryptoJS.enc.Base64.stringify(wa).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+${"$"}/g, '');
+                    },
+                    parse: function(s) {
+                        s = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+                        while (s.length % 4) s += '=';
+                        return CryptoJS.enc.Base64.parse(s);
+                    }
+                }
             },
-            MD5:    function(m) { return __hexWrap(__crypto_digest_hex('MD5', __normUtf8(m))); },
-            SHA1:   function(m) { return __hexWrap(__crypto_digest_hex('SHA-1', __normUtf8(m))); },
-            SHA256: function(m) { return __hexWrap(__crypto_digest_hex('SHA-256', __normUtf8(m))); },
-            SHA512: function(m) { return __hexWrap(__crypto_digest_hex('SHA-512', __normUtf8(m))); },
-            HmacMD5:    function(m, k) { return __hexWrap(__crypto_hmac_hex('MD5', __normUtf8(k), __normUtf8(m))); },
-            HmacSHA1:   function(m, k) { return __hexWrap(__crypto_hmac_hex('SHA-1', __normUtf8(k), __normUtf8(m))); },
-            HmacSHA256: function(m, k) { return __hexWrap(__crypto_hmac_hex('SHA-256', __normUtf8(k), __normUtf8(m))); },
-            HmacSHA512: function(m, k) { return __hexWrap(__crypto_hmac_hex('SHA-512', __normUtf8(k), __normUtf8(m))); },
+            lib: {
+                WordArray: {
+                    create: function(words, sigBytes) {
+                        if (words == null) return __crWaCreate([], sigBytes || 0);
+                        if (__crIsWa(words)) return words.clone();
+                        if (typeof words === 'string') return CryptoJS.enc.Utf8.parse(words);
+                        if (words instanceof ArrayBuffer || (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(words))) {
+                            var bytes = __crToU8(words);
+                            return __crBytesToWa(sigBytes != undefined ? bytes.subarray(0, sigBytes) : bytes);
+                        }
+                        return __crWaCreate(words, sigBytes);
+                    },
+                    random: function(nBytes) {
+                        var bytes = new Uint8Array(nBytes || 0);
+                        globalThis.crypto.getRandomValues(bytes);
+                        return __crBytesToWa(bytes);
+                    }
+                },
+                CipherParams: {
+                    create: function(p) {
+                        p = p || {};
+                        p.toString = p.toString || function(f) { return (f || CryptoJS.format.OpenSSL).stringify(this); };
+                        return p;
+                    }
+                }
+            },
+            format: {
+                OpenSSL: {
+                    stringify: function(cp) {
+                        var ct = __crWaToBytes(cp.ciphertext);
+                        var out = cp.salt ? __crConcat(__crSaltHdr(), __crWaToBytes(cp.salt), ct) : ct;
+                        return CryptoJS.enc.Base64.stringify(__crBytesToWa(out));
+                    },
+                    parse: function(s) {
+                        var bytes = __crWaToBytes(CryptoJS.enc.Base64.parse(s));
+                        if (__crHasSalt(bytes)) {
+                            return CryptoJS.lib.CipherParams.create({
+                                salt: __crBytesToWa(bytes.subarray(8, 16)),
+                                ciphertext: __crBytesToWa(bytes.subarray(16))
+                            });
+                        }
+                        return CryptoJS.lib.CipherParams.create({ ciphertext: __crBytesToWa(bytes) });
+                    }
+                }
+            },
+            mode: { CBC: 'AES-CBC', GCM: 'AES-GCM', ECB: 'AES-ECB' },
+            pad: { Pkcs7: 'Pkcs7', NoPadding: 'NoPadding' },
+            algo: { MD5: 'MD5', SHA1: 'SHA1', SHA256: 'SHA256', SHA384: 'SHA384', SHA512: 'SHA512', AES: 'AES' },
+            MD5:    function(m) { return __crBytesToWa(__crDigestBytes('MD5',    __crNormInput(m))); },
+            SHA1:   function(m) { return __crBytesToWa(__crDigestBytes('SHA1',   __crNormInput(m))); },
+            SHA256: function(m) { return __crBytesToWa(__crDigestBytes('SHA256', __crNormInput(m))); },
+            SHA384: function(m) { return __crBytesToWa(__crDigestBytes('SHA384', __crNormInput(m))); },
+            SHA512: function(m) { return __crBytesToWa(__crDigestBytes('SHA512', __crNormInput(m))); },
+            HmacMD5:    function(m, k) { return __crBytesToWa(__crHmacBytes('MD5',    __crNormInput(k), __crNormInput(m))); },
+            HmacSHA1:   function(m, k) { return __crBytesToWa(__crHmacBytes('SHA1',   __crNormInput(k), __crNormInput(m))); },
+            HmacSHA256: function(m, k) { return __crBytesToWa(__crHmacBytes('SHA256', __crNormInput(k), __crNormInput(m))); },
+            HmacSHA384: function(m, k) { return __crBytesToWa(__crHmacBytes('SHA384', __crNormInput(k), __crNormInput(m))); },
+            HmacSHA512: function(m, k) { return __crBytesToWa(__crHmacBytes('SHA512', __crNormInput(k), __crNormInput(m))); },
+            PBKDF2: function(pass, salt, opts) {
+                opts = opts || {};
+                return __crBytesToWa(__crPbkdf2Bytes(__crNormInput(pass), __crNormInput(salt),
+                    opts.iterations || 1000, (opts.keySize || 8) * 32, opts.hasher || 'SHA1'));
+            },
+            AES: {
+                encrypt: function(msg, key, opts) {
+                    opts = opts || {};
+                    var data = __crNormInput(msg), kBytes, ivBytes, saltBytes;
+                    if (typeof key === 'string') {
+                        saltBytes = opts.salt ? __crWaToBytes(opts.salt) : __crWaToBytes(CryptoJS.lib.WordArray.random(8));
+                        var derived = __crEvpKdf(new TextEncoder().encode(key), saltBytes, 32, 16);
+                        kBytes = derived.key; ivBytes = opts.iv ? __crWaToBytes(opts.iv) : derived.iv;
+                    } else {
+                        kBytes = __crWaToBytes(key); ivBytes = opts.iv ? __crWaToBytes(opts.iv) : new Uint8Array(0);
+                    }
+                    var mode = __crAesMode(opts.mode || 'AES-CBC', opts.padding);
+                    return __crMakeCp(__crAesBytes(true, mode, kBytes, ivBytes, data), kBytes, ivBytes, saltBytes, mode);
+                },
+                decrypt: function(cipher, key, opts) {
+                    opts = opts || {};
+                    var cp = typeof cipher === 'string' ? CryptoJS.format.OpenSSL.parse(cipher) : cipher;
+                    var data = cp.ciphertext ? __crWaToBytes(cp.ciphertext) : __crToU8(cp);
+                    var kBytes, ivBytes;
+                    if (typeof key === 'string') {
+                        var saltBytes = opts.salt ? __crWaToBytes(opts.salt) : (cp.salt ? __crWaToBytes(cp.salt) : new Uint8Array(0));
+                        var derived = __crEvpKdf(new TextEncoder().encode(key), saltBytes, 32, 16);
+                        kBytes = derived.key; ivBytes = opts.iv ? __crWaToBytes(opts.iv) : derived.iv;
+                    } else {
+                        kBytes = __crWaToBytes(key); ivBytes = opts.iv ? __crWaToBytes(opts.iv) : new Uint8Array(0);
+                    }
+                    var mode = __crAesMode(opts.mode || 'AES-CBC', opts.padding);
+                    return __crBytesToWa(__crAesBytes(false, mode, kBytes, ivBytes, data));
+                }
+            }
         };
         globalThis.CryptoJS = CryptoJS;
+        // Full Web Crypto API — overwrites earlier stub with native-bridge-backed version
+        globalThis.crypto = {
+            subtle: {
+                digest: async function(algo, data) {
+                    return __crU8ToAb(__crDigestBytes(algo, __crToU8(data)));
+                },
+                importKey: async function(fmt, data, algo, extractable, usages) {
+                    var algorithm = { name: __crNormAlgo(algo || {}) };
+                    var type = String(fmt||'raw') === 'spki' ? 'public' : (String(fmt||'raw') === 'pkcs8' ? 'private' : 'secret');
+                    return { type: type, extractable: !!extractable, algorithm: algorithm, usages: usages||[], _raw: __crCopyU8(__crToU8(data)) };
+                },
+                exportKey: async function(fmt, key) { return __crU8ToAb(key._raw); },
+                generateKey: async function(algo, extractable, usages) {
+                    var algorithm = { name: __crNormAlgo(algo || {}) };
+                    var length = (algo && algo.length) || 256;
+                    var bytes = new Uint8Array(length / 8);
+                    globalThis.crypto.getRandomValues(bytes);
+                    return { type: 'secret', extractable: !!extractable, algorithm: algorithm, usages: usages||[], _raw: bytes };
+                },
+                deriveBits: async function(params, key, len) {
+                    return __crU8ToAb(__crPbkdf2Bytes(__crToU8(key._raw), __crToU8(params.salt),
+                        params.iterations || 1000, len, params.hash || 'SHA-256'));
+                },
+                deriveKey: async function(params, key, derivedKeyAlgo, extractable, usages) {
+                    var algorithm = { name: __crNormAlgo(derivedKeyAlgo || {}) };
+                    var length = (derivedKeyAlgo && derivedKeyAlgo.length) || 256;
+                    var raw = await globalThis.crypto.subtle.deriveBits(params, key, length);
+                    return { type: 'secret', extractable: !!extractable, algorithm: algorithm, usages: usages||[], _raw: new Uint8Array(raw) };
+                },
+                encrypt: async function(params, key, data) {
+                    var mode = __crNormAlgo(params), iv = __crToU8((params && params.iv) || new Uint8Array(0));
+                    return __crU8ToAb(__crAesBytes(true, mode, __crToU8(key._raw), iv, __crToU8(data)));
+                },
+                decrypt: async function(params, key, data) {
+                    var mode = __crNormAlgo(params), iv = __crToU8((params && params.iv) || new Uint8Array(0));
+                    return __crU8ToAb(__crAesBytes(false, mode, __crToU8(key._raw), iv, __crToU8(data)));
+                },
+                sign: async function(algo, key, data) {
+                    if (__crNormAlgo(algo || (key && key.algorithm)) === 'HMAC' || (key && key.algorithm && key.algorithm.name === 'HMAC')) {
+                        var hash = (algo && algo.hash) || (key.algorithm && key.algorithm.hash) || 'SHA-256';
+                        return __crU8ToAb(__crHmacBytes(hash, __crToU8(key._raw), __crToU8(data)));
+                    }
+                    return __crU8ToAb(new Uint8Array(32));
+                },
+                verify: async function(algo, key, sig, data) {
+                    if (__crNormAlgo(algo || (key && key.algorithm)) === 'HMAC' || (key && key.algorithm && key.algorithm.name === 'HMAC')) {
+                        var hash = (algo && algo.hash) || (key.algorithm && key.algorithm.hash) || 'SHA-256';
+                        var expected = __crHmacBytes(hash, __crToU8(key._raw), __crToU8(data));
+                        var actual = __crToU8(sig);
+                        if (expected.length !== actual.length) return false;
+                        var diff = 0; for (var i = 0; i < expected.length; i++) diff |= expected[i] ^ actual[i];
+                        return diff === 0;
+                    }
+                    return false;
+                }
+            },
+            getRandomValues: function(arr) {
+                if (!arr) return arr;
+                var byteLength = arr.byteLength != undefined ? arr.byteLength : arr.length;
+                if (!byteLength) return arr;
+                var random = __crHexToBytes(__crypto_get_random_values_hex(byteLength));
+                if (arr.buffer && arr.byteLength != undefined) {
+                    new Uint8Array(arr.buffer, arr.byteOffset || 0, arr.byteLength).set(random);
+                } else { for (var i = 0; i < arr.length; i++) arr[i] = random[i] || 0; }
+                return arr;
+            },
+            randomUUID: function() {
+                var b = new Uint8Array(16); globalThis.crypto.getRandomValues(b);
+                b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+                var h = __crBytesToHex(b);
+                return h.substr(0,8)+'-'+h.substr(8,4)+'-'+h.substr(12,4)+'-'+h.substr(16,4)+'-'+h.substr(20);
+            }
+        };
+        globalThis.WebAssembly = {
+            instantiate: async function(src, imports) {
+                console.warn('WebAssembly.instantiate called (placeholder)');
+                return { instance: { exports: {} }, module: {} };
+            }
+        };
 
         // Full-featured axios / ky / got shim.
         // Supports: create()/extend() with baseURL/prefixUrl, default headers,
@@ -1570,105 +2009,6 @@ object NuvioRuntime {
                     return kyReq;
                 }
                 return makeKy({});
-            }
-            // ── CryptoJS shim backed by native AES/hash bridge functions ────────
-            if (name === 'crypto-js' || name === 'crypto-js/crypto-js' ||
-                (typeof name === 'string' && name.startsWith('crypto-js/'))) {
-                function _hexToWords(hex) {
-                    var words = []; var len = (hex.length + 1) >>> 1;
-                    for (var i = 0; i < len; i += 4) {
-                        var w = 0;
-                        for (var j = 0; j < 4 && (i+j) < len; j++)
-                            w |= parseInt(hex.substr((i+j)*2, 2)||'00', 16) << (24-j*8);
-                        words.push(w>>>0);
-                    }
-                    return words;
-                }
-                function _waToHex(wa) {
-                    var r = '';
-                    for (var i = 0; i < wa.sigBytes; i++)
-                        r += ('0'+((wa.words[i>>>2]>>>(24-(i&3)*8))&0xff).toString(16)).slice(-2);
-                    return r;
-                }
-                function _mkWa(words, sigBytes) {
-                    var wa = { words: words||[], sigBytes: sigBytes!=null ? sigBytes : (words||[]).length*4 };
-                    wa.toString = function(enc) { return enc ? enc.stringify(this) : _waToHex(this); };
-                    return wa;
-                }
-                var encHex    = { stringify: _waToHex, parse: function(s) { return _mkWa(_hexToWords(s), s.length>>>1); } };
-                var encBase64 = {
-                    stringify: function(wa) {
-                        var raw = ''; for (var i=0;i<wa.sigBytes;i++) raw+=String.fromCharCode((wa.words[i>>>2]>>>(24-(i&3)*8))&0xff);
-                        return btoa(raw);
-                    },
-                    parse: function(s) { var hex = __crypto_base64_to_hex(s); return _mkWa(_hexToWords(hex), hex.length>>>1); },
-                };
-                var encUtf8   = {
-                    stringify: function(wa) { return __crypto_hex_to_utf8(_waToHex(wa)); },
-                    parse:     function(s)  { var hex = __crypto_utf8_to_hex(s); return _mkWa(_hexToWords(hex), hex.length>>>1); },
-                };
-                var enc = { Hex: encHex, Base64: encBase64, Utf8: encUtf8, Latin1: encHex };
-
-                function _hashFn(algo) {
-                    return function(msg) {
-                        var s = (typeof msg==='string') ? msg : __crypto_hex_to_utf8(_waToHex(msg));
-                        var hex = __crypto_digest_hex(algo, s);
-                        var r = _mkWa(_hexToWords(hex), hex.length>>>1);
-                        var _hex = hex;
-                        r.toString = function(e) { return e ? e.stringify(this) : _hex; };
-                        return r;
-                    };
-                }
-                function _hmacFn(algo) {
-                    return function(msg, key) {
-                        var m = (typeof msg==='string') ? msg : __crypto_hex_to_utf8(_waToHex(msg));
-                        var k = (typeof key==='string') ? key : __crypto_hex_to_utf8(_waToHex(key));
-                        var hex = __crypto_hmac_hex(algo, k, m);
-                        var r = _mkWa(_hexToWords(hex), hex.length>>>1);
-                        r.toString = function(e) { return e ? e.stringify(this) : hex; };
-                        return r;
-                    };
-                }
-
-                var AES = {
-                    decrypt: function(ciphertext, key, cfg) {
-                        cfg = cfg || {};
-                        // Resolve ciphertext → base64 string
-                        var ct;
-                        if (typeof ciphertext === 'string') { ct = ciphertext; }
-                        else if (ciphertext && ciphertext.ciphertext) { ct = encBase64.stringify(ciphertext.ciphertext); }
-                        else { ct = (ciphertext && ciphertext.toString) ? ciphertext.toString(encBase64) : ''; }
-                        var hexResult;
-                        if (typeof key === 'string') {
-                            hexResult = __crypto_aes_decrypt_passphrase(ct, key);
-                        } else {
-                            var keyHex = _waToHex(key);
-                            var ivHex  = cfg.iv ? _waToHex(cfg.iv) : '00000000000000000000000000000000';
-                            hexResult = __crypto_aes_decrypt_cbc(ct, keyHex, ivHex);
-                        }
-                        var r = _mkWa(_hexToWords(hexResult), hexResult.length>>>1);
-                        r.toString = function(e) {
-                            if (!e || e === encUtf8) return __crypto_hex_to_utf8(hexResult);
-                            if (e === encHex)        return hexResult;
-                            if (e === encBase64)     return __crypto_base64_encode(__crypto_hex_to_utf8(hexResult));
-                            return __crypto_hex_to_utf8(hexResult);
-                        };
-                        return r;
-                    },
-                    encrypt: function(plaintext, key, cfg) {
-                        return { ciphertext: _mkWa([],0), toString: function() { return ''; } };
-                    },
-                };
-
-                var CryptoJS = {
-                    enc: enc,
-                    MD5: _hashFn('MD5'), SHA1: _hashFn('SHA-1'), SHA256: _hashFn('SHA-256'), SHA512: _hashFn('SHA-512'), SHA3: _hashFn('SHA-256'),
-                    HmacMD5: _hmacFn('MD5'), HmacSHA1: _hmacFn('SHA-1'), HmacSHA256: _hmacFn('SHA-256'), HmacSHA512: _hmacFn('SHA-512'),
-                    AES: AES,
-                    lib: { WordArray: { create: function(w,n) { return _mkWa(w||[],n!=null?n:(w||[]).length*4); } } },
-                    algo: {},
-                };
-                return CryptoJS;
             }
             if (name === 'superagent' || name === 'request' || name === 'needle') return __axiosShim;
             // Unknown module — return a stub instead of throwing so the provider
