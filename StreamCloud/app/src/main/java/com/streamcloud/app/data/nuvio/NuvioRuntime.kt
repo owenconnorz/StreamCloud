@@ -148,7 +148,12 @@ object NuvioRuntime {
                 evaluate<Any?>("""
                     globalThis.PRIMARY_KEY   = ${jsString(scriptKey)};
                     globalThis.__mediaType   = ${jsString(mediaType)};
-                    globalThis.TMDB_API_KEY  = ${jsString(com.streamcloud.app.BuildConfig.TMDB_API_KEY)};
+                    globalThis.TMDB_API_KEY  = ${
+                        com.streamcloud.app.BuildConfig.TMDB_API_KEY
+                            .takeIf { it.isNotBlank() }
+                            ?.let { jsString(it) }
+                            ?: "undefined"
+                    };
                     globalThis.params = {
                         tmdbId:       ${jsString(tmdbId)},
                         mediaType:    ${jsString(mediaType)},
@@ -269,9 +274,32 @@ object NuvioRuntime {
                             try { __src = __fn.toString(); } catch(__se) {}
                             var __arr;
 
-                            if (__fn.length >= 3) {
-                                // Full positional: getStreams(tmdbId, imdbId, mediaType, season, episode)
+                            if (__fn.length >= 5) {
+                                // 5+ params: (tmdbId, imdbId, mediaType, season, episode)
                                 __arr = await __fn(__p.tmdbId, __p.imdbId, __p.mediaType, __p.season, __p.episode);
+
+                            } else if (__fn.length === 4) {
+                                // 4 params — two common forms:
+                                //   (id, mediaType, season, episode)  ← VidFast, most scrapers
+                                //   (id, imdbId,    season, episode)  ← CineMM, providers guarding on imdbId
+                                // Detect by inspecting the 2nd declared parameter name.
+                                var __pm4 = __src.match(/\(\s*[^,)]+,\s*([a-zA-Z_$]\w*)/);
+                                var __p4n2 = (__pm4 && __pm4[1]) || '';
+                                var __p4isImdb = /^(imdb|imdbId|imdbid|imdb_id|tt|traktId|trakt)${'$'}/i.test(__p4n2);
+                                __arr = __p4isImdb
+                                    ? await __fn(__p.tmdbId, __p.imdbId, __p.season, __p.episode)
+                                    : await __fn(__p.tmdbId, __p.mediaType, __p.season, __p.episode);
+
+                            } else if (__fn.length === 3) {
+                                // 3 params — two common forms:
+                                //   (id, imdbId,    mediaType)  ← lookup providers
+                                //   (id, mediaType, season)     ← TV-oriented providers
+                                var __pm3 = __src.match(/\(\s*[^,)]+,\s*([a-zA-Z_$]\w*)/);
+                                var __p3n2 = (__pm3 && __pm3[1]) || '';
+                                var __p3isImdb = /^(imdb|imdbId|imdbid|imdb_id|tt|traktId|trakt)${'$'}/i.test(__p3n2);
+                                __arr = __p3isImdb
+                                    ? await __fn(__p.tmdbId, __p.imdbId, __p.mediaType)
+                                    : await __fn(__p.tmdbId, __p.mediaType, __p.season);
 
                             } else if (__fn.length === 2) {
                                 // Two params: almost always (tmdbId, mediaType/type).
