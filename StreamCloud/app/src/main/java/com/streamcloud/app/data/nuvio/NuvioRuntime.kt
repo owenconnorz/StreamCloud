@@ -28,17 +28,6 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
 
-data class NuvioProviderDiagnostics(
-    val requestCount: Int,
-    val error: String? = null,
-    val log: String? = null,
-)
-
-fun NuvioProviderDiagnostics.toSummary(): String =
-    error?.takeIf { it.isNotBlank() }
-        ?: log?.takeIf { it.isNotBlank() }
-        ?: "No streams found"
-
 object NuvioRuntime {
     private const val TAG = "NuvioRuntime"
 
@@ -255,8 +244,8 @@ object NuvioRuntime {
                 }
                 lastDiagnosticsByScript[scriptKey] = NuvioProviderDiagnostics(
                     requestCount = lastFetchCountByScript[scriptKey] ?: 0,
-                    error = lastErrorByScript[scriptKey],
-                    log = lastLogByScript[scriptKey],
+                    errorSummary = lastErrorByScript[scriptKey],
+                    exitedEarly = (lastFetchCountByScript[scriptKey] ?: 0) == 0,
                 )
                 streams
             }
