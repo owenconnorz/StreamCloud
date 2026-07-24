@@ -169,53 +169,34 @@ object NuvioRuntime {
                     appendLine("    return '[]';")
                     appendLine("  }")
                     appendLine("  try {")
-                    // Three-way calling convention detection:
-                    //
-                    // fn.length >= 2 → OLD positional: getStreams(tmdbId, imdbId, mediaType, ...)
-                    //   Pass individual string values. Without this, tmdbId = the whole params
-                    //   object → "[object Object]" in every URL.
-                    //
-                    // fn.length === 0 → no declared parameters; provider reads from globals.
-                    //   Call with no args — globalThis.tmdbId / imdbId / mediaType are already set.
-                    //
-                    // fn.length === 1 → ambiguous; inspect the source text:
-                    //   • First param is `{...}` (destructured)  → pass params object
-                    //   • First param is a common "bag" name      → pass params object
-                    //     (params, options, args, data, opts, …)
-                    //   • First param is an ID name               → pass just __p.tmdbId string
-                    //     (tmdbId, id, movieId, imdbId, …)
-                    //     This fixes providers like StreamFlix:
-                    //       function getStreams(tmdbId) { fetch(`…/${tmdbId}`) }
-                    //     which previously received the whole params object → "[object Object]".
+                    // Calling convention: matches official NuvioMobile PluginRuntime.kt exactly:
+                    //   await getStreams(tmdbId, mediaType, season, episode)
+                    // fn.length >= 2 → official 4-arg positional (no imdbId in args; providers
+                    //   that need imdbId access globalThis.imdbId directly or call TMDB themselves)
+                    // fn.length === 0 → no declared params; provider reads globalThis.tmdbId etc.
+                    // fn.length === 1 → single param: pass tmdbId string unless it destructures.
                     appendLine("    var __arr;")
                     appendLine("    var __p = globalThis.params;")
                     appendLine("    var __src = '';")
                     appendLine("    try { __src = __fn.toString(); } catch(__se) {}")
-                    appendLine("    if (__fn.length >= 3) {")
-                    // ≥3 params → classic full positional: getStreams(tmdbId, imdbId, mediaType, season, episode)
-                    appendLine("      __arr = await __fn(__p.tmdbId, __p.imdbId, __p.mediaType, __p.season, __p.episode);")
-                    appendLine("    } else if (__fn.length === 2) {")
-                    // 2 params → either (tmdbId, imdbId) OR (tmdbId, type/mediaType).
-                    // Inspect the second parameter name: if it looks like a media-type word
-                    // (type, mediaType, contentType, …) pass mediaType as arg[1]; otherwise imdbId.
-                    // VidFast declares: function getStreams(tmdbId, type) — without this check it
-                    // received imdbId = "tt0427340" as `type`, which didn't match "movie"/"series"
-                    // so the provider always defaulted its internal path to "tv".
-                    appendLine("      var __pm2 = __src.match(/\\(\\s*[^,]+,\\s*([a-zA-Z_\$]\\w*)/);")
-                    appendLine("      var __p2 = __pm2 ? __pm2[1] : '';")
-                    appendLine("      var __p2isType = /^(type|mediaType|media_type|contentType|content_type|kind|category|mediatype)$/.test(__p2);")
-                    appendLine("      __arr = await __fn(__p.tmdbId, __p2isType ? __p.mediaType : __p.imdbId);")
+                    // Official NuvioMobile calling convention (from PluginRuntime.kt source):
+                    //   await getStreams(tmdbId, mediaType, season, episode)
+                    // No imdbId in the positional args. Providers that need imdbId fetch it
+                    // themselves (TMDB API) or access globalThis.imdbId.
+                    // fn.length >= 2 → always use the 4-arg official convention.
+                    appendLine("    if (__fn.length >= 2) {")
+                    appendLine("      __arr = await __fn(__p.tmdbId, __p.mediaType, __p.season, __p.episode);")
                     appendLine("    } else if (__fn.length === 0) {")
-                    // 0 params → provider reads entirely from globals (tmdbId/imdbId already set above).
+                    // 0 params → provider reads entirely from globals (tmdbId/mediaType/season/episode
+                    // are all pre-set on globalThis above).
                     appendLine("      __arr = await __fn();")
                     appendLine("    } else {")
-                    // 1 param → ambiguous: destructured ({tmdbId,…}), named bag (params/options),
-                    // or single ID string (tmdbId/id).  Inspect first parameter.
+                    // 1 param → ambiguous: destructured ({tmdbId,…}) or single ID string.
+                    // Only treat as object if the source uses destructuring syntax {…};
+                    // do NOT use param-name heuristics (e.g. "params") because some providers
+                    // name their single string-ID arg "params" → passes [object Object] instead.
                     appendLine("      var __isDestr = /\\(\\s*\\{/.test(__src);")
-                    appendLine("      var __pm = __src.match(/\\(\\s*([a-zA-Z_\$]\\w*)/);")
-                    appendLine("      var __pname = __pm ? __pm[1] : '';")
-                    appendLine("      var __isObjArg = __isDestr || /^(params|options|args|data|config|info|details|meta|query|input|opts|p|o|req|request|payload|context|ctx)$/.test(__pname);")
-                    appendLine("      __arr = await __fn(__isObjArg ? __p : __p.tmdbId);")
+                    appendLine("      __arr = await __fn(__isDestr ? __p : __p.tmdbId);")
                     appendLine("    }")
                     appendLine("    var arr = __arr;")
                     appendLine("    var result = JSON.stringify(arr || []);")
