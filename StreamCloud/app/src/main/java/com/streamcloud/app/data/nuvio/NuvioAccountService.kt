@@ -79,11 +79,12 @@ class NuvioAccountService(private val context: Context) {
         .build()
 
     /** Stable per-device client ID required by the Nuvio sync API. */
-    @SuppressLint("HardwareIds")
-    private val clientId: String by lazy {
+    private val clientId: String by lazy { buildClientId() }
+
+    @android.annotation.SuppressLint("HardwareIds")
+    private fun buildClientId(): String =
         "android-" + (Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             ?: "unknown")
-    }
 
     // ── Auth ─────────────────────────────────────────────────────────────────
 
