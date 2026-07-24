@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MusicNote
@@ -195,6 +196,13 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var showIntroKeyDialog  by remember { mutableStateOf(false) }
     var showSubSourceDialog by remember { mutableStateOf(false) }
     var showHoldSpeedDialog by remember { mutableStateOf(false) }
+    var adultLockEnabled    by remember { mutableStateOf(false) }
+    var traktUsername       by remember { mutableStateOf("") }
+    var traktClientId       by remember { mutableStateOf("") }
+    var simklToken          by remember { mutableStateOf("") }
+    var simklClientId       by remember { mutableStateOf("") }
+    var showTraktDialog     by remember { mutableStateOf(false) }
+    var showSimklDialog     by remember { mutableStateOf(false) }
 
 
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
@@ -268,6 +276,11 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         parentalGuideOn     = sl.settings.parentalGuideEnabled.first()
         holdToSpeedOn       = sl.settings.holdToSpeedEnabled.first()
         holdToSpeedVal      = sl.settings.holdToSpeedValue.first()
+        adultLockEnabled    = sl.settings.adultLockEnabled.first()
+        traktUsername       = sl.settings.traktUsername.first()
+        traktClientId       = sl.settings.traktClientId.first()
+        simklToken          = sl.settings.simklAccessToken.first()
+        simklClientId       = sl.settings.simklClientId.first()
     }
 
 
@@ -730,6 +743,142 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                     SettingDivider()
                     SpotifyAccountRow()
                 }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    // Trakt.tv
+                    if (traktUsername.isNotBlank()) {
+                        SettingNav(
+                            icon = Icons.Default.Check, tint = Color(0xFFED1C24),
+                            title = "Trakt.tv",
+                            subtitle = "Signed in as @$traktUsername",
+                            onClick = { showTraktDialog = true },
+                        )
+                    } else {
+                        SettingNav(
+                            icon = Icons.Default.Login, tint = Color(0xFFED1C24),
+                            title = "Connect Trakt.tv",
+                            subtitle = "Sync watch history and scrobble movies/shows",
+                            onClick = { showTraktDialog = true },
+                        )
+                    }
+                    SettingDivider()
+                    // Simkl
+                    if (simklToken.isNotBlank()) {
+                        SettingNav(
+                            icon = Icons.Default.Check, tint = Color(0xFF0087D7),
+                            title = "Simkl",
+                            subtitle = "Connected",
+                            onClick = { showSimklDialog = true },
+                        )
+                    } else {
+                        SettingNav(
+                            icon = Icons.Default.Login, tint = Color(0xFF0087D7),
+                            title = "Connect Simkl",
+                            subtitle = "Track watched movies and TV shows",
+                            onClick = { showSimklDialog = true },
+                        )
+                    }
+                }
+            }
+
+            // ── Trakt.tv dialog ──────────────────────────────────────────────────────
+            if (showTraktDialog) {
+                AlertDialog(
+                    onDismissRequest = { showTraktDialog = false },
+                    title = { Text("Trakt.tv") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (traktUsername.isNotBlank()) {
+                                Text("Signed in as @$traktUsername")
+                            } else {
+                                Text("Enter your Trakt client ID (from trakt.tv/oauth/applications/new), then follow the device auth steps.")
+                                OutlinedTextField(
+                                    value = traktClientId,
+                                    onValueChange = { traktClientId = it },
+                                    label = { Text("Client ID") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        if (traktUsername.isNotBlank()) {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    sl.settings.clearTraktSession()
+                                    traktUsername = ""
+                                }
+                                showTraktDialog = false
+                            }) { Text("Sign out") }
+                        } else {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    sl.settings.setTraktClientId(traktClientId)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Client ID saved. Device auth will be available in a future update.",
+                                        android.widget.Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                                showTraktDialog = false
+                            }) { Text("Save") }
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showTraktDialog = false }) { Text("Cancel") }
+                    },
+                )
+            }
+
+            // ── Simkl dialog ─────────────────────────────────────────────────────────
+            if (showSimklDialog) {
+                AlertDialog(
+                    onDismissRequest = { showSimklDialog = false },
+                    title = { Text("Simkl") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (simklToken.isNotBlank()) {
+                                Text("Connected to Simkl.")
+                            } else {
+                                Text("Enter your Simkl client ID (from simkl.com/settings/developer).")
+                                OutlinedTextField(
+                                    value = simklClientId,
+                                    onValueChange = { simklClientId = it },
+                                    label = { Text("Client ID") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        if (simklToken.isNotBlank()) {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    sl.settings.clearSimklSession()
+                                    simklToken = ""
+                                }
+                                showSimklDialog = false
+                            }) { Text("Disconnect") }
+                        } else {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    sl.settings.setSimklClientId(simklClientId)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Client ID saved.",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                                showSimklDialog = false
+                            }) { Text("Save") }
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showSimklDialog = false }) { Text("Cancel") }
+                    },
+                )
             }
 
 
@@ -846,6 +995,17 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                         subtitle = "Filter explicit search results",
                         checked = safeSearch,
                         onChange = { safeSearch = it; scope.launch { sl.settings.setSafeSearch(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Lock, tint = ColourPrivacy,
+                        title = "Adult tab PIN lock",
+                        subtitle = "Require PIN to open the Adult tab (uses your safe-mode PIN)",
+                        checked = adultLockEnabled,
+                        onChange = {
+                            adultLockEnabled = it
+                            scope.launch { sl.settings.setAdultLockEnabled(it) }
+                        },
                     )
                     SettingDivider()
                     SettingToggle(
