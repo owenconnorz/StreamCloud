@@ -195,8 +195,9 @@ object TraktRepository {
         progress: Double = 100.0,
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
+            val safeTitle = title.replace(""", "'")
             val body = """{
-                "movie": { "title": "${title.replace(""","'")}", "year": $year, "ids": { "tmdb": $tmdbId } },
+                "movie": { "title": "$safeTitle", "year": $year, "ids": { "tmdb": $tmdbId } },
                 "progress": $progress
             }""".toRequestBody("application/json".toMediaType())
             val req = Request.Builder()
@@ -219,8 +220,9 @@ object TraktRepository {
         progress: Double = 100.0,
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
+            val safeTitle = showTitle.replace(""", "'")
             val body = """{
-                "show": { "title": "${showTitle.replace(""","'")}", "ids": { "tmdb": $showTmdbId } },
+                "show": { "title": "$safeTitle", "ids": { "tmdb": $showTmdbId } },
                 "episode": { "season": $season, "number": $episode },
                 "progress": $progress
             }""".toRequestBody("application/json".toMediaType())
