@@ -108,6 +108,20 @@ object SettingsKeys {
     val HOLD_TO_SPEED_VALUE         = stringPreferencesKey("hold_to_speed_value")
     val ANNOUNCEMENT_SEEN_VERSION   = stringPreferencesKey("announcement_seen_version")
     val LIBRARY_WATCHLIST_SORT      = stringPreferencesKey("library_watchlist_sort")
+
+    // ── Adult content ──────────────────────────────────────────────────────────
+    val AGE_GATE_CONFIRMED  = booleanPreferencesKey("age_gate_confirmed")
+    val ADULT_LOCK_ENABLED  = booleanPreferencesKey("adult_lock_enabled")
+
+    // ── Trakt.tv ────────────────────────────────────────────────────────────────
+    val TRAKT_ACCESS_TOKEN  = stringPreferencesKey("trakt_access_token")
+    val TRAKT_REFRESH_TOKEN = stringPreferencesKey("trakt_refresh_token")
+    val TRAKT_USERNAME      = stringPreferencesKey("trakt_username")
+    val TRAKT_CLIENT_ID     = stringPreferencesKey("trakt_client_id")
+
+    // ── Simkl ────────────────────────────────────────────────────────────────
+    val SIMKL_ACCESS_TOKEN  = stringPreferencesKey("simkl_access_token")
+    val SIMKL_CLIENT_ID     = stringPreferencesKey("simkl_client_id")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -461,4 +475,39 @@ class SettingsRepository(private val context: Context) {
 
     val libraryWatchlistSort: Flow<String>          = context.dataStore.data.map { it[SettingsKeys.LIBRARY_WATCHLIST_SORT] ?: "added" }
     suspend fun setLibraryWatchlistSort(s: String)  = context.dataStore.edit { it[SettingsKeys.LIBRARY_WATCHLIST_SORT] = s }
+
+    // ── Adult content settings ──────────────────────────────────────────────────
+    val ageGateConfirmed: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.AGE_GATE_CONFIRMED] ?: false }
+    val adultLockEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.ADULT_LOCK_ENABLED] ?: false }
+
+    suspend fun setAgeGateConfirmed(b: Boolean) = context.dataStore.edit { it[SettingsKeys.AGE_GATE_CONFIRMED] = b }
+    suspend fun setAdultLockEnabled(b: Boolean)  = context.dataStore.edit { it[SettingsKeys.ADULT_LOCK_ENABLED] = b }
+
+    // ── Trakt.tv ────────────────────────────────────────────────────────────────
+    val traktAccessToken:  Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_ACCESS_TOKEN]  ?: "" }
+    val traktRefreshToken: Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_REFRESH_TOKEN] ?: "" }
+    val traktUsername:     Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_USERNAME]      ?: "" }
+    val traktClientId:     Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_CLIENT_ID]     ?: "" }
+
+    suspend fun setTraktSession(accessToken: String, refreshToken: String, username: String) =
+        context.dataStore.edit {
+            it[SettingsKeys.TRAKT_ACCESS_TOKEN]  = accessToken
+            it[SettingsKeys.TRAKT_REFRESH_TOKEN] = refreshToken
+            it[SettingsKeys.TRAKT_USERNAME]      = username
+        }
+    suspend fun setTraktClientId(id: String) = context.dataStore.edit { it[SettingsKeys.TRAKT_CLIENT_ID] = id }
+    suspend fun clearTraktSession() = context.dataStore.edit {
+        it.remove(SettingsKeys.TRAKT_ACCESS_TOKEN)
+        it.remove(SettingsKeys.TRAKT_REFRESH_TOKEN)
+        it.remove(SettingsKeys.TRAKT_USERNAME)
+    }
+
+    // ── Simkl ────────────────────────────────────────────────────────────────
+    val simklAccessToken: Flow<String> = context.dataStore.data.map { it[SettingsKeys.SIMKL_ACCESS_TOKEN] ?: "" }
+    val simklClientId:    Flow<String> = context.dataStore.data.map { it[SettingsKeys.SIMKL_CLIENT_ID]    ?: "" }
+
+    suspend fun setSimklAccessToken(token: String) = context.dataStore.edit { it[SettingsKeys.SIMKL_ACCESS_TOKEN] = token }
+    suspend fun setSimklClientId(id: String)        = context.dataStore.edit { it[SettingsKeys.SIMKL_CLIENT_ID]    = id }
+    suspend fun clearSimklSession() = context.dataStore.edit { it.remove(SettingsKeys.SIMKL_ACCESS_TOKEN) }
+
 }
