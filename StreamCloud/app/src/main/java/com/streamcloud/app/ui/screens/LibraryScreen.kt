@@ -911,6 +911,29 @@ private fun LocalPlaylistGridTile(
         )
     }
 
+    if (showThumbSheet) {
+        ModalBottomSheet(onDismissRequest = { showThumbSheet = false }) {
+            ListItem(
+                headlineContent = { Text("Choose from library") },
+                leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
+                modifier = Modifier.clickable {
+                    showThumbSheet = false
+                    pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+            )
+            if (!customThumb.isNullOrBlank()) {
+                ListItem(
+                    headlineContent = { Text("Remove custom image", color = MaterialTheme.colorScheme.error) },
+                    leadingContent = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                    modifier = Modifier.clickable {
+                        onSetThumb(null)
+                        showThumbSheet = false
+                    },
+                )
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
     Column(
         modifier = Modifier.clickable { },
     ) {
@@ -950,29 +973,6 @@ private fun LocalPlaylistGridTile(
                         tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(16.dp),
                     )
-                }
-                DropdownMenu(
-                    expanded = showThumbSheet,
-                    onDismissRequest = { showThumbSheet = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Choose from library") },
-                        leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
-                        onClick = {
-                            showThumbSheet = false
-                            pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        },
-                    )
-                    if (!customThumb.isNullOrBlank()) {
-                        DropdownMenuItem(
-                            text = { Text("Remove image", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                            onClick = {
-                                onSetThumb(null)
-                                showThumbSheet = false
-                            },
-                        )
-                    }
                 }
             }
             IconButton(
