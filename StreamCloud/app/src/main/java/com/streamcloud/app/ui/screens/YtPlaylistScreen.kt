@@ -124,7 +124,7 @@ fun YtPlaylistScreen(
         saved ?: initialThumb
     }
     val hasCustomThumb = remember(playlistThumbsJson, playlistId) {
-        Regex("\"\${Regex.escape(playlistId)}\"\\s*:\\s*\"([^\"]+)\"")
+        Regex("\"${Regex.escape(playlistId)}\"\\s*:\\s*\"([^\"]+)\"")
             .containsMatchIn(playlistThumbsJson)
     }
     val pickThumb = androidx.activity.compose.rememberLauncherForActivityResult(
