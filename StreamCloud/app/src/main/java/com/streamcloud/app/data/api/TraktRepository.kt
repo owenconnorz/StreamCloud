@@ -195,7 +195,7 @@ object TraktRepository {
         progress: Double = 100.0,
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val safeTitle = title.replace(""", "'")
+            val safeTitle = title.replace("\"", "\'")
             val body = """{
                 "movie": { "title": "$safeTitle", "year": $year, "ids": { "tmdb": $tmdbId } },
                 "progress": $progress
