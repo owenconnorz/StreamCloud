@@ -37,7 +37,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -417,6 +421,11 @@ private fun CloudStreamPluginsPage(
     }
 
     if (showAdd) {
+        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+        val confirmFocus = remember { FocusRequester() }
+        LaunchedEffect(Unit) {
+            if (isTv) try { confirmFocus.requestFocus() } catch (_: Exception) {}
+        }
         AlertDialog(
             onDismissRequest = { showAdd = false },
             title = { Text("Add CloudStream Repository") },
@@ -444,10 +453,10 @@ private fun CloudStreamPluginsPage(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    vm.addRepo(addName, addUrl)
-                    addName = ""; addUrl = ""; showAdd = false
-                }) { Text("Add") }
+                TextButton(
+                    onClick = { vm.addRepo(addName, addUrl); addName = ""; addUrl = ""; showAdd = false },
+                    modifier = if (isTv) Modifier.focusRequester(confirmFocus) else Modifier,
+                ) { Text("Add") }
             },
             dismissButton = {
                 TextButton(onClick = { showAdd = false }) { Text("Cancel") }
@@ -538,6 +547,11 @@ private fun StremioAddonsPage(
     }
 
     if (showAdd) {
+        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+        val confirmFocus = remember { FocusRequester() }
+        LaunchedEffect(Unit) {
+            if (isTv) try { confirmFocus.requestFocus() } catch (_: Exception) {}
+        }
         AlertDialog(
             onDismissRequest = { showAdd = false },
             title = { Text("Add Stremio Addon") },
@@ -565,11 +579,8 @@ private fun StremioAddonsPage(
             confirmButton = {
                 TextButton(
                     enabled = !state.addingStremio,
-                    onClick = {
-                        vm.addStremioAddon(stremioUrl)
-                        stremioUrl = ""
-                        showAdd = false
-                    },
+                    onClick = { vm.addStremioAddon(stremioUrl); stremioUrl = ""; showAdd = false },
+                    modifier = if (isTv) Modifier.focusRequester(confirmFocus) else Modifier,
                 ) {
                     if (state.addingStremio)
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -688,6 +699,11 @@ private fun NuvioProvidersPage(
     }
 
     if (showBrowse) {
+        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+        val doneFocus = remember { FocusRequester() }
+        LaunchedEffect(Unit) {
+            if (isTv) try { doneFocus.requestFocus() } catch (_: Exception) {}
+        }
         AlertDialog(
             onDismissRequest = { showBrowse = false; nuvioRepoInput = "" },
             title = { Text("Browse Nuvio Repo") },
@@ -770,7 +786,10 @@ private fun NuvioProvidersPage(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showBrowse = false; nuvioRepoInput = "" }) {
+                TextButton(
+                    onClick = { showBrowse = false; nuvioRepoInput = "" },
+                    modifier = if (isTv) Modifier.focusRequester(doneFocus) else Modifier,
+                ) {
                     Text("Done")
                 }
             },
