@@ -345,7 +345,7 @@ interface FollowedArtistDao {
         AdultHistoryEntity::class,
         FollowedArtistEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -494,9 +494,6 @@ abstract class LibraryDb : RoomDatabase() {
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).addMigrations(
-                MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
             ).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
