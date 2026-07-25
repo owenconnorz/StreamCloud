@@ -224,10 +224,10 @@ object NuvioRuntime {
 
 
     private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?, scriptKey: String) {
-        // asyncFunction lets quickjs-kt drive the JS event loop while the HTTP
-        // request is in flight on an IO thread, instead of blocking the scheduler
-        // thread with runBlocking (which prevents pending JS microtasks from running).
-        asyncFunction("__native_fetch") { args: Array<Any?> ->
+        // Synchronous function with runBlocking — matches official NuvioMobile FetchBridge exactly.
+        // __native_fetch blocks the scheduler thread for the duration of the HTTP request;
+        // quickjs-kt drives the event loop when the Kotlin suspend resumes after the block.
+        function("__native_fetch") { args: Array<Any?> ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
             val headersJson = args.getOrNull(2)?.toString() ?: "{}"
@@ -235,9 +235,7 @@ object NuvioRuntime {
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
             Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
             lastFetchCountByScript.merge(scriptKey, 1, Int::plus)
-            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                performFetch(url, method, headersJson, body, followRedirects, context)
-            }
+            val result = runBlocking { performFetch(url, method, headersJson, body, followRedirects, context) }
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
             try {
                 val J = kotlinx.serialization.json.Json
@@ -910,9 +908,8 @@ object NuvioRuntime {
             var headers = __normalize_fetch_headers(options.headers);
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
-            // __native_fetch is an async native bridge — must await so quickjs-kt can
-            // drive the event loop while the HTTP request runs on the IO thread.
-            var result = await __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
+            // __native_fetch is a synchronous native bridge — matches official NuvioMobile exactly.
+            var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             return {
                 ok: parsed.ok,
@@ -970,46 +967,35 @@ object NuvioRuntime {
 
         // setTimeout / clearTimeout stubs.
         //
-        // IMPORTANT: do NOT fire non-zero-delay callbacks synchronously.
-        // The most common Nuvio provider pattern is:
-        //   const controller = new AbortController();
-        //   setTimeout(() => controller.abort(), 10000);
-        //   const res = await fetch(url, { signal: controller.signal });
-        //   clearTimeout(id);
+        // QuickJS has no real async timer system. We schedule ALL callbacks via
+        // Promise.resolve().then() so they fire at the next microtask checkpoint.
+        // This is safe because:
+        //   (a) our fetch polyfill is synchronous (__native_fetch blocks via runBlocking)
+        //       so fetches complete before any microtask runs anyway;
+        //   (b) our fetch polyfill ignores signal.aborted entirely.
         //
-        // If we call controller.abort() synchronously before the fetch() call,
-        // our fetch shim (line: `if (signal && signal.aborted) reject`) fires
-        // immediately and EVERY network request is aborted → provider returns [].
+        // The critical pattern this fixes:
+        //   await new Promise(resolve => setTimeout(resolve, delay)); // "sleep"
+        //   → without firing, this Promise hangs forever → 60s timeout.
         //
-        // Fix: store non-zero-delay callbacks but never fire them — clearTimeout()
-        // removes them so they are no-ops, exactly as in a real browser where the
-        // fetch completes long before the timeout fires.
-        // Zero-delay / no-delay timeouts (used as Promise-yield / queueMicrotask
-        // equivalents) are executed via Promise.resolve().then() so they run
-        // at the next microtask checkpoint, which is what providers expect.
+        // Previous approach (store-but-never-fire for delay>0) was wrong:
+        // providers using setTimeout as a sleep/retry mechanism would hang indefinitely.
         if (typeof setTimeout === 'undefined') {
             var __timerSeq = 0;
             var __pendingTimers = {};
             globalThis.setTimeout = function(fn, ms) {
                 var id = ++__timerSeq;
                 if (typeof fn !== 'function') return id;
-                if (!ms || ms <= 0) {
-                    // Zero / no delay — yield to next microtask tick.
-                    __pendingTimers[id] = fn;
-                    Promise.resolve().then(function() {
-                        var f = __pendingTimers[id];
-                        if (f) { delete __pendingTimers[id]; try { f(); } catch(e) {} }
-                    });
-                } else {
-                    // Non-zero delay — store without firing.  clearTimeout() removes
-                    // it; if never cleared it is simply never called (the QuickJS
-                    // coroutine loop has no real timer mechanism).
-                    __pendingTimers[id] = fn;
-                }
+                // Schedule via microtask regardless of delay — QuickJS has no real timers.
+                __pendingTimers[id] = fn;
+                Promise.resolve().then(function() {
+                    var f = __pendingTimers[id];
+                    if (f) { delete __pendingTimers[id]; try { f(); } catch(e) {} }
+                });
                 return id;
             };
             globalThis.clearTimeout  = function(id) { if (id) delete __pendingTimers[id]; };
-            globalThis.setInterval   = function(fn, ms) { return ++__timerSeq; };
+            globalThis.setInterval   = function(fn, ms) { return setTimeout(fn, ms); };
             globalThis.clearInterval = function(id) { if (id) delete __pendingTimers[id]; };
         }
 
