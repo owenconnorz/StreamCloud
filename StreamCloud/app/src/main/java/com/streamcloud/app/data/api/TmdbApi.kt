@@ -111,6 +111,13 @@ interface TmdbApi {
         @Query("page") page: Int = 1,
     ): TmdbListResponse
 
+    @GET("3/search/tv")
+    suspend fun searchTv(
+        @Query("api_key") apiKey: String,
+        @Query("query") query: String,
+        @Query("page") page: Int = 1,
+    ): TmdbListResponse
+
     @GET("3/movie/{id}")
     suspend fun details(
         @retrofit2.http.Path("id") id: Long,
