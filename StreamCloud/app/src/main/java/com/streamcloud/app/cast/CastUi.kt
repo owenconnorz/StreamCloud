@@ -262,82 +262,89 @@ fun rememberCastController(
     val context = LocalContext.current
     val isCasting = remember { mutableStateOf(false) }
 
-    // Determine MIME type from the ORIGINAL URL before proxy transformation.
-    // guessMimeType(proxyUrl) always returns video/mp4 (no extension) which breaks HLS.
-    val resolvedMime = remember(streamUrl, contentType) {
-        contentType ?: guessMimeType(streamUrl)
+    val isLocalhost = remember(streamUrl) {
+        streamUrl.startsWith("http://127.0.0.1") || streamUrl.startsWith("http://localhost")
     }
 
-    // Always give Chromecast the direct URL.
-    // The Cast default receiver runs in an HTTPS context (gstatic.com), so Chrome's
-    // mixed-content policy blocks any HTTP proxy URL we serve from the phone.
-    // Direct HTTPS CDN links work fine; streams that truly require auth headers won't
-    // play on Cast regardless (the default receiver can't send custom headers).
-    val effectiveCastUrl = remember(streamUrl) {
-        if (streamUrl.startsWith("http://127.0.0.1") || streamUrl.startsWith("http://localhost"))
-            "" // localhost torrent proxy — unreachable from TV, signal "don't cast"
-        else
-            streamUrl
-    }
+    // The URL we actually give Chromecast.  Starts as the direct URL while the
+    // phone-side proxy spins up, then switches to http://PHONE_IP:PORT once ready.
+    // The proxy is critical for Nuvio/Stremio/debrid streams because:
+    //   • Debrid CDN links are IP-restricted — Chromecast's IP gets a 403, phone's IP is allowed.
+    //   • Many streams require Referer/User-Agent headers the Cast receiver cannot send.
+    //   • HLS segment rewriting ensures every chunk also flows through the proxy.
+    // Chromecast CAN load HTTP from local-network IPs via its native media APIs —
+    // the "mixed content" restriction only applies to XHR/fetch inside web pages.
+    var castUrl by remember { mutableStateOf(if (isLocalhost) "" else streamUrl) }
+    var activeMime by remember { mutableStateOf(contentType ?: guessMimeType(streamUrl)) }
 
-    // HEAD probe — gets the real Content-Type from the server so we tell the
-    // Chromecast receiver the correct MIME (critical for HLS: video/mp4 vs application/x-mpegURL).
-    var activeMime by remember { mutableStateOf(resolvedMime) }
     LaunchedEffect(streamUrl) {
-        if (streamUrl.isBlank()) return@LaunchedEffect
-        val probed = runCatching {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                    .followRedirects(true).followSslRedirects(true).build()
-                val reqBuilder = okhttp3.Request.Builder().url(streamUrl).head()
-                headers.forEach { (k, v) -> reqBuilder.header(k, v) }
-                client.newCall(reqBuilder.build()).execute().use { resp ->
-                    resp.header("Content-Type")
-                        ?.substringBefore(';')?.trim()
-                        ?.takeIf { it.isNotBlank() }
+        if (streamUrl.isBlank() || isLocalhost) return@LaunchedEffect
+
+        // Start the proxy on an IO thread (opens a ServerSocket)
+        val proxy = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            CastProxyServer.start(streamUrl, headers)
+        }
+
+        if (proxy != null) {
+            castUrl = proxy
+            // Wait for the proxy's background HEAD probe (up to 5 s) to get the real MIME
+            repeat(10) {
+                delay(500)
+                val ct = CastProxyServer.detectedContentType
+                if (!ct.isNullOrBlank()) {
+                    activeMime = ct
+                    return@LaunchedEffect
                 }
             }
-        }.getOrNull()
-        if (!probed.isNullOrBlank()) activeMime = probed
+        } else {
+            // Proxy unavailable (no WiFi IP?) — fall back to direct URL + manual HEAD probe
+            castUrl = streamUrl
+            val probed = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                        .followRedirects(true).followSslRedirects(true).build()
+                    val reqBuilder = okhttp3.Request.Builder().url(streamUrl).head()
+                    headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+                    client.newCall(reqBuilder.build()).execute().use { resp ->
+                        resp.header("Content-Type")?.substringBefore(';')?.trim()
+                            ?.takeIf { it.isNotBlank() }
+                    }
+                }
+            }.getOrNull()
+            if (!probed.isNullOrBlank()) activeMime = probed
+        }
     }
 
-    // Re-send to TV whenever activeMime changes (fires once on entry with the
-    // guessed type, then again after the HEAD probe resolves with the real type).
-    // This ensures an already-connected session always gets the correct MIME.
-    LaunchedEffect(effectiveCastUrl, activeMime) {
-        if (effectiveCastUrl.isBlank()) return@LaunchedEffect
+    // Re-send media to TV whenever castUrl or activeMime changes.
+    // Covers: proxy URL becoming available, MIME type resolved, existing session on entry.
+    LaunchedEffect(castUrl, activeMime) {
+        if (castUrl.isBlank()) return@LaunchedEffect
         val castCtx = runCatching {
             CastContext.getSharedInstance(context.applicationContext)
         }.getOrNull() ?: return@LaunchedEffect
         val session = castCtx.sessionManager.currentCastSession ?: return@LaunchedEffect
         isCasting.value = true
-        loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, activeMime)
+        loadRemoteMedia(session, castUrl, title, artworkUrl, activeMime)
     }
 
-    DisposableEffect(effectiveCastUrl, title, artworkUrl, context) {
+    DisposableEffect(streamUrl, title, artworkUrl, context) {
         val castContext = runCatching {
             CastContext.getSharedInstance(context.applicationContext)
         }.getOrNull()
-        if (castContext == null) {
-            return@DisposableEffect onDispose { }
-        }
-
-        // NOTE: do NOT immediately load for an existing session here.
-        // LaunchedEffect(activeMime) above handles that and will reload
-        // automatically once the HEAD probe has the correct MIME type.
+        if (castContext == null) return@DisposableEffect onDispose { }
 
         val listener = object : com.google.android.gms.cast.framework.SessionManagerListener<
             com.google.android.gms.cast.framework.CastSession,
             > {
             override fun onSessionStarted(session: com.google.android.gms.cast.framework.CastSession, sessionId: String) {
                 isCasting.value = true
-                loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, activeMime)
+                loadRemoteMedia(session, castUrl, title, artworkUrl, activeMime)
             }
             override fun onSessionResumed(session: com.google.android.gms.cast.framework.CastSession, wasSuspended: Boolean) {
                 isCasting.value = true
-                loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, activeMime)
+                loadRemoteMedia(session, castUrl, title, artworkUrl, activeMime)
             }
             override fun onSessionEnded(session: com.google.android.gms.cast.framework.CastSession, error: Int) {
                 isCasting.value = false
@@ -359,6 +366,7 @@ fun rememberCastController(
             castContext.sessionManager.removeSessionManagerListener(
                 listener, com.google.android.gms.cast.framework.CastSession::class.java,
             )
+            CastProxyServer.stop()
         }
     }
     return isCasting
