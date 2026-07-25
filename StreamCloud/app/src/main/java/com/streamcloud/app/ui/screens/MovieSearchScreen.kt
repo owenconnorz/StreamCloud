@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -93,6 +94,9 @@ fun MovieSearchScreen(
                             }
                         },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(
+                            onSearch = { vm.saveToHistory(query) },
+                        ),
                         shape = RoundedCornerShape(28.dp),
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -262,9 +266,6 @@ private fun CombinedResultsList(
         return
     }
 
-    val tvRows = remember(state.tvSearchResults) { state.tvSearchResults.chunked(2) }
-    val movieRows = remember(state.searchResults) { state.searchResults.chunked(2) }
-
     LazyColumn(
         contentPadding = PaddingValues(
             top = padding.calculateTopPadding() + 8.dp,
@@ -283,9 +284,15 @@ private fun CombinedResultsList(
                     topPadding = 0.dp,
                 )
             }
-            tvRows.forEachIndexed { rowIdx, pair ->
-                item(key = "tv-row-$rowIdx") {
-                    LandscapeCardRow(pair) { movie -> onTvClick(movie.id) }
+            state.tvSearchResults.forEachIndexed { idx, movie ->
+                item(key = "tv-$idx") {
+                    LandscapeCardItem(
+                        imageUrl = movie.backdropUrl ?: movie.posterUrl,
+                        title = movie.displayTitle,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { onTvClick(movie.id) },
+                    )
+                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
@@ -299,9 +306,15 @@ private fun CombinedResultsList(
                     topPadding = if (state.tvSearchResults.isNotEmpty() || state.seriesLoading) 20.dp else 0.dp,
                 )
             }
-            movieRows.forEachIndexed { rowIdx, pair ->
-                item(key = "movie-row-$rowIdx") {
-                    LandscapeCardRow(pair) { movie -> onMovieClick(movie.id) }
+            state.searchResults.forEachIndexed { idx, movie ->
+                item(key = "movie-$idx") {
+                    LandscapeCardItem(
+                        imageUrl = movie.backdropUrl ?: movie.posterUrl,
+                        title = movie.displayTitle,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { onMovieClick(movie.id) },
+                    )
+                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
@@ -327,23 +340,14 @@ private fun CombinedResultsList(
                         modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
                     )
                 }
-                val csRows = results.chunked(2)
-                csRows.forEachIndexed { rowIdx, pair ->
-                    item(key = "cs-row-$pluginName-$rowIdx") {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            pair.forEach { r ->
-                                LandscapeCardItem(
-                                    imageUrl = r.item.posterUrl,
-                                    title = r.item.name,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl) },
-                                )
-                            }
-                            if (pair.size == 1) Spacer(Modifier.weight(1f))
-                        }
+                results.forEachIndexed { idx, r ->
+                    item(key = "cs-$pluginName-$idx") {
+                        LandscapeCardItem(
+                            imageUrl = r.item.posterUrl,
+                            title = r.item.name,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl) },
+                        )
                         Spacer(Modifier.height(8.dp))
                     }
                 }
@@ -371,23 +375,14 @@ private fun CombinedResultsList(
                         modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
                     )
                 }
-                val sRows = results.chunked(2)
-                sRows.forEachIndexed { rowIdx, pair ->
-                    item(key = "stremio-row-$addonName-$rowIdx") {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            pair.forEach { r ->
-                                LandscapeCardItem(
-                                    imageUrl = r.item.poster,
-                                    title = r.item.name,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster) },
-                                )
-                            }
-                            if (pair.size == 1) Spacer(Modifier.weight(1f))
-                        }
+                results.forEachIndexed { idx, r ->
+                    item(key = "stremio-$addonName-$idx") {
+                        LandscapeCardItem(
+                            imageUrl = r.item.poster,
+                            title = r.item.name,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster) },
+                        )
                         Spacer(Modifier.height(8.dp))
                     }
                 }
@@ -399,28 +394,6 @@ private fun CombinedResultsList(
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared card components
 // ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun LandscapeCardRow(
-    pair: List<com.streamcloud.app.data.api.TmdbMovie>,
-    onClick: (com.streamcloud.app.data.api.TmdbMovie) -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        pair.forEach { m ->
-            LandscapeCardItem(
-                imageUrl = m.backdropUrl ?: m.posterUrl,
-                title = m.displayTitle,
-                modifier = Modifier.weight(1f),
-                onClick = { onClick(m) },
-            )
-        }
-        if (pair.size == 1) Spacer(Modifier.weight(1f))
-    }
-    Spacer(Modifier.height(8.dp))
-}
 
 @Composable
 private fun LandscapeCardItem(
