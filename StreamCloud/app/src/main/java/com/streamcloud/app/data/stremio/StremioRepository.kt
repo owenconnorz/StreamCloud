@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.streamcloud.app.data.library.CollectionFolderEntity
+import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.UserCollectionEntity
 import com.streamcloud.app.data.network.Net
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -58,6 +61,7 @@ class StremioRepository(private val context: Context) {
         )
         val list = addons.first().filterNot { it.manifestUrl == url } + addon
         saveAddons(list)
+        runCatching { syncAddonCollections(addon, mf, LibraryDb.get(context)) }
         addon
     }
 
@@ -67,7 +71,20 @@ class StremioRepository(private val context: Context) {
     }
 
     suspend fun removeAddon(manifestUrl: String) {
+        val target = addons.first().firstOrNull { it.manifestUrl == manifestUrl }
         saveAddons(addons.first().filterNot { it.manifestUrl == manifestUrl })
+        if (target != null) {
+            runCatching {
+                val db = LibraryDb.get(context)
+                val collectionDao = db.userCollections()
+                val folderDao = db.collectionFolders()
+                val cols = collectionDao.bySourceAddon(target.id)
+                cols.forEach { col ->
+                    folderDao.deleteForCollection(col.id)
+                    collectionDao.delete(col.id)
+                }
+            }
+        }
     }
 
     suspend fun fetchManifest(manifestUrl: String): StremioManifest = withContext(Dispatchers.IO) {
@@ -75,14 +92,87 @@ class StremioRepository(private val context: Context) {
         Net.json.decodeFromString(StremioManifest.serializer(), body)
     }
 
+    suspend fun syncAddonCollections(
+        addon: InstalledStremioAddon,
+        manifest: StremioManifest,
+        db: LibraryDb,
+    ) = withContext(Dispatchers.IO) {
+        val collectionDao = db.userCollections()
+        val folderDao = db.collectionFolders()
+
+        val isRequired: (StremioCatalogDef) -> Boolean = { c ->
+            c.extra?.any { it.isRequired } ?: false
+        }
+
+        val groups: Map<String, List<StremioCatalogDef>> = when {
+            !manifest.catalogGroups.isNullOrEmpty() -> {
+                manifest.catalogGroups.associate { g ->
+                    g.name to g.catalogs.filter { !isRequired(it) }
+                }.filter { it.value.isNotEmpty() }
+            }
+            manifest.catalogs.any { it.group != null } -> {
+                manifest.catalogs
+                    .filter { it.group != null && !isRequired(it) }
+                    .groupBy { it.group!! }
+            }
+            manifest.catalogs.any { it.name?.contains(" - ") == true } -> {
+                manifest.catalogs
+                    .filter { it.name?.contains(" - ") == true && !isRequired(it) }
+                    .groupBy { it.name!!.substringBefore(" - ").trim() }
+            }
+            else -> emptyMap()
+        }
+
+        if (groups.isEmpty()) return@withContext
+
+        val oldCols = collectionDao.bySourceAddon(addon.id)
+        oldCols.forEach { col ->
+            folderDao.deleteForCollection(col.id)
+            collectionDao.delete(col.id)
+        }
+
+        groups.entries.forEachIndexed { groupIdx, (groupName, catalogs) ->
+            val collectionId = collectionDao.upsert(
+                UserCollectionEntity(
+                    name = groupName,
+                    isPinned = true,
+                    sortOrder = groupIdx,
+                    sourceAddonId = addon.id,
+                )
+            )
+            catalogs.forEachIndexed { catIdx, cat ->
+                val displayName = when {
+                    cat.name?.contains(" - ") == true -> cat.name.substringAfter(" - ").trim()
+                    cat.name?.isNotBlank() == true -> cat.name
+                    else -> cat.id
+                }
+                val coverUrl = cat.poster ?: cat.logo ?: ""
+                folderDao.upsert(
+                    CollectionFolderEntity(
+                        collectionId = collectionId,
+                        name = displayName,
+                        coverUrl = coverUrl,
+                        tileShape = "wide",
+                        providerType = "stremio",
+                        linkedCategoryId = "${addon.id}|||${cat.type}|||${cat.id}|||$displayName",
+                        sortOrder = catIdx,
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun refreshAddonCollections(manifestUrl: String) = withContext(Dispatchers.IO) {
+        val addon = addons.first().firstOrNull { it.manifestUrl == manifestUrl } ?: return@withContext
+        val mf = runCatching { fetchManifest(manifestUrl) }.getOrNull() ?: return@withContext
+        runCatching { syncAddonCollections(addon, mf, LibraryDb.get(context)) }
+    }
 
     suspend fun fetchHomeCatalog(addon: InstalledStremioAddon): List<StremioMetaPreview> =
         withContext(Dispatchers.IO) {
             val mf = fetchManifest(addon.manifestUrl)
-            // Select the first catalog that does NOT require a "search" query parameter,
-            // so we can browse it without providing a search term.
             val first = mf.catalogs.firstOrNull { c ->
-                c.extra?.none { it.isRequired && it.name.lowercase() == "search" } ?: true
+                c.extra?.none { it.isRequired && it.name.lowercase() == "search" } != false
             } ?: return@withContext emptyList()
             fetchCatalog(addon, first.type, first.id)
         }
