@@ -36,6 +36,16 @@ import kotlinx.coroutines.launch
 
 const val SOURCE_BUILTIN = "builtin"
 
+data class HeroBannerItem(
+    val imageUrl: String,
+    val title: String,
+    val year: String = "",
+    val rating: String = "",
+    val tmdbId: Long? = null,
+    val mediaType: String = "movie",
+    val stremioMeta: StremioMetaPreview? = null,
+)
+
 data class CsPluginRow(
     val pluginInternalName: String,
     val pluginDisplayName: String,
@@ -75,7 +85,7 @@ data class MoviesState(
     val topRated: List<TmdbMovie> = emptyList(),
     val nowPlaying: List<TmdbMovie> = emptyList(),
     val collections: List<CollectionRow> = emptyList(),
-    val heroBanner: List<TmdbMovie> = emptyList(),
+    val heroBanner: List<HeroBannerItem> = emptyList(),
     val continueWatching: List<WatchProgressEntity> = emptyList(),
     val searchResults: List<TmdbMovie> = emptyList(),
     val tvSearchResults: List<TmdbMovie> = emptyList(),
@@ -107,6 +117,10 @@ class MoviesViewModel(
     val state: StateFlow<MoviesState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+
+    // Separate hero-banner caches so TMDB and Stremio items can update independently
+    @Volatile private var tmdbHeroItems: List<HeroBannerItem> = emptyList()
+    @Volatile private var stremioHeroItems: List<HeroBannerItem> = emptyList()
 
     /** In-memory cache: query → (movies, tvShows). Cleared when VM is cleared. */
     private val tmdbCache = HashMap<String, Pair<List<TmdbMovie>, List<TmdbMovie>>>()
@@ -219,19 +233,30 @@ class MoviesViewModel(
 
     private fun applyCollectionRows(rows: List<CollectionRow>, loading: Boolean) {
         val byId = rows.associateBy { it.id }
+        tmdbHeroItems = rows
+            .flatMap { row -> row.items.take(2) }
+            .distinctBy { it.id }
+            .filter { !it.backdropUrl.isNullOrBlank() || !it.posterUrl.isNullOrBlank() }
+            .take(8)
+            .map { m ->
+                HeroBannerItem(
+                    imageUrl  = m.backdropUrl ?: m.posterUrl ?: "",
+                    title     = m.displayTitle,
+                    year      = (m.releaseDate ?: m.firstAirDate)?.substringBefore('-') ?: "",
+                    rating    = if (m.voteAverage > 0) String.format("%.1f ★", m.voteAverage) else "",
+                    tmdbId    = m.id,
+                    mediaType = if (m.name != null && m.title == null) "tv" else "movie",
+                )
+            }
         _state.update {
             it.copy(
-                trending   = byId["trending"]?.items   ?: emptyList(),
-                popular    = byId["popular"]?.items    ?: emptyList(),
-                topRated   = byId["top_rated"]?.items  ?: emptyList(),
-                nowPlaying = byId["now_playing"]?.items ?: emptyList(),
+                trending    = byId["trending"]?.items    ?: emptyList(),
+                popular     = byId["popular"]?.items     ?: emptyList(),
+                topRated    = byId["top_rated"]?.items   ?: emptyList(),
+                nowPlaying  = byId["now_playing"]?.items ?: emptyList(),
                 collections = rows,
-                heroBanner  = rows
-                    .flatMap { row -> row.items.take(2) }
-                    .distinctBy { it.id }
-                    .filter { !it.backdropUrl.isNullOrBlank() || !it.posterUrl.isNullOrBlank() }
-                    .take(12),
-                loading = loading,
+                heroBanner  = (tmdbHeroItems + stremioHeroItems).take(12),
+                loading     = loading,
             )
         }
     }
@@ -259,7 +284,22 @@ class MoviesViewModel(
             val disabled = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet() ?: emptySet()
             val filtered = if (disabled.isEmpty()) allFetchedStremioRows
                            else allFetchedStremioRows.filter { it.rowKey !in disabled }
-            _state.update { it.copy(stremioRows = filtered) }
+            stremioHeroItems = filtered
+                .flatMap { row -> row.items.take(2) }
+                .distinctBy { it.id }
+                .filter { !it.background.isNullOrBlank() || !it.poster.isNullOrBlank() }
+                .take(6)
+                .map { meta ->
+                    HeroBannerItem(
+                        imageUrl    = meta.background ?: meta.poster ?: "",
+                        title       = meta.name,
+                        year        = meta.releaseInfo ?: "",
+                        rating      = meta.imdbRating?.let { "$it ★" } ?: "",
+                        stremioMeta = meta,
+                        mediaType   = if (meta.type == "series") "tv" else "movie",
+                    )
+                }
+            _state.update { it.copy(stremioRows = filtered, heroBanner = (tmdbHeroItems + stremioHeroItems).take(12)) }
         }
     }
 
