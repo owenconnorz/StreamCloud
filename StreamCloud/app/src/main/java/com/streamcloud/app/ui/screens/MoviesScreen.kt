@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -32,7 +31,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
-import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -50,7 +48,6 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
-import kotlinx.coroutines.launch
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.ui.viewmodel.PinnedCollectionRow
@@ -86,7 +83,6 @@ fun MoviesScreen(
     val state by vm.state.collectAsState()
     val settingsRepo = remember { SettingsRepository(context) }
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
-    val moviesThemeName by settingsRepo.moviesTheme.collectAsState(initial = "violet")
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
@@ -106,9 +102,7 @@ fun MoviesScreen(
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
 
-    MoviesThemeWrapper(moviesThemeName) {
     val bgTintColor by AlbumArtThemeBus.bgTint.collectAsState()
     Box(Modifier.fillMaxSize().background(bgTintColor)) {
         LazyColumn(
@@ -151,39 +145,14 @@ fun MoviesScreen(
                         )
                     }
                 }
-                val cwInProgress = state.continueWatching.filter { e ->
-                    val pct = if (e.durationMs > 0L) e.positionMs.toFloat() / e.durationMs else 0f
-                    pct >= 0.02f && pct < 0.93f
-                }
-                val cwUpNext = state.continueWatching.filter { e ->
-                    val pct = if (e.durationMs > 0L) e.positionMs.toFloat() / e.durationMs else 0f
-                    pct < 0.02f
-                }
-                if (cwInProgress.isNotEmpty()) {
+                if (state.continueWatching.isNotEmpty()) {
                     item(key = "continue_watching_t") { SectionTitle("Continue Watching") }
                     item(key = "continue_watching") {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(cwInProgress, key = { "cw_${it.tmdbId}" }) { entry ->
-                                ContinueWatchingCard(
-                                    entry = entry,
-                                    onClick = { openCwEntry(entry) },
-                                    onLongPress = { cwSheetEntry = entry },
-                                )
-                            }
-                        }
-                    }
-                }
-                if (cwUpNext.isNotEmpty()) {
-                    item(key = "up_next_t") { SectionTitle("Up Next") }
-                    item(key = "up_next") {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(cwUpNext, key = { "un_${it.tmdbId}" }) { entry ->
+                            items(state.continueWatching, key = { "cw_${it.tmdbId}" }) { entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
                                     onClick = { openCwEntry(entry) },
@@ -285,8 +254,6 @@ fun MoviesScreen(
                                     onLongPress = {
                                         posterSheet = PosterSheetItem(m.id, m.displayTitle, m.posterUrl, "movie")
                                     },
-                                    isSaved = state.watchlist.any { it.tmdbId == m.id },
-                                    onSaveClick = { vm.toggleWatchlist(m.id, m.displayTitle, m.posterUrl, "movie") },
                                 )
                             }
                         }
@@ -497,7 +464,6 @@ fun MoviesScreen(
             hasPlugins = state.installedPlugins.isNotEmpty(),
         )
     }
-    } // MoviesThemeWrapper
 }
 
 @Composable
@@ -541,7 +507,6 @@ private fun MoviesHeader(
             }
         }
 
-        com.streamcloud.app.ui.components.ProfileButton(onClick = onProfileClick)
     }
 }
 
@@ -890,14 +855,7 @@ private fun ContinueWatchingCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MidPoster(
-    m: TmdbMovie,
-    posterStyle: String = "portrait",
-    onClick: () -> Unit,
-    onLongPress: () -> Unit = {},
-    isSaved: Boolean = false,
-    onSaveClick: (() -> Unit)? = null,
-) {
+private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: () -> Unit, onLongPress: () -> Unit = {}) {
     val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
@@ -908,33 +866,15 @@ private fun MidPoster(
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
-        Box {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = m.displayTitle,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxWidth().aspectRatio(ratio)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surface),
-            )
-            if (onSaveClick != null) {
-                IconButton(
-                    onClick = onSaveClick,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(36.dp)
-                        .padding(4.dp),
-                ) {
-                    Icon(
-                        imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                        contentDescription = if (isSaved) "Remove from library" else "Save to library",
-                        tint = if (isSaved) Color(0xFF7C5CFF) else Color.White,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        }
+        AsyncImage(
+            model = imageUrl,
+            contentDescription = m.displayTitle,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth().aspectRatio(ratio)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surface),
+        )
         Spacer(Modifier.height(6.dp))
         Text(
             m.displayTitle,
