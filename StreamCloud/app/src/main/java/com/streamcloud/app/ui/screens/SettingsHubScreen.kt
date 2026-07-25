@@ -2367,7 +2367,7 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
 
     LaunchedEffect(Unit) {
         val csv     = sl.settings.navTabOrderCsv.first()
-        val hidden  = sl.settings.navHiddenTabsCsv.first()
+        val hidden  = (sl.settings.navHiddenTabsCsv.first() ?: "")
             .split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
         val nsfw    = sl.settings.nsfwEnabled.first()
         val adultIds = setOf("adult", "pornpop")
