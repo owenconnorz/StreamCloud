@@ -244,6 +244,9 @@ interface UserCollectionDao {
     @Query("SELECT * FROM user_collections WHERE source_addon_id = :addonId")
     suspend fun bySourceAddon(addonId: String): List<UserCollectionEntity>
 
+    @Query("SELECT DISTINCT source_addon_id FROM user_collections WHERE source_addon_id != ''")
+    suspend fun allSourceAddonIds(): List<String>
+
     @Query("DELETE FROM user_collections WHERE source_addon_id = :addonId")
     suspend fun deleteBySourceAddon(addonId: String)
 }
