@@ -260,6 +260,10 @@ object SonosRepository {
             } ?: withContext(Dispatchers.IO) {
                 runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
             }
+            // start() calls stop() internally which clears currentTrack — must call
+            // start() FIRST, then setTrack(), so Sonos's HEAD probe after setUri finds
+            // the track rather than getting a 503 No Track Set response.
+            val proxyUrl = SonosProxyServer.start(localIp)
             SonosProxyServer.setTrack(
                 SonosProxyServer.TrackInfo(
                     videoId     = videoId,
@@ -268,7 +272,6 @@ object SonosRepository {
                     resolvedUrl = resolvedUrl,
                 ),
             )
-            val proxyUrl = SonosProxyServer.start(localIp)
             SonosController.setUriBoolean(device, proxyUrl, title)
             SonosController.play(device)
             _castState.update { CastState.Casting(device, title) }
