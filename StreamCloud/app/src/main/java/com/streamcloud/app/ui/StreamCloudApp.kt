@@ -86,7 +86,11 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.media3.common.util.UnstableApi
 import com.streamcloud.app.data.util.GoogleAccountHelper
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
@@ -192,6 +196,22 @@ fun StreamCloudApp() {
         label = "navPillBg",
     )
 
+    // Scroll-driven nav expand/collapse — expands when scrolling up, collapses on scroll down
+    var navExpanded by remember { mutableStateOf(true) }
+    val navScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                when {
+                    available.y < -8f -> navExpanded = false
+                    available.y >  8f -> navExpanded = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
+    // Always expand when navigating to a new top-level tab
+    LaunchedEffect(currentRoute) { navExpanded = true }
+
     // Show miniplayer on all non-media routes (including music home)
     val showMiniPlayer = currentRoute != null && !isMediaRoute
 
@@ -238,7 +258,7 @@ fun StreamCloudApp() {
                     }
                 }
             }
-            Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().nestedScroll(navScrollConnection)) {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxSize()) {
                         val startRoute = resolvedStartRoute
@@ -904,12 +924,13 @@ fun StreamCloudApp() {
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
+                                    val effectiveShowLabel = navExpanded && showNavLabels
                                     tabs.forEach { tab ->
                                         val selected = currentRoute == tab.route
                                         if (tab.route == Tab.Settings.route) {
                                             ProfileNavItem(
                                                 selected = selected,
-                                                showLabel = showNavLabels,
+                                                showLabel = effectiveShowLabel,
                                                 onClick = { navigateToTab(nav, tab.route) },
                                             )
                                         } else {
@@ -917,7 +938,7 @@ fun StreamCloudApp() {
                                                 icon = tab.icon,
                                                 label = tab.label,
                                                 selected = selected,
-                                                showLabel = showNavLabels,
+                                                showLabel = effectiveShowLabel,
                                                 onClick = { navigateToTab(nav, tab.route) },
                                             )
                                         }
