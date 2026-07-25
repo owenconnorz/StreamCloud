@@ -190,6 +190,27 @@ class StremioRepository(private val context: Context) {
                     )
                 )
             }
+
+            // Backfill any folder that has no cover image by fetching the first
+            // item poster from that catalog in parallel.
+            coroutineScope {
+                folderDao.forCollectionOnce(collectionId)
+                    .filter { it.coverUrl.isBlank() }
+                    .map { folder ->
+                        async {
+                            try {
+                                val parts = folder.linkedCategoryId.split("|||")
+                                val cType = parts.getOrNull(1) ?: return@async
+                                val cId   = parts.getOrNull(2) ?: return@async
+                                val firstPoster = fetchCatalog(addon, cType, cId)
+                                    .firstOrNull { !it.poster.isNullOrBlank() }?.poster
+                                if (!firstPoster.isNullOrBlank()) {
+                                    folderDao.upsert(folder.copy(coverUrl = firstPoster))
+                                }
+                            } catch (_: Throwable) { /* best-effort; skip on error */ }
+                        }
+                    }.awaitAll()
+            }
         }
     }
 
