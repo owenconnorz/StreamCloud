@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Search
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.material.icons.filled.Bookmarks
@@ -240,6 +241,21 @@ fun StreamCloudApp() {
                     modifier = Modifier.fillMaxHeight(),
                 ) {
                     Spacer(Modifier.height(16.dp))
+                    if (LocalUiFormFactor.current == UiFormFactor.Tv) {
+                        NavigationRailItem(
+                            selected = currentRoute == "movie-search",
+                            onClick = { nav.navigate("movie-search") },
+                            icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                            label = { Text("Search", style = MaterialTheme.typography.labelLarge) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                            ),
+                        )
+                    }
                     tabs.forEach { tab ->
                         val selected = currentRoute == tab.route
                         NavigationRailItem(
