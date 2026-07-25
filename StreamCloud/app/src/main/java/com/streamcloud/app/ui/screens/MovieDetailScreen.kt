@@ -451,11 +451,13 @@ fun MovieDetailScreen(
                 // ── Director / Writer / Creator ────────────────────────────────
                 credits?.let { cr ->
                     if (mediaType == "tv") {
-                        val creators = movie?.createdBy?.takeIf { it.isNotEmpty() }
-                            ?: cr.crew.filter { it.job?.lowercase() in listOf("creator", "executive producer") }
-                                .distinctBy { it.name }.take(3)
-                        if (creators.isNotEmpty()) {
-                            CreditsRow("Creator", creators.joinToString(", ") { it.name })
+                        val creatorNames: List<String> =
+                            movie?.createdBy?.map { it.name }?.takeIf { it.isNotEmpty() }
+                                ?: cr.crew
+                                    .filter { it.job?.lowercase() in listOf("creator", "executive producer") }
+                                    .distinctBy { it.name }.take(3).map { it.name }
+                        if (creatorNames.isNotEmpty()) {
+                            CreditsRow("Creator", creatorNames.joinToString(", "))
                         }
                     } else {
                         val directors = cr.crew.filter { it.job == "Director" }.distinctBy { it.name }.take(3)
