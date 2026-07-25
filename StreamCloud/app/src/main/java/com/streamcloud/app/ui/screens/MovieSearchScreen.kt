@@ -4,12 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -49,14 +50,14 @@ fun MovieSearchScreen(
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) {
-        runCatching { focusRequester.requestFocus() }
-    }
+    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
     LaunchedEffect(query) {
         if (query.length >= 2) {
-            kotlinx.coroutines.delay(300)
+            // Clear previous results immediately so screen feels instant
             vm.search(query)
+        } else {
+            vm.search("")
         }
     }
 
@@ -70,7 +71,7 @@ fun MovieSearchScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester),
-                        placeholder = { Text("Search all sources…") },
+                        placeholder = { Text("Search movies, series, addons…") },
                         singleLine = true,
                         leadingIcon = {
                             Icon(
@@ -80,12 +81,8 @@ fun MovieSearchScreen(
                             )
                         },
                         trailingIcon = {
-                            when {
-                                state.loading -> CircularProgressIndicator(
-                                    Modifier.size(20.dp), strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                query.isNotEmpty() -> IconButton(onClick = { query = "" }) {
+                            if (query.isNotEmpty()) {
+                                IconButton(onClick = { query = "" }) {
                                     Icon(Icons.Default.Close, "Clear")
                                 }
                             }
@@ -115,47 +112,123 @@ fun MovieSearchScreen(
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        when {
-            query.length < 2 -> {
-                Box(
-                    Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "Type to search across Movies, Series, CloudStream & Stremio addons",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 32.dp),
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-            else -> {
-                CombinedResultsList(
-                    movieResults = state.searchResults,
-                    tvResults = state.tvSearchResults,
-                    csResults = state.csSearchResults,
-                    stremioResults = state.stremioSearchResults,
-                    loading = state.loading,
-                    query = query,
-                    padding = padding,
-                    onMovieClick = onMovieClick,
-                    onTvClick = onTvClick,
-                    onOpenCsItem = onOpenCsItem,
-                    onOpenStremio = onOpenStremio,
-                )
-            }
+        if (query.length < 2) {
+            RecentSearches(
+                history = state.searchHistory,
+                padding = padding,
+                onSelect = { query = it },
+                onRemove = { vm.removeFromSearchHistory(it) },
+                onClearAll = { vm.clearSearchHistory() },
+            )
+        } else {
+            CombinedResultsList(
+                state = state,
+                query = query,
+                padding = padding,
+                onMovieClick = onMovieClick,
+                onTvClick = onTvClick,
+                onOpenCsItem = onOpenCsItem,
+                onOpenStremio = onOpenStremio,
+            )
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Recent searches
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun RecentSearches(
+    history: List<String>,
+    padding: PaddingValues,
+    onSelect: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onClearAll: () -> Unit,
+) {
+    if (history.isEmpty()) {
+        Box(
+            Modifier.fillMaxSize().padding(padding),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "Type to search across Movies, Series,\nCloudStream & Stremio addons",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 32.dp),
+                textAlign = TextAlign.Center,
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        contentPadding = PaddingValues(
+            top = padding.calculateTopPadding() + 8.dp,
+            bottom = 32.dp,
+        ),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        item(key = "history-header") {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Recent",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                TextButton(onClick = onClearAll) {
+                    Text("Clear all", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+        items(history.size, key = { "history-$it" }) { idx ->
+            val item = history[idx]
+            ListItem(
+                headlineContent = {
+                    Text(
+                        item,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                leadingContent = {
+                    Icon(
+                        Icons.Default.History,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                trailingContent = {
+                    IconButton(onClick = { onRemove(item) }) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Remove",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                },
+                modifier = Modifier.clickable { onSelect(item) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Results list
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun CombinedResultsList(
-    movieResults: List<com.streamcloud.app.data.api.TmdbMovie>,
-    tvResults: List<com.streamcloud.app.data.api.TmdbMovie>,
-    csResults: List<CsSearchResult>,
-    stremioResults: List<StremioSearchResult>,
-    loading: Boolean,
+    state: com.streamcloud.app.ui.viewmodel.MoviesState,
     query: String,
     padding: PaddingValues,
     onMovieClick: (Long) -> Unit,
@@ -163,12 +236,13 @@ private fun CombinedResultsList(
     onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit,
     onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit,
 ) {
-    val csGrouped = remember(csResults) { csResults.groupBy { it.pluginName } }
-    val stremioGrouped = remember(stremioResults) { stremioResults.groupBy { it.addonName } }
-    val hasAny = movieResults.isNotEmpty() || tvResults.isNotEmpty() ||
-        csResults.isNotEmpty() || stremioResults.isNotEmpty()
+    val csGrouped = remember(state.csSearchResults) { state.csSearchResults.groupBy { it.pluginName } }
+    val stremioGrouped = remember(state.stremioSearchResults) { state.stremioSearchResults.groupBy { it.addonName } }
+    val anyLoading = state.moviesLoading || state.seriesLoading || state.csLoading || state.stremioLoading
+    val hasAny = state.searchResults.isNotEmpty() || state.tvSearchResults.isNotEmpty() ||
+        state.csSearchResults.isNotEmpty() || state.stremioSearchResults.isNotEmpty()
 
-    if (!hasAny && !loading) {
+    if (!hasAny && !anyLoading) {
         Box(
             Modifier.fillMaxSize().padding(padding),
             contentAlignment = Alignment.Center,
@@ -182,8 +256,8 @@ private fun CombinedResultsList(
         return
     }
 
-    val movieRows = remember(movieResults) { movieResults.chunked(2) }
-    val tvRows = remember(tvResults) { tvResults.chunked(2) }
+    val tvRows = remember(state.tvSearchResults) { state.tvSearchResults.chunked(2) }
+    val movieRows = remember(state.searchResults) { state.searchResults.chunked(2) }
 
     LazyColumn(
         contentPadding = PaddingValues(
@@ -192,38 +266,49 @@ private fun CombinedResultsList(
             start = 12.dp,
             end = 12.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
         // ── Series (TMDB TV) ──────────────────────────────────────────────
-        if (tvResults.isNotEmpty()) {
+        if (state.tvSearchResults.isNotEmpty() || state.seriesLoading) {
             item(key = "series-header") {
-                NuvioSectionHeader(title = "Series", topPadding = 0.dp)
+                SectionHeader(
+                    title = "Series",
+                    loading = state.seriesLoading,
+                    topPadding = 0.dp,
+                )
             }
-            items(tvRows, key = { "tv-row-${it.first().id}" }) { pair ->
-                LandscapeCardRow(pair) { movie -> onTvClick(movie.id) }
+            tvRows.forEachIndexed { rowIdx, pair ->
+                item(key = "tv-row-$rowIdx") {
+                    LandscapeCardRow(pair) { movie -> onTvClick(movie.id) }
+                }
             }
         }
 
         // ── Movies (TMDB) ─────────────────────────────────────────────────
-        if (movieResults.isNotEmpty()) {
+        if (state.searchResults.isNotEmpty() || state.moviesLoading) {
             item(key = "movies-header") {
-                NuvioSectionHeader(
+                SectionHeader(
                     title = "Movies",
-                    topPadding = if (tvResults.isNotEmpty()) 20.dp else 0.dp,
+                    loading = state.moviesLoading,
+                    topPadding = if (state.tvSearchResults.isNotEmpty() || state.seriesLoading) 20.dp else 0.dp,
                 )
             }
-            items(movieRows, key = { "movie-row-${it.first().id}" }) { pair ->
-                LandscapeCardRow(pair) { movie -> onMovieClick(movie.id) }
+            movieRows.forEachIndexed { rowIdx, pair ->
+                item(key = "movie-row-$rowIdx") {
+                    LandscapeCardRow(pair) { movie -> onMovieClick(movie.id) }
+                }
             }
         }
 
         // ── CloudStream ───────────────────────────────────────────────────
-        if (csGrouped.isNotEmpty()) {
+        if (csGrouped.isNotEmpty() || state.csLoading) {
+            val hasPrevSection = state.searchResults.isNotEmpty() || state.tvSearchResults.isNotEmpty() ||
+                state.moviesLoading || state.seriesLoading
             item(key = "cs-header") {
-                NuvioSectionHeader(
+                SectionHeader(
                     title = "CloudStream",
-                    topPadding = if (movieResults.isNotEmpty() || tvResults.isNotEmpty()) 20.dp else 0.dp,
+                    loading = state.csLoading,
+                    topPadding = if (hasPrevSection) 20.dp else 0.dp,
                 )
             }
             csGrouped.forEach { (pluginName, results) ->
@@ -260,11 +345,14 @@ private fun CombinedResultsList(
         }
 
         // ── Stremio ───────────────────────────────────────────────────────
-        if (stremioGrouped.isNotEmpty()) {
+        if (stremioGrouped.isNotEmpty() || state.stremioLoading) {
+            val hasPrevSection = state.searchResults.isNotEmpty() || state.tvSearchResults.isNotEmpty() ||
+                csGrouped.isNotEmpty() || state.moviesLoading || state.seriesLoading || state.csLoading
             item(key = "stremio-header") {
-                NuvioSectionHeader(
+                SectionHeader(
                     title = "Stremio",
-                    topPadding = if (movieResults.isNotEmpty() || tvResults.isNotEmpty() || csGrouped.isNotEmpty()) 20.dp else 0.dp,
+                    loading = state.stremioLoading,
+                    topPadding = if (hasPrevSection) 20.dp else 0.dp,
                 )
             }
             stremioGrouped.forEach { (addonName, results) ->
@@ -302,7 +390,10 @@ private fun CombinedResultsList(
     }
 }
 
-/** 2-card landscape row for TMDB results (movie or TV). */
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared card components
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun LandscapeCardRow(
     pair: List<com.streamcloud.app.data.api.TmdbMovie>,
@@ -325,7 +416,6 @@ private fun LandscapeCardRow(
     Spacer(Modifier.height(8.dp))
 }
 
-/** Single landscape card — matches Nuvio's wide 2-column tile style. */
 @Composable
 private fun LandscapeCardItem(
     imageUrl: String?,
@@ -351,7 +441,6 @@ private fun LandscapeCardItem(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            // Gradient scrim + title overlaid at the bottom (Nuvio style)
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -379,11 +468,25 @@ private fun LandscapeCardItem(
 }
 
 @Composable
-private fun NuvioSectionHeader(title: String, topPadding: androidx.compose.ui.unit.Dp = 0.dp) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-        color = MaterialTheme.colorScheme.onBackground,
-        modifier = Modifier.padding(top = topPadding, bottom = 12.dp),
-    )
+private fun SectionHeader(title: String, loading: Boolean, topPadding: Dp = 0.dp) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = topPadding, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
 }
