@@ -245,8 +245,7 @@ fun StreamCloudApp() {
         Row(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .then(if (isTv) Modifier.padding(TvOverscanPadding) else Modifier),
+                .padding(padding),
         ) {
             if (showRail) {
                 NavigationRail(
