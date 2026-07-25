@@ -564,7 +564,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                     )
                     SettingDivider()
                     SettingToggle(
-                        icon = Icons.Default.BlurOn, tint = ColourAppearance,
+                        icon = Icons.Default.Layers, tint = ColourAppearance,
                         title = "Liquid glass navigation bar",
                         subtitle = "Frosted-glass blur behind the navigation pill (like Nuvio)",
                         checked = navLiquidGlass,
