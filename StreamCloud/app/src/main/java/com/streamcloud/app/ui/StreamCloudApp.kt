@@ -19,16 +19,18 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.compose.material.icons.filled.Bookmarks
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Theaters
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -58,15 +60,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.streamcloud.app.data.ServiceLocator
-import com.streamcloud.app.player.EpornerPlayerScreen
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
-import com.streamcloud.app.ui.screens.PornPopScreen
-import com.streamcloud.app.ui.screens.adult.RedditLoginScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
-import com.streamcloud.app.ui.screens.LiveTvScreen
-import com.streamcloud.app.ui.screens.LocalFilesScreen
-import com.streamcloud.app.ui.screens.LocalImageViewerScreen
 import com.streamcloud.app.ui.screens.MovieDetailScreen
 import com.streamcloud.app.ui.screens.MovieSearchScreen
 import com.streamcloud.app.ui.screens.MoviesScreen
@@ -75,7 +71,6 @@ import com.streamcloud.app.ui.screens.MusicSearchScreen
 import com.streamcloud.app.ui.screens.PluginPickerScreen
 import com.streamcloud.app.ui.screens.PluginsScreen
 import com.streamcloud.app.ui.screens.SettingsHubScreen
-import com.streamcloud.app.ui.screens.VideoDownloadsScreen
 import com.streamcloud.app.ui.screens.ProfilePickerScreen
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -100,11 +95,8 @@ import java.net.URLEncoder
 private sealed class Tab(val route: String, val label: String, val icon: ImageVector) {
     data object Movies   : Tab("movies",   "Movies",   Icons.Filled.Theaters)
     data object Music    : Tab("music",    "Music",    Icons.Filled.MusicNote)
-    data object LocalFiles : Tab("local_files", "Local Files", Icons.Filled.Folder)
     data object Library  : Tab("library",  "Library",  Icons.Filled.Bookmarks)
     data object Adult    : Tab("adult",    "Adult",    Icons.Filled.Whatshot)
-    data object PornPop  : Tab("pornpop",  "PornPop",  Icons.Filled.AutoAwesome)
-    data object LiveTv   : Tab("live_tv",  "Live TV",  Icons.Filled.LiveTv)
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings)
 }
 
@@ -120,19 +112,13 @@ fun StreamCloudApp() {
         currentRoute.startsWith("cs-detail/") ||
         currentRoute.startsWith("cs-section/") ||
         currentRoute.startsWith("movie/") ||
-        currentRoute.startsWith("tv/") ||
-        currentRoute.startsWith("live-tv-player") ||
-        currentRoute.startsWith("player/url") ||
-        currentRoute.startsWith("player/movie") ||
-        currentRoute.startsWith("player/eporner") ||
-        currentRoute.startsWith("local-image")
+        currentRoute.startsWith("tv/")
     )
 
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
     val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
-    val navHiddenCsv by sl.settings.navHiddenTabsCsv.collectAsState(initial = "")
 
 
 
@@ -143,19 +129,15 @@ fun StreamCloudApp() {
         runCatching { com.streamcloud.app.ui.theme.AlbumArtThemeBus.attach(context) }
     }
 
-    val tabs = remember(nsfwEnabled, navOrderCsv, navHiddenCsv) {
-        val hidden = navHiddenCsv.split(",").map { it.trim() }.toSet()
+    val tabs = remember(nsfwEnabled, navOrderCsv) {
 
 
 
         val pool: Map<String, Tab> = buildMap {
-            if (Tab.Movies.route  !in hidden) put(Tab.Movies.route,  Tab.Movies)
-            if (Tab.Music.route   !in hidden) put(Tab.Music.route,   Tab.Music)
-            if (Tab.LocalFiles.route !in hidden) put(Tab.LocalFiles.route, Tab.LocalFiles)
-            if (Tab.Library.route !in hidden) put(Tab.Library.route, Tab.Library)
-            if (Tab.LiveTv.route  !in hidden) put(Tab.LiveTv.route,  Tab.LiveTv)
-            if (nsfwEnabled && Tab.Adult.route   !in hidden) put(Tab.Adult.route,   Tab.Adult)
-            if (nsfwEnabled && Tab.PornPop.route !in hidden) put(Tab.PornPop.route, Tab.PornPop)
+            put(Tab.Movies.route, Tab.Movies)
+            put(Tab.Music.route, Tab.Music)
+            put(Tab.Library.route, Tab.Library)
+            if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
         }
 
 
@@ -185,11 +167,8 @@ fun StreamCloudApp() {
         val validRoutes = buildSet<String> {
             add(Tab.Movies.route)
             add(Tab.Music.route)
-            add(Tab.LocalFiles.route)
             add(Tab.Library.route)
-            add(Tab.LiveTv.route)
             if (nsfw) add(Tab.Adult.route)
-            if (nsfw) add(Tab.PornPop.route)
         }
 
         resolvedStartRoute = if (!csv.isNullOrBlank()) {
@@ -212,11 +191,9 @@ fun StreamCloudApp() {
         label = "navPillBg",
     )
 
-    // Show miniplayer on all non-media routes except the Settings area.
-    val showMiniPlayer = shouldShowGlobalMiniPlayer(
-        currentRoute = currentRoute,
-        isMediaRoute = isMediaRoute,
-    )
+    // Show miniplayer on all non-media routes (including music home)
+    val showMiniPlayer = currentRoute != null && !isMediaRoute
+
     // Profile picker — show on launch when profiles exist; also triggered from Settings
     var showProfilePicker by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -235,9 +212,6 @@ fun StreamCloudApp() {
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
         val showRail = useRail &&
             (currentRoute == null || tabs.any { it.route == currentRoute })
-        val showRailMiniPlayer = showRail &&
-            currentRoute != Tab.Music.route &&
-            showMiniPlayer
         Row(Modifier.fillMaxSize().padding(padding)) {
             if (showRail) {
                 NavigationRail(
@@ -597,23 +571,6 @@ fun StreamCloudApp() {
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
                 }
-                composable(Tab.LocalFiles.route) {
-                    LocalFilesScreen(
-                        onPlayAudio = { item ->
-                            com.streamcloud.app.data.local.LocalAudioPlayback.play(context, item)
-                        },
-                        onPlayVideo = { item ->
-                            val u = URLEncoder.encode(item.uri.toString(), "UTF-8")
-                            val t = URLEncoder.encode(item.title, "UTF-8")
-                            nav.navigate("player/url/$u/$t")
-                        },
-                        onOpenImage = { item ->
-                            val u = URLEncoder.encode(item.uri.toString(), "UTF-8")
-                            val t = URLEncoder.encode(item.title, "UTF-8")
-                            nav.navigate("local-image/$u/$t")
-                        },
-                    )
-                }
                 composable("movie-search") {
                     MovieSearchScreen(
                         onBack = { nav.popBackStack() },
@@ -682,64 +639,11 @@ fun StreamCloudApp() {
                         androidx.lifecycle.viewmodel.compose.viewModel(
                             factory = com.streamcloud.app.ui.viewmodel.MusicViewModel.factory(artistContext)
                         )
-                    // Derive channelId from the URL (last path segment after /channel/)
-                    val artistChannelId = remember(url) {
-                        android.net.Uri.parse(url).lastPathSegment?.takeIf { it.isNotBlank() } ?: url
-                    }
-                    val isFollowed by artistVm.isArtistFollowed(artistChannelId)
-                        .collectAsState(initial = false)
                     com.streamcloud.app.ui.screens.MusicArtistScreen(
                         channelUrl = url,
                         initialAvatar = thumb,
-                        isFollowed = isFollowed,
-                        onFollow = { name, thumbnail, subscriberLabel ->
-                            artistVm.followArtist(
-                                channelId       = artistChannelId,
-                                name            = name,
-                                thumbnail       = thumbnail,
-                                subscriberLabel = subscriberLabel,
-                            )
-                        },
-                        onUnfollow = { artistVm.unfollowArtist(artistChannelId) },
                         onBack = { nav.popBackStack() },
                         onPlay = { track -> artistVm.play(track) },
-                        onAlbumClick = { id, title, thumb ->
-                            val i = URLEncoder.encode(id, "UTF-8")
-                            val t = URLEncoder.encode(title, "UTF-8")
-                            val th = URLEncoder.encode(thumb.orEmpty(), "UTF-8")
-                            nav.navigate("yt-playlist/$i/$t?thumb=$th")
-                        },
-                        onArtistClick = { artistUrl, artistThumb ->
-                            val u = URLEncoder.encode(artistUrl, "UTF-8")
-                            val t = URLEncoder.encode(artistThumb.orEmpty(), "UTF-8")
-                            nav.navigate("artist/$u?thumb=$t")
-                        },
-                        onShowMore = { sectionType ->
-                            val u = URLEncoder.encode(url, "UTF-8")
-                            val s = URLEncoder.encode(sectionType, "UTF-8")
-                            nav.navigate("artist-section/$u/$s")
-                        },
-                    )
-                }
-                composable(
-                    "artist-section/{url}/{section}",
-                    arguments = listOf(
-                        navArgument("url") { type = NavType.StringType },
-                        navArgument("section") { type = NavType.StringType },
-                    ),
-                ) { entry ->
-                    val sectionUrl = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
-                    val sectionType = URLDecoder.decode(entry.arguments!!.getString("section")!!, "UTF-8")
-                    val sectionContext = LocalContext.current
-                    val sectionVm: com.streamcloud.app.ui.viewmodel.MusicViewModel =
-                        androidx.lifecycle.viewmodel.compose.viewModel(
-                            factory = com.streamcloud.app.ui.viewmodel.MusicViewModel.factory(sectionContext)
-                        )
-                    com.streamcloud.app.ui.screens.MusicArtistSectionScreen(
-                        channelUrl = sectionUrl,
-                        sectionType = sectionType,
-                        onBack = { nav.popBackStack() },
-                        onPlay = { track -> sectionVm.play(track) },
                         onAlbumClick = { id, title, thumb ->
                             val i = URLEncoder.encode(id, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
@@ -807,50 +711,13 @@ fun StreamCloudApp() {
                         },
                     )
                 }
-                composable(Tab.LiveTv.route) {
-                    LiveTvScreen(
-                        onPlayChannel = { url, title, subtitle ->
-                            val u = URLEncoder.encode(url,   "UTF-8")
-                            val t = URLEncoder.encode(title, "UTF-8")
-                            val s = if (subtitle != null) URLEncoder.encode(subtitle, "UTF-8") else ""
-                            nav.navigate("live-tv-player/$u/$t/$s")
-                        }
-                    )
-                }
-
-                composable(
-                    "live-tv-player/{url}/{title}/{subtitle}",
-                    arguments = listOf(
-                        navArgument("url")      { type = NavType.StringType },
-                        navArgument("title")    { type = NavType.StringType },
-                        navArgument("subtitle") { type = NavType.StringType; defaultValue = "" },
-                    )
-                ) { entry ->
-                    val url      = URLDecoder.decode(entry.arguments!!.getString("url")!!,      "UTF-8")
-                    val title    = URLDecoder.decode(entry.arguments!!.getString("title")!!,    "UTF-8")
-                    val subtitle = URLDecoder.decode(entry.arguments!!.getString("subtitle")!!, "UTF-8").ifBlank { null }
-                    NativePlayerScreen(
-                        streamUrl = url,
-                        title     = title,
-                        subtitle  = subtitle,
-                        onBack    = { nav.popBackStack() },
-                    )
-                }
-
                 composable(Tab.Adult.route) {
-                    AdultScreen(
-                        onPlay = { videoId, embed, title ->
-                            val v = URLEncoder.encode(videoId, "UTF-8")
-                            val e = URLEncoder.encode(embed, "UTF-8")
-                            val t = URLEncoder.encode(title, "UTF-8")
-                            nav.navigate("player/eporner/$v/$e/$t")
-                        },
-                    )
-                }
-
-                // ── PornPop AI Studio tab ────────────────────────────────────
-                composable(Tab.PornPop.route) {
-                    PornPopScreen()
+                    AdultScreen(onPlay = { videoId, embed, title ->
+                        val v = URLEncoder.encode(videoId, "UTF-8")
+                        val e = URLEncoder.encode(embed, "UTF-8")
+                        val t = URLEncoder.encode(title, "UTF-8")
+                        nav.navigate("player/eporner/$v/$e/$t")
+                    })
                 }
 
 
@@ -866,34 +733,23 @@ fun StreamCloudApp() {
                     val id    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8")
                     val embed = URLDecoder.decode(entry.arguments!!.getString("embed")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    // For non-Eporner sources (Redtube, Reddit) the embed URL is passed directly.
-                    // For Eporner the id is the video hash; construct the canonical embed URL.
-                    val embedUrl = if (id.startsWith("direct") || embed.startsWith("http")) {
-                        embed.ifBlank { "https://www.eporner.com/embed/$id/" }
+                    val ctx = LocalContext.current
+                    val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(ctx))
+                    var resolved by remember { mutableStateOf<String?>(null) }
+                    LaunchedEffect(id) { resolved = vm.resolveStreamUrl(id, embed) }
+                    if (resolved != null) {
+                        NativePlayerScreen(
+                            streamUrl = resolved!!,
+                            title = title,
+                            headers = mapOf("Referer" to "https://www.eporner.com/"),
+                            onBack = { nav.popBackStack() },
+                        )
                     } else {
-                        "https://www.eporner.com/embed/$id/"
+                        Box(
+                            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                            contentAlignment = androidx.compose.ui.Alignment.Center,
+                        ) { androidx.compose.material3.CircularProgressIndicator() }
                     }
-                    EpornerPlayerScreen(
-                        embedUrl = embedUrl,
-                        title    = title,
-                        onBack   = { nav.popBackStack() },
-                    )
-                }
-
-                composable(
-                    "local-image/{uri}/{title}",
-                    arguments = listOf(
-                        navArgument("uri") { type = NavType.StringType },
-                        navArgument("title") { type = NavType.StringType },
-                    ),
-                ) { entry ->
-                    val uri = URLDecoder.decode(entry.arguments!!.getString("uri")!!, "UTF-8")
-                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    LocalImageViewerScreen(
-                        imageUri = uri,
-                        title = title,
-                        onBack = { nav.popBackStack() },
-                    )
                 }
 
                 composable(
@@ -988,26 +844,17 @@ fun StreamCloudApp() {
                         onOpenPlugins     = { nav.navigate("plugins") },
                         onOpenCollections = { nav.navigate("collections") },
                         onSwitchProfile   = { showProfilePicker = true },
-                        onOpenDownloads   = { nav.navigate("downloads") },
                     )
                 }
                 composable("plugins") {
                     PluginsScreen(onBack = { nav.popBackStack() })
-                }
-                composable("downloads") {
-                    VideoDownloadsScreen(
-                        onBack = { nav.popBackStack() },
-                        onPlayFile = { uri, title ->
-                            nav.navigate("player/url/${java.net.URLEncoder.encode(uri, "UTF-8")}/${java.net.URLEncoder.encode(title, "UTF-8")}")
-                        },
-                    )
                 }
             }
                     }
 
 
 
-                    if (showRailMiniPlayer) {
+                    if (showRail && currentRoute != Tab.Music.route && !isMediaRoute) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
@@ -1054,13 +901,21 @@ fun StreamCloudApp() {
                                 ) {
                                     tabs.forEach { tab ->
                                         val selected = currentRoute == tab.route
-                                        ScrollableNavBarItem(
-                                            icon = tab.icon,
-                                            label = tab.label,
-                                            selected = selected,
-                                            showLabel = showNavLabels,
-                                            onClick = { navigateToTab(nav, tab.route) },
-                                        )
+                                        if (tab.route == Tab.Settings.route) {
+                                            ProfileNavItem(
+                                                selected = selected,
+                                                showLabel = showNavLabels,
+                                                onClick = { navigateToTab(nav, tab.route) },
+                                            )
+                                        } else {
+                                            ScrollableNavBarItem(
+                                                icon = tab.icon,
+                                                label = tab.label,
+                                                selected = selected,
+                                                showLabel = showNavLabels,
+                                                onClick = { navigateToTab(nav, tab.route) },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1178,6 +1033,93 @@ private fun ScrollableNavBarItem(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ProfileNavItem(
+    selected: Boolean,
+    showLabel: Boolean,
+    onClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val avatar by sl.settings.ytMusicUserAvatar.collectAsState(initial = "")
+    val primaryColor   = MaterialTheme.colorScheme.primary
+    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
+    val mutedColor     = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(primaryColor)
+                    .padding(
+                        horizontal = if (showLabel) 14.dp else 18.dp,
+                        vertical   = if (showLabel) 8.dp  else 12.dp,
+                    ),
+            ) {
+                ProfileAvatarCircle(avatar = avatar, size = if (showLabel) 20.dp else 24.dp, tint = onPrimaryColor)
+                if (showLabel) {
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        if (avatar.isNotBlank()) "Profile" else "Settings",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = onPrimaryColor,
+                    )
+                }
+            }
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(
+                    horizontal = if (showLabel) 12.dp else 14.dp,
+                    vertical   = if (showLabel) 6.dp  else 10.dp,
+                ),
+            ) {
+                ProfileAvatarCircle(avatar = avatar, size = if (showLabel) 22.dp else 26.dp, tint = mutedColor)
+                if (showLabel) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        if (avatar.isNotBlank()) "Profile" else "Settings",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = mutedColor,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileAvatarCircle(avatar: String, size: androidx.compose.ui.unit.Dp, tint: Color) {
+    val context = LocalContext.current
+    if (avatar.isNotBlank()) {
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(avatar)
+                .crossfade(true)
+                .allowHardware(false)
+                .build(),
+            contentDescription = "Profile",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(size).clip(CircleShape),
+        )
+    } else {
+        Icon(
+            Icons.Filled.Settings,
+            contentDescription = "Settings",
+            tint = tint,
+            modifier = Modifier.size(size),
+        )
     }
 }
 
