@@ -30,6 +30,7 @@ import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
 import com.streamcloud.app.data.nuvio.NuvioRuntime
@@ -70,6 +71,7 @@ fun StreamPickerOverlay(
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
+    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
 
     val eligibleCs = remember(installedCsPlugins, mediaType) {
         if (mediaType == "tv") {
@@ -142,30 +144,27 @@ fun StreamPickerOverlay(
                 }
             }
 
-            if (installedNuvio.isNotEmpty()) {
+            installedNuvio.forEach { provider ->
                 launch {
-                    val allNuvio = withContext(Dispatchers.IO) {
-                        runCatching {
-                            sl.nuvio.resolveAll(
-                                tmdbId = tmdbId.toString(),
-                                mediaType = mediaType,
-                                season = season,
-                                episode = episode,
-                                imdbId = imdbId,
-                            )
-                        }.getOrElse { e ->
-                            Log.d("StreamPicker", "Nuvio resolveAll error: ${e.message}")
-                            emptyList()
-                        }
+                    val streams = withContext(Dispatchers.IO) {
+                        withTimeoutOrNull(30_000L) {
+                            runCatching {
+                                sl.nuvio.resolveSingle(
+                                    provider = provider,
+                                    tmdbId = tmdbId.toString(),
+                                    mediaType = mediaType,
+                                    season = season,
+                                    episode = episode,
+                                    imdbId = imdbId,
+                                ).map { it.pickerToPlayerSource(provider) }
+                            }.getOrElse { e ->
+                                Log.d("StreamPicker", "Nuvio ${provider.name}: ${e.message}")
+                                emptyList()
+                            }
+                        } ?: emptyList()
                     }
-                    val byProvider = allNuvio.groupBy { (provider, _) -> provider.id }
-                    installedNuvio.forEach { provider ->
-                        val streams = byProvider[provider.id]
-                            ?.map { (prov, stream) -> stream.pickerToPlayerSource(prov) }
-                            ?: emptyList()
-                        val err = if (streams.isEmpty()) NuvioRuntime.lastError(provider.id) else null
-                        updateGroup("nuvio:${provider.id}", streams = streams, error = err)
-                    }
+                    val err = if (streams.isEmpty()) NuvioRuntime.lastError(provider.id) else null
+                    updateGroup("nuvio:${provider.id}", streams = streams, error = err)
                 }
             }
 
@@ -218,6 +217,7 @@ fun StreamPickerOverlay(
         }
     }
 
+    MoviesThemeWrapper(moviesThemeName) {
     Box(
         Modifier
             .fillMaxSize()
@@ -434,6 +434,7 @@ fun StreamPickerOverlay(
             }
         }
     }
+    } // MoviesThemeWrapper
 }
 
 private fun List<PlayerSource>.pickerInnerSections(
