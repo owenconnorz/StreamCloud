@@ -14,6 +14,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -264,8 +272,27 @@ fun MovieDetailScreen(
     val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
 
     MoviesThemeWrapper(moviesThemeName) {
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    val scrollState = rememberScrollState()
+    val scrollScope = rememberCoroutineScope()
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        try { focusRequester.requestFocus() } catch (_: Exception) {}
+    }
+    Box(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.DirectionDown -> { scrollScope.launch { scrollState.scrollBy(300f) }; true }
+                        Key.DirectionUp   -> { scrollScope.launch { scrollState.scrollBy(-300f) }; true }
+                        else -> false
+                    }
+                } else false
+            }
+    ) {
+        Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
 
             // ── Backdrop ──────────────────────────────────────────────────────
             Box(Modifier.fillMaxWidth().height(300.dp)) {
