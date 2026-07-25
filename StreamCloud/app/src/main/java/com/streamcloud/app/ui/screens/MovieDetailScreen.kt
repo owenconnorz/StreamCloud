@@ -73,7 +73,10 @@ import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.StreamCacheRepository
 import com.streamcloud.app.player.WatchProgressKey
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
+import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -670,6 +673,7 @@ fun MovieDetailScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
                                 .width(100.dp)
+                                .tvFocusBorder(RoundedCornerShape(10.dp))
                                 .clickable { selectedSeason = season.seasonNumber },
                         ) {
                             Box(
@@ -1138,7 +1142,7 @@ private fun TrailerCard(video: TmdbVideo, onClick: () -> Unit) {
 
 @Composable
 private fun NuvioEpisodeCard(ep: TmdbEpisode, onClick: () -> Unit) {
-    Column(Modifier.width(300.dp).clickable(onClick = onClick)) {
+    Column(Modifier.width(300.dp).tvFocusBorder(RoundedCornerShape(12.dp)).clickable(onClick = onClick)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(12.dp))
