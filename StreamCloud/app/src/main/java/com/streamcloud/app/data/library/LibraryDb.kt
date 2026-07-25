@@ -345,7 +345,7 @@ interface FollowedArtistDao {
         AdultHistoryEntity::class,
         FollowedArtistEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -385,6 +385,38 @@ abstract class LibraryDb : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "ALTER TABLE user_collections ADD COLUMN source_addon_id TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Safe no-op for devices already having these tables from a prior v11 build,
+                // and creates them for devices that skipped to v11 via our previous migration.
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS adult_history (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        title TEXT NOT NULL,
+                        thumbnail TEXT,
+                        source TEXT NOT NULL,
+                        embed_url TEXT,
+                        duration_label TEXT,
+                        watched_at INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS followed_artists (
+                        channel_id TEXT PRIMARY KEY NOT NULL,
+                        name TEXT NOT NULL,
+                        thumbnail TEXT,
+                        subscriber_label TEXT,
+                        latest_release_id TEXT,
+                        followed_at INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
                 )
             }
         }
@@ -455,7 +487,7 @@ abstract class LibraryDb : RoomDatabase() {
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
             ).addMigrations(
                 MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
             ).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
