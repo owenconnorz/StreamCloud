@@ -78,7 +78,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
-import coil.video.videoFrameMillis
 import com.streamcloud.app.data.local.LocalAudioItem
 import com.streamcloud.app.data.local.LocalImageItem
 import com.streamcloud.app.data.local.LocalMediaPermissions
@@ -88,7 +87,6 @@ import com.streamcloud.app.ui.viewmodel.LocalFilesViewModel
 import com.streamcloud.app.ui.viewmodel.PagedLocalMediaState
 import kotlinx.coroutines.flow.collectLatest
 
-private const val VIDEO_FRAME_MILLIS = 1_000L
 
 @Composable
 fun LocalFilesScreen(
@@ -529,7 +527,6 @@ private fun LocalMediaThumbnail(
     val request = remember(model, isVideo) {
         ImageRequest.Builder(context)
             .data(model)
-            .apply { if (isVideo) videoFrameMillis(VIDEO_FRAME_MILLIS) }
             .crossfade(true)
             .build()
     }
