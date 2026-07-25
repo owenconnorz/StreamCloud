@@ -262,6 +262,12 @@ fun rememberCastController(
     val context = LocalContext.current
     val isCasting = remember { mutableStateOf(false) }
 
+    // Determine MIME type from the ORIGINAL URL before proxy transformation.
+    // guessMimeType(proxyUrl) always returns video/mp4 (no extension) which breaks HLS.
+    val resolvedMime = remember(streamUrl, contentType) {
+        contentType ?: guessMimeType(streamUrl)
+    }
+
     // Resolve the URL we'll actually give to the Chromecast.
     // We always route through the local proxy so the phone's IP is used (fixes
     // Debrid IP-restriction) and custom headers (Referer, UA, etc.) are forwarded.
@@ -275,7 +281,21 @@ fun rememberCastController(
         }
     }
 
-    DisposableEffect(effectiveCastUrl, title, artworkUrl, contentType, context) {
+    // After proxy starts its background content-type probe, use the real value if it
+    // differs from what we guessed (e.g. URL had no extension but server says m3u8).
+    var activeMime by remember { mutableStateOf(resolvedMime) }
+    LaunchedEffect(effectiveCastUrl) {
+        // Give the probe up to 3 s to finish, then use whatever is available
+        var waited = 0
+        while (CastProxyServer.detectedContentType == null && waited < 3000) {
+            delay(200)
+            waited += 200
+        }
+        val probed = CastProxyServer.detectedContentType?.substringBefore(';')?.trim()
+        if (!probed.isNullOrBlank()) activeMime = probed
+    }
+
+    DisposableEffect(effectiveCastUrl, title, artworkUrl, resolvedMime, context) {
         val castContext = runCatching {
             CastContext.getSharedInstance(context.applicationContext)
         }.getOrNull()
@@ -285,7 +305,7 @@ fun rememberCastController(
 
         castContext.sessionManager.currentCastSession?.let { session ->
             isCasting.value = true
-            loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, contentType)
+            loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, resolvedMime)
         }
 
         val listener = object : com.google.android.gms.cast.framework.SessionManagerListener<
@@ -293,11 +313,11 @@ fun rememberCastController(
             > {
             override fun onSessionStarted(session: com.google.android.gms.cast.framework.CastSession, sessionId: String) {
                 isCasting.value = true
-                loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, contentType)
+                loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, activeMime)
             }
             override fun onSessionResumed(session: com.google.android.gms.cast.framework.CastSession, wasSuspended: Boolean) {
                 isCasting.value = true
-                loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, contentType)
+                loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, activeMime)
             }
             override fun onSessionEnded(session: com.google.android.gms.cast.framework.CastSession, error: Int) {
                 isCasting.value = false
@@ -362,14 +382,26 @@ private fun loadRemoteMedia(
     )
 }
 
-private fun guessMimeType(url: String): String {
-    val q = url.substringBefore('?').lowercase()
+internal fun guessMimeType(url: String): String {
+    val path = url.substringBefore('?').lowercase()
+    val query = url.substringAfter('?', "").lowercase()
     return when {
-        q.endsWith(".m3u8") -> "application/x-mpegURL"
-        q.endsWith(".mpd") -> "application/dash+xml"
-        q.endsWith(".webm") -> "video/webm"
-        q.endsWith(".mkv") -> "video/x-matroska"
-        q.endsWith(".mov") -> "video/quicktime"
+        // Explicit HLS indicators
+        path.endsWith(".m3u8") -> "application/x-mpegURL"
+        path.contains("/m3u8") -> "application/x-mpegURL"
+        path.contains("/hls/") -> "application/x-mpegURL"
+        path.contains("/hlsvod/") -> "application/x-mpegURL"
+        path.contains("/playlist") && !path.endsWith(".mp4") -> "application/x-mpegURL"
+        query.contains("type=hls") || query.contains("format=hls") -> "application/x-mpegURL"
+        // DASH
+        path.endsWith(".mpd") -> "application/dash+xml"
+        path.contains("/dash/") -> "application/dash+xml"
+        // Other formats
+        path.endsWith(".webm") -> "video/webm"
+        path.endsWith(".mkv") -> "video/x-matroska"
+        path.endsWith(".mov") -> "video/quicktime"
+        path.endsWith(".mp4") || path.endsWith(".m4v") -> "video/mp4"
+        // Stremio/Nuvio proxy streams often declare type in URL path
         else -> "video/mp4"
     }
 }
@@ -451,9 +483,10 @@ fun CastRemoteController(
         delay(5_000)
         val session = castContext.sessionManager.currentCastSession ?: return@LaunchedEffect
         if (playerState == MediaStatus.PLAYER_STATE_IDLE || playerState == MediaStatus.PLAYER_STATE_UNKNOWN) {
-            // Prefer the proxy URL so the retry goes through the phone (fixes IP restriction)
             val castUrl = CastProxyServer.currentProxyUrl ?: streamUrl
-            loadRemoteMedia(session, castUrl, title, artworkUrl, null)
+            val mime = (CastProxyServer.detectedContentType?.substringBefore(';')?.trim())
+                ?: guessMimeType(streamUrl)
+            loadRemoteMedia(session, castUrl, title, artworkUrl, mime)
         }
     }
 
@@ -578,7 +611,9 @@ fun CastRemoteController(
                             val session = castContext.sessionManager.currentCastSession
                             if (session != null && streamUrl.isNotBlank()) {
                                 val castUrl = CastProxyServer.currentProxyUrl ?: streamUrl
-                                loadRemoteMedia(session, castUrl, title, artworkUrl, null)
+                                val mime = (CastProxyServer.detectedContentType?.substringBefore(';')?.trim())
+                                    ?: guessMimeType(streamUrl)
+                                loadRemoteMedia(session, castUrl, title, artworkUrl, mime)
                                 idleSeconds = 0
                             }
                         },
