@@ -2353,10 +2353,12 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
     // All possible tabs — always shown so the user can enable any of them
     val all = remember {
         listOf(
-            NavItem("music",   "Music",   Icons.Default.MusicNote),
-            NavItem("library", "Library", Icons.Default.FormatListBulleted),
-            NavItem("movies",  "Movies",  Icons.Default.PlayArrow),
-            NavItem("adult",   "Adult",   Icons.Default.Visibility),
+            NavItem("music",       "Music",       Icons.Default.MusicNote),
+            NavItem("library",     "Library",     Icons.Default.FormatListBulleted),
+            NavItem("movies",      "Movies",      Icons.Default.PlayArrow),
+            NavItem("local_files", "Local Files", Icons.Default.Folder),
+            NavItem("live_tv",     "Live TV",     Icons.Default.LiveTv),
+            NavItem("adult",       "Adult",       Icons.Default.Visibility),
         )
     }
     val byId = all.associateBy { it.id }
@@ -2364,8 +2366,13 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
 
     LaunchedEffect(Unit) {
         val csv     = sl.settings.navTabOrderCsv.first()
-        val hidden  = (sl.settings.navHiddenTabsCsv.first() ?: "")
-            .split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        val savedHiddenCsv = sl.settings.navHiddenTabsCsv.first()
+        // On fresh install (null) default local_files and live_tv to hidden
+        val hidden  = if (savedHiddenCsv == null) {
+            setOf("local_files", "live_tv")
+        } else {
+            savedHiddenCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        }
         val nsfw    = sl.settings.nsfwEnabled.first()
         val adultIds = setOf("adult")
         val saved   = csv?.split(",")?.mapNotNull { byId[it.trim()] } ?: emptyList()
