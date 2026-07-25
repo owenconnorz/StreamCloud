@@ -909,32 +909,39 @@ fun StreamCloudApp() {
                             Box(
                                 Modifier
                                     .fillMaxWidth()
-                                    .background(navPillColor)
-                                    .navigationBarsPadding(),
+                                    .navigationBarsPadding()
+                                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                                contentAlignment = Alignment.Center,
                             ) {
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 8.dp, bottom = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceEvenly,
-                                    verticalAlignment = Alignment.CenterVertically,
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = navPillColor,
+                                    shadowElevation = 10.dp,
+                                    tonalElevation = 4.dp,
                                 ) {
-                                    tabs.forEach { tab ->
-                                        val selected = currentRoute == tab.route
-                                        if (tab.route == Tab.Settings.route) {
-                                            ProfileNavItem(
-                                                selected = selected,
-                                                showLabel = effectiveShowLabel,
-                                                onClick = { navigateToTab(nav, tab.route) },
-                                            )
-                                        } else {
-                                            NuvioNavItem(
-                                                icon = tab.icon,
-                                                label = tab.label,
-                                                selected = selected,
-                                                showLabel = effectiveShowLabel,
-                                                onClick = { navigateToTab(nav, tab.route) },
-                                            )
+                                    Row(
+                                        Modifier
+                                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceEvenly,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        tabs.forEach { tab ->
+                                            val selected = currentRoute == tab.route
+                                            if (tab.route == Tab.Settings.route) {
+                                                ProfileNavItem(
+                                                    selected = selected,
+                                                    showLabel = effectiveShowLabel,
+                                                    onClick = { navigateToTab(nav, tab.route) },
+                                                )
+                                            } else {
+                                                NuvioNavItem(
+                                                    icon = tab.icon,
+                                                    label = tab.label,
+                                                    selected = selected,
+                                                    showLabel = effectiveShowLabel,
+                                                    onClick = { navigateToTab(nav, tab.route) },
+                                                )
+                                            }
                                         }
                                     }
                                 }
