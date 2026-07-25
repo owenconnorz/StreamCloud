@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,18 +18,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.streamcloud.app.data.SettingsRepository
-import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.viewmodel.CsSearchResult
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.ui.viewmodel.StremioSearchResult
@@ -47,8 +46,6 @@ fun MovieSearchScreen(
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
     val state by vm.state.collectAsState()
-    val settingsRepo = remember { SettingsRepository(context) }
-    val moviesThemeName by settingsRepo.moviesTheme.collectAsState(initial = "violet")
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
 
@@ -63,7 +60,6 @@ fun MovieSearchScreen(
         }
     }
 
-    MoviesThemeWrapper(moviesThemeName) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -126,47 +122,51 @@ fun MovieSearchScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        "Type to search across TMDB, CloudStream & Stremio addons",
+                        "Type to search across Movies, Series, CloudStream & Stremio addons",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 32.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
             else -> {
                 CombinedResultsList(
-                    tmdbResults = state.searchResults,
+                    movieResults = state.searchResults,
+                    tvResults = state.tvSearchResults,
                     csResults = state.csSearchResults,
                     stremioResults = state.stremioSearchResults,
                     loading = state.loading,
                     query = query,
                     padding = padding,
                     onMovieClick = onMovieClick,
+                    onTvClick = onTvClick,
                     onOpenCsItem = onOpenCsItem,
                     onOpenStremio = onOpenStremio,
                 )
             }
         }
     }
-    }
 }
 
 @Composable
 private fun CombinedResultsList(
-    tmdbResults: List<com.streamcloud.app.data.api.TmdbMovie>,
+    movieResults: List<com.streamcloud.app.data.api.TmdbMovie>,
+    tvResults: List<com.streamcloud.app.data.api.TmdbMovie>,
     csResults: List<CsSearchResult>,
     stremioResults: List<StremioSearchResult>,
     loading: Boolean,
     query: String,
     padding: PaddingValues,
     onMovieClick: (Long) -> Unit,
+    onTvClick: (Long) -> Unit,
     onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit,
     onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit,
 ) {
     val csGrouped = remember(csResults) { csResults.groupBy { it.pluginName } }
     val stremioGrouped = remember(stremioResults) { stremioResults.groupBy { it.addonName } }
-    val hasAny = tmdbResults.isNotEmpty() || csResults.isNotEmpty() || stremioResults.isNotEmpty()
+    val hasAny = movieResults.isNotEmpty() || tvResults.isNotEmpty() ||
+        csResults.isNotEmpty() || stremioResults.isNotEmpty()
 
     if (!hasAny && !loading) {
         Box(
@@ -182,41 +182,48 @@ private fun CombinedResultsList(
         return
     }
 
+    val movieRows = remember(movieResults) { movieResults.chunked(2) }
+    val tvRows = remember(tvResults) { tvResults.chunked(2) }
+
     LazyColumn(
         contentPadding = PaddingValues(
             top = padding.calculateTopPadding() + 8.dp,
-            bottom = 24.dp,
+            bottom = 32.dp,
+            start = 12.dp,
+            end = 12.dp,
         ),
-        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(0.dp),
+        modifier = Modifier.fillMaxSize(),
     ) {
-        // ── TMDB ──────────────────────────────────────────────────────────────
-        if (tmdbResults.isNotEmpty()) {
-            item(key = "tmdb-header") {
-                SectionHeader("TMDB")
+        // ── Series (TMDB TV) ──────────────────────────────────────────────
+        if (tvResults.isNotEmpty()) {
+            item(key = "series-header") {
+                NuvioSectionHeader(title = "Series", topPadding = 0.dp)
             }
-            item(key = "tmdb-row") {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(tmdbResults, key = { "tmdb-${it.id}" }) { m ->
-                        PosterCard(
-                            posterUrl = m.posterUrl ?: m.backdropUrl,
-                            title = m.displayTitle,
-                            onClick = { onMovieClick(m.id) },
-                        )
-                    }
-                }
+            items(tvRows, key = { "tv-row-${it.first().id}" }) { pair ->
+                LandscapeCardRow(pair) { movie -> onTvClick(movie.id) }
             }
         }
 
-        // ── CloudStream ────────────────────────────────────────────────────────
+        // ── Movies (TMDB) ─────────────────────────────────────────────────
+        if (movieResults.isNotEmpty()) {
+            item(key = "movies-header") {
+                NuvioSectionHeader(
+                    title = "Movies",
+                    topPadding = if (tvResults.isNotEmpty()) 20.dp else 0.dp,
+                )
+            }
+            items(movieRows, key = { "movie-row-${it.first().id}" }) { pair ->
+                LandscapeCardRow(pair) { movie -> onMovieClick(movie.id) }
+            }
+        }
+
+        // ── CloudStream ───────────────────────────────────────────────────
         if (csGrouped.isNotEmpty()) {
             item(key = "cs-header") {
-                SectionHeader(
-                    "CloudStream",
-                    topPadding = if (tmdbResults.isNotEmpty()) 16.dp else 0.dp,
+                NuvioSectionHeader(
+                    title = "CloudStream",
+                    topPadding = if (movieResults.isNotEmpty() || tvResults.isNotEmpty()) 20.dp else 0.dp,
                 )
             }
             csGrouped.forEach { (pluginName, results) ->
@@ -225,33 +232,37 @@ private fun CombinedResultsList(
                         pluginName,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp, end = 16.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
                     )
                 }
-                item(key = "cs-row-$pluginName") {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                val csRows = results.chunked(2)
+                items(csRows, key = { "cs-row-$pluginName-${it.first().item.url}" }) { pair ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(results, key = { "cs-${it.pluginInternalName}-${it.item.url}" }) { r ->
-                            PosterCard(
-                                posterUrl = r.item.posterUrl,
+                        pair.forEach { r ->
+                            LandscapeCardItem(
+                                imageUrl = r.item.posterUrl,
                                 title = r.item.name,
+                                modifier = Modifier.weight(1f),
                                 onClick = { onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl) },
                             )
                         }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
+                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
 
-        // ── Stremio ────────────────────────────────────────────────────────────
+        // ── Stremio ───────────────────────────────────────────────────────
         if (stremioGrouped.isNotEmpty()) {
             item(key = "stremio-header") {
-                SectionHeader(
-                    "Stremio",
-                    topPadding = if (tmdbResults.isNotEmpty() || csGrouped.isNotEmpty()) 16.dp else 0.dp,
+                NuvioSectionHeader(
+                    title = "Stremio",
+                    topPadding = if (movieResults.isNotEmpty() || tvResults.isNotEmpty() || csGrouped.isNotEmpty()) 20.dp else 0.dp,
                 )
             }
             stremioGrouped.forEach { (addonName, results) ->
@@ -260,71 +271,115 @@ private fun CombinedResultsList(
                         addonName,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp, end = 16.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
                     )
                 }
-                item(key = "stremio-row-$addonName") {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                val sRows = results.chunked(2)
+                items(sRows, key = { "stremio-row-$addonName-${it.first().item.id}" }) { pair ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(results, key = { "stremio-${it.addonId}-${it.item.id}" }) { r ->
-                            PosterCard(
-                                posterUrl = r.item.poster,
+                        pair.forEach { r ->
+                            LandscapeCardItem(
+                                imageUrl = r.item.poster,
                                 title = r.item.name,
+                                modifier = Modifier.weight(1f),
                                 onClick = { onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster) },
                             )
                         }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
+                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
     }
 }
 
+/** 2-card landscape row for TMDB results (movie or TV). */
 @Composable
-private fun SectionHeader(title: String, topPadding: androidx.compose.ui.unit.Dp = 0.dp) {
-    Text(
-        title,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = topPadding, bottom = 4.dp),
-    )
+private fun LandscapeCardRow(
+    pair: List<com.streamcloud.app.data.api.TmdbMovie>,
+    onClick: (com.streamcloud.app.data.api.TmdbMovie) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        pair.forEach { m ->
+            LandscapeCardItem(
+                imageUrl = m.backdropUrl ?: m.posterUrl,
+                title = m.displayTitle,
+                modifier = Modifier.weight(1f),
+                onClick = { onClick(m) },
+            )
+        }
+        if (pair.size == 1) Spacer(Modifier.weight(1f))
+    }
+    Spacer(Modifier.height(8.dp))
 }
 
+/** Single landscape card — matches Nuvio's wide 2-column tile style. */
 @Composable
-private fun PosterCard(
-    posterUrl: String?,
+private fun LandscapeCardItem(
+    imageUrl: String?,
     title: String,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .width(100.dp)
-            .clip(RoundedCornerShape(8.dp))
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
-        AsyncImage(
-            model = posterUrl,
-            contentDescription = title,
-            contentScale = ContentScale.Crop,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surface),
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            title,
-            style = MaterialTheme.typography.bodySmall,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        ) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            // Gradient scrim + title overlaid at the bottom (Nuvio style)
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomStart)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f)),
+                        ),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp,
+                    ),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun NuvioSectionHeader(title: String, topPadding: androidx.compose.ui.unit.Dp = 0.dp) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+        color = MaterialTheme.colorScheme.onBackground,
+        modifier = Modifier.padding(top = topPadding, bottom = 12.dp),
+    )
 }
