@@ -69,30 +69,52 @@ object NuvioRuntime {
 
 
         lastFetchCountByScript[scriptKey] = 0
+        lastErrorByScript.remove(scriptKey)
         lastLogByScript.remove(scriptKey)
-        var capturedJson = "[]"
         return try {
             withTimeoutOrNull(60_000L) {
-            quickJs(Dispatchers.IO) {
+            val deferred = kotlinx.coroutines.CompletableDeferred<String>()
+            quickJs(Dispatchers.Default) {
                 installConsole(scriptKey)
                 installFetchBridge(context, scriptKey)
                 installCryptoBindings()
                 installUrlBinding()
                 installCheerioBindings(documentCache, elementCache, idCounter)
 
-
-                function("__capture_result") { args ->
-                    capturedJson = args.firstOrNull()?.toString() ?: "[]"
+                function("__capture_result") { args: Array<Any?> ->
+                    deferred.complete(args.firstOrNull()?.toString() ?: "[]")
                     null
                 }
 
-
-
-
+                // Step 1: polyfills (sync)
                 evaluate<Any?>(buildPolyfillCode(scriptKey))
 
+                // Step 2: inject per-execution globals at the TOP LEVEL (persists across evals)
                 val seasonArg = season?.toString() ?: "undefined"
                 val episodeArg = episode?.toString() ?: "undefined"
+                val tmdbIdJson = jsString(tmdbId)
+                val imdbIdJson = if (imdbId != null) jsString(imdbId) else "undefined"
+                val mediaTypeJson = jsString(mediaType)
+                val scriptKeyJson = jsString(scriptKey)
+                evaluate<Any?>("""
+                    globalThis.tmdbId    = $tmdbIdJson;
+                    globalThis.imdbId    = $imdbIdJson;
+                    globalThis.mediaType = $mediaTypeJson;
+                    globalThis.type      = $mediaTypeJson;
+                    globalThis.season    = $seasonArg;
+                    globalThis.episode   = $episodeArg;
+                    globalThis.params    = {
+                        tmdbId: $tmdbIdJson, imdbId: $imdbIdJson, mediaType: $mediaTypeJson,
+                        season: $seasonArg, episode: $episodeArg, scraperId: $scriptKeyJson,
+                        settings: globalThis.SCRAPER_SETTINGS || {},
+                        type: $mediaTypeJson, id: $tmdbIdJson,
+                        tmdb_id: $tmdbIdJson, movieId: $tmdbIdJson, movie_id: $tmdbIdJson,
+                        imdbID: $imdbIdJson, imdb_id: $imdbIdJson,
+                        seriesId: $tmdbIdJson, showId: $tmdbIdJson, contentType: $mediaTypeJson
+                    };
+                    var module = { exports: {} };
+                    var exports = module.exports;
+                """.trimIndent())
 
 
 
@@ -106,117 +128,50 @@ object NuvioRuntime {
 
 
 
-                val directResult = evaluate<Any?>(buildString {
-                    appendLine("(async function() {")
-                    appendLine("  var module = { exports: {} };")
-                    appendLine("  var exports = module.exports;")
-                    appendLine("  // ── Inject per-execution globals (official app contract) ──")
-                    appendLine("  var __tmdbId  = ${jsString(tmdbId)};")
-                    appendLine("  var __imdbId  = ${if (imdbId != null) jsString(imdbId) else "undefined"};")
-                    appendLine("  var __mediaType = ${jsString(mediaType)};")
-                    appendLine("  var __season  = $seasonArg;")
-                    appendLine("  var __episode = $episodeArg;")
-                    // Expose params as a single object (new-style destructured providers)
-                    appendLine("  globalThis.params = {")
-                    appendLine("    tmdbId:    __tmdbId,")
-                    appendLine("    imdbId:    __imdbId,")
-                    appendLine("    mediaType: __mediaType,")
-                    appendLine("    season:    __season,")
-                    appendLine("    episode:   __episode,")
-                    appendLine("    scraperId: ${jsString(scriptKey)},")
-                    appendLine("    settings:  globalThis.SCRAPER_SETTINGS || {},")
-                    // Common field-name aliases used by different provider ecosystems
-                    appendLine("    type:      __mediaType,")
-                    appendLine("    id:        __tmdbId,")
-                    appendLine("    tmdb_id:   __tmdbId,")
-                    appendLine("    movieId:   __tmdbId,")
-                    appendLine("    movie_id:  __tmdbId,")
-                    appendLine("    imdbID:    __imdbId,")
-                    appendLine("    imdb_id:   __imdbId,")
-                    appendLine("    seriesId:  __tmdbId,")
-                    appendLine("    showId:    __tmdbId,")
-                    appendLine("    contentType: __mediaType")
-                    appendLine("  };")
-                    // Also expose each value as a top-level global so providers that
-                    // access `tmdbId` / `imdbId` as free variables (instead of from params)
-                    // get the correct strings rather than undefined or [object Object].
-                    appendLine("  globalThis.tmdbId  = __tmdbId;")
-                    appendLine("  globalThis.imdbId  = __imdbId;")
-                    appendLine("  globalThis.mediaType = __mediaType;")
-                    appendLine("  globalThis.type    = __mediaType;")
-                    appendLine("  globalThis.season  = __season;")
-                    appendLine("  globalThis.episode = __episode;")
-                    appendLine("  // ── Provider code (runs directly — no try-catch wrapper) ──────────────")
-                    appendLine("  // Exactly mirrors official NuvioMobile new Function() body: provider")
-                    appendLine("  // code is NOT wrapped in any inner scope, so function declarations")
-                    appendLine("  // (e.g. function getStreams() {}) are hoisted into the async IIFE's")
-                    appendLine("  // own scope and are visible to the 3-way lookup that follows.")
-                    appendLine("  // If the provider throws at init time the QuickJsException bubbles")
-                    appendLine("  // up to the Kotlin catch block and is surfaced via lastError().")
-                    append(scriptText)
-                    appendLine()
-                    appendLine("  // ── Locate getStreams (official NuvioMobile lookup order) ──────────────")
-                    appendLine("  var __fn =")
-                    appendLine("    (typeof getStreams === 'function')                                                                                 ? getStreams :")
-                    appendLine("    (module.exports && typeof module.exports.getStreams === 'function')                                                ? module.exports.getStreams :")
-                    appendLine("    (module.exports && module.exports.default && typeof module.exports.default.getStreams === 'function')              ? module.exports.default.getStreams :")
-                    appendLine("    (module.exports && module.exports['default'] && typeof module.exports['default'].getStreams === 'function')        ? module.exports['default'].getStreams :")
-                    appendLine("    (typeof globalThis.getStreams === 'function')                                                                      ? globalThis.getStreams :")
-                    appendLine("    null;")
-                    appendLine("  if (typeof __fn !== 'function') {")
-                    appendLine("    console.error('[provider] getStreams not found. module.exports keys:', Object.keys(module.exports || {}).join(', '));")
-                    appendLine("    __capture_result('[]');")
-                    appendLine("    return '[]';")
-                    appendLine("  }")
-                    appendLine("  try {")
-                    // Calling convention: matches official NuvioMobile PluginRuntime.kt exactly:
-                    //   await getStreams(tmdbId, mediaType, season, episode)
-                    // fn.length >= 2 → official 4-arg positional (no imdbId in args; providers
-                    //   that need imdbId access globalThis.imdbId directly or call TMDB themselves)
-                    // fn.length === 0 → no declared params; provider reads globalThis.tmdbId etc.
-                    // fn.length === 1 → single param: pass tmdbId string unless it destructures.
-                    appendLine("    var __arr;")
-                    appendLine("    var __p = globalThis.params;")
-                    appendLine("    var __src = '';")
-                    appendLine("    try { __src = __fn.toString(); } catch(__se) {}")
-                    // Official NuvioMobile calling convention (from PluginRuntime.kt source):
-                    //   await getStreams(tmdbId, mediaType, season, episode)
-                    // No imdbId in the positional args. Providers that need imdbId fetch it
-                    // themselves (TMDB API) or access globalThis.imdbId.
-                    // fn.length >= 2 → always use the 4-arg official convention.
-                    appendLine("    if (__fn.length >= 2) {")
-                    appendLine("      __arr = await __fn(__p.tmdbId, __p.mediaType, __p.season, __p.episode);")
-                    appendLine("    } else if (__fn.length === 0) {")
-                    // 0 params → provider reads entirely from globals (tmdbId/mediaType/season/episode
-                    // are all pre-set on globalThis above).
-                    appendLine("      __arr = await __fn();")
-                    appendLine("    } else {")
-                    // 1 param → ambiguous: destructured ({tmdbId,…}) or single ID string.
-                    // Only treat as object if the source uses destructuring syntax {…};
-                    // do NOT use param-name heuristics (e.g. "params") because some providers
-                    // name their single string-ID arg "params" → passes [object Object] instead.
-                    appendLine("      var __isDestr = /\\(\\s*\\{/.test(__src);")
-                    appendLine("      __arr = await __fn(__isDestr ? __p : __p.tmdbId);")
-                    appendLine("    }")
-                    appendLine("    var arr = __arr;")
-                    appendLine("    var result = JSON.stringify(arr || []);")
-                    appendLine("    __capture_result(result);")
-                    appendLine("    return result;")
-                    appendLine("  } catch (__runErr) {")
-                    appendLine("    console.error('[provider] getStreams threw:', (__runErr && __runErr.message) || __runErr, (__runErr && __runErr.stack) || '');")
-                    appendLine("    __capture_result('[]');")
-                    appendLine("    return '[]';")
-                    appendLine("  }")
-                    appendLine("})()")
-                })
+                // Step 3: evaluate provider code in a SYNCHRONOUS IIFE (official pattern).
+                // This mirrors PluginRuntime.kt: (function() { $code })()
+                // Function declarations inside are scoped here; module.exports assignments
+                // propagate to the top-level module variable declared in step 2.
+                evaluate<Any?>("(function() {\n$scriptText\n})();")
 
+                // Step 4: async IIFE that calls getStreams and fires __capture_result.
+                // Mirrors official PluginRuntime.kt callCode exactly, with extra fallbacks.
+                val callCode = """
+                    (async function() {
+                        try {
+                            var __fn = module.exports.getStreams
+                                || (module.exports.default && module.exports.default.getStreams)
+                                || globalThis.getStreams
+                                || null;
+                            if (typeof __fn !== 'function') {
+                                console.error('[provider] getStreams not found. module.exports keys:', Object.keys(module.exports || {}).join(', '));
+                                __capture_result('[]');
+                                return;
+                            }
+                            var __p = globalThis.params;
+                            var __arr;
+                            if (__fn.length >= 2) {
+                                __arr = await __fn(__p.tmdbId, __p.mediaType, __p.season, __p.episode);
+                            } else if (__fn.length === 1) {
+                                var __src = '';
+                                try { __src = __fn.toString(); } catch(e) {}
+                                __arr = await __fn(/\(\s*\{/.test(__src) ? __p : __p.tmdbId);
+                            } else {
+                                __arr = await __fn();
+                            }
+                            __capture_result(JSON.stringify(__arr || []));
+                        } catch (e) {
+                            console.error('[provider] getStreams threw:', e && e.message ? e.message : e, e && e.stack ? e.stack : '');
+                            __capture_result('[]');
+                        }
+                    })();
+                """.trimIndent()
+                evaluate<Any?>(callCode)
 
-
-
-                val finalJson = (directResult as? String)
-                    ?.takeIf { it.isNotBlank() && it != "null" }
-                    ?: capturedJson
-                val streams = parseStreams(finalJson)
+                // Step 5: wait for __capture_result inside the quickJs block so the
+                // event loop can drive Promise resolution while we wait.
+                val capturedJson = deferred.await()
+                val streams = parseStreams(capturedJson)
                 Log.i(TAG, "$scriptKey returned ${streams.size} stream(s)")
                 if (streams.isEmpty() && !lastErrorByScript.containsKey(scriptKey)) {
                     lastErrorByScript[scriptKey] = "No streams found (provider returned empty list)"
@@ -938,70 +893,52 @@ object NuvioRuntime {
         if (typeof __runInitializers === 'undefined') { globalThis.__runInitializers = function() {}; }
         if (typeof __setFunctionName === 'undefined') { globalThis.__setFunctionName = function(f, n) { try { Object.defineProperty(f, 'name', { value: n, configurable: true }); } catch(e) {} return f; }; }
 
+        // Header normalisation — matches official NuvioMobile fetchPolyfill exactly.
+        function __normalize_fetch_headers(headers) {
+            var out = {};
+            if (!headers) return out;
+            if (typeof headers.forEach === 'function') {
+                headers.forEach(function(value, key) { out[key] = String(value); });
+                return out;
+            }
+            if (Array.isArray(headers)) {
+                headers.forEach(function(pair) {
+                    if (pair && pair.length >= 2) out[pair[0]] = String(pair[1]);
+                });
+                return out;
+            }
+            Object.keys(headers).forEach(function(key) { out[key] = String(headers[key]); });
+            return out;
+        }
+
         var fetch = async function(url, options) {
             options = options || {};
-            // If an AbortSignal is already aborted reject immediately (matching
-            // browser behaviour); if not yet aborted, just ignore it — our
-            // synchronous native bridge can't cancel in-flight requests, but
-            // throwing on an already-cancelled signal prevents unnecessary work.
-            var signal = options.signal;
-            if (signal && signal.aborted) {
-                var abortErr = new Error('The operation was aborted.');
-                abortErr.name = 'AbortError';
-                return Promise.reject(abortErr);
-            }
             var method = (options.method || 'GET').toUpperCase();
-            var headers = options.headers || {};
-            // Normalise headers to a plain {key:value} object regardless of what
-            // the provider passed: Headers instance, array-of-pairs [[k,v],…], or
-            // plain object are all accepted so we don't drop headers silently.
-            if (Array.isArray(headers)) {
-                var plain = {};
-                for (var _hi = 0; _hi < headers.length; _hi++) {
-                    var _hpair = headers[_hi];
-                    if (Array.isArray(_hpair) && _hpair.length >= 2) plain[_hpair[0]] = _hpair[1];
-                }
-                headers = plain;
-            } else if (headers && typeof headers.forEach === 'function') {
-                var plain = {};
-                headers.forEach(function(v, k) { plain[k] = v; });
-                headers = plain;
-            }
+            var headers = __normalize_fetch_headers(options.headers);
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
-            // __native_fetch is a synchronous native bridge (blocks thread via runBlocking
-            // internally); call it directly without await to match the official NuvioMobile
-            // runtime behaviour exactly.
+            // __native_fetch is a synchronous bridge — no await (official NuvioMobile pattern).
             var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             return {
-                ok: parsed.ok, status: parsed.status, statusText: parsed.statusText,
-                url: parsed.url, redirected: parsed.redirected || false, type: 'basic',
-                headers: (function() {
-                    var hdrsObj = parsed.headers || {};
-                    return {
-                        get: function(name) { return hdrsObj[String(name).toLowerCase()] || null; },
-                        has: function(name) { return !!hdrsObj[String(name).toLowerCase()]; },
-                        entries: function() { return Object.entries(hdrsObj); },
-                        keys: function() { return Object.keys(hdrsObj); },
-                        values: function() { return Object.values(hdrsObj); },
-                        forEach: function(cb) {
-                            Object.entries(hdrsObj).forEach(function(e) { cb(e[1], e[0], this); });
-                        },
-                    };
-                })(),
+                ok: parsed.ok,
+                status: parsed.status,
+                statusText: parsed.statusText,
+                url: parsed.url,
+                headers: {
+                    get: function(name) { return (parsed.headers || {})[name.toLowerCase()] || null; }
+                },
                 text: function() { return Promise.resolve(parsed.body); },
                 json: function() {
-                    try { return Promise.resolve(JSON.parse(parsed.body)); }
-                    catch (e) { return Promise.resolve(null); }
-                },
-                arrayBuffer: function() { return Promise.resolve(new ArrayBuffer(0)); },
-                blob: function() { return Promise.resolve(null); },
-                formData: function() { return Promise.resolve(null); },
-                clone: function() { return this; },
+                    try {
+                        if (parsed.body === null || parsed.body === undefined || parsed.body === '') {
+                            return Promise.resolve(null);
+                        }
+                        return Promise.resolve(JSON.parse(parsed.body));
+                    } catch (e) { return Promise.resolve(null); }
+                }
             };
         };
-        // Make fetch reachable via every global alias providers might use.
         globalThis.fetch = fetch;
 
         // ── Headers constructor ──────────────────────────────────────────────
