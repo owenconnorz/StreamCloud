@@ -224,7 +224,10 @@ object NuvioRuntime {
 
 
     private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?, scriptKey: String) {
-        function("__native_fetch") { args: Array<Any?> ->
+        // asyncFunction lets quickjs-kt drive the JS event loop while the HTTP
+        // request is in flight on an IO thread, instead of blocking the scheduler
+        // thread with runBlocking (which prevents pending JS microtasks from running).
+        asyncFunction("__native_fetch") { args: Array<Any?> ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
             val headersJson = args.getOrNull(2)?.toString() ?: "{}"
@@ -232,10 +235,10 @@ object NuvioRuntime {
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
             Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
             lastFetchCountByScript.merge(scriptKey, 1, Int::plus)
-            val result = kotlinx.coroutines.runBlocking { performFetch(url, method, headersJson, body, followRedirects, context) }
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                performFetch(url, method, headersJson, body, followRedirects, context)
+            }
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
-            // Providers that silently return [] on !response.ok would otherwise show only the
-            // generic "provider returned empty list" message — with this we show the real cause.
             try {
                 val J = kotlinx.serialization.json.Json
                 val obj = J.parseToJsonElement(result) as? kotlinx.serialization.json.JsonObject
@@ -243,8 +246,6 @@ object NuvioRuntime {
                 val status = (obj?.get("status") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0
                 if (!ok) {
                     val shortUrl = url.take(120)
-                    // Only set if no provider-supplied console.error already exists for this key.
-                    // Provider errors are more specific; HTTP errors are the fallback.
                     if (!lastErrorByScript.containsKey(scriptKey) || lastErrorByScript[scriptKey]?.startsWith("No streams") == true) {
                         lastErrorByScript[scriptKey] = if (status == 0) "Network error reaching $shortUrl" else "HTTP $status from $shortUrl"
                     }
@@ -909,8 +910,9 @@ object NuvioRuntime {
             var headers = __normalize_fetch_headers(options.headers);
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
-            // __native_fetch is a synchronous bridge — no await (official NuvioMobile pattern).
-            var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
+            // __native_fetch is an async native bridge — must await so quickjs-kt can
+            // drive the event loop while the HTTP request runs on the IO thread.
+            var result = await __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             return {
                 ok: parsed.ok,
