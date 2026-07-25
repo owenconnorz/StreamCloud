@@ -257,11 +257,25 @@ fun rememberCastController(
     title: String,
     artworkUrl: String? = null,
     contentType: String? = null,
+    headers: Map<String, String> = emptyMap(),
 ): androidx.compose.runtime.MutableState<Boolean> {
     val context = LocalContext.current
     val isCasting = remember { mutableStateOf(false) }
 
-    DisposableEffect(streamUrl, title, artworkUrl, contentType, context) {
+    // Resolve the URL we'll actually give to the Chromecast.
+    // We always route through the local proxy so the phone's IP is used (fixes
+    // Debrid IP-restriction) and custom headers (Referer, UA, etc.) are forwarded.
+    val effectiveCastUrl = remember(streamUrl, headers) {
+        if (streamUrl.isBlank() ||
+            streamUrl.startsWith("http://127.0.0.1") ||
+            streamUrl.startsWith("http://localhost")) {
+            streamUrl // blocked / not proxyable — loadRemoteMedia will reject it
+        } else {
+            CastProxyServer.start(streamUrl, headers) ?: streamUrl
+        }
+    }
+
+    DisposableEffect(effectiveCastUrl, title, artworkUrl, contentType, context) {
         val castContext = runCatching {
             CastContext.getSharedInstance(context.applicationContext)
         }.getOrNull()
@@ -271,7 +285,7 @@ fun rememberCastController(
 
         castContext.sessionManager.currentCastSession?.let { session ->
             isCasting.value = true
-            loadRemoteMedia(session, streamUrl, title, artworkUrl, contentType)
+            loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, contentType)
         }
 
         val listener = object : com.google.android.gms.cast.framework.SessionManagerListener<
@@ -279,14 +293,15 @@ fun rememberCastController(
             > {
             override fun onSessionStarted(session: com.google.android.gms.cast.framework.CastSession, sessionId: String) {
                 isCasting.value = true
-                loadRemoteMedia(session, streamUrl, title, artworkUrl, contentType)
+                loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, contentType)
             }
             override fun onSessionResumed(session: com.google.android.gms.cast.framework.CastSession, wasSuspended: Boolean) {
                 isCasting.value = true
-                loadRemoteMedia(session, streamUrl, title, artworkUrl, contentType)
+                loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, contentType)
             }
             override fun onSessionEnded(session: com.google.android.gms.cast.framework.CastSession, error: Int) {
                 isCasting.value = false
+                CastProxyServer.stop()
             }
             override fun onSessionSuspended(session: com.google.android.gms.cast.framework.CastSession, reason: Int) {
                 isCasting.value = false
@@ -436,7 +451,9 @@ fun CastRemoteController(
         delay(5_000)
         val session = castContext.sessionManager.currentCastSession ?: return@LaunchedEffect
         if (playerState == MediaStatus.PLAYER_STATE_IDLE || playerState == MediaStatus.PLAYER_STATE_UNKNOWN) {
-            loadRemoteMedia(session, streamUrl, title, artworkUrl, null)
+            // Prefer the proxy URL so the retry goes through the phone (fixes IP restriction)
+            val castUrl = CastProxyServer.currentProxyUrl ?: streamUrl
+            loadRemoteMedia(session, castUrl, title, artworkUrl, null)
         }
     }
 
@@ -560,7 +577,8 @@ fun CastRemoteController(
                         onClick = {
                             val session = castContext.sessionManager.currentCastSession
                             if (session != null && streamUrl.isNotBlank()) {
-                                loadRemoteMedia(session, streamUrl, title, artworkUrl, null)
+                                val castUrl = CastProxyServer.currentProxyUrl ?: streamUrl
+                                loadRemoteMedia(session, castUrl, title, artworkUrl, null)
                                 idleSeconds = 0
                             }
                         },
