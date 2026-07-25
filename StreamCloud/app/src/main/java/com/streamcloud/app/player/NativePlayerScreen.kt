@@ -455,6 +455,7 @@ fun NativePlayerScreen(
             // Phone acts as remote — no local video, show the cast controller instead
             com.streamcloud.app.cast.CastRemoteController(
                 title = title,
+                streamUrl = resolvedUrl.orEmpty(),
                 artworkUrl = artworkUrl,
                 onBack = onBack,
                 modifier = Modifier.fillMaxSize(),
