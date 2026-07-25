@@ -251,15 +251,27 @@ object SonosRepository {
 
     fun updateTrack(context: Context, videoId: String, title: String, watchUrl: String) {
         val device = activeDevice ?: return
+        // Reset UI state immediately so the player shows 0:00 for the new track
+        // rather than stale position/duration from the previous one.
+        _sonosPositionMs.value = 0L
+        _sonosDurationMs.value = 0L
+        _isSonosPlaying.value = false
         scope.launch {
             val localIp = SonosDiscovery.localIp(context) ?: return@launch
-            val resolvedUrl: String? = withContext(Dispatchers.IO) {
+
+            // Use resolveAudioFormatInfo (same as connect()) so we also get the mimeType,
+            // which the proxy needs for correct Content-Type in HEAD responses.
+            val formatInfo = withContext(Dispatchers.IO) {
                 if (videoId.isNotBlank())
-                    runCatching { YtPlayerUtils.resolveAudioStream(videoId, sonosSafe = true) }.getOrNull()
+                    runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId, sonosSafe = true) }.getOrNull()
                 else null
-            } ?: withContext(Dispatchers.IO) {
-                runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
             }
+            val resolvedUrl: String? = formatInfo?.url
+                ?: withContext(Dispatchers.IO) {
+                    runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+                }
+            val mimeType = formatInfo?.mimeType?.substringBefore(";")?.trim() ?: "audio/mp4"
+
             // start() calls stop() internally which clears currentTrack — must call
             // start() FIRST, then setTrack(), so Sonos's HEAD probe after setUri finds
             // the track rather than getting a 503 No Track Set response.
@@ -270,11 +282,34 @@ object SonosRepository {
                     title       = title,
                     watchUrl    = watchUrl,
                     resolvedUrl = resolvedUrl,
+                    mimeType    = mimeType,
                 ),
             )
-            SonosController.setUriBoolean(device, proxyUrl, title)
-            SonosController.play(device)
-            _castState.update { CastState.Casting(device, title) }
+
+            // Stop Sonos before SetAVTransportURI — some firmware versions reject the
+            // command while the transport is in PLAYING state, which causes a silent
+            // failure and leaves the player stuck at 0:00 with nothing loading.
+            SonosController.stop(device)
+
+            var uriError = SonosController.setUri(device, proxyUrl, title, mimeType)
+            if (uriError != null) {
+                Log.w(TAG, "updateTrack setUri failed ($uriError), retrying after 1.5 s")
+                delay(1_500L)
+                SonosController.stop(device)
+                uriError = SonosController.setUri(device, proxyUrl, title, mimeType)
+            }
+
+            if (uriError == null) {
+                SonosController.play(device)
+                _isSonosPlaying.value = true
+            } else {
+                Log.w(TAG, "updateTrack setUri failed after retry: $uriError")
+            }
+
+            // Preserve the device reference and display name from the current cast state.
+            _castState.update { cs ->
+                if (cs is CastState.Casting) cs.copy(title = title) else cs
+            }
         }
     }
 
