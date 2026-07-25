@@ -122,6 +122,12 @@ fun MovieDetailScreen(
     var resolverMessage by remember { mutableStateOf<String?>(null) }
     var resolutionJob by remember { mutableStateOf<Job?>(null) }
 
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val playBtnFocus = remember { FocusRequester() }
+    LaunchedEffect(movie != null) {
+        if (isTv && movie != null) try { playBtnFocus.requestFocus() } catch (_: Exception) {}
+    }
+
     var showStreamPicker by remember { mutableStateOf(false) }
     var pickerSeason by remember { mutableStateOf<Int?>(null) }
     var pickerEpisode by remember { mutableStateOf<Int?>(null) }
@@ -354,7 +360,9 @@ fun MovieDetailScreen(
                                     ?: run { resolverMessage = "Seasons not loaded yet." }
                             },
                             enabled = playEnabled && firstSeason != null,
-                            modifier = Modifier.weight(1f).height(52.dp),
+                            modifier = Modifier.weight(1f).height(52.dp)
+                                .tvFocusBorder(RoundedCornerShape(50))
+                                .then(if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier),
                             shape = RoundedCornerShape(50),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.White,
@@ -374,7 +382,9 @@ fun MovieDetailScreen(
                             onClick = {
                                 movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
                             },
-                            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(14.dp))
+                            modifier = Modifier.size(52.dp)
+                                .tvFocusBorder(RoundedCornerShape(14.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(MaterialTheme.colorScheme.surface),
                         ) {
                             Icon(
@@ -392,13 +402,16 @@ fun MovieDetailScreen(
                                 enabled = playEnabled,
                                 loading = resolving,
                                 onClick = { playMovie() },
+                                modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
                             )
                         }
                         IconButton(
                             onClick = {
                                 movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
                             },
-                            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(14.dp))
+                            modifier = Modifier.size(52.dp)
+                                .tvFocusBorder(RoundedCornerShape(14.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(MaterialTheme.colorScheme.surface),
                         ) {
                             Icon(
@@ -1212,11 +1225,21 @@ private fun monthAbbr(m: String): String = when (m) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PlayMovieCta(addonCount: Int, enabled: Boolean, loading: Boolean, onClick: () -> Unit) {
+private fun PlayMovieCta(
+    addonCount: Int,
+    enabled: Boolean,
+    loading: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(50))
+        modifier = modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .tvFocusBorder(RoundedCornerShape(50))
+            .clip(RoundedCornerShape(50))
             .background(if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
             .clickable(enabled = enabled, onClick = onClick),
     ) {
