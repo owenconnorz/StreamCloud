@@ -100,6 +100,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.media3.common.util.UnstableApi
 import com.streamcloud.app.data.util.GoogleAccountHelper
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
@@ -247,11 +248,20 @@ fun StreamCloudApp() {
             (currentRoute == null || tabs.any { it.route == currentRoute })
         val firstRailFocus = remember { FocusRequester() }
         LaunchedEffect(showRail) {
-            if (showRail && isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
+            // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
+            // On TV, it is attached to the hamburger button — see focusRequester() below.
+            if (showRail && !isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
         }
         // TV popup nav state — auto-close on route change
         var tvNavOpen by remember { mutableStateOf(false) }
         LaunchedEffect(currentRoute) { tvNavOpen = false }
+        // Restore focus to the hamburger whenever the TV nav panel closes so that
+        // D-pad navigation continues to work in the content area.
+        LaunchedEffect(tvNavOpen) {
+            if (!tvNavOpen && isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
+        }
+        // Intercept the back button to close the TV nav panel instead of exiting the app.
+        BackHandler(enabled = isTv && tvNavOpen) { tvNavOpen = false }
         Row(
             Modifier
                 .fillMaxSize()
@@ -936,6 +946,7 @@ fun StreamCloudApp() {
                                 .clip(RoundedCornerShape(12.dp))
                                 .tvFocusBorder(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                                .focusRequester(firstRailFocus)
                                 .clickable { tvNavOpen = !tvNavOpen },
                             contentAlignment = Alignment.Center,
                         ) {
