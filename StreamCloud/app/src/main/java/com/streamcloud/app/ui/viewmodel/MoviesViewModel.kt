@@ -341,9 +341,6 @@ class MoviesViewModel(
             }
             _state.update { it.copy(csLoading = true, stremioLoading = true, error = null) }
 
-            // Save to history
-            viewModelScope.launch { runCatching { sl.settings.addMovieSearchHistory(q) } }
-
             // ── TMDB movies (only if not cached) ──────────────────────────
             if (cached == null) {
                 launch {
@@ -402,6 +399,13 @@ class MoviesViewModel(
                 }.getOrDefault(emptyList())
                 _state.update { it.copy(stremioSearchResults = results, stremioLoading = false) }
             }
+        }
+    }
+
+    fun saveToHistory(query: String) {
+        val q = query.trim()
+        if (q.length >= 2) {
+            viewModelScope.launch { runCatching { sl.settings.addMovieSearchHistory(q) } }
         }
     }
 
