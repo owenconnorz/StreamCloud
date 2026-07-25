@@ -280,8 +280,8 @@ fun rememberCastController(
             streamUrl
     }
 
-    // Probe the real Content-Type from the phone (which has the headers), so we can
-    // tell Chromecast the correct MIME type even for extension-less URLs.
+    // HEAD probe — gets the real Content-Type from the server so we tell the
+    // Chromecast receiver the correct MIME (critical for HLS: video/mp4 vs application/x-mpegURL).
     var activeMime by remember { mutableStateOf(resolvedMime) }
     LaunchedEffect(streamUrl) {
         if (streamUrl.isBlank()) return@LaunchedEffect
@@ -303,7 +303,20 @@ fun rememberCastController(
         if (!probed.isNullOrBlank()) activeMime = probed
     }
 
-    DisposableEffect(effectiveCastUrl, title, artworkUrl, resolvedMime, context) {
+    // Re-send to TV whenever activeMime changes (fires once on entry with the
+    // guessed type, then again after the HEAD probe resolves with the real type).
+    // This ensures an already-connected session always gets the correct MIME.
+    LaunchedEffect(effectiveCastUrl, activeMime) {
+        if (effectiveCastUrl.isBlank()) return@LaunchedEffect
+        val castCtx = runCatching {
+            CastContext.getSharedInstance(context.applicationContext)
+        }.getOrNull() ?: return@LaunchedEffect
+        val session = castCtx.sessionManager.currentCastSession ?: return@LaunchedEffect
+        isCasting.value = true
+        loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, activeMime)
+    }
+
+    DisposableEffect(effectiveCastUrl, title, artworkUrl, context) {
         val castContext = runCatching {
             CastContext.getSharedInstance(context.applicationContext)
         }.getOrNull()
@@ -311,10 +324,9 @@ fun rememberCastController(
             return@DisposableEffect onDispose { }
         }
 
-        castContext.sessionManager.currentCastSession?.let { session ->
-            isCasting.value = true
-            loadRemoteMedia(session, effectiveCastUrl, title, artworkUrl, resolvedMime)
-        }
+        // NOTE: do NOT immediately load for an existing session here.
+        // LaunchedEffect(activeMime) above handles that and will reload
+        // automatically once the HEAD probe has the correct MIME type.
 
         val listener = object : com.google.android.gms.cast.framework.SessionManagerListener<
             com.google.android.gms.cast.framework.CastSession,
@@ -488,14 +500,28 @@ fun CastRemoteController(
     }
 
     // After 15 s of genuine IDLE (not UNKNOWN/BUFFERING), automatically retry once.
-    // 5 s was too short — many streams take 8-20 s to buffer before the first frame.
-    // We also don't retry on UNKNOWN because that's the normal loading transition state.
+    // Re-probes the real MIME type before retrying — wrong MIME (e.g. video/mp4
+    // for an HLS stream) is the most common cause of Cast failing silently.
     LaunchedEffect(streamUrl) {
         if (streamUrl.isBlank()) return@LaunchedEffect
         delay(15_000)
         val session = castContext.sessionManager.currentCastSession ?: return@LaunchedEffect
         if (playerState == MediaStatus.PLAYER_STATE_IDLE) {
-            loadRemoteMedia(session, streamUrl, title, artworkUrl, guessMimeType(streamUrl))
+            val mime = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .followRedirects(true).followSslRedirects(true).build()
+                    client.newCall(
+                        okhttp3.Request.Builder().url(streamUrl).head().build()
+                    ).execute().use { resp ->
+                        resp.header("Content-Type")?.substringBefore(';')?.trim()
+                            ?.takeIf { it.isNotBlank() }
+                    }
+                }
+            }.getOrNull() ?: guessMimeType(streamUrl)
+            loadRemoteMedia(session, streamUrl, title, artworkUrl, mime)
         }
     }
 
