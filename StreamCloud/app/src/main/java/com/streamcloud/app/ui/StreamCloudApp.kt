@@ -94,7 +94,10 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.media3.common.util.UnstableApi
 import com.streamcloud.app.data.util.GoogleAccountHelper
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
+import com.streamcloud.app.ui.theme.TvOverscanPadding
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -232,19 +235,30 @@ fun StreamCloudApp() {
         bottomBar = {},
     ) { padding ->
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
+        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
         val showRail = useRail &&
             (currentRoute == null || tabs.any { it.route == currentRoute })
-        Row(Modifier.fillMaxSize().padding(padding)) {
+        val firstRailFocus = remember { FocusRequester() }
+        LaunchedEffect(showRail) {
+            if (showRail && isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
+        }
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .then(if (isTv) Modifier.padding(TvOverscanPadding) else Modifier),
+        ) {
             if (showRail) {
                 NavigationRail(
                     containerColor = MaterialTheme.colorScheme.surface,
                     modifier = Modifier.fillMaxHeight(),
                 ) {
                     Spacer(Modifier.height(16.dp))
-                    if (LocalUiFormFactor.current == UiFormFactor.Tv) {
+                    if (isTv) {
                         NavigationRailItem(
                             selected = currentRoute == "movie-search",
                             onClick = { nav.navigate("movie-search") },
+                            modifier = Modifier.focusRequester(firstRailFocus),
                             icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
                             label = { Text("Search", style = MaterialTheme.typography.labelLarge) },
                             colors = NavigationRailItemDefaults.colors(
@@ -256,11 +270,12 @@ fun StreamCloudApp() {
                             ),
                         )
                     }
-                    tabs.forEach { tab ->
+                    tabs.forEachIndexed { idx, tab ->
                         val selected = currentRoute == tab.route
                         NavigationRailItem(
                             selected = selected,
                             onClick = { navigateToTab(nav, tab.route) },
+                            modifier = if (!isTv && idx == 0) Modifier.focusRequester(firstRailFocus) else Modifier,
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
                             label = { Text(tab.label, style = MaterialTheme.typography.labelLarge) },
                             colors = NavigationRailItemDefaults.colors(
