@@ -1050,50 +1050,86 @@ fun StreamCloudApp() {
                                     .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Surface(
-                                    shape = RoundedCornerShape(50),
-                                    color = if (navLiquidGlass) androidx.compose.ui.graphics.Color.Transparent else navPillColor,
-                                    shadowElevation = if (navLiquidGlass) 0.dp else 10.dp,
-                                    tonalElevation = if (navLiquidGlass) 0.dp else 4.dp,
-                                    modifier = if (navLiquidGlass) Modifier
-                                        .hazeChild(
-                                            state = hazeState,
-                                            shape = RoundedCornerShape(50),
-                                            style = HazeStyle(
-                                                tint = navPillColor.copy(alpha = 0.55f),
-                                                blurRadius = 20.dp,
-                                                noiseFactor = 0.06f,
-                                            ),
-                                        )
-                                        .border(
-                                            width = 0.5.dp,
-                                            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f),
-                                            shape = RoundedCornerShape(50),
-                                        )
-                                    else Modifier,
-                                ) {
-                                    Row(
-                                        Modifier
-                                            .padding(horizontal = 4.dp, vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceEvenly,
-                                        verticalAlignment = Alignment.CenterVertically,
+                                if (navLiquidGlass) {
+                                    // Glass pill: Box + hazeChild so Material3 content-colour
+                                    // resolution is bypassed and icons stay visible.
+                                    Box(
+                                        modifier = Modifier
+                                            .hazeChild(
+                                                state = hazeState,
+                                                shape = RoundedCornerShape(50),
+                                                style = HazeStyle(
+                                                    tint = navPillColor.copy(alpha = 0.55f),
+                                                    blurRadius = 20.dp,
+                                                    noiseFactor = 0.06f,
+                                                ),
+                                            )
+                                            .border(
+                                                width = 0.5.dp,
+                                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.18f),
+                                                shape = RoundedCornerShape(50),
+                                            )
+                                            .clip(RoundedCornerShape(50)),
                                     ) {
-                                        tabs.forEach { tab ->
-                                            val selected = currentRoute == tab.route
-                                            if (tab.route == Tab.Settings.route) {
-                                                ProfileNavItem(
-                                                    selected = selected,
-                                                    showLabel = effectiveShowLabel,
-                                                    onClick = { navigateToTab(nav, tab.route) },
-                                                )
-                                            } else {
-                                                NuvioNavItem(
-                                                    icon = tab.icon,
-                                                    label = tab.label,
-                                                    selected = selected,
-                                                    showLabel = effectiveShowLabel,
-                                                    onClick = { navigateToTab(nav, tab.route) },
-                                                )
+                                        androidx.compose.runtime.CompositionLocalProvider(
+                                            androidx.compose.material3.LocalContentColor provides androidx.compose.ui.graphics.Color.White,
+                                        ) {
+                                            Row(
+                                                Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                tabs.forEach { tab ->
+                                                    val selected = currentRoute == tab.route
+                                                    if (tab.route == Tab.Settings.route) {
+                                                        ProfileNavItem(
+                                                            selected = selected,
+                                                            showLabel = effectiveShowLabel,
+                                                            onClick = { navigateToTab(nav, tab.route) },
+                                                        )
+                                                    } else {
+                                                        NuvioNavItem(
+                                                            icon = tab.icon,
+                                                            label = tab.label,
+                                                            selected = selected,
+                                                            showLabel = effectiveShowLabel,
+                                                            onClick = { navigateToTab(nav, tab.route) },
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = navPillColor,
+                                        shadowElevation = 10.dp,
+                                        tonalElevation = 4.dp,
+                                    ) {
+                                        Row(
+                                            Modifier
+                                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceEvenly,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            tabs.forEach { tab ->
+                                                val selected = currentRoute == tab.route
+                                                if (tab.route == Tab.Settings.route) {
+                                                    ProfileNavItem(
+                                                        selected = selected,
+                                                        showLabel = effectiveShowLabel,
+                                                        onClick = { navigateToTab(nav, tab.route) },
+                                                    )
+                                                } else {
+                                                    NuvioNavItem(
+                                                        icon = tab.icon,
+                                                        label = tab.label,
+                                                        selected = selected,
+                                                        showLabel = effectiveShowLabel,
+                                                        onClick = { navigateToTab(nav, tab.route) },
+                                                    )
+                                                }
                                             }
                                         }
                                     }
