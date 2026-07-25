@@ -1375,7 +1375,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
             SettingsPage.Logs -> LogsPage(onBack = { currentPage = null })
 
             SettingsPage.CsHomeSettings -> SubPageScaffold(
-                title = "Movies home plugins",
+                title = "Pin to home",
                 onBack = { currentPage = null },
             ) {
                 CsHomeSettingsPage(sl = sl, pluginRepo = pluginRepo)
@@ -1638,10 +1638,9 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         item { HubRow(icon = Icons.Default.Person,      title = "Account",             iconTint = ColourAccount,    onClick = { onNavigate(SettingsPage.Account) }) }
         item { HubRow(icon = Icons.Default.Palette,     title = "Appearance",          iconTint = ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }) }
         item { HubRow(icon = Icons.Default.PlayArrow,   title = "Player and audio",    iconTint = ColourPlayer,     onClick = { onNavigate(SettingsPage.PlayerAudio) }) }
-        item { HubRow(icon = Icons.Default.Download,    title = "Downloads",           iconTint = ColourPlayer,     onClick = onOpenDownloads) }
         item { HubRow(icon = Icons.Default.Group,       title = "Listen Together",     iconTint = ColourSonos,      onClick = { onNavigate(SettingsPage.ListenTogether) }) }
         item { HubRow(icon = Icons.Default.Extension,   title = "Plugins & Addons",    iconTint = ColourAi,         onClick = onOpenPlugins) }
-        item { HubRow(icon = Icons.Default.PlayCircle,  title = "Movies home plugins", iconTint = ColourContent,    onClick = { onNavigate(SettingsPage.CsHomeSettings) }) }
+        item { HubRow(icon = Icons.Default.PlayCircle,  title = "Pin to home",         iconTint = ColourContent,    onClick = { onNavigate(SettingsPage.CsHomeSettings) }) }
         item { HubRow(icon = Icons.Default.Layers,      title = "Collections",         iconTint = ColourSystem,     onClick = onOpenCollections) }
         item { HubRow(icon = Icons.Default.Storage,     title = "Storage",             iconTint = ColourStorage,    onClick = { onNavigate(SettingsPage.Storage) }) }
         item { HubRow(icon = Icons.Default.CloudUpload, title = "Backup and restore",  iconTint = ColourSystem,     onClick = { onNavigate(SettingsPage.BackupRestore) }) }
