@@ -269,15 +269,17 @@ fun rememberCastController(
     }
 
     // Resolve the URL we'll actually give to the Chromecast.
-    // We always route through the local proxy so the phone's IP is used (fixes
-    // Debrid IP-restriction) and custom headers (Referer, UA, etc.) are forwarded.
+    // Only route through the local proxy when custom headers are required (Referer, UA, etc.)
+    // or when the URL is a torrent/debrid localhost link.  For plain CDN URLs we give
+    // Chromecast the direct URL, which is simpler and avoids proxy reachability issues.
     val effectiveCastUrl = remember(streamUrl, headers) {
-        if (streamUrl.isBlank() ||
+        when {
+            streamUrl.isBlank() -> streamUrl
             streamUrl.startsWith("http://127.0.0.1") ||
-            streamUrl.startsWith("http://localhost")) {
-            streamUrl // blocked / not proxyable — loadRemoteMedia will reject it
-        } else {
-            CastProxyServer.start(streamUrl, headers) ?: streamUrl
+                streamUrl.startsWith("http://localhost") -> streamUrl // unreachable from TV
+            headers.isNotEmpty() ->
+                CastProxyServer.start(streamUrl, headers) ?: streamUrl
+            else -> streamUrl // direct — no proxy needed
         }
     }
 
@@ -466,8 +468,10 @@ fun CastRemoteController(
                     isPlaying  = state == MediaStatus.PLAYER_STATE_PLAYING
                     if (!isSeeking && dur > 0L) seekProgress = pos.toFloat() / dur
                 }
-                // Count half-seconds spent in IDLE/UNKNOWN (no media loaded)
-                if (state == MediaStatus.PLAYER_STATE_IDLE || state == MediaStatus.PLAYER_STATE_UNKNOWN) {
+                // Count half-seconds spent in genuine IDLE (media explicitly not loaded).
+                // UNKNOWN is a normal in-between state during startup/loading — do NOT treat
+                // it as idle or we'll retry before the stream has had a chance to start.
+                if (state == MediaStatus.PLAYER_STATE_IDLE) {
                     idleSeconds++
                 } else {
                     idleSeconds = 0
@@ -477,12 +481,14 @@ fun CastRemoteController(
         }
     }
 
-    // After ~5 seconds of IDLE with a real URL, automatically retry sending to TV
+    // After 15 s of genuine IDLE (not UNKNOWN/BUFFERING), automatically retry once.
+    // 5 s was too short — many streams take 8-20 s to buffer before the first frame.
+    // We also don't retry on UNKNOWN because that's the normal loading transition state.
     LaunchedEffect(streamUrl) {
         if (streamUrl.isBlank()) return@LaunchedEffect
-        delay(5_000)
+        delay(15_000)
         val session = castContext.sessionManager.currentCastSession ?: return@LaunchedEffect
-        if (playerState == MediaStatus.PLAYER_STATE_IDLE || playerState == MediaStatus.PLAYER_STATE_UNKNOWN) {
+        if (playerState == MediaStatus.PLAYER_STATE_IDLE) {
             val castUrl = CastProxyServer.currentProxyUrl ?: streamUrl
             val mime = (CastProxyServer.detectedContentType?.substringBefore(';')?.trim())
                 ?: guessMimeType(streamUrl)
@@ -490,8 +496,8 @@ fun CastRemoteController(
         }
     }
 
-    // Whether to offer the manual "Send to TV" retry (after 10 poll ticks = 5 s)
-    val showRetry = idleSeconds >= 10 && streamUrl.isNotBlank()
+    // Show the manual "Send to TV" retry button after 30 poll ticks (15 s) of genuine IDLE
+    val showRetry = idleSeconds >= 30 && streamUrl.isNotBlank()
     val isBuffering = playerState == MediaStatus.PLAYER_STATE_BUFFERING
 
     Box(
