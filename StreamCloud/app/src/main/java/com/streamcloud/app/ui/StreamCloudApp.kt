@@ -1,6 +1,7 @@
 package com.streamcloud.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -60,6 +61,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.haze
+import dev.chrisbanes.haze.hazeChild
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
@@ -198,6 +203,10 @@ fun StreamCloudApp() {
         }
     }
 
+    // Liquid glass — backdrop blur for the floating nav pill (Nuvio-style haze).
+    val hazeState = remember { HazeState() }
+    val navLiquidGlass by sl.settings.navLiquidGlass.collectAsState(initial = false)
+
     // Dynamic album-art theme — distinct colour per UI layer (Metrolist-style)
     val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
     val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
@@ -292,7 +301,7 @@ fun StreamCloudApp() {
                     }
                 }
             }
-            Box(Modifier.fillMaxSize().nestedScroll(navScrollConnection)) {
+            Box(Modifier.fillMaxSize().nestedScroll(navScrollConnection).haze(hazeState)) {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxSize()) {
                         val startRoute = resolvedStartRoute
@@ -1043,9 +1052,25 @@ fun StreamCloudApp() {
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(50),
-                                    color = navPillColor,
-                                    shadowElevation = 10.dp,
-                                    tonalElevation = 4.dp,
+                                    color = if (navLiquidGlass) androidx.compose.ui.graphics.Color.Transparent else navPillColor,
+                                    shadowElevation = if (navLiquidGlass) 0.dp else 10.dp,
+                                    tonalElevation = if (navLiquidGlass) 0.dp else 4.dp,
+                                    modifier = if (navLiquidGlass) Modifier
+                                        .hazeChild(
+                                            state = hazeState,
+                                            shape = RoundedCornerShape(50),
+                                            style = HazeStyle(
+                                                backgroundColor = navPillColor.copy(alpha = 0.55f),
+                                                blurRadius = 20.dp,
+                                                noiseFactor = 0.06f,
+                                            ),
+                                        )
+                                        .border(
+                                            width = 0.5.dp,
+                                            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f),
+                                            shape = RoundedCornerShape(50),
+                                        )
+                                    else Modifier,
                                 ) {
                                     Row(
                                         Modifier

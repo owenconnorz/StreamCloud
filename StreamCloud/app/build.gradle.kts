@@ -151,8 +151,6 @@ dependencies {
     // for animated NSFW posts. Without this, AsyncImage renders only the first
     // frame.
     implementation("io.coil-kt:coil-gif:2.7.0")
-    // Video frame decoder — required for thumbnail extraction in LocalFilesScreen.
-    implementation("io.coil-kt:coil-video:2.7.0")
 
     // DataStore
     implementation("androidx.datastore:datastore-preferences:1.1.1")
@@ -221,5 +219,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
     implementation("androidx.mediarouter:mediarouter:1.7.0")
 
-    testImplementation("junit:junit:4.13.2")
+    // Haze — GPU-backed backdrop blur for the liquid glass nav pill.
+    // Same library used by Nuvio (ModernSidebarBlurPanel).
+    implementation("dev.chrisbanes.haze:haze:1.5.1")
 }
