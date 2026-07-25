@@ -183,7 +183,8 @@ object NuvioRuntime {
             }
         } catch (e: QuickJsException) {
             Log.w(TAG, "QuickJS error in $scriptKey: ${e.message}", e)
-            lastErrorByScript[scriptKey] = "JS error: ${e.message?.take(200)}"
+            val msg = e.message?.takeIf { it.isNotBlank() && it != "null" } ?: "Provider threw an exception"
+            lastErrorByScript[scriptKey] = "JS error: ${msg.take(200)}"
             emptyList()
         } catch (e: Throwable) {
             Log.w(TAG, "Provider $scriptKey crashed: ${e.message}", e)
@@ -610,6 +611,11 @@ object NuvioRuntime {
 
 
 
+    // Jsoup does not support the quoted form of :contains() used by cheerio-style selectors.
+    // Strip the quotes so `:contains("text")` → `:contains(text)`.
+    private val containsRegex = Regex(""":contains\(["']([^"']+)["']\)""")
+    private fun normalizeSelector(sel: String) = sel.replace(containsRegex, ":contains($1)")
+
     private fun com.dokar.quickjs.QuickJs.installCheerioBindings(
         documentCache: MutableMap<String, Document>,
         elementCache: MutableMap<String, Element>,
@@ -623,7 +629,8 @@ object NuvioRuntime {
         }
         function("__cheerio_select") { args ->
             val docId = args.getOrNull(0)?.toString().orEmpty()
-            val selector = args.getOrNull(1)?.toString().orEmpty()
+            val rawSel = args.getOrNull(1)?.toString().orEmpty()
+            val selector = normalizeSelector(rawSel)
             val doc = documentCache[docId] ?: return@function "[]"
             runCatching {
                 val els = if (selector.isEmpty()) emptyList() else doc.select(selector).toList()
@@ -638,7 +645,8 @@ object NuvioRuntime {
         function("__cheerio_find") { args ->
             val docId = args.getOrNull(0)?.toString().orEmpty()
             val elementId = args.getOrNull(1)?.toString().orEmpty()
-            val selector = args.getOrNull(2)?.toString().orEmpty()
+            val rawSel = args.getOrNull(2)?.toString().orEmpty()
+            val selector = normalizeSelector(rawSel)
             val element = elementCache[elementId] ?: return@function "[]"
             runCatching {
                 val els = element.select(selector).toList()
