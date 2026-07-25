@@ -86,16 +86,16 @@ object NuvioRuntime {
                     null
                 }
 
-                // Step 1: polyfills (sync)
+                // Step 1: polyfills — matches official JsBindings.buildPolyfillCode exactly.
                 evaluate<Any?>(buildPolyfillCode(scriptKey))
 
-                // Step 2: inject per-execution globals at the TOP LEVEL (persists across evals)
-                val seasonArg = season?.toString() ?: "undefined"
-                val episodeArg = episode?.toString() ?: "undefined"
-                val tmdbIdJson = jsString(tmdbId)
-                val imdbIdJson = if (imdbId != null) jsString(imdbId) else "undefined"
+                // Step 2: extra per-run globals (not in official but harmless for compat).
+                // Providers that read tmdbId/imdbId/mediaType as free globals find them here.
+                val seasonArg    = season?.toString()  ?: "undefined"
+                val episodeArg   = episode?.toString() ?: "undefined"
+                val tmdbIdJson   = jsString(tmdbId)
+                val imdbIdJson   = if (imdbId != null) jsString(imdbId) else "undefined"
                 val mediaTypeJson = jsString(mediaType)
-                val scriptKeyJson = jsString(scriptKey)
                 evaluate<Any?>("""
                     globalThis.tmdbId    = $tmdbIdJson;
                     globalThis.imdbId    = $imdbIdJson;
@@ -103,73 +103,46 @@ object NuvioRuntime {
                     globalThis.type      = $mediaTypeJson;
                     globalThis.season    = $seasonArg;
                     globalThis.episode   = $episodeArg;
-                    globalThis.params    = {
-                        tmdbId: $tmdbIdJson, imdbId: $imdbIdJson, mediaType: $mediaTypeJson,
-                        season: $seasonArg, episode: $episodeArg, scraperId: $scriptKeyJson,
-                        settings: globalThis.SCRAPER_SETTINGS || {},
-                        type: $mediaTypeJson, id: $tmdbIdJson,
-                        tmdb_id: $tmdbIdJson, movieId: $tmdbIdJson, movie_id: $tmdbIdJson,
-                        imdbID: $imdbIdJson, imdb_id: $imdbIdJson,
-                        seriesId: $tmdbIdJson, showId: $tmdbIdJson, contentType: $mediaTypeJson
-                    };
-                    var module = { exports: {} };
-                    var exports = module.exports;
                 """.trimIndent())
 
+                // Step 3: wrappedCode — EXACT copy of official PluginRuntime.kt.
+                // module declaration + provider IIFE are ONE evaluate call so that
+                // `module` is in scope when the IIFE runs and sets module.exports.
+                val wrappedCode = """
+                    var module = { exports: {} };
+                    var exports = module.exports;
+                    (function() {
+                        $scriptText
+                    })();
+                """.trimIndent()
+                evaluate<Any?>(wrappedCode)
 
-
-
-
-
-
-
-
-
-
-
-
-                // Step 3: evaluate provider code in a SYNCHRONOUS IIFE (official pattern).
-                // This mirrors PluginRuntime.kt: (function() { $code })()
-                // Function declarations inside are scoped here; module.exports assignments
-                // propagate to the top-level module variable declared in step 2.
-                evaluate<Any?>("(function() {\n$scriptText\n})();")
-
-                // Step 4: async IIFE that calls getStreams and fires __capture_result.
-                // Mirrors official PluginRuntime.kt callCode exactly, with extra fallbacks.
+                // Step 4: callCode — EXACT copy of official PluginRuntime.kt.
+                // Args passed by direct interpolation; always 4 positional (official API).
                 val callCode = """
                     (async function() {
                         try {
-                            var __fn = module.exports.getStreams
+                            var getStreams = module.exports.getStreams
                                 || (module.exports.default && module.exports.default.getStreams)
-                                || globalThis.getStreams
-                                || null;
-                            if (typeof __fn !== 'function') {
-                                console.error('[provider] getStreams not found. module.exports keys:', Object.keys(module.exports || {}).join(', '));
-                                __capture_result('[]');
+                                || globalThis.getStreams;
+                            if (!getStreams) {
+                                console.error('[provider] getStreams not found on module.exports or globalThis');
+                                __capture_result(JSON.stringify([]));
                                 return;
                             }
-                            var __p = globalThis.params;
-                            var __arr;
-                            if (__fn.length >= 2) {
-                                __arr = await __fn(__p.tmdbId, __p.mediaType, __p.season, __p.episode);
-                            } else if (__fn.length === 1) {
-                                var __src = '';
-                                try { __src = __fn.toString(); } catch(e) {}
-                                __arr = await __fn(/\(\s*\{/.test(__src) ? __p : __p.tmdbId);
-                            } else {
-                                __arr = await __fn();
-                            }
-                            __capture_result(JSON.stringify(__arr || []));
+                            var result = await getStreams($tmdbIdJson, $mediaTypeJson, $seasonArg, $episodeArg);
+                            __capture_result(JSON.stringify(result || []));
                         } catch (e) {
-                            console.error('[provider] getStreams threw:', e && e.message ? e.message : e, e && e.stack ? e.stack : '');
-                            __capture_result('[]');
+                            console.error('[provider] getStreams error:', e && e.message ? e.message : e, e && e.stack ? e.stack : '');
+                            __capture_result(JSON.stringify([]));
                         }
                     })();
                 """.trimIndent()
                 evaluate<Any?>(callCode)
 
-                // Step 5: wait for __capture_result inside the quickJs block so the
-                // event loop can drive Promise resolution while we wait.
+                // Step 5: await inside the quickJs block — official pattern.
+                // quickjs-kt drives the JS event loop while suspended here, allowing
+                // the async IIFE Promises to resolve and __capture_result to fire.
                 val capturedJson = deferred.await()
                 val streams = parseStreams(capturedJson)
                 Log.i(TAG, "$scriptKey returned ${streams.size} stream(s)")
