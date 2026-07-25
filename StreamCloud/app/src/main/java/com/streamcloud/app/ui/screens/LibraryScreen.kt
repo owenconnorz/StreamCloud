@@ -60,6 +60,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 
 private enum class LibTab(val label: String) {
     Playlists("Playlists"),
@@ -79,6 +81,8 @@ fun LibraryScreen(
     onCsClick: (plugin: String, url: String, title: String, poster: String?) -> Unit = { _, _, _, _ -> },
 ) {
     val context = LocalContext.current
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val gridColumns = if (isTv) 4 else 2
     val dao = remember { LibraryDb.get(context).tracks() }
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
@@ -249,7 +253,7 @@ fun LibraryScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
+                    columns = GridCells.Fixed(if (isTv) 5 else 3),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -347,11 +351,11 @@ fun LibraryScreen(
 
             Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
+                columns = GridCells.Fixed(gridColumns),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 16.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 16.dp),
             ) {
                 when (tab) {
                     LibTab.Playlists -> {
@@ -375,7 +379,7 @@ fun LibraryScreen(
                             )
                         }
                         if (ytLibrary.failureReason != null && !ytLoading) {
-                            item(span = { GridItemSpan(2) }) {
+                            item(span = { GridItemSpan(gridColumns) }) {
                                 EmptyStateRow(
                                     message = ytLibrary.failureReason!!,
                                     notSignedIn = ytCookie.isBlank(),
@@ -388,7 +392,7 @@ fun LibraryScreen(
                     }
                     LibTab.Albums -> {
                         if (ytLibrary.albums.isEmpty() && !ytLoading) {
-                            item(span = { GridItemSpan(2) }) {
+                            item(span = { GridItemSpan(gridColumns) }) {
                                 EmptyStateRow(
                                     "No albums in your YouTube Music library.",
                                     ytCookie.isBlank(),
@@ -401,7 +405,7 @@ fun LibraryScreen(
                     }
                     LibTab.Artists -> {
                         if (ytLibrary.artists.isEmpty() && !ytLoading) {
-                            item(span = { GridItemSpan(2) }) {
+                            item(span = { GridItemSpan(gridColumns) }) {
                                 EmptyStateRow(
                                     "You haven't subscribed to any artists.",
                                     ytCookie.isBlank(),
@@ -417,14 +421,14 @@ fun LibraryScreen(
                     LibTab.Songs -> {
 
                         if (ytLibrary.likedSongs.isEmpty() && liked.isEmpty()) {
-                            item(span = { GridItemSpan(2) }) {
+                            item(span = { GridItemSpan(gridColumns) }) {
                                 EmptyStateRow(
                                     "Like a song to see it here.",
                                     ytCookie.isBlank(),
                                 )
                             }
                         }
-                        items(ytLibrary.likedSongs, span = { GridItemSpan(2) }) { s ->
+                        items(ytLibrary.likedSongs, span = { GridItemSpan(gridColumns) }) { s ->
                             YtSongRow(s) {
                                 scope.launch {
                                     runCatching {
@@ -433,7 +437,7 @@ fun LibraryScreen(
                                 }
                             }
                         }
-                        items(liked, span = { GridItemSpan(2) }) { e -> LibTrackRow(e) }
+                        items(liked, span = { GridItemSpan(gridColumns) }) { e -> LibTrackRow(e) }
                     }
                 }
             }
