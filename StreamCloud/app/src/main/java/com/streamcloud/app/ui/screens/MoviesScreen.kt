@@ -50,6 +50,7 @@ import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
+import com.streamcloud.app.ui.viewmodel.HeroBannerItem
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.ui.viewmodel.PinnedCollectionRow
 
@@ -130,7 +131,18 @@ fun MoviesScreen(
                     item(key = "hero_pager") {
                         HeroPager(
                             items = state.heroBanner,
-                            onClick = { onMovieClick(it) },
+                            onClick = { item ->
+                                when {
+                                    item.tmdbId != null && item.mediaType == "tv" -> onTvClick(item.tmdbId)
+                                    item.tmdbId != null -> onMovieClick(item.tmdbId)
+                                    item.stremioMeta != null -> vm.openStremioMeta(item.stremioMeta) { tmdbId, _ ->
+                                        if (tmdbId != null) {
+                                            if (item.stremioMeta.type == "series") onTvClick(tmdbId)
+                                            else onMovieClick(tmdbId)
+                                        }
+                                    }
+                                }
+                            },
                         )
                     }
                 } else {
@@ -493,7 +505,12 @@ private fun MoviesHeader(
             modifier = Modifier.weight(1f),
         )
 
-        IconButton(onClick = onSearchClick) {
+        IconButton(
+            onClick = onSearchClick,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = 0.18f)),
+        ) {
             Icon(
                 Icons.Default.Search,
                 contentDescription = "Search",
@@ -502,7 +519,12 @@ private fun MoviesHeader(
         }
 
         if (hasPlugins) {
-            IconButton(onClick = onPluginsClick) {
+            IconButton(
+                onClick = onPluginsClick,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White.copy(alpha = 0.18f)),
+            ) {
                 Icon(
                     Icons.Default.Extension,
                     contentDescription = "Switch Plugin",
@@ -517,8 +539,8 @@ private fun MoviesHeader(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HeroPager(
-    items: List<TmdbMovie>,
-    onClick: (Long) -> Unit,
+    items: List<HeroBannerItem>,
+    onClick: (HeroBannerItem) -> Unit,
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val pagerState = rememberPagerState(pageCount = { items.size })
@@ -538,8 +560,8 @@ private fun HeroPager(
             modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight),
             pageSpacing = 0.dp,
         ) { page ->
-            val m = items[page]
-            HeroBannerSlide(movie = m, onClick = { onClick(m.id) })
+            val item = items[page]
+            HeroBannerSlide(item = item, onClick = { onClick(item) })
         }
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -563,7 +585,7 @@ private fun HeroPager(
 }
 
 @Composable
-private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
+private fun HeroBannerSlide(item: HeroBannerItem, onClick: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
@@ -571,8 +593,8 @@ private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
-            model = movie.backdropUrl ?: movie.posterUrl,
-            contentDescription = movie.displayTitle,
+            model = item.imageUrl,
+            contentDescription = item.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
@@ -596,7 +618,7 @@ private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                movie.displayTitle,
+                item.title,
                 style = MaterialTheme.typography.displayLarge.copy(
                     fontWeight = FontWeight.Black,
                     fontSize = 36.sp,
@@ -608,9 +630,9 @@ private fun HeroBannerSlide(movie: TmdbMovie, onClick: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             val meta = listOfNotNull(
-                "Movie",
-                movie.releaseDate?.takeIf { it.isNotBlank() }?.substringBefore('-'),
-                movie.voteAverage?.takeIf { it > 0 }?.let { String.format("%.1f ★", it) },
+                if (item.mediaType == "tv") "Series" else "Movie",
+                item.year.takeIf { it.isNotBlank() },
+                item.rating.takeIf { it.isNotBlank() },
             ).joinToString("  •  ")
             Text(
                 meta,
