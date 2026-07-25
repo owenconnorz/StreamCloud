@@ -2,8 +2,10 @@ package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -27,9 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
@@ -233,7 +232,7 @@ private fun RecentSearches(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Results list
+// Results list — Nuvio-style: one horizontal scroll row per section
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -270,202 +269,171 @@ private fun CombinedResultsList(
         contentPadding = PaddingValues(
             top = padding.calculateTopPadding() + 8.dp,
             bottom = 32.dp,
-            start = 12.dp,
-            end = 12.dp,
         ),
         modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         // ── Series (TMDB TV) ──────────────────────────────────────────────
         if (state.tvSearchResults.isNotEmpty() || state.seriesLoading) {
-            item(key = "series-header") {
-                SectionHeader(
-                    title = "Series",
+            item(key = "series-section") {
+                NuvioSection(
+                    header = "TMDB \u2022 Series",
                     loading = state.seriesLoading,
-                    topPadding = 0.dp,
-                )
-            }
-            state.tvSearchResults.forEachIndexed { idx, movie ->
-                item(key = "tv-$idx") {
-                    LandscapeCardItem(
-                        imageUrl = movie.backdropUrl ?: movie.posterUrl,
-                        title = movie.displayTitle,
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onTvClick(movie.id) },
-                    )
-                    Spacer(Modifier.height(8.dp))
+                ) {
+                    state.tvSearchResults.forEach { movie ->
+                        NuvioCard(
+                            imageUrl = movie.backdropUrl ?: movie.posterUrl,
+                            title = movie.displayTitle,
+                            onClick = { onTvClick(movie.id) },
+                        )
+                    }
                 }
             }
         }
 
         // ── Movies (TMDB) ─────────────────────────────────────────────────
         if (state.searchResults.isNotEmpty() || state.moviesLoading) {
-            item(key = "movies-header") {
-                SectionHeader(
-                    title = "Movies",
+            item(key = "movies-section") {
+                NuvioSection(
+                    header = "TMDB \u2022 Movies",
                     loading = state.moviesLoading,
-                    topPadding = if (state.tvSearchResults.isNotEmpty() || state.seriesLoading) 20.dp else 0.dp,
-                )
-            }
-            state.searchResults.forEachIndexed { idx, movie ->
-                item(key = "movie-$idx") {
-                    LandscapeCardItem(
-                        imageUrl = movie.backdropUrl ?: movie.posterUrl,
-                        title = movie.displayTitle,
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onMovieClick(movie.id) },
-                    )
-                    Spacer(Modifier.height(8.dp))
+                ) {
+                    state.searchResults.forEach { movie ->
+                        NuvioCard(
+                            imageUrl = movie.backdropUrl ?: movie.posterUrl,
+                            title = movie.displayTitle,
+                            onClick = { onMovieClick(movie.id) },
+                        )
+                    }
                 }
             }
         }
 
-        // ── CloudStream ───────────────────────────────────────────────────
-        if (csGrouped.isNotEmpty() || state.csLoading) {
-            val hasPrevSection = state.searchResults.isNotEmpty() || state.tvSearchResults.isNotEmpty() ||
-                state.moviesLoading || state.seriesLoading
-            item(key = "cs-header") {
-                SectionHeader(
-                    title = "CloudStream",
-                    loading = state.csLoading,
-                    topPadding = if (hasPrevSection) 20.dp else 0.dp,
-                )
-            }
-            csGrouped.forEach { (pluginName, results) ->
-                item(key = "cs-plugin-$pluginName") {
-                    Text(
-                        pluginName,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
-                    )
-                }
-                results.forEachIndexed { idx, r ->
-                    item(key = "cs-$pluginName-$idx") {
-                        LandscapeCardItem(
+        // ── CloudStream — one section per plugin ──────────────────────────
+        csGrouped.forEach { (pluginName, results) ->
+            item(key = "cs-$pluginName-section") {
+                NuvioSection(
+                    header = "$pluginName \u2022 Search",
+                    loading = false,
+                ) {
+                    results.forEach { r ->
+                        NuvioCard(
                             imageUrl = r.item.posterUrl,
                             title = r.item.name,
-                            modifier = Modifier.fillMaxWidth(),
                             onClick = { onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl) },
                         )
-                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
         }
-
-        // ── Stremio ───────────────────────────────────────────────────────
-        if (stremioGrouped.isNotEmpty() || state.stremioLoading) {
-            val hasPrevSection = state.searchResults.isNotEmpty() || state.tvSearchResults.isNotEmpty() ||
-                csGrouped.isNotEmpty() || state.moviesLoading || state.seriesLoading || state.csLoading
-            item(key = "stremio-header") {
-                SectionHeader(
-                    title = "Stremio",
-                    loading = state.stremioLoading,
-                    topPadding = if (hasPrevSection) 20.dp else 0.dp,
-                )
+        if (state.csLoading && csGrouped.isEmpty()) {
+            item(key = "cs-loading") {
+                NuvioSection(header = "CloudStream \u2022 Search", loading = true) {}
             }
-            stremioGrouped.forEach { (addonName, results) ->
-                item(key = "stremio-addon-$addonName") {
-                    Text(
-                        addonName,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
-                    )
-                }
-                results.forEachIndexed { idx, r ->
-                    item(key = "stremio-$addonName-$idx") {
-                        LandscapeCardItem(
+        }
+
+        // ── Stremio — one section per addon ───────────────────────────────
+        stremioGrouped.forEach { (addonName, results) ->
+            item(key = "stremio-$addonName-section") {
+                NuvioSection(
+                    header = "$addonName \u2022 Search",
+                    loading = false,
+                ) {
+                    results.forEach { r ->
+                        NuvioCard(
                             imageUrl = r.item.poster,
                             title = r.item.name,
-                            modifier = Modifier.fillMaxWidth(),
                             onClick = { onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster) },
                         )
-                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
         }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared card components
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun LandscapeCardItem(
-    imageUrl: String?,
-    title: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomStart)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f)),
-                        ),
-                    )
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-            ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 11.sp,
-                    ),
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        if (state.stremioLoading && stremioGrouped.isEmpty()) {
+            item(key = "stremio-loading") {
+                NuvioSection(header = "Stremio \u2022 Search", loading = true) {}
             }
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Nuvio-style section: header + horizontal card row
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
-private fun SectionHeader(title: String, loading: Boolean, topPadding: Dp = 0.dp) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(top = topPadding, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(18.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary,
+private fun NuvioSection(
+    header: String,
+    loading: Boolean,
+    cards: @Composable () -> Unit,
+) {
+    Column {
+        // Header row
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 0.dp)
+                .padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                header,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground,
             )
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
+
+        NuvioCardRow(cards = cards)
+    }
+}
+
+@Composable
+private fun NuvioCardRow(cards: @Composable () -> Unit) {
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        content = {
+            Spacer(Modifier.width(6.dp))
+            cards()
+            Spacer(Modifier.width(6.dp))
+        },
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Individual card — half screen width, 16:9, image only
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun NuvioCard(
+    imageUrl: String?,
+    title: String,
+    onClick: () -> Unit,
+) {
+    val cardWidth = 185.dp
+    Box(
+        modifier = Modifier
+            .width(cardWidth)
+            .aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable(onClick = onClick),
+    ) {
+        AsyncImage(
+            model = imageUrl,
+            contentDescription = title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
