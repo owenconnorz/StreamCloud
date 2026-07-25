@@ -78,7 +78,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
-import coil.request.videoFrameMillis
+import coil.video.videoFrameMillis
 import com.streamcloud.app.data.local.LocalAudioItem
 import com.streamcloud.app.data.local.LocalImageItem
 import com.streamcloud.app.data.local.LocalMediaPermissions
