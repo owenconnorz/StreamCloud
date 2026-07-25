@@ -529,7 +529,11 @@ private fun StremioAddonsPage(
             }
 
             items(state.stremioAddons, key = { it.manifestUrl }) { addon ->
-                StremioAddonRow(addon, onRemove = { vm.removeStremioAddon(addon.manifestUrl) })
+                StremioAddonRow(
+                    addon,
+                    onSync = { vm.syncStremioCollections(addon.manifestUrl) },
+                    onRemove = { vm.removeStremioAddon(addon.manifestUrl) },
+                )
             }
         }
     }
@@ -1004,6 +1008,7 @@ private fun NuvioSavedRepoRow(
 @Composable
 private fun StremioAddonRow(
     addon: com.streamcloud.app.data.stremio.InstalledStremioAddon,
+    onSync: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Row(
@@ -1046,6 +1051,9 @@ private fun StremioAddonRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        IconButton(onClick = onSync) {
+            Icon(Icons.Default.Refresh, "Sync Collections", tint = MaterialTheme.colorScheme.primary)
         }
         IconButton(onClick = onRemove) {
             Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error)
