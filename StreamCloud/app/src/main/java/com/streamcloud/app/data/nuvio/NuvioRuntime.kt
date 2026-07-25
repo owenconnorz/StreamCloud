@@ -277,7 +277,7 @@ object NuvioRuntime {
 
 
     private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?, scriptKey: String) {
-        asyncFunction("__native_fetch") { args ->
+        function("__native_fetch") { args: Array<Any?> ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
             val headersJson = args.getOrNull(2)?.toString() ?: "{}"
@@ -285,7 +285,7 @@ object NuvioRuntime {
             val followRedirects = args.getOrNull(4) as? Boolean ?: true
             Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
             lastFetchCountByScript.merge(scriptKey, 1, Int::plus)
-            val result = performFetch(url, method, headersJson, body, followRedirects, context)
+            val result = kotlinx.coroutines.runBlocking { performFetch(url, method, headersJson, body, followRedirects, context) }
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
             // Providers that silently return [] on !response.ok would otherwise show only the
             // generic "provider returned empty list" message — with this we show the real cause.
@@ -969,9 +969,10 @@ object NuvioRuntime {
             }
             var body = options.body || '';
             var followRedirects = options.redirect !== 'manual';
-            // __native_fetch is now an asyncFunction (returns a Promise); await it so
-            // QuickJS processes it through the proper coroutine → Promise mechanism.
-            var result = await __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
+            // __native_fetch is a synchronous native bridge (blocks thread via runBlocking
+            // internally); call it directly without await to match the official NuvioMobile
+            // runtime behaviour exactly.
+            var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
             var parsed = JSON.parse(result);
             return {
                 ok: parsed.ok, status: parsed.status, statusText: parsed.statusText,
@@ -1245,6 +1246,82 @@ object NuvioRuntime {
                 var hex = '';
                 for (var i = 0; i < buf.length; i++) hex += ('00' + buf[i].toString(16)).slice(-2);
                 return __crypto_hex_to_utf8(hex);
+            };
+        }
+
+        // ── ES2019+ Array polyfills ────────────────────────────────────────────
+        if (!Array.prototype.flat) {
+            Array.prototype.flat = function(depth) {
+                depth = depth === undefined ? 1 : Math.floor(depth);
+                if (depth < 1) return Array.prototype.slice.call(this);
+                return (function flatten(arr, d) {
+                    return d > 0
+                        ? arr.reduce(function(acc, val) {
+                            return acc.concat(Array.isArray(val) ? flatten(val, d - 1) : val);
+                          }, [])
+                        : arr.slice();
+                })(this, depth);
+            };
+        }
+        if (!Array.prototype.flatMap) {
+            Array.prototype.flatMap = function(callback, thisArg) {
+                return this.map(callback, thisArg).flat();
+            };
+        }
+        if (!Array.prototype.at) {
+            Array.prototype.at = function(index) {
+                var i = Math.trunc(index) || 0;
+                if (i < 0) i += this.length;
+                if (i < 0 || i >= this.length) return undefined;
+                return this[i];
+            };
+        }
+
+        // ── ES2017+ Object polyfills ───────────────────────────────────────────
+        if (!Object.entries) {
+            Object.entries = function(obj) {
+                var result = [];
+                for (var key in obj) {
+                    if (Object.prototype.hasOwnProperty.call(obj, key)) result.push([key, obj[key]]);
+                }
+                return result;
+            };
+        }
+        if (!Object.fromEntries) {
+            Object.fromEntries = function(entries) {
+                var result = {};
+                var iter = typeof entries[Symbol.iterator] === 'function' ? entries : Object.keys(entries).map(function(k) { return [k, entries[k]]; });
+                var arr = Array.isArray(iter) ? iter : Array.from ? Array.from(iter) : (function(it) { var a = []; var n = it.next(); while (!n.done) { a.push(n.value); n = it.next(); } return a; })(iter[Symbol.iterator]());
+                for (var i = 0; i < arr.length; i++) result[arr[i][0]] = arr[i][1];
+                return result;
+            };
+        }
+        if (!Object.values) {
+            Object.values = function(obj) {
+                var result = [];
+                for (var key in obj) {
+                    if (Object.prototype.hasOwnProperty.call(obj, key)) result.push(obj[key]);
+                }
+                return result;
+            };
+        }
+
+        // ── ES2021 String polyfill ─────────────────────────────────────────────
+        if (!String.prototype.replaceAll) {
+            String.prototype.replaceAll = function(search, replace) {
+                if (search instanceof RegExp) {
+                    if (!search.global) throw new TypeError('replaceAll must be called with a global RegExp');
+                    return this.replace(search, replace);
+                }
+                return this.split(search).join(replace);
+            };
+        }
+        if (!String.prototype.at) {
+            String.prototype.at = function(index) {
+                var i = Math.trunc(index) || 0;
+                if (i < 0) i += this.length;
+                if (i < 0 || i >= this.length) return undefined;
+                return this[i];
             };
         }
 
