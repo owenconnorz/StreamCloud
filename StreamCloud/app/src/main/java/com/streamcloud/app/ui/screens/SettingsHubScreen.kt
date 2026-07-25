@@ -2353,13 +2353,10 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
     // All possible tabs — always shown so the user can enable any of them
     val all = remember {
         listOf(
-            NavItem("music",       "Music",       Icons.Default.MusicNote),
-            NavItem("library",     "Library",     Icons.Default.FormatListBulleted),
-            NavItem("movies",      "Movies",      Icons.Default.PlayArrow),
-            NavItem("local_files", "Local Files", Icons.Default.Folder),
-            NavItem("live_tv",     "Live TV",     Icons.Default.LiveTv),
-            NavItem("adult",       "Adult",       Icons.Default.Visibility),
-            NavItem("pornpop",     "PornPop",     Icons.Default.AutoAwesome),
+            NavItem("music",   "Music",   Icons.Default.MusicNote),
+            NavItem("library", "Library", Icons.Default.FormatListBulleted),
+            NavItem("movies",  "Movies",  Icons.Default.PlayArrow),
+            NavItem("adult",   "Adult",   Icons.Default.Visibility),
         )
     }
     val byId = all.associateBy { it.id }
@@ -2370,7 +2367,7 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
         val hidden  = (sl.settings.navHiddenTabsCsv.first() ?: "")
             .split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
         val nsfw    = sl.settings.nsfwEnabled.first()
-        val adultIds = setOf("adult", "pornpop")
+        val adultIds = setOf("adult")
         val saved   = csv?.split(",")?.mapNotNull { byId[it.trim()] } ?: emptyList()
         val remaining = all.filter { it.id !in saved.map { s -> s.id } }
         order = (saved + remaining).distinctBy { it.id }.map { item ->
@@ -2479,7 +2476,7 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
             TextButton(onClick = {
                 scope.launch {
                     val hiddenIds = order.filter { !it.enabled }.map { it.id }
-                    val adultOn   = order.any { it.id in setOf("adult", "pornpop") && it.enabled }
+                    val adultOn   = order.any { it.id == "adult" && it.enabled }
                     sl.settings.setNavTabOrder(order.map { it.id })
                     sl.settings.setNavHiddenTabs(hiddenIds.joinToString(","))
                     sl.settings.setNsfwEnabled(adultOn)
