@@ -94,7 +94,8 @@ object SettingsKeys {
     val NUVIO_EMAIL         = stringPreferencesKey("nuvio_email")
     val NUVIO_USER_ID       = stringPreferencesKey("nuvio_user_id")
 
-    val MUSIC_SEARCH_HISTORY = stringPreferencesKey("music_search_history")
+    val MUSIC_SEARCH_HISTORY  = stringPreferencesKey("music_search_history")
+    val MOVIE_SEARCH_HISTORY  = stringPreferencesKey("movie_search_history")
 
     // Movies / video
     val MOVIES_THEME          = stringPreferencesKey("movies_theme")
@@ -287,6 +288,38 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun clearMusicSearchHistory() =
         context.dataStore.edit { it.remove(SettingsKeys.MUSIC_SEARCH_HISTORY) }
+
+    val movieSearchHistory: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        prefs[SettingsKeys.MOVIE_SEARCH_HISTORY]
+            ?.takeIf { it.isNotBlank() }
+            ?.split("|||")
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+    }
+
+    suspend fun addMovieSearchHistory(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val current = prefs[SettingsKeys.MOVIE_SEARCH_HISTORY]
+                ?.split("|||")?.filter { it.isNotBlank() }?.toMutableList() ?: mutableListOf()
+            current.removeIf { it.equals(trimmed, ignoreCase = true) }
+            current.add(0, trimmed)
+            prefs[SettingsKeys.MOVIE_SEARCH_HISTORY] = current.take(15).joinToString("|||")
+        }
+    }
+
+    suspend fun removeMovieSearchHistory(query: String) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[SettingsKeys.MOVIE_SEARCH_HISTORY]
+                ?.split("|||")?.filter { it.isNotBlank() && !it.equals(query, ignoreCase = true) }
+                ?: emptyList()
+            prefs[SettingsKeys.MOVIE_SEARCH_HISTORY] = current.joinToString("|||")
+        }
+    }
+
+    suspend fun clearMovieSearchHistory() =
+        context.dataStore.edit { it.remove(SettingsKeys.MOVIE_SEARCH_HISTORY) }
 
 
     val skipSilence: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.SKIP_SILENCE] ?: false }
