@@ -16,6 +16,13 @@ data class StremioManifest(
     val types: List<String> = emptyList(),
     val catalogs: List<StremioCatalogDef> = emptyList(),
     val idPrefixes: List<String>? = null,
+    val catalogGroups: List<StremioManifestGroup>? = null,
+)
+
+@Serializable
+data class StremioManifestGroup(
+    val name: String,
+    val catalogs: List<StremioCatalogDef> = emptyList(),
 )
 
 @Serializable
@@ -24,6 +31,9 @@ data class StremioCatalogDef(
     val id: String,
     val name: String? = null,
     val extra: List<StremioExtra>? = null,
+    val group: String? = null,
+    val poster: String? = null,
+    val logo: String? = null,
 )
 
 @Serializable
