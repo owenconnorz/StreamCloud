@@ -490,6 +490,8 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("cloudstream-movie/$n/$t")
                         },
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
                     )
                 }
                 composable(
@@ -515,6 +517,8 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("cloudstream-movie/$n/$t")
                         },
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
                     )
                 }
                 composable(
