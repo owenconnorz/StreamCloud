@@ -237,6 +237,7 @@ class MoviesViewModel(
             .flatMap { row -> row.items.take(2) }
             .distinctBy { it.id }
             .filter { !it.backdropUrl.isNullOrBlank() || !it.posterUrl.isNullOrBlank() }
+            .shuffled()
             .take(8)
             .map { m ->
                 HeroBannerItem(
@@ -288,6 +289,7 @@ class MoviesViewModel(
                 .flatMap { row -> row.items.take(2) }
                 .distinctBy { it.id }
                 .filter { !it.background.isNullOrBlank() || !it.poster.isNullOrBlank() }
+                .shuffled()
                 .take(6)
                 .map { meta ->
                     HeroBannerItem(
