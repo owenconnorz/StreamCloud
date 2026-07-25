@@ -470,6 +470,8 @@ class NuvioAccountService(private val context: Context) {
             val collectionDao = db.userCollections()
             val folderDao = db.collectionFolders()
             val allCols = collectionDao.all().first()
+            // Pre-fetch folders outside the buildJsonArray lambda (suspend calls not allowed inside)
+            val foldersByCol = allCols.associate { col -> col.id to folderDao.forCollectionOnce(col.id) }
             val arr = buildJsonArray {
                 allCols.forEachIndexed { idx, col ->
                     addJsonObject {
@@ -477,7 +479,7 @@ class NuvioAccountService(private val context: Context) {
                         put("is_pinned", col.isPinned)
                         put("sort_order", col.sortOrder)
                         put("source_addon_id", col.sourceAddonId)
-                        val folders = folderDao.forCollectionOnce(col.id)
+                        val folders = foldersByCol[col.id] ?: emptyList()
                         put("folders", buildJsonArray {
                             folders.forEach { f ->
                                 addJsonObject {
