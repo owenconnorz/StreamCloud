@@ -78,6 +78,7 @@ data class MoviesState(
     val heroBanner: List<TmdbMovie> = emptyList(),
     val continueWatching: List<WatchProgressEntity> = emptyList(),
     val searchResults: List<TmdbMovie> = emptyList(),
+    val tvSearchResults: List<TmdbMovie> = emptyList(),
     val csSearchResults: List<CsSearchResult> = emptyList(),
     val stremioSearchResults: List<StremioSearchResult> = emptyList(),
     val installedPlugins: List<InstalledPlugin> = emptyList(),
@@ -297,17 +298,20 @@ class MoviesViewModel(
     fun search(query: String) {
         searchJob?.cancel()
         if (query.isBlank()) {
-            _state.update { it.copy(searchResults = emptyList(), csSearchResults = emptyList(), stremioSearchResults = emptyList()) }
+            _state.update { it.copy(searchResults = emptyList(), tvSearchResults = emptyList(), csSearchResults = emptyList(), stremioSearchResults = emptyList()) }
             return
         }
         searchJob = viewModelScope.launch {
             delay(350)
             _state.update { it.copy(loading = true, error = null) }
             try {
-                val tmdbDeferred = async {
+                val tmdbMovieJob = async {
                     runCatching { sl.tmdb.search(sl.tmdbApiKey, query).results }.getOrDefault(emptyList())
                 }
-                val csDeferred = async {
+                val tmdbTvJob = async {
+                    runCatching { sl.tmdb.searchTv(sl.tmdbApiKey, query).results }.getOrDefault(emptyList())
+                }
+                val csJob = async {
                     val plugins = pluginRepo.installed.first()
                     plugins.flatMap { plugin ->
                         runCatching {
@@ -316,23 +320,17 @@ class MoviesViewModel(
                         }.getOrDefault(emptyList())
                     }
                 }
-                val stremioDeferred = async {
+                val stremioJob = async {
                     val addons = stremioRepo.addons.first()
                     stremioRepo.searchAllAddons(addons, query)
                         .map { (addon, meta) -> StremioSearchResult(addon.name, addon.id, meta) }
                 }
-                // Update TMDB results as soon as they arrive so they appear without
-                // waiting for slower CloudStream / Stremio addon searches to finish.
-                val tmdbResults = tmdbDeferred.await()
-                _state.update { it.copy(searchResults = tmdbResults) }
-
-                val csResults = csDeferred.await()
-                _state.update { it.copy(csSearchResults = csResults) }
-
-                val stremioResults = stremioDeferred.await()
                 _state.update {
                     it.copy(
-                        stremioSearchResults = stremioResults,
+                        searchResults = tmdbMovieJob.await(),
+                        tvSearchResults = tmdbTvJob.await(),
+                        csSearchResults = csJob.await(),
+                        stremioSearchResults = stremioJob.await(),
                         loading = false,
                         error = null,
                     )
