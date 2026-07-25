@@ -173,6 +173,7 @@ fun NativePlayerScreen(
         streamUrl = resolvedUrl.orEmpty(),
         title = title,
         artworkUrl = artworkUrl,
+        headers = effectiveHeaders,
     )
 
     // Pause / resume the local player based on cast state so the phone stays silent
