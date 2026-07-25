@@ -168,6 +168,16 @@ class PluginsViewModel(
         stremio.removeAddon(manifestUrl)
     }
 
+    fun syncStremioCollections(manifestUrl: String) = viewModelScope.launch {
+        _state.update { it.copy(info = null) }
+        try {
+            stremio.refreshAddonCollections(manifestUrl)
+            _state.update { it.copy(info = "Collections synced") }
+        } catch (e: Exception) {
+            _state.update { it.copy(error = "Sync failed: ${e.message}") }
+        }
+    }
+
 
     fun loadNuvioRepo(url: String) = viewModelScope.launch {
         if (url.isBlank()) {
@@ -244,11 +254,6 @@ class PluginsViewModel(
                                     val detail = PluginRuntime.loadDetail(context, plugin.filePath, best.url)
                                     val dataUrl = when (detail) {
                                         is com.lagradost.cloudstream3.MovieLoadResponse -> detail.dataUrl
-                                        is com.lagradost.cloudstream3.LiveStreamLoadResponse -> detail.dataUrl
-                                        is com.lagradost.cloudstream3.TvSeriesLoadResponse ->
-                                            detail.episodes.singleOrNull()?.data
-                                        is com.lagradost.cloudstream3.AnimeLoadResponse ->
-                                            detail.episodes.values.flatten().singleOrNull()?.data
                                         else -> null
                                     } ?: return@withTimeoutOrNull 0
                                     val (links, _) = PluginRuntime.loadLinks(context, plugin.filePath, dataUrl, false)
