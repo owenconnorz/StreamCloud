@@ -209,15 +209,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var showSimklDialog     by remember { mutableStateOf(false) }
     var showDiscordDialog   by remember { mutableStateOf(false) }
 
-    val discordLoginLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { _ ->
-        // Refresh token from DataStore after the WebView login activity closes.
-        scope.launch {
-            discordToken = sl.settings.discordToken.first()
-        }
-    }
-
     var discordToken          by remember { mutableStateOf("") }
     var discordRpcEnabled     by remember { mutableStateOf(false) }
     var discordAppName        by remember { mutableStateOf("StreamCloud") }
@@ -229,6 +220,15 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var discordClearPause     by remember { mutableStateOf(false) }
     var discordShowButton     by remember { mutableStateOf(false) }
     var discordActType        by remember { mutableStateOf("2") }
+
+    val discordLoginLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        // Refresh token from DataStore after the WebView login activity closes.
+        scope.launch {
+            discordToken = sl.settings.discordToken.first()
+        }
+    }
 
 
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
