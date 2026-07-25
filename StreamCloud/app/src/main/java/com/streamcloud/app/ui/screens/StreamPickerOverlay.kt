@@ -2,22 +2,14 @@ package com.streamcloud.app.ui.screens
 
 import android.content.Context
 import android.util.Log
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.widget.Toast
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.ExtractorLink
-import com.lagradost.cloudstream3.LiveStreamLoadResponse
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
@@ -43,7 +34,6 @@ import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
 import com.streamcloud.app.data.nuvio.NuvioRuntime
 import com.streamcloud.app.data.nuvio.NuvioStream
-import com.streamcloud.app.data.nuvio.toSummary
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
@@ -53,9 +43,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
-import androidx.compose.ui.unit.sp
 
 private data class PickerGroupState(
     val addonName: String,
@@ -112,9 +100,6 @@ fun StreamPickerOverlay(
     }
     var selectedTab by remember { mutableStateOf(0) }
     var revision by remember { mutableStateOf(0) }
-    // Tracks when the current scan started so we can display elapsed seconds.
-    var scanStartMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var scanElapsedSecs by remember { mutableIntStateOf(0) }
 
     fun updateGroup(key: String, streams: List<PlayerSource>, error: String? = null) {
         groups = groups.toMutableMap().apply {
@@ -123,21 +108,7 @@ fun StreamPickerOverlay(
         }
     }
 
-    // Tick every second so the elapsed-time counter in the header stays current.
-    LaunchedEffect(scanStartMs) {
-        while (true) {
-            delay(1_000L)
-            scanElapsedSecs = ((System.currentTimeMillis() - scanStartMs) / 1_000L).toInt()
-        }
-    }
-
-    // Restart the scan whenever the movie, season, or episode changes —
-    // not just on explicit refresh.  Previously keying only on `revision` meant
-    // a picker opened for movie A would keep showing A's results when the composable
-    // was reused or the movie changed underneath it.
-    LaunchedEffect(revision, tmdbId, imdbId, mediaType, season ?: -1, episode ?: -1) {
-        scanStartMs = System.currentTimeMillis()
-        scanElapsedSecs = 0
+    LaunchedEffect(revision) {
         groups = groupOrder.associate { (key, name) -> key to PickerGroupState(name) }
         selectedTab = 0
 
@@ -171,73 +142,46 @@ fun StreamPickerOverlay(
                 }
             }
 
-            // Each Nuvio provider gets its own coroutine so the UI updates
-            // as soon as each provider finishes — fast providers are not held
-            // back by slow ones.
-            installedNuvio.forEach { provider ->
+            if (installedNuvio.isNotEmpty()) {
                 launch {
-                    val streams = withContext(Dispatchers.IO) {
-                        withTimeoutOrNull(90_000L) {
-                            runCatching {
-                                sl.nuvio.resolveSingle(
-                                    provider = provider,
-                                    tmdbId = tmdbId.toString(),
-                                    mediaType = mediaType,
-                                    season = season,
-                                    episode = episode,
-                                    imdbId = imdbId,
-                                )
-                            }.getOrElse { e ->
-                                Log.d("StreamPicker", "Nuvio ${provider.name}: ${e.message}")
-                                emptyList()
-                            }
-                        } ?: run {
-                            Log.d("StreamPicker", "Nuvio ${provider.name}: timed out after 90s")
+                    val allNuvio = withContext(Dispatchers.IO) {
+                        runCatching {
+                            sl.nuvio.resolveAll(
+                                tmdbId = tmdbId.toString(),
+                                mediaType = mediaType,
+                                season = season,
+                                episode = episode,
+                                imdbId = imdbId,
+                            )
+                        }.getOrElse { e ->
+                            Log.d("StreamPicker", "Nuvio resolveAll error: ${e.message}")
                             emptyList()
                         }
                     }
-                    val sources = streams.map { stream -> stream.pickerToPlayerSource(provider) }
-                    val diagnostics = NuvioRuntime.lastDiagnostics(provider.id)
-                    val fetchCount  = diagnostics?.requestCount ?: NuvioRuntime.lastFetchCount(provider.id)
-                    val lastErr     = NuvioRuntime.lastError(provider.id)
-                    val lastLog     = NuvioRuntime.lastLog(provider.id)
-                    val err = if (sources.isEmpty()) {
-                        val base = when {
-                            lastErr != null && !lastErr.startsWith("No streams found") &&
-                                !lastErr.startsWith("No requests made") -> lastErr
-                            lastLog != null -> lastLog
-                            diagnostics != null -> diagnostics.toSummary()
-                            lastErr != null -> lastErr
-                            else            -> "No streams found"
-                        }
-                        "${base} (${fetchCount} req)"
-                    } else null
-                    updateGroup("nuvio:${provider.id}", streams = sources, error = err)
+                    val byProvider = allNuvio.groupBy { (provider, _) -> provider.id }
+                    installedNuvio.forEach { provider ->
+                        val streams = byProvider[provider.id]
+                            ?.map { (prov, stream) -> stream.pickerToPlayerSource(prov) }
+                            ?: emptyList()
+                        val err = if (streams.isEmpty()) NuvioRuntime.lastError(provider.id) else null
+                        updateGroup("nuvio:${provider.id}", streams = streams, error = err)
+                    }
                 }
             }
 
             eligibleCs.forEach { plugin ->
                 launch {
-                    // Clear any stale error from a previous scan for this plugin before starting.
-                    PluginRuntime.clearLastError(plugin.filePath)
                     val sources = withContext(Dispatchers.IO) {
-                        withTimeoutOrNull(95_000L) {
+                        withTimeoutOrNull(35_000L) {
                             runCatching {
                                 resolveCsForPicker(context, plugin, csTitle, csYear)
                             }.getOrElse { e ->
                                 Log.d("StreamPicker", "CS ${plugin.name}: ${e.message}")
                                 emptyList()
                             }
-                        } ?: run {
-                            Log.d("StreamPicker", "CS ${plugin.name}: timed out after 95s")
-                            emptyList()
-                        }
+                        } ?: emptyList()
                     }
-                    val lastErr = PluginRuntime.lastErrorFor(plugin.filePath)
-                    val err = if (sources.isEmpty()) {
-                        lastErr ?: "No streams found"
-                    } else null
-                    updateGroup("cs:${plugin.internalName}", streams = sources, error = err)
+                    updateGroup("cs:${plugin.internalName}", streams = sources)
                 }
             }
         }
@@ -249,14 +193,10 @@ fun StreamPickerOverlay(
         groupOrder.mapNotNull { (key, _) -> groups[key]?.streams }.flatten()
     }
 
-    val addonTabs = remember(groups, eligibleCs, installedNuvio) {
-        val csKeys = eligibleCs.map { "cs:${it.internalName}" }.toSet()
-        val nuvioKeys = installedNuvio.map { "nuvio:${it.id}" }.toSet()
+    val addonTabs = remember(groups) {
         groupOrder.mapNotNull { (key, name) ->
             val g = groups[key]
-            // CS plugin tabs always stay visible (even with 0 streams) so the user can
-            // see the error. Other provider types only appear while loading or with streams.
-            if (g != null && (g.isLoading || g.streams.isNotEmpty() || key in csKeys || (key in nuvioKeys && g.error != null))) name else null
+            if (g != null && (g.isLoading || g.streams.isNotEmpty())) name else null
         }.distinct()
     }
     val tabs = remember(addonTabs) { listOf("All") + addonTabs }
@@ -336,20 +276,11 @@ fun StreamPickerOverlay(
                         .padding(4.dp),
                 ) {
                     if (isAnyLoading) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(36.dp)) {
-                            CircularProgressIndicator(
-                                Modifier.size(28.dp),
-                                strokeWidth = 2.dp,
-                                color = Color.White,
-                            )
-                            if (scanElapsedSecs > 0) {
-                                Text(
-                                    "${scanElapsedSecs}s",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.sp),
-                                    color = Color.White,
-                                )
-                            }
-                        }
+                        CircularProgressIndicator(
+                            Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White,
+                        )
                     } else {
                         Icon(Icons.Default.Refresh, "Refresh", tint = Color.White)
                     }
@@ -382,65 +313,43 @@ fun StreamPickerOverlay(
                 }
             }
 
-            // Provider filter chips (All + one per provider) – pill-style like Nuvio
             if (tabs.size > 1) {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ScrollableTabRow(
+                    selectedTabIndex = safeTab,
+                    containerColor = MaterialTheme.colorScheme.background,
+                    contentColor = MaterialTheme.colorScheme.onBackground,
+                    edgePadding = 8.dp,
                 ) {
-                    itemsIndexed(tabs) { i, tab ->
-                        val isSelected = i == safeTab
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primary
-                                    else Color.White.copy(alpha = 0.14f)
+                    tabs.forEachIndexed { i, tab ->
+                        Tab(
+                            selected = i == safeTab,
+                            onClick = { selectedTab = i },
+                            text = {
+                                Text(
+                                    tab,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = if (i == safeTab) FontWeight.Bold else FontWeight.Normal,
                                 )
-                                .clickable { selectedTab = i }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                tab,
-                                color = Color.White,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                            },
+                        )
                     }
                 }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             }
 
-            // When no streams have arrived yet, show Nuvio-style centred loading state
-            if (isAnyLoading && allSources.isEmpty()) {
-                Box(
-                    Modifier.fillMaxWidth().weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(42.dp),
-                            strokeWidth = 3.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.height(18.dp))
-                        Text(
-                            "Finding streams…",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                }
-            } else {
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 visibleGroups.forEach { (key, addonName, groupState) ->
+                    // When still loading: show header + progress bar
+                    // When done with streams: show header + streams
+                    // When done with NO streams: hide entirely (clean look)
+                    val doneEmpty = !groupState.isLoading && groupState.streams.isEmpty()
+                    if (doneEmpty) return@forEach
+
                     if (safeTab == 0) {
                         item(key = "hdr:$key") {
                             PickerSectionHeader(
@@ -464,19 +373,6 @@ fun StreamPickerOverlay(
                                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
                             )
                         }
-                    } else if (groupState.streams.isEmpty()) {
-                        item(key = "empty:$key") {
-                            val msg = groupState.error
-                                ?.takeIf { it.isNotBlank() }
-                                ?.let { "No streams — $it" }
-                                ?: "No streams found"
-                            Text(
-                                msg,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
-                            )
-                        }
                     } else {
                         val sections = groupState.streams.pickerInnerSections(addonName)
                         sections.forEach { (innerName, sectionStreams) ->
@@ -496,21 +392,13 @@ fun StreamPickerOverlay(
                                     )
                                 }
                             }
-                            items(sectionStreams, key = { "s:${it.id}" }) { src ->
+                            // Key is namespaced with the provider key so streams from
+                            // two providers that share an id (e.g. both query Torrentio)
+                            // never produce duplicate LazyColumn keys.
+                            items(sectionStreams, key = { src -> "s:$key:${src.id}" }) { src ->
                                 PickerStreamCard(
                                     source = src,
                                     onClick = { onPlay(src.url, allSources) },
-                                    onDownload = if (!src.isMagnet) ({
-                                        VideoDownloadManager.enqueue(
-                                            context,
-                                            StreamDownloadRequest(
-                                                url = src.url,
-                                                title = src.label.lines().firstOrNull() ?: src.addonName,
-                                                headers = src.headers,
-                                            ),
-                                        )
-                                        Toast.makeText(context, "Download started", android.widget.Toast.LENGTH_SHORT).show()
-                                    }) else null,
                                 )
                             }
                         }
@@ -544,7 +432,6 @@ fun StreamPickerOverlay(
 
                 item { Spacer(Modifier.height(24.dp)) }
             }
-            } // end else (streams visible)
         }
     }
 }
@@ -592,31 +479,18 @@ private fun PickerSectionHeader(name: String, isLoading: Boolean) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PickerStreamCard(
-    source: PlayerSource,
-    onClick: () -> Unit,
-    onDownload: (() -> Unit)? = null,
-) {
+private fun PickerStreamCard(source: PlayerSource, onClick: () -> Unit) {
     val lines = source.label.lines().map { it.trim() }.filter { it.isNotBlank() }
     val titleLine = lines.firstOrNull() ?: source.addonName
     val descLines = lines.drop(1)
-    val context = LocalContext.current
 
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = {
-                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Stream URL", source.url))
-                    Toast.makeText(context, "URL copied", Toast.LENGTH_SHORT).show()
-                },
-            )
+            .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         Column(
@@ -637,18 +511,10 @@ private fun PickerStreamCard(
                 )
                 val q = source.qualityTag
                 if (!q.isNullOrBlank()) {
-                    val (badgeBg, badgeFg) = when {
-                        q.equals("4K", ignoreCase = true)   -> Color(0xFFFFD700).copy(alpha = 0.22f) to Color(0xFFFFD700)
-                        q.contains("1080")                  -> Color(0xFF4EA8DE).copy(alpha = 0.22f) to Color(0xFF4EA8DE)
-                        q.contains("1440") || q.equals("2K", ignoreCase = true) -> Color(0xFF7B68EE).copy(alpha = 0.22f) to Color(0xFF7B68EE)
-                        q.contains("720")                   -> Color(0xFF4CAF50).copy(alpha = 0.22f) to Color(0xFF4CAF50)
-                        q.contains("480") || q.contains("360") -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f) to MaterialTheme.colorScheme.onSurfaceVariant
-                        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) to MaterialTheme.colorScheme.primary
-                    }
                     Box(
                         Modifier
                             .clip(RoundedCornerShape(4.dp))
-                            .background(badgeBg)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
                             .padding(horizontal = 5.dp, vertical = 2.dp),
                     ) {
                         Text(
@@ -656,7 +522,7 @@ private fun PickerStreamCard(
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold
                             ),
-                            color = badgeFg,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
@@ -675,19 +541,6 @@ private fun PickerStreamCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (onDownload != null) {
-            IconButton(
-                onClick = onDownload,
-                modifier = Modifier.size(36.dp),
-            ) {
-                Icon(
-                    Icons.Default.Download,
-                    contentDescription = "Download stream",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -773,7 +626,7 @@ private fun pickerNormaliseQuality(q: String?): String? {
     return when {
         s.equals("4K", ignoreCase = true) || s.contains("2160") || s.contains("uhd", ignoreCase = true) -> "4K"
         s.contains("1440") || s.equals("2K", ignoreCase = true) -> "1440p"
-        s.contains("1080") || s.equals("fhd", ignoreCase = true) || s.equals("fullhd", ignoreCase = true) || s.equals("full hd", ignoreCase = true) -> "1080p"
+        s.contains("1080") || s.equals("fhd", ignoreCase = true) || s.equals("fullhd", ignoreCase = true) -> "1080p"
         s.contains("720") || s.equals("hd", ignoreCase = true) -> "720p"
         s.contains("480") || s.equals("sd", ignoreCase = true) -> "480p"
         s.contains("360") -> "360p"
@@ -798,7 +651,6 @@ private suspend fun resolveCsForPicker(
         }.getOrNull() ?: return emptyList()
         val dataStr: String? = when (detail) {
             is MovieLoadResponse -> detail.dataUrl
-            is LiveStreamLoadResponse -> detail.dataUrl
             is TvSeriesLoadResponse -> {
                 val eps = detail.episodes
                 if (eps.size == 1) eps.first().data else null
