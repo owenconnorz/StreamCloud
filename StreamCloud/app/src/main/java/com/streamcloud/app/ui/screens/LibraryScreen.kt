@@ -1,9 +1,6 @@
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.streamcloud.app.ui.screens
 
-import android.content.Intent
-import android.net.Uri
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -31,7 +28,6 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,12 +44,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import com.streamcloud.app.data.library.LibraryDb
-import com.streamcloud.app.data.library.FollowedArtistEntity
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
@@ -63,12 +57,6 @@ import com.streamcloud.app.data.ytmusic.YtmSong
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import kotlinx.coroutines.Dispatchers
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Image
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -111,9 +99,6 @@ fun LibraryScreen(
 
     var ytLibrary by remember { mutableStateOf(com.streamcloud.app.data.ytmusic.YtMusicLibrary()) }
     var ytLoading by remember { mutableStateOf(false) }
-
-    val followedArtists by LibraryDb.get(context).followedArtists().all()
-        .collectAsState(initial = emptyList())
 
     LaunchedEffect(ytCookie) {
         if (ytCookie.isBlank()) {
@@ -176,16 +161,6 @@ fun LibraryScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var sectionMode by remember { mutableStateOf("Music") }
     val watchlistItems by LibraryDb.get(context).watchlist().all().collectAsState(initial = emptyList())
-    var watchlistSort by remember { mutableStateOf("added") }
-    var showSortMenu by remember { mutableStateOf(false) }
-    val sortedWatchlist = remember(watchlistItems, watchlistSort) {
-        when (watchlistSort) {
-            "az"      -> watchlistItems.sortedBy { it.title.lowercase() }
-            "za"      -> watchlistItems.sortedByDescending { it.title.lowercase() }
-            "watched" -> watchlistItems.sortedByDescending { it.addedAt }
-            else      -> watchlistItems // "added" = natural DB order
-        }
-    }
 
     val localPlaylists by remember(context) {
         LibraryDb.get(context).localPlaylists().allPlaylists()
@@ -249,61 +224,13 @@ fun LibraryScreen(
                         )
                     }
                 }
-                com.streamcloud.app.ui.components.ProfileButton(onClick = onProfileClick)
             }
         }
 
         Spacer(Modifier.height(16.dp))
 
         if (sectionMode == "Movies") {
-            if (sortedWatchlist.isNotEmpty()) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val sortLabel = when (watchlistSort) {
-                        "az"      -> "A–Z"
-                        "za"      -> "Z–A"
-                        "watched" -> "Recently Watched"
-                        else      -> "Recently Added"
-                    }
-                    Box {
-                        TextButton(
-                            onClick = { showSortMenu = true },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        ) {
-                            Icon(Icons.Default.Sort, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(sortLabel, style = MaterialTheme.typography.bodySmall)
-                        }
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false },
-                        ) {
-                            listOf(
-                                "added"   to "Recently Added",
-                                "watched" to "Recently Watched",
-                                "az"      to "A–Z",
-                                "za"      to "Z–A",
-                            ).forEach { (key, label) ->
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    onClick = { watchlistSort = key; showSortMenu = false },
-                                    trailingIcon = if (watchlistSort == key) {{
-                                        Icon(androidx.compose.material.icons.Icons.Default.CheckCircle, null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(16.dp))
-                                    }} else null,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            if (sortedWatchlist.isEmpty()) {
+            if (watchlistItems.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Movie, null,
@@ -328,7 +255,7 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(sortedWatchlist, key = { "wl_${it.tmdbId}" }) { entry ->
+                    items(watchlistItems, key = { "wl_${it.tmdbId}" }) { entry ->
                         Column(
                             Modifier
                                 .clip(RoundedCornerShape(10.dp))
@@ -336,16 +263,6 @@ fun LibraryScreen(
                                     when (entry.mediaType) {
                                         "tv" -> onTvClick(entry.tmdbId)
                                         "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
-                                        "reddit", "eporner" -> {
-                                            val url = entry.csUrl
-                                            if (url.isNotBlank()) {
-                                                runCatching {
-                                                    context.startActivity(
-                                                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                                    )
-                                                }
-                                            }
-                                        }
                                         else -> onMovieClick(entry.tmdbId)
                                     }
                                 }
@@ -455,9 +372,6 @@ fun LibraryScreen(
                                         dao.deletePlaylist(pl.id)
                                     }
                                 },
-                                onSetThumb = { uri ->
-                                    scope.launch { sl.settings.setPlaylistThumb(pl.id.toString(), uri) }
-                                },
                             )
                         }
                         if (ytLibrary.failureReason != null && !ytLoading) {
@@ -486,43 +400,10 @@ fun LibraryScreen(
                         }
                     }
                     LibTab.Artists -> {
-                        if (followedArtists.isNotEmpty()) {
-                            item(span = { GridItemSpan(2) }) {
-                                androidx.compose.foundation.layout.Box(
-                                    Modifier.fillMaxWidth().padding(start = 20.dp, top = 20.dp, bottom = 4.dp)
-                                ) {
-                                    androidx.compose.material3.Text(
-                                        "Following",
-                                        color = androidx.compose.ui.graphics.Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp,
-                                    )
-                                }
-                            }
-                            items(followedArtists, key = { "fa_${it.channelId}" }) { ar ->
-                                FollowedArtistTile(ar) {
-                                    onOpenArtist("https://music.youtube.com/channel/${ar.channelId}")
-                                }
-                            }
-                        }
-                        if (ytLibrary.artists.isNotEmpty()) {
-                            item(span = { GridItemSpan(2) }) {
-                                androidx.compose.foundation.layout.Box(
-                                    Modifier.fillMaxWidth().padding(start = 20.dp, top = 20.dp, bottom = 4.dp)
-                                ) {
-                                    androidx.compose.material3.Text(
-                                        "Subscriptions",
-                                        color = androidx.compose.ui.graphics.Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp,
-                                    )
-                                }
-                            }
-                        }
-                        if (ytLibrary.artists.isEmpty() && followedArtists.isEmpty() && !ytLoading) {
+                        if (ytLibrary.artists.isEmpty() && !ytLoading) {
                             item(span = { GridItemSpan(2) }) {
                                 EmptyStateRow(
-                                    "You haven't followed or subscribed to any artists.",
+                                    "You haven't subscribed to any artists.",
                                     ytCookie.isBlank(),
                                 )
                             }
@@ -873,30 +754,13 @@ private fun LocalSystemTile(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LocalPlaylistGridTile(
     name: String,
     customThumb: String?,
     onDelete: () -> Unit,
-    onSetThumb: (String?) -> Unit,
 ) {
-    val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var showThumbSheet by remember { mutableStateOf(false) }
-    val pickMedia = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
-            onSetThumb(uri.toString())
-        }
-        showThumbSheet = false
-    }
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
@@ -909,30 +773,6 @@ private fun LocalPlaylistGridTile(
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
             },
         )
-    }
-
-    if (showThumbSheet) {
-        ModalBottomSheet(onDismissRequest = { showThumbSheet = false }) {
-            ListItem(
-                headlineContent = { Text("Choose from library") },
-                leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
-                modifier = Modifier.clickable {
-                    showThumbSheet = false
-                    pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                },
-            )
-            if (!customThumb.isNullOrBlank()) {
-                ListItem(
-                    headlineContent = { Text("Remove custom image", color = MaterialTheme.colorScheme.error) },
-                    leadingContent = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                    modifier = Modifier.clickable {
-                        onSetThumb(null)
-                        showThumbSheet = false
-                    },
-                )
-            }
-            Spacer(Modifier.height(24.dp))
-        }
     }
     Column(
         modifier = Modifier.clickable { },
@@ -959,21 +799,6 @@ private fun LocalPlaylistGridTile(
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(48.dp),
                 )
-            }
-            Box(Modifier.align(Alignment.BottomEnd).padding(4.dp)) {
-                IconButton(
-                    onClick = { showThumbSheet = true },
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
-                ) {
-                    Icon(
-                        Icons.Default.Edit, "Edit thumbnail",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
             }
             IconButton(
                 onClick = { showDeleteConfirm = true },
@@ -1071,34 +896,6 @@ private fun YtPlaylistTile(pl: YtmPlaylist, customThumb: String? = null, onClick
 
 @Composable
 private fun YtArtistTile(a: YtmLibraryArtist, onClick: () -> Unit) {
-    Column(
-        Modifier.clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        AsyncImage(
-            model = a.thumbnail,
-            contentDescription = a.name,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            a.name,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-    }
-}
-
-@Composable
-private fun FollowedArtistTile(a: FollowedArtistEntity, onClick: () -> Unit) {
     Column(
         Modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
