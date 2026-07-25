@@ -15,7 +15,6 @@ import coil.decode.ImageDecoderDecoder
 import com.streamcloud.app.data.util.ThumbnailCache
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.updates.PluginUpdateWorker
-import com.streamcloud.app.data.updates.NewReleaseCheckWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,18 +45,6 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
             "plugin_update_check",
             ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<PluginUpdateWorker>(24, TimeUnit.HOURS)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build()
-                )
-                .build(),
-        )
-
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "new_release_check",
-            ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<NewReleaseCheckWorker>(12, TimeUnit.HOURS)
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -99,6 +86,28 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
                 .collectLatest { cookie ->
                     com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = cookie
                 }
+        }
+
+        scope.launch {
+            val settings = ServiceLocator.get(this@StreamCloudApplication).settings
+            val enabled = settings.discordRpcEnabled.first()
+            val token   = settings.discordToken.first()
+            if (enabled && token.isNotBlank()) {
+                val cfg = com.streamcloud.app.data.discord.DiscordRpcService.RpcConfig(
+                    appName       = settings.discordRpcAppName.first(),
+                    activityType  = settings.discordRpcActType.first().toIntOrNull() ?: 2,
+                    showTitle     = settings.discordRpcShowTitle.first(),
+                    showArtist    = settings.discordRpcShowArtist.first(),
+                    showArtwork   = settings.discordRpcShowArt.first(),
+                    showTimestamps = settings.discordRpcShowTimestamps.first(),
+                    timestampMode = settings.discordRpcTsMode.first(),
+                    clearOnPause  = settings.discordRpcClearPause.first(),
+                    showButton    = settings.discordRpcShowButton.first(),
+                )
+                com.streamcloud.app.data.discord.DiscordRpcService.start(
+                    this@StreamCloudApplication, token, cfg,
+                )
+            }
         }
     }
 

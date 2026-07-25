@@ -122,6 +122,19 @@ object SettingsKeys {
 
     // Nav
     val NAV_HIDDEN_TABS = stringPreferencesKey("nav_hidden_tabs")
+
+    // Discord RPC
+    val DISCORD_RPC_ENABLED     = booleanPreferencesKey("discord_rpc_enabled")
+    val DISCORD_TOKEN           = stringPreferencesKey("discord_token")
+    val DISCORD_RPC_APP_NAME    = stringPreferencesKey("discord_rpc_app_name")
+    val DISCORD_RPC_SHOW_TITLE  = booleanPreferencesKey("discord_rpc_show_title")
+    val DISCORD_RPC_SHOW_ARTIST = booleanPreferencesKey("discord_rpc_show_artist")
+    val DISCORD_RPC_TIMESTAMPS  = booleanPreferencesKey("discord_rpc_timestamps")
+    val DISCORD_RPC_TS_MODE     = stringPreferencesKey("discord_rpc_ts_mode")
+    val DISCORD_RPC_SHOW_ART    = booleanPreferencesKey("discord_rpc_show_art")
+    val DISCORD_RPC_CLEAR_PAUSE = booleanPreferencesKey("discord_rpc_clear_pause")
+    val DISCORD_RPC_SHOW_BUTTON = booleanPreferencesKey("discord_rpc_show_button")
+    val DISCORD_RPC_ACT_TYPE    = stringPreferencesKey("discord_rpc_act_type")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -485,4 +498,29 @@ class SettingsRepository(private val context: Context) {
     val navHiddenTabsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.NAV_HIDDEN_TABS] }
 
     suspend fun setNavHiddenTabs(csv: String) = context.dataStore.edit { it[SettingsKeys.NAV_HIDDEN_TABS] = csv }
+
+    // Discord RPC
+    val discordRpcEnabled: Flow<Boolean>  = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_ENABLED]     ?: false }
+    val discordToken: Flow<String>        = context.dataStore.data.map { it[SettingsKeys.DISCORD_TOKEN]           ?: "" }
+    val discordRpcAppName: Flow<String>   = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_APP_NAME]    ?: "StreamCloud" }
+    val discordRpcShowTitle: Flow<Boolean>  = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_SHOW_TITLE]  ?: true }
+    val discordRpcShowArtist: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_SHOW_ARTIST] ?: true }
+    val discordRpcShowTimestamps: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_TIMESTAMPS] ?: true }
+    val discordRpcTsMode: Flow<String>    = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_TS_MODE]     ?: "elapsed" }
+    val discordRpcShowArt: Flow<Boolean>  = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_SHOW_ART]    ?: true }
+    val discordRpcClearPause: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_CLEAR_PAUSE] ?: false }
+    val discordRpcShowButton: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_SHOW_BUTTON] ?: false }
+    val discordRpcActType: Flow<String>   = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_ACT_TYPE]    ?: "2" }
+
+    suspend fun setDiscordRpcEnabled(b: Boolean)     = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_ENABLED]     = b }
+    suspend fun setDiscordToken(t: String)           = context.dataStore.edit { it[SettingsKeys.DISCORD_TOKEN]           = t }
+    suspend fun setDiscordRpcAppName(s: String)      = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_APP_NAME]    = s }
+    suspend fun setDiscordRpcShowTitle(b: Boolean)   = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_SHOW_TITLE]  = b }
+    suspend fun setDiscordRpcShowArtist(b: Boolean)  = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_SHOW_ARTIST] = b }
+    suspend fun setDiscordRpcShowTimestamps(b: Boolean) = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_TIMESTAMPS] = b }
+    suspend fun setDiscordRpcTsMode(s: String)       = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_TS_MODE]     = s }
+    suspend fun setDiscordRpcShowArt(b: Boolean)     = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_SHOW_ART]    = b }
+    suspend fun setDiscordRpcClearPause(b: Boolean)  = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_CLEAR_PAUSE] = b }
+    suspend fun setDiscordRpcShowButton(b: Boolean)  = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_SHOW_BUTTON] = b }
+    suspend fun setDiscordRpcActType(s: String)      = context.dataStore.edit { it[SettingsKeys.DISCORD_RPC_ACT_TYPE]    = s }
 }
