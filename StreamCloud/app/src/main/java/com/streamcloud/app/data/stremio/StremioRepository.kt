@@ -100,43 +100,56 @@ class StremioRepository(private val context: Context) {
         val collectionDao = db.userCollections()
         val folderDao = db.collectionFolders()
 
-        val isRequired: (StremioCatalogDef) -> Boolean = { c ->
-            c.extra?.any { it.isRequired } ?: false
+        // Only exclude catalogs that genuinely need user-typed input (search terms, calendar IDs,
+        // etc.).  Genre/skip/offset are "optional filters" — calling the catalog without them
+        // returns perfectly usable default results.
+        val queryOnlyExtras = setOf("search", "query", "calendarvideosids")
+        val needsUserQuery: (StremioCatalogDef) -> Boolean = { c ->
+            c.extra?.any { it.isRequired && it.name.lowercase() in queryOnlyExtras } ?: false
         }
 
-        val nonRequiredCatalogs = manifest.catalogs.filter { !isRequired(it) }
+        fun typeLabel(raw: String): String = when (raw.lowercase()) {
+            "movie"        -> "Movies"
+            "series"       -> "Series"
+            "anime"        -> "Anime"
+            "anime.series" -> "Anime Series"
+            "anime.movie"  -> "Anime Movies"
+            "all"          -> "All"
+            "trakt"        -> "Trakt"
+            "collection"   -> "Collections"
+            else           -> raw.split(".", "-", "_")
+                .joinToString(" ") { it.replaceFirstChar { c -> c.titlecase() } }
+        }
+
+        val browsableCatalogs = manifest.catalogs.filter { !needsUserQuery(it) }
 
         val groups: Map<String, List<StremioCatalogDef>> = when {
             !manifest.catalogGroups.isNullOrEmpty() -> {
                 manifest.catalogGroups.associate { g ->
-                    g.name to g.catalogs.filter { !isRequired(it) }
+                    g.name to g.catalogs.filter { !needsUserQuery(it) }
                 }.filter { it.value.isNotEmpty() }
             }
             manifest.catalogs.any { it.group != null } -> {
                 manifest.catalogs
-                    .filter { !isRequired(it) }
-                    .groupBy { it.group ?: it.type.replaceFirstChar { c -> c.titlecase() } }
+                    .filter { !needsUserQuery(it) }
+                    .groupBy { it.group ?: typeLabel(it.type) }
             }
             manifest.catalogs.any { it.name?.contains(" - ") == true } -> {
-                // Split by " - " prefix; catalogs whose name has no dash fall back to their type
+                // Split by " - " prefix; catalogs without a dash fall back to their type label
                 val result = linkedMapOf<String, MutableList<StremioCatalogDef>>()
-                manifest.catalogs.filter { !isRequired(it) }.forEach { c ->
+                manifest.catalogs.filter { !needsUserQuery(it) }.forEach { c ->
                     val key = if (c.name?.contains(" - ") == true)
                         c.name!!.substringBefore(" - ").trim()
                     else
-                        c.type.replaceFirstChar { it.titlecase() }
+                        typeLabel(c.type)
                     result.getOrPut(key) { mutableListOf() }.add(c)
                 }
                 result
             }
-            nonRequiredCatalogs.isNotEmpty() -> {
-                // Group by content type so addons with many types get one collection each
-                val byType = nonRequiredCatalogs.groupBy { it.type }
-                if (byType.size > 1) {
-                    byType.mapKeys { (type, _) -> type.replaceFirstChar { it.titlecase() } }
-                } else {
-                    mapOf(addon.name to nonRequiredCatalogs)
-                }
+            browsableCatalogs.isNotEmpty() -> {
+                // Group by content type (case-insensitive) → one collection per type
+                val byType = browsableCatalogs.groupBy { typeLabel(it.type) }
+                if (byType.size > 1) byType else mapOf(addon.name to browsableCatalogs)
             }
             else -> emptyMap()
         }
