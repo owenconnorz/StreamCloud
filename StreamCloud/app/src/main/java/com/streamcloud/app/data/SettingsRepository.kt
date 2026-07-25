@@ -121,7 +121,8 @@ object SettingsKeys {
     val AGE_GATE_CONFIRMED = booleanPreferencesKey("age_gate_confirmed")
 
     // Nav
-    val NAV_HIDDEN_TABS = stringPreferencesKey("nav_hidden_tabs")
+    val NAV_HIDDEN_TABS    = stringPreferencesKey("nav_hidden_tabs")
+    val NAV_LIQUID_GLASS   = booleanPreferencesKey("nav_liquid_glass")
 
     // Discord RPC
     val DISCORD_RPC_ENABLED     = booleanPreferencesKey("discord_rpc_enabled")
@@ -391,6 +392,10 @@ class SettingsRepository(private val context: Context) {
     val navLabels: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NAV_LABELS] ?: true }
 
     suspend fun setNavLabels(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NAV_LABELS] = b }
+
+    val navLiquidGlass: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NAV_LIQUID_GLASS] ?: false }
+
+    suspend fun setNavLiquidGlass(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NAV_LIQUID_GLASS] = b }
 
 
     val spotifyCookie: Flow<String>    = context.dataStore.data.map { it[SettingsKeys.SPOTIFY_COOKIE]    ?: "" }
