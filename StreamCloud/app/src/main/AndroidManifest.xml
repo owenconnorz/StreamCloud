@@ -70,6 +70,12 @@
             android:label="Spotify Sign-In"
             android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
 
+        <activity
+            android:name=".ui.account.DiscordLoginActivity"
+            android:exported="false"
+            android:label="Discord Sign-In"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
         <service
             android:name=".audio.MusicPlaybackService"
             android:foregroundServiceType="mediaPlayback"

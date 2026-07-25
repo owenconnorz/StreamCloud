@@ -111,6 +111,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import com.streamcloud.app.data.nuvio.NuvioAccountService
 import com.streamcloud.app.data.nuvio.NuvioPullResult
 import androidx.compose.ui.window.Dialog
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.streamcloud.app.data.discord.DiscordRpcService
 
 private val HubIconBg  = Color(0xFF1B2D52)
@@ -206,6 +208,15 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var showTraktDialog     by remember { mutableStateOf(false) }
     var showSimklDialog     by remember { mutableStateOf(false) }
     var showDiscordDialog   by remember { mutableStateOf(false) }
+
+    val discordLoginLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        // Refresh token from DataStore after the WebView login activity closes.
+        scope.launch {
+            discordToken = sl.settings.discordToken.first()
+        }
+    }
 
     var discordToken          by remember { mutableStateOf("") }
     var discordRpcEnabled     by remember { mutableStateOf(false) }
@@ -930,7 +941,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
 
                 // ── Discord Rich Presence dialog ──────────────────────────────────────────
                 if (showDiscordDialog) {
-                    var discordTokenVisible by remember { mutableStateOf(false) }
                     Dialog(onDismissRequest = { showDiscordDialog = false }) {
                         Surface(
                             shape = RoundedCornerShape(28.dp),
@@ -948,27 +958,64 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                                     "Discord Rich Presence",
                                     style = MaterialTheme.typography.headlineSmall,
                                 )
-                                Text(
-                                    "Open discord.com/app in a browser → press F12 → Network tab → click any request to discord.com → copy the Authorization header value as your token.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                OutlinedTextField(
-                                    value = discordToken,
-                                    onValueChange = { discordToken = it },
-                                    label = { Text("Discord token") },
-                                    singleLine = true,
-                                    visualTransformation = if (discordTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                                    trailingIcon = {
-                                        IconButton(onClick = { discordTokenVisible = !discordTokenVisible }) {
-                                            Icon(
-                                                if (discordTokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                                contentDescription = null,
+
+                                // ── Account row ───────────────────────────────────────────
+                                if (discordToken.isBlank()) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            discordLoginLauncher.launch(
+                                                Intent(context, com.streamcloud.app.ui.account.DiscordLoginActivity::class.java),
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(Icons.Default.Login, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Login with Discord")
+                                    }
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                "Account connected",
+                                                style = MaterialTheme.typography.titleSmall,
+                                            )
+                                            Text(
+                                                "Tap to switch accounts",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         }
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                                        TextButton(
+                                            onClick = {
+                                                discordToken = ""
+                                                scope.launch { sl.settings.setDiscordToken("") }
+                                                DiscordRpcService.stop()
+                                            },
+                                        ) { Text("Log out") }
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            discordLoginLauncher.launch(
+                                                Intent(context, com.streamcloud.app.ui.account.DiscordLoginActivity::class.java),
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(Icons.Default.Login, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Switch account")
+                                    }
+                                }
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
