@@ -948,7 +948,7 @@ fun StreamCloudApp() {
                         }
                     }
                     // Animated slide-in nav panel
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = tvNavOpen,
                         enter = slideInHorizontally(initialOffsetX = { -it }) + fadeIn(),
                         exit = slideOutHorizontally(targetOffsetX = { -it }) + fadeOut(),
