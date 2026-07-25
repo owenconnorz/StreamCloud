@@ -36,15 +36,11 @@ object SettingsKeys {
     val YT_MUSIC_COOKIE = stringPreferencesKey("yt_music_cookie")
     val YT_MUSIC_USER_NAME = stringPreferencesKey("yt_music_user_name")
     val YT_MUSIC_USER_AVATAR = stringPreferencesKey("yt_music_user_avatar")
-    val NAV_TAB_ORDER    = stringPreferencesKey("nav_tab_order")
-    val NAV_HIDDEN_TABS  = stringPreferencesKey("nav_hidden_tabs")
+    val NAV_TAB_ORDER = stringPreferencesKey("nav_tab_order")
     val PLAYLIST_THUMBS = stringPreferencesKey("playlist_thumbs")
     val UI_MODE = stringPreferencesKey("ui_mode")
     val ADULT_REDDIT_SUBS = stringPreferencesKey("adult_reddit_subs")
-    val REDDIT_USERNAME     = stringPreferencesKey("reddit_username")
-    val REDDIT_ACCOUNTS_RAW = stringPreferencesKey("reddit_accounts_raw")
     val COLOR_PALETTE = stringPreferencesKey("color_palette")
-    val MOVIES_THEME = stringPreferencesKey("movies_theme")
 
 
     val HIGH_REFRESH_RATE       = booleanPreferencesKey("high_refresh_rate")
@@ -99,29 +95,6 @@ object SettingsKeys {
     val NUVIO_USER_ID       = stringPreferencesKey("nuvio_user_id")
 
     val MUSIC_SEARCH_HISTORY = stringPreferencesKey("music_search_history")
-
-    val ADULT_SOURCE = stringPreferencesKey("adult_source")
-    val INTRODB_API_KEY             = stringPreferencesKey("introdb_api_key")
-    val SUBTITLE_SOURCE             = stringPreferencesKey("subtitle_source")
-    val PARENTAL_GUIDE_ENABLED      = booleanPreferencesKey("parental_guide_enabled")
-    val HOLD_TO_SPEED_ENABLED       = booleanPreferencesKey("hold_to_speed_enabled")
-    val HOLD_TO_SPEED_VALUE         = stringPreferencesKey("hold_to_speed_value")
-    val ANNOUNCEMENT_SEEN_VERSION   = stringPreferencesKey("announcement_seen_version")
-    val LIBRARY_WATCHLIST_SORT      = stringPreferencesKey("library_watchlist_sort")
-
-    // ── Adult content ──────────────────────────────────────────────────────────
-    val AGE_GATE_CONFIRMED  = booleanPreferencesKey("age_gate_confirmed")
-    val ADULT_LOCK_ENABLED  = booleanPreferencesKey("adult_lock_enabled")
-
-    // ── Trakt.tv ────────────────────────────────────────────────────────────────
-    val TRAKT_ACCESS_TOKEN  = stringPreferencesKey("trakt_access_token")
-    val TRAKT_REFRESH_TOKEN = stringPreferencesKey("trakt_refresh_token")
-    val TRAKT_USERNAME      = stringPreferencesKey("trakt_username")
-    val TRAKT_CLIENT_ID     = stringPreferencesKey("trakt_client_id")
-
-    // ── Simkl ────────────────────────────────────────────────────────────────
-    val SIMKL_ACCESS_TOKEN  = stringPreferencesKey("simkl_access_token")
-    val SIMKL_CLIENT_ID     = stringPreferencesKey("simkl_client_id")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -157,8 +130,7 @@ class SettingsRepository(private val context: Context) {
     val ytMusicUserAvatar: Flow<String> = context.dataStore.data.map { it[SettingsKeys.YT_MUSIC_USER_AVATAR] ?: "" }
 
 
-    val navTabOrderCsv:  Flow<String?> = context.dataStore.data.map { it[SettingsKeys.NAV_TAB_ORDER] }
-    val navHiddenTabsCsv: Flow<String>  = context.dataStore.data.map { it[SettingsKeys.NAV_HIDDEN_TABS] ?: "" }
+    val navTabOrderCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.NAV_TAB_ORDER] }
 
 
     val playlistThumbsJson: Flow<String> = context.dataStore.data.map {
@@ -198,9 +170,6 @@ class SettingsRepository(private val context: Context) {
     suspend fun setNavTabOrder(ids: List<String>) =
         context.dataStore.edit { it[SettingsKeys.NAV_TAB_ORDER] = ids.joinToString(",") }
 
-    suspend fun setNavHiddenTabs(csv: String) =
-        context.dataStore.edit { it[SettingsKeys.NAV_HIDDEN_TABS] = csv }
-
     suspend fun setUiMode(mode: String) =
         context.dataStore.edit { it[SettingsKeys.UI_MODE] = mode }
 
@@ -231,6 +200,8 @@ class SettingsRepository(private val context: Context) {
         it[SettingsKeys.YT_MUSIC_USER_NAME] = name
         it[SettingsKeys.YT_MUSIC_USER_AVATAR] = avatar
     }
+    suspend fun setYtMusicUserAvatar(avatar: String) =
+        context.dataStore.edit { it[SettingsKeys.YT_MUSIC_USER_AVATAR] = avatar }
     suspend fun clearYtMusicAccount() = context.dataStore.edit {
         it.remove(SettingsKeys.YT_MUSIC_COOKIE)
         it.remove(SettingsKeys.YT_MUSIC_USER_NAME)
@@ -240,21 +211,12 @@ class SettingsRepository(private val context: Context) {
     val colorPalette: Flow<String> = context.dataStore.data.map { it[SettingsKeys.COLOR_PALETTE] ?: "default" }
     suspend fun setColorPalette(s: String) = context.dataStore.edit { it[SettingsKeys.COLOR_PALETTE] = s }
 
-    val moviesTheme: Flow<String> = context.dataStore.data.map { it[SettingsKeys.MOVIES_THEME] ?: "violet" }
-    suspend fun setMoviesTheme(s: String) = context.dataStore.edit { it[SettingsKeys.MOVIES_THEME] = s }
-
 
     val adultRedditSubsCsv: Flow<String> = context.dataStore.data.map {
         it[SettingsKeys.ADULT_REDDIT_SUBS] ?: ""
     }
     suspend fun setAdultRedditSubs(csv: String) =
         context.dataStore.edit { it[SettingsKeys.ADULT_REDDIT_SUBS] = csv }
-
-    val adultSource: Flow<String> = context.dataStore.data.map {
-        it[SettingsKeys.ADULT_SOURCE] ?: "Eporner"
-    }
-    suspend fun setAdultSource(source: String) =
-        context.dataStore.edit { it[SettingsKeys.ADULT_SOURCE] = source }
 
 
     val highRefreshRate: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HIGH_REFRESH_RATE] ?: true }
@@ -406,108 +368,4 @@ class SettingsRepository(private val context: Context) {
         it.remove(SettingsKeys.NUVIO_EMAIL)
         it.remove(SettingsKeys.NUVIO_USER_ID)
     }
-
-    // ── Reddit login session ───────────────────────────────────────────
-    val redditUsername: Flow<String> =
-        context.dataStore.data.map { it[SettingsKeys.REDDIT_USERNAME] ?: "" }
-
-    suspend fun setRedditUsername(name: String) =
-        context.dataStore.edit { it[SettingsKeys.REDDIT_USERNAME] = name }
-
-    suspend fun clearRedditUsername() =
-        context.dataStore.edit { it.remove(SettingsKeys.REDDIT_USERNAME) }
-
-    // ── Reddit multi-account support ──────────────────────────────────
-    // Stored as: "user1|@|cookies1|||user2|@|cookies2"
-    private fun parseRedditAccounts(raw: String): List<Pair<String, String>> {
-        if (raw.isBlank()) return emptyList()
-        return raw.split("|||").mapNotNull { entry ->
-            val idx = entry.indexOf("|@|")
-            if (idx < 0) null else entry.substring(0, idx) to entry.substring(idx + 3)
-        }
-    }
-
-    private fun encodeRedditAccounts(accounts: List<Pair<String, String>>): String =
-        accounts.joinToString("|||") { "${it.first}|@|${it.second}" }
-
-    val redditAccounts: kotlinx.coroutines.flow.Flow<List<Pair<String, String>>> =
-        context.dataStore.data.map { prefs ->
-            parseRedditAccounts(prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] ?: "")
-        }
-
-    suspend fun addRedditAccount(username: String, cookies: String) {
-        if (username.isBlank() || cookies.isBlank()) return
-        context.dataStore.edit { prefs ->
-            val current = parseRedditAccounts(
-                prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] ?: "").toMutableList()
-            current.removeIf { it.first == username }
-            current.add(0, username to cookies)
-            prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] = encodeRedditAccounts(current.take(5))
-        }
-    }
-
-    suspend fun removeRedditAccount(username: String) {
-        context.dataStore.edit { prefs ->
-            val current = parseRedditAccounts(
-                prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] ?: "")
-                .filter { it.first != username }
-            prefs[SettingsKeys.REDDIT_ACCOUNTS_RAW] = encodeRedditAccounts(current)
-        }
-    }
-
-    val introDbApiKey: Flow<String>         = context.dataStore.data.map { it[SettingsKeys.INTRODB_API_KEY] ?: "" }
-    suspend fun setIntroDbApiKey(k: String) = context.dataStore.edit { it[SettingsKeys.INTRODB_API_KEY] = k }
-
-    val subtitleSource: Flow<String>          = context.dataStore.data.map { it[SettingsKeys.SUBTITLE_SOURCE] ?: "any" }
-    suspend fun setSubtitleSource(s: String)  = context.dataStore.edit { it[SettingsKeys.SUBTITLE_SOURCE] = s }
-
-    val parentalGuideEnabled: Flow<Boolean>        = context.dataStore.data.map { it[SettingsKeys.PARENTAL_GUIDE_ENABLED] ?: true }
-    suspend fun setParentalGuideEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.PARENTAL_GUIDE_ENABLED] = b }
-
-    val holdToSpeedEnabled: Flow<Boolean>        = context.dataStore.data.map { it[SettingsKeys.HOLD_TO_SPEED_ENABLED] ?: false }
-    suspend fun setHoldToSpeedEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.HOLD_TO_SPEED_ENABLED] = b }
-
-    val holdToSpeedValue: Flow<String>          = context.dataStore.data.map { it[SettingsKeys.HOLD_TO_SPEED_VALUE] ?: "2.0" }
-    suspend fun setHoldToSpeedValue(s: String)  = context.dataStore.edit { it[SettingsKeys.HOLD_TO_SPEED_VALUE] = s }
-
-    val announcementSeenVersion: Flow<String>          = context.dataStore.data.map { it[SettingsKeys.ANNOUNCEMENT_SEEN_VERSION] ?: "" }
-    suspend fun setAnnouncementSeenVersion(v: String)  = context.dataStore.edit { it[SettingsKeys.ANNOUNCEMENT_SEEN_VERSION] = v }
-
-    val libraryWatchlistSort: Flow<String>          = context.dataStore.data.map { it[SettingsKeys.LIBRARY_WATCHLIST_SORT] ?: "added" }
-    suspend fun setLibraryWatchlistSort(s: String)  = context.dataStore.edit { it[SettingsKeys.LIBRARY_WATCHLIST_SORT] = s }
-
-    // ── Adult content settings ──────────────────────────────────────────────────
-    val ageGateConfirmed: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.AGE_GATE_CONFIRMED] ?: false }
-    val adultLockEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.ADULT_LOCK_ENABLED] ?: false }
-
-    suspend fun setAgeGateConfirmed(b: Boolean) = context.dataStore.edit { it[SettingsKeys.AGE_GATE_CONFIRMED] = b }
-    suspend fun setAdultLockEnabled(b: Boolean)  = context.dataStore.edit { it[SettingsKeys.ADULT_LOCK_ENABLED] = b }
-
-    // ── Trakt.tv ────────────────────────────────────────────────────────────────
-    val traktAccessToken:  Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_ACCESS_TOKEN]  ?: "" }
-    val traktRefreshToken: Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_REFRESH_TOKEN] ?: "" }
-    val traktUsername:     Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_USERNAME]      ?: "" }
-    val traktClientId:     Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_CLIENT_ID]     ?: "" }
-
-    suspend fun setTraktSession(accessToken: String, refreshToken: String, username: String) =
-        context.dataStore.edit {
-            it[SettingsKeys.TRAKT_ACCESS_TOKEN]  = accessToken
-            it[SettingsKeys.TRAKT_REFRESH_TOKEN] = refreshToken
-            it[SettingsKeys.TRAKT_USERNAME]      = username
-        }
-    suspend fun setTraktClientId(id: String) = context.dataStore.edit { it[SettingsKeys.TRAKT_CLIENT_ID] = id }
-    suspend fun clearTraktSession() = context.dataStore.edit {
-        it.remove(SettingsKeys.TRAKT_ACCESS_TOKEN)
-        it.remove(SettingsKeys.TRAKT_REFRESH_TOKEN)
-        it.remove(SettingsKeys.TRAKT_USERNAME)
-    }
-
-    // ── Simkl ────────────────────────────────────────────────────────────────
-    val simklAccessToken: Flow<String> = context.dataStore.data.map { it[SettingsKeys.SIMKL_ACCESS_TOKEN] ?: "" }
-    val simklClientId:    Flow<String> = context.dataStore.data.map { it[SettingsKeys.SIMKL_CLIENT_ID]    ?: "" }
-
-    suspend fun setSimklAccessToken(token: String) = context.dataStore.edit { it[SettingsKeys.SIMKL_ACCESS_TOKEN] = token }
-    suspend fun setSimklClientId(id: String)        = context.dataStore.edit { it[SettingsKeys.SIMKL_CLIENT_ID]    = id }
-    suspend fun clearSimklSession() = context.dataStore.edit { it.remove(SettingsKeys.SIMKL_ACCESS_TOKEN) }
-
 }
