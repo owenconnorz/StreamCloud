@@ -31,6 +31,7 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
+import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
 import com.streamcloud.app.data.nuvio.NuvioRuntime
@@ -490,6 +491,7 @@ private fun PickerStreamCard(source: PlayerSource, onClick: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
+            .tvFocusBorder(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),

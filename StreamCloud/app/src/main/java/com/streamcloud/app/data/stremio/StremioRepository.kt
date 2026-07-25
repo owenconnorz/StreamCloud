@@ -8,11 +8,13 @@ import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.UserCollectionEntity
 import com.streamcloud.app.data.network.Net
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -191,25 +193,30 @@ class StremioRepository(private val context: Context) {
                 )
             }
 
-            // Backfill any folder that has no cover image by fetching the first
-            // item poster from that catalog in parallel.
-            coroutineScope {
-                folderDao.forCollectionOnce(collectionId)
-                    .filter { it.coverUrl.isBlank() }
-                    .map { folder ->
-                        async {
-                            try {
-                                val parts = folder.linkedCategoryId.split("|||")
-                                val cType = parts.getOrNull(1) ?: return@async
-                                val cId   = parts.getOrNull(2) ?: return@async
-                                val firstPoster = fetchCatalog(addon, cType, cId)
-                                    .firstOrNull { !it.poster.isNullOrBlank() }?.poster
-                                if (!firstPoster.isNullOrBlank()) {
-                                    folderDao.upsert(folder.copy(coverUrl = firstPoster))
-                                }
-                            } catch (_: Throwable) { /* best-effort; skip on error */ }
-                        }
-                    }.awaitAll()
+            // Backfill cover images in the background — does NOT block the sync so
+            // collections appear on the home screen immediately.
+            val capturedCollectionId = collectionId
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val blankFolders = folderDao.forCollectionOnce(capturedCollectionId)
+                        .filter { it.coverUrl.isBlank() }
+                    coroutineScope {
+                        blankFolders.map { folder ->
+                            async {
+                                try {
+                                    val parts = folder.linkedCategoryId.split("|||")
+                                    val cType = parts.getOrNull(1) ?: return@async
+                                    val cId   = parts.getOrNull(2) ?: return@async
+                                    val firstPoster = fetchCatalog(addon, cType, cId)
+                                        .firstOrNull { !it.poster.isNullOrBlank() }?.poster
+                                    if (!firstPoster.isNullOrBlank()) {
+                                        folderDao.upsert(folder.copy(coverUrl = firstPoster))
+                                    }
+                                } catch (_: Throwable) {}
+                            }
+                        }.awaitAll()
+                    }
+                } catch (_: Throwable) {}
             }
         }
     }

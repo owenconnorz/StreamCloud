@@ -47,6 +47,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -66,10 +74,14 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.streamcloud.app.torrent.TorrentService
 import com.streamcloud.app.torrent.TorrentState
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvFocusBorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -310,6 +322,15 @@ fun NativePlayerScreen(
         onDispose { VideoPlaybackService.stop(context.applicationContext) }
     }
 
+    // Own MediaSession for video so media-button events go here, not to the music player
+    DisposableEffect(player.value) {
+        val currentEx = player.value ?: return@DisposableEffect onDispose {}
+        val session = MediaSession.Builder(context.applicationContext, currentEx)
+            .setId("sc_video_player")
+            .build()
+        onDispose { session.release() }
+    }
+
 
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -446,10 +467,61 @@ fun NativePlayerScreen(
         lastInteractionTs = System.currentTimeMillis()
     }
 
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val playerFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(isTv) {
+        if (isTv) try { playerFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .focusRequester(playerFocusRequester)
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                val currentEx = player.value ?: return@onKeyEvent false
+                when (event.key) {
+                    Key.DirectionCenter -> {
+                        if (currentEx.isPlaying) currentEx.pause() else currentEx.play()
+                        bumpInteraction()
+                        true
+                    }
+                    Key.DirectionRight -> {
+                        currentEx.seekTo((currentEx.currentPosition + 10_000L).coerceAtMost(currentEx.duration.coerceAtLeast(0L)))
+                        bumpInteraction()
+                        true
+                    }
+                    Key.DirectionLeft -> {
+                        currentEx.seekTo((currentEx.currentPosition - 10_000L).coerceAtLeast(0L))
+                        bumpInteraction()
+                        true
+                    }
+                    Key.DirectionUp, Key.DirectionDown -> {
+                        bumpInteraction()
+                        true
+                    }
+                    Key.MediaPlayPause -> {
+                        if (currentEx.isPlaying) currentEx.pause() else currentEx.play()
+                        bumpInteraction()
+                        true
+                    }
+                    Key.MediaPlay -> { currentEx.play(); bumpInteraction(); true }
+                    Key.MediaPause -> { currentEx.pause(); bumpInteraction(); true }
+                    Key.MediaFastForward -> {
+                        currentEx.seekTo((currentEx.currentPosition + 30_000L).coerceAtMost(currentEx.duration.coerceAtLeast(0L)))
+                        bumpInteraction()
+                        true
+                    }
+                    Key.MediaRewind -> {
+                        currentEx.seekTo((currentEx.currentPosition - 10_000L).coerceAtLeast(0L))
+                        bumpInteraction()
+                        true
+                    }
+                    else -> false
+                }
+            }
     ) {
 
         if (isCastConnected) {
@@ -1016,6 +1088,7 @@ private fun OutlinedPlayIcon(
         Modifier
             .size(size)
             .clip(CircleShape)
+            .tvFocusBorder(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -1135,6 +1208,7 @@ private fun ToolbarItem(
     Row(
         Modifier
             .clip(RoundedCornerShape(50))
+            .tvFocusBorder(RoundedCornerShape(50))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1269,6 +1343,7 @@ private fun SourceFilterChip(label: String, selected: Boolean, onClick: () -> Un
     Box(
         Modifier
             .clip(RoundedCornerShape(50))
+            .tvFocusBorder(RoundedCornerShape(50))
             .background(
                 if (selected) Color.White
                 else Color.White.copy(alpha = 0.12f)
@@ -1291,6 +1366,7 @@ private fun StreamPickerRow(src: PlayerSource, selected: Boolean, onClick: () ->
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .background(
                 if (selected) Color.White.copy(alpha = 0.18f)
                 else Color.White.copy(alpha = 0.06f)

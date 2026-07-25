@@ -164,14 +164,16 @@ class MoviesViewModel(
         }
         viewModelScope.launch {
             try {
-                LibraryDb.get(appContext).userCollections().pinned().collectLatest { pinned ->
-                    try {
-                        val rows = pinned.map { col ->
-                            val folders = LibraryDb.get(appContext).collectionFolders().forCollectionOnce(col.id)
-                            PinnedCollectionRow(col.id, col.name, folders)
-                        }
-                        _state.update { it.copy(pinnedCollections = rows) }
-                    } catch (_: Throwable) {}
+                combine(
+                    LibraryDb.get(appContext).userCollections().pinned(),
+                    LibraryDb.get(appContext).collectionFolders().all(),
+                ) { pinned, allFolders ->
+                    val byCollection = allFolders.groupBy { it.collectionId }
+                    pinned.map { col ->
+                        PinnedCollectionRow(col.id, col.name, byCollection[col.id] ?: emptyList())
+                    }
+                }.collectLatest { rows ->
+                    _state.update { it.copy(pinnedCollections = rows) }
                 }
             } catch (_: Throwable) {}
         }

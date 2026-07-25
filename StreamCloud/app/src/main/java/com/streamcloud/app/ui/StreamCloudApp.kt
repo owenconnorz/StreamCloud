@@ -83,8 +83,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -98,6 +104,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import com.streamcloud.app.ui.theme.TvOverscanPadding
+import com.streamcloud.app.ui.theme.tvFocusBorder
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -242,39 +249,26 @@ fun StreamCloudApp() {
         LaunchedEffect(showRail) {
             if (showRail && isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
         }
+        // TV popup nav state — auto-close on route change
+        var tvNavOpen by remember { mutableStateOf(false) }
+        LaunchedEffect(currentRoute) { tvNavOpen = false }
         Row(
             Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            if (showRail) {
+            if (showRail && !isTv) {
                 NavigationRail(
                     containerColor = MaterialTheme.colorScheme.surface,
                     modifier = Modifier.fillMaxHeight(),
                 ) {
                     Spacer(Modifier.height(16.dp))
-                    if (isTv) {
-                        NavigationRailItem(
-                            selected = currentRoute == "movie-search",
-                            onClick = { nav.navigate("movie-search") },
-                            modifier = Modifier.focusRequester(firstRailFocus),
-                            icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                            label = { Text("Search", style = MaterialTheme.typography.labelLarge) },
-                            colors = NavigationRailItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                indicatorColor = MaterialTheme.colorScheme.primary,
-                            ),
-                        )
-                    }
                     tabs.forEachIndexed { idx, tab ->
                         val selected = currentRoute == tab.route
                         NavigationRailItem(
                             selected = selected,
                             onClick = { navigateToTab(nav, tab.route) },
-                            modifier = if (!isTv && idx == 0) Modifier.focusRequester(firstRailFocus) else Modifier,
+                            modifier = if (idx == 0) Modifier.focusRequester(firstRailFocus) else Modifier,
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
                             label = { Text(tab.label, style = MaterialTheme.typography.labelLarge) },
                             colors = NavigationRailItemDefaults.colors(
@@ -918,6 +912,99 @@ fun StreamCloudApp() {
                     }
                 }
 
+                // TV Nuvio-style popup navigation
+                if (isTv && showRail) {
+                    // Semi-transparent scrim that closes the nav on click
+                    if (tvNavOpen) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.55f))
+                                .clickable { tvNavOpen = false },
+                        )
+                    }
+                    // Hamburger button — always visible at top-left
+                    Box(
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .statusBarsPadding()
+                            .padding(TvOverscanPadding),
+                    ) {
+                        Box(
+                            Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .tvFocusBorder(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                                .clickable { tvNavOpen = !tvNavOpen },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Menu,
+                                contentDescription = "Navigation",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                    // Animated slide-in nav panel
+                    AnimatedVisibility(
+                        visible = tvNavOpen,
+                        enter = slideInHorizontally(initialOffsetX = { -it }) + fadeIn(),
+                        exit = slideOutHorizontally(targetOffsetX = { -it }) + fadeOut(),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .fillMaxHeight(),
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 8.dp,
+                            shadowElevation = 12.dp,
+                            shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(240.dp),
+                        ) {
+                            Column(
+                                Modifier
+                                    .fillMaxSize()
+                                    .statusBarsPadding()
+                                    .padding(vertical = TvOverscanPadding, horizontal = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    "StreamCloud",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                                )
+                                // Search shortcut
+                                TvNavRow(
+                                    icon = Icons.Default.Search,
+                                    label = "Search",
+                                    selected = currentRoute == "movie-search",
+                                    onClick = {
+                                        tvNavOpen = false
+                                        nav.navigate("movie-search")
+                                    },
+                                )
+                                tabs.forEach { tab ->
+                                    TvNavRow(
+                                        icon = tab.icon,
+                                        label = tab.label,
+                                        selected = currentRoute == tab.route,
+                                        onClick = {
+                                            tvNavOpen = false
+                                            navigateToTab(nav, tab.route)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Nuvio-style flat bottom nav bar
                 if (!useRail && (showMiniPlayer || currentRoute == null || tabs.any { it.route == currentRoute })) {
                     Column(
@@ -1011,6 +1098,38 @@ fun StreamCloudApp() {
         }
     }
     } // end outer Box
+}
+
+@Composable
+private fun TvNavRow(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+             else Color.Transparent
+    val tint = if (selected) MaterialTheme.colorScheme.primary
+               else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .tvFocusBorder(RoundedCornerShape(10.dp))
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = tint,
+        )
+    }
 }
 
 private fun navigateToTab(nav: NavHostController, route: String) {
