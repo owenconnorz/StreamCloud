@@ -237,22 +237,24 @@ private fun CombinedResultsList(
                     )
                 }
                 val csRows = results.chunked(2)
-                items(csRows, key = { "cs-row-$pluginName-${it.first().item.url}" }) { pair ->
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        pair.forEach { r ->
-                            LandscapeCardItem(
-                                imageUrl = r.item.posterUrl,
-                                title = r.item.name,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl) },
-                            )
+                csRows.forEachIndexed { rowIdx, pair ->
+                    item(key = "cs-row-$pluginName-$rowIdx") {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            pair.forEach { r ->
+                                LandscapeCardItem(
+                                    imageUrl = r.item.posterUrl,
+                                    title = r.item.name,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl) },
+                                )
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
                         }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.height(8.dp))
                     }
-                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
@@ -276,22 +278,24 @@ private fun CombinedResultsList(
                     )
                 }
                 val sRows = results.chunked(2)
-                items(sRows, key = { "stremio-row-$addonName-${it.first().item.id}" }) { pair ->
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        pair.forEach { r ->
-                            LandscapeCardItem(
-                                imageUrl = r.item.poster,
-                                title = r.item.name,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster) },
-                            )
+                sRows.forEachIndexed { rowIdx, pair ->
+                    item(key = "stremio-row-$addonName-$rowIdx") {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            pair.forEach { r ->
+                                LandscapeCardItem(
+                                    imageUrl = r.item.poster,
+                                    title = r.item.name,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster) },
+                                )
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
                         }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.height(8.dp))
                     }
-                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
