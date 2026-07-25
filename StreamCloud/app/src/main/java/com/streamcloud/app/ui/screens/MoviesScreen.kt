@@ -1,8 +1,10 @@
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.streamcloud.app.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -28,15 +30,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
+import com.streamcloud.app.ui.theme.UiFormFactor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -505,17 +512,20 @@ private fun MoviesHeader(
             modifier = Modifier.weight(1f),
         )
 
-        IconButton(
-            onClick = onSearchClick,
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(Color.White.copy(alpha = 0.18f)),
-        ) {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = "Search",
-                tint = Color.White,
-            )
+        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+        if (!isTv) {
+            IconButton(
+                onClick = onSearchClick,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White.copy(alpha = 0.18f)),
+            ) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = Color.White,
+                )
+            }
         }
 
         if (hasPlugins) {
@@ -819,10 +829,14 @@ private fun ContinueWatchingCard(
     val pct = if (entry.durationMs > 0L)
         (entry.positionMs.toFloat() / entry.durationMs.toFloat()).coerceIn(0f, 1f)
     else 0f
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    var focused by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .width(320.dp)
+            .then(if (isTv) Modifier.onFocusChanged { focused = it.isFocused } else Modifier)
+            .border(if (isTv && focused) 3.dp else 0.dp, if (isTv && focused) Color.White else Color.Transparent, RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
@@ -886,9 +900,13 @@ private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: (
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    var focused by remember { mutableStateOf(false) }
     Column(
         Modifier
             .width(width)
+            .then(if (isTv) Modifier.onFocusChanged { focused = it.isFocused } else Modifier)
+            .border(if (isTv && focused) 3.dp else 0.dp, if (isTv && focused) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
@@ -918,9 +936,13 @@ private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portr
     val useLandscape = posterStyle == "landscape"
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    var focused by remember { mutableStateOf(false) }
     Column(
         Modifier
             .width(width)
+            .then(if (isTv) Modifier.onFocusChanged { focused = it.isFocused } else Modifier)
+            .border(if (isTv && focused) 3.dp else 0.dp, if (isTv && focused) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
@@ -1108,10 +1130,14 @@ private fun CollectionFolderTile(folder: CollectionFolderEntity, onClick: () -> 
         "square" -> 160.dp to 1f
         else     -> 200.dp to (16f / 9f)
     }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    var focused by remember { mutableStateOf(false) }
     Box(
         Modifier
             .width(width)
             .aspectRatio(ratio)
+            .then(if (isTv) Modifier.onFocusChanged { focused = it.isFocused } else Modifier)
+            .border(if (isTv && focused) 3.dp else 0.dp, if (isTv && focused) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
