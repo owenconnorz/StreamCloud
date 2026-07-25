@@ -15,7 +15,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -27,11 +26,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.foundation.border
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ClosedCaption
@@ -75,12 +69,6 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.streamcloud.app.torrent.TorrentService
-import com.streamcloud.app.data.SettingsRepository
-import com.streamcloud.app.data.intro.IntroDbService
-import com.streamcloud.app.data.intro.SkipSegment
-import com.streamcloud.app.data.parental.ContentSeverity
-import com.streamcloud.app.data.parental.ParentalGuideService
-import com.streamcloud.app.data.parental.ParentalRating
 import com.streamcloud.app.torrent.TorrentState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -118,9 +106,6 @@ fun NativePlayerScreen(
     restartKey: Any? = null,
 
     forceDirectPlay: Boolean = false,
-    imdbId: String? = null,
-    seasonNum: Int? = null,
-    episodeNum: Int? = null,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -189,6 +174,12 @@ fun NativePlayerScreen(
         title = title,
         artworkUrl = artworkUrl,
     )
+
+    // Pause / resume the local player based on cast state so the phone stays silent
+    LaunchedEffect(isCastConnected) {
+        val p = player.value ?: return@LaunchedEffect
+        if (isCastConnected) p.pause() else if (!p.isPlaying) p.play()
+    }
     val needsWebView = remember(resolvedUrl, forceDirectPlay) {
         if (forceDirectPlay) false
         else {
@@ -338,24 +329,10 @@ fun NativePlayerScreen(
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var bufferingMs by remember { mutableStateOf(0L) }
-    var isBuffering by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
     var resizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var playbackSpeed by remember { mutableStateOf(1f) }
-
-    // ── IntroDB / skip-intro ──────────────────────────────────────────
-    val settingsRepo = remember { SettingsRepository(context) }
-    val introDbApiKey by settingsRepo.introDbApiKey.collectAsState(initial = "")
-    val holdToSpeedEnabled by settingsRepo.holdToSpeedEnabled.collectAsState(initial = false)
-    val holdToSpeedValue by settingsRepo.holdToSpeedValue.collectAsState(initial = "2.0")
-    val parentalGuideEnabled by settingsRepo.parentalGuideEnabled.collectAsState(initial = true)
-    var skipSegments by remember { mutableStateOf<List<SkipSegment>>(emptyList()) }
-    var activeSkipSegment by remember { mutableStateOf<SkipSegment?>(null) }
-    var showSubmitIntroDialog by remember { mutableStateOf(false) }
-    var parentalRating by remember { mutableStateOf<ParentalRating?>(null) }
-    var showParentalOverlay by remember { mutableStateOf(false) }
-    var holdingFastSpeed by remember { mutableStateOf(false) }
 
     LaunchedEffect(ex) {
         ex ?: return@LaunchedEffect
@@ -363,10 +340,8 @@ fun NativePlayerScreen(
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
             override fun onPlaybackStateChanged(state: Int) {
                 durationMs = ex.duration.coerceAtLeast(0L)
-                isBuffering = state == Player.STATE_BUFFERING
             }
             override fun onPlayerError(error: PlaybackException) {
-                isBuffering = false
                 if (sources.size <= 1) return
                 // Mark the current URL as failed
                 val failedUrl = activeAutoSource?.url ?: streamUrl
@@ -388,7 +363,6 @@ fun NativePlayerScreen(
             durationMs = ex.duration.coerceAtLeast(0L)
             bufferingMs = ex.bufferedPosition.coerceAtLeast(0L)
             isPlaying = ex.isPlaying
-            isBuffering = ex.playbackState == Player.STATE_BUFFERING
             delay(500)
         }
     }
@@ -471,40 +445,21 @@ fun NativePlayerScreen(
         lastInteractionTs = System.currentTimeMillis()
     }
 
-    // Fetch skip segments from IntroDB
-    LaunchedEffect(imdbId, introDbApiKey) {
-        val id = imdbId ?: return@LaunchedEffect
-        skipSegments = IntroDbService.fetchSegments(id, seasonNum, episodeNum, introDbApiKey)
-    }
-    // Track active skip segment
-    LaunchedEffect(positionMs) {
-        activeSkipSegment = skipSegments.firstOrNull { s ->
-            positionMs >= s.startMs && positionMs < s.endMs
-        }
-    }
-    // Fetch parental guide
-    LaunchedEffect(imdbId, parentalGuideEnabled) {
-        val id = imdbId ?: return@LaunchedEffect
-        if (!parentalGuideEnabled) return@LaunchedEffect
-        val mediaT = progressKey?.mediaType ?: "movie"
-        val rating = ParentalGuideService.fetch(mediaT, id)
-        parentalRating = rating
-        if (rating != null) { showParentalOverlay = true; delay(6_000); showParentalOverlay = false }
-    }
-    // Hold-to-speed
-    LaunchedEffect(holdingFastSpeed, playbackSpeed) {
-        val holdSpd = holdToSpeedValue.toFloatOrNull() ?: 2f
-        ex?.playbackParameters = if (holdingFastSpeed) PlaybackParameters(holdSpd)
-            else PlaybackParameters(playbackSpeed)
-    }
-
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
 
-        if (needsWebView && resolvedUrl != null) {
+        if (isCastConnected) {
+            // Phone acts as remote — no local video, show the cast controller instead
+            com.streamcloud.app.cast.CastRemoteController(
+                title = title,
+                artworkUrl = artworkUrl,
+                onBack = onBack,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (needsWebView && resolvedUrl != null) {
             EmbedWebView(resolvedUrl!!)
         } else if (ex != null) {
             AndroidView(
@@ -524,21 +479,6 @@ fun NativePlayerScreen(
             )
         }
 
-        // Buffering / initial-load spinner — shown while the player is buffering
-        // or while the URL is still being resolved (e.g. torrent proxy setup).
-        val showSpinner = isBuffering || (resolvedUrl == null && resolveError == null && !needsWebView)
-        if (showSpinner) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    modifier = Modifier.size(52.dp),
-                    strokeWidth = 4.dp,
-                )
-            }
-        }
 
         val density = LocalDensity.current
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -680,48 +620,6 @@ fun NativePlayerScreen(
             }
         }
 
-        // Parental guide overlay
-        if (showParentalOverlay) {
-            val rating = parentalRating
-            if (rating != null) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.85f))
-                        .clickable { showParentalOverlay = false },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth(0.78f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF1C1C1E))
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.Warning, null, tint = Color(0xFFFFC107),
-                                modifier = Modifier.size(22.dp))
-                            Text("Content Advisory", color = Color.White,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold)
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        ParentalRatingRow("Violence",   rating.violence)
-                        ParentalRatingRow("Language",   rating.language)
-                        ParentalRatingRow("Nudity",     rating.nudity)
-                        ParentalRatingRow("Substances", rating.substances)
-                        ParentalRatingRow("Fright",     rating.fright)
-                        Spacer(Modifier.height(4.dp))
-                        Text("Tap anywhere to dismiss", color = Color.White.copy(alpha = 0.45f),
-                            style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
-
         var locked by remember { mutableStateOf(false) }
         var showSourcesSheet by remember { mutableStateOf(false) }
         var showSpeedSheet by remember { mutableStateOf(false) }
@@ -729,7 +627,7 @@ fun NativePlayerScreen(
         var showAudioSheet by remember { mutableStateOf(false) }
 
         AnimatedVisibility(
-            visible = controlsVisible && !needsWebView,
+            visible = controlsVisible && !needsWebView && !isCastConnected,
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
@@ -809,66 +707,6 @@ fun NativePlayerScreen(
                         }
                     }
 
-
-                    // Skip intro/outro overlay button
-                    val activeSeg = activeSkipSegment
-                    if (activeSeg != null && !locked) {
-                        val segLabel = when (activeSeg.type.lowercase()) {
-                            "outro", "credits", "end" -> "Skip Outro"
-                            "recap", "preview"        -> "Skip Recap"
-                            else                      -> "Skip Intro"
-                        }
-                        Box(
-                            Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(start = 28.dp, bottom = 130.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                .background(Color.Black.copy(alpha = 0.6f))
-                                .clickable { ex?.seekTo(activeSeg.endMs); bumpInteraction() }
-                                .padding(horizontal = 18.dp, vertical = 10.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.SkipNext, null, tint = Color.White,
-                                    modifier = Modifier.size(18.dp))
-                                Text(segLabel, color = Color.White,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    // Hold-to-speed button
-                    if (holdToSpeedEnabled && !locked) {
-                        Box(
-                            Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(end = 28.dp, bottom = 130.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    if (holdingFastSpeed)
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
-                                    else Color.Black.copy(alpha = 0.58f)
-                                )
-                                .pointerInput(holdToSpeedEnabled) {
-                                    awaitEachGesture {
-                                        awaitFirstDown(requireUnconsumed = false)
-                                        holdingFastSpeed = true
-                                        val up = waitForUpOrCancellation()
-                                        holdingFastSpeed = false
-                                    }
-                                }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                        ) {
-                            Text(
-                                if (holdingFastSpeed) "${holdToSpeedValue}x" else "Hold ${holdToSpeedValue}x",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
 
                     Column(
                         Modifier
@@ -1005,39 +843,20 @@ fun NativePlayerScreen(
                                 })
                             },
                         )
-                        // Group subtitle tracks by language
-                        data class SubItem(val grp: androidx.media3.common.Tracks.Group, val idx: Int, val lang: String, val lbl: String)
-                        val allSubItems = textGroups.flatMap { grp ->
-                            (0 until grp.mediaTrackGroup.length).map { i ->
-                                val fmt = grp.mediaTrackGroup.getFormat(i)
-                                val lang = fmt.language?.uppercase() ?: "Unknown"
-                                val lbl  = fmt.label ?: fmt.language ?: "Track ${i + 1}"
-                                SubItem(grp, i, lang, lbl)
-                            }
-                        }
-                        val subsByLang = allSubItems.groupBy { it.lang }
-                        subsByLang.forEach { (lang, tracks) ->
-                            if (subsByLang.size > 1) {
+                        textGroups.forEach { group ->
+                            repeat(group.mediaTrackGroup.length) { i ->
+                                val fmt = group.mediaTrackGroup.getFormat(i)
+                                val label = fmt.label ?: fmt.language ?: "Track ${i + 1}"
                                 ListItem(
-                                    headlineContent = {
-                                        Text(lang,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                        )
-                                    },
-                                )
-                            }
-                            tracks.forEach { item ->
-                                ListItem(
-                                    headlineContent = { Text(item.lbl) },
+                                    headlineContent = { Text(label) },
                                     leadingContent = {
                                         RadioButton(
-                                            selected = !subsDisabled && item.grp.isTrackSelected(item.idx),
+                                            selected = !subsDisabled && group.isTrackSelected(i),
                                             onClick = {
                                                 ex?.trackSelectionParameters = ex?.trackSelectionParameters
                                                     ?.buildUpon()
                                                     ?.setDisabledTrackTypes(emptySet())
-                                                    ?.addOverride(TrackSelectionOverride(item.grp.mediaTrackGroup, item.idx))
+                                                    ?.addOverride(TrackSelectionOverride(group.mediaTrackGroup, i))
                                                     ?.build() ?: return@RadioButton
                                                 showSubsSheet = false
                                             },
@@ -1093,55 +912,6 @@ fun NativePlayerScreen(
             }
         }
 
-
-        if (showSubmitIntroDialog) {
-            var segType by remember { mutableStateOf("intro") }
-            var startInput by remember { mutableStateOf((positionMs / 1000.0).toString()) }
-            var endInput by remember { mutableStateOf(((positionMs + 30_000L) / 1000.0).toString()) }
-            var submitting by remember { mutableStateOf(false) }
-            var submitMsg by remember { mutableStateOf<String?>(null) }
-            AlertDialog(
-                onDismissRequest = { showSubmitIntroDialog = false },
-                title = { Text("Submit Timestamps") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Segment type", style = MaterialTheme.typography.labelMedium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("intro", "outro", "recap").forEach { t ->
-                                FilterChip(
-                                    selected = segType == t,
-                                    onClick  = { segType = t },
-                                    label    = { Text(t.replaceFirstChar { it.uppercase() }) },
-                                )
-                            }
-                        }
-                        OutlinedTextField(startInput, { startInput = it }, label = { Text("Start (seconds)") }, singleLine = true)
-                        OutlinedTextField(endInput,   { endInput   = it }, label = { Text("End (seconds)")   }, singleLine = true)
-                        submitMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = !submitting,
-                        onClick = {
-                            val start = startInput.toDoubleOrNull() ?: return@TextButton
-                            val end   = endInput.toDoubleOrNull()   ?: return@TextButton
-                            val id    = imdbId ?: return@TextButton
-                            submitting = true
-                            scope.launch {
-                                val r = IntroDbService.submitSegment(id, seasonNum, episodeNum, segType, start, end, introDbApiKey)
-                                submitMsg = if (r.success) "Submitted! Thank you." else "Failed: ${r.message}"
-                                submitting = false
-                                if (r.success) kotlinx.coroutines.delay(1200).also { showSubmitIntroDialog = false }
-                            }
-                        },
-                    ) { if (submitting) CircularProgressIndicator(Modifier.size(16.dp)) else Text("Submit") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showSubmitIntroDialog = false }) { Text("Cancel") }
-                },
-            )
-        }
 
         if (needsWebView) {
             Row(
@@ -1657,23 +1427,4 @@ fun extractEmbedUrl(input: String): String {
 
     val srcRegex = Regex("""src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     return srcRegex.find(s)?.groupValues?.get(1)?.takeIf { it.isNotBlank() } ?: s
-}
-
-@Composable
-private fun ParentalRatingRow(label: String, severity: ContentSeverity) {
-    if (severity == ContentSeverity.NONE) return
-    val (color, text) = when (severity) {
-        ContentSeverity.SEVERE   -> Color(0xFFFF5252) to "Severe"
-        ContentSeverity.MODERATE -> Color(0xFFFFC107) to "Moderate"
-        ContentSeverity.MILD     -> Color(0xFF81C784) to "Mild"
-        else                     -> Color.White to "None"
-    }
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
-        Text(text, color = color, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-    }
 }
