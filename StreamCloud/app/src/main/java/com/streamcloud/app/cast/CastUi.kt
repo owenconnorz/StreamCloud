@@ -15,6 +15,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -374,10 +377,12 @@ private fun formatMs(ms: Long): String {
  * - Polls RemoteMediaClient every 500 ms for position / duration / playing state.
  * - Exposes play/pause, ±10 s skip, and a seek slider.
  * - Shows the movie artwork and "Casting to <device>" label.
+ * - If media never starts (IDLE state after grace period), shows "Send to TV" retry button.
  */
 @Composable
 fun CastRemoteController(
     title: String,
+    streamUrl: String = "",
     artworkUrl: String? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -387,33 +392,57 @@ fun CastRemoteController(
         runCatching { CastContext.getSharedInstance(context.applicationContext) }.getOrNull()
     } ?: return
 
-    var positionMs   by remember { mutableLongStateOf(0L) }
-    var durationMs   by remember { mutableLongStateOf(0L) }
-    var isPlaying    by remember { mutableStateOf(true) }
-    var isSeeking    by remember { mutableStateOf(false) }
-    var seekProgress by remember { mutableStateOf(0f) }
-    val deviceName   = remember {
+    var positionMs    by remember { mutableLongStateOf(0L) }
+    var durationMs    by remember { mutableLongStateOf(0L) }
+    var isPlaying     by remember { mutableStateOf(true) }
+    var isSeeking     by remember { mutableStateOf(false) }
+    var seekProgress  by remember { mutableStateOf(0f) }
+    var playerState   by remember { mutableStateOf(MediaStatus.PLAYER_STATE_UNKNOWN) }
+    var idleSeconds   by remember { mutableStateOf(0) }
+    val deviceName    = remember {
         castContext.sessionManager.currentCastSession?.castDevice?.friendlyName ?: "TV"
     }
 
-    // Poll remote state every 500 ms
+    // Poll remote state every 500 ms; track consecutive idle seconds for retry prompt
     LaunchedEffect(Unit) {
         while (true) {
             val client = castContext.sessionManager.currentCastSession?.remoteMediaClient
             if (client != null) {
                 val status = client.mediaStatus
+                val state  = status?.playerState ?: MediaStatus.PLAYER_STATE_UNKNOWN
+                playerState = state
                 if (status != null) {
                     val pos = status.streamPosition.coerceAtLeast(0L)
                     val dur = client.mediaInfo?.streamDuration?.coerceAtLeast(0L) ?: 0L
                     positionMs = pos
                     durationMs = dur
-                    isPlaying  = status.playerState == MediaStatus.PLAYER_STATE_PLAYING
+                    isPlaying  = state == MediaStatus.PLAYER_STATE_PLAYING
                     if (!isSeeking && dur > 0L) seekProgress = pos.toFloat() / dur
+                }
+                // Count half-seconds spent in IDLE/UNKNOWN (no media loaded)
+                if (state == MediaStatus.PLAYER_STATE_IDLE || state == MediaStatus.PLAYER_STATE_UNKNOWN) {
+                    idleSeconds++
+                } else {
+                    idleSeconds = 0
                 }
             }
             delay(500)
         }
     }
+
+    // After ~5 seconds of IDLE with a real URL, automatically retry sending to TV
+    LaunchedEffect(streamUrl) {
+        if (streamUrl.isBlank()) return@LaunchedEffect
+        delay(5_000)
+        val session = castContext.sessionManager.currentCastSession ?: return@LaunchedEffect
+        if (playerState == MediaStatus.PLAYER_STATE_IDLE || playerState == MediaStatus.PLAYER_STATE_UNKNOWN) {
+            loadRemoteMedia(session, streamUrl, title, artworkUrl, null)
+        }
+    }
+
+    // Whether to offer the manual "Send to TV" retry (after 10 poll ticks = 5 s)
+    val showRetry = idleSeconds >= 10 && streamUrl.isNotBlank()
+    val isBuffering = playerState == MediaStatus.PLAYER_STATE_BUFFERING
 
     Box(
         modifier
@@ -502,112 +531,161 @@ fun CastRemoteController(
 
             Spacer(Modifier.height(32.dp))
 
-            // Seek slider
-            Slider(
-                value = if (isSeeking) seekProgress
-                        else if (durationMs > 0L) positionMs.toFloat() / durationMs else 0f,
-                onValueChange = { v ->
-                    isSeeking    = true
-                    seekProgress = v
-                },
-                onValueChangeFinished = {
-                    val target = (seekProgress * durationMs).toLong()
-                    castContext.sessionManager.currentCastSession?.remoteMediaClient
-                        ?.seek(
-                            MediaSeekOptions.Builder()
-                                .setPosition(target)
-                                .setResumeState(MediaSeekOptions.RESUME_STATE_PLAY)
-                                .build()
-                        )
-                    isSeeking = false
-                },
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.White,
-                    activeTrackColor = Color.White,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.30f),
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    if (isSeeking) formatMs((seekProgress * durationMs).toLong())
-                    else formatMs(positionMs),
-                    color = Color.White.copy(alpha = 0.75f),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                Text(
-                    formatMs(durationMs),
-                    color = Color.White.copy(alpha = 0.75f),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
-
-            Spacer(Modifier.height(24.dp))
-
-            // Playback controls
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                // Rewind 10s
-                IconButton(
-                    onClick = {
-                        val target = (positionMs - 10_000L).coerceAtLeast(0L)
-                        castContext.sessionManager.currentCastSession?.remoteMediaClient
-                            ?.seek(MediaSeekOptions.Builder().setPosition(target).build())
-                    },
-                    modifier = Modifier.size(56.dp),
-                ) {
-                    Icon(
-                        Icons.Default.Replay10,
-                        contentDescription = "Rewind 10s",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp),
+            when {
+                isBuffering -> {
+                    // Show spinner while Chromecast is buffering
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(48.dp),
                     )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Loading on TV…",
+                        color = Color.White.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(40.dp))
                 }
-
-                // Play / Pause
-                Box(
-                    Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .clickable {
-                            val client = castContext.sessionManager.currentCastSession?.remoteMediaClient
-                            if (isPlaying) client?.pause() else client?.play()
+                showRetry -> {
+                    // Media never loaded — offer manual retry
+                    Text(
+                        "The video didn't start on your TV.",
+                        color = Color.White.copy(alpha = 0.75f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            val session = castContext.sessionManager.currentCastSession
+                            if (session != null && streamUrl.isNotBlank()) {
+                                loadRemoteMedia(session, streamUrl, title, artworkUrl, null)
+                                idleSeconds = 0
+                            }
                         },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.Black,
-                        modifier = Modifier.size(38.dp),
-                    )
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                    ) {
+                        Icon(
+                            Icons.Default.Cast,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Send to TV", color = Color.Black)
+                    }
+                    Spacer(Modifier.height(40.dp))
                 }
+                else -> {
+                    // Normal seek slider (media is playing or just started)
+                    Slider(
+                        value = if (isSeeking) seekProgress
+                                else if (durationMs > 0L) positionMs.toFloat() / durationMs else 0f,
+                        onValueChange = { v ->
+                            isSeeking    = true
+                            seekProgress = v
+                        },
+                        onValueChangeFinished = {
+                            val target = (seekProgress * durationMs).toLong()
+                            castContext.sessionManager.currentCastSession?.remoteMediaClient
+                                ?.seek(
+                                    MediaSeekOptions.Builder()
+                                        .setPosition(target)
+                                        .setResumeState(MediaSeekOptions.RESUME_STATE_PLAY)
+                                        .build()
+                                )
+                            isSeeking = false
+                        },
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = Color.White,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.30f),
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
 
-                // Forward 10s
-                IconButton(
-                    onClick = {
-                        val target = (positionMs + 10_000L).coerceAtMost(durationMs)
-                        castContext.sessionManager.currentCastSession?.remoteMediaClient
-                            ?.seek(MediaSeekOptions.Builder().setPosition(target).build())
-                    },
-                    modifier = Modifier.size(56.dp),
-                ) {
-                    Icon(
-                        Icons.Default.Forward10,
-                        contentDescription = "Forward 10s",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp),
-                    )
-                }
-            }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            if (isSeeking) formatMs((seekProgress * durationMs).toLong())
+                            else formatMs(positionMs),
+                            color = Color.White.copy(alpha = 0.75f),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Text(
+                            formatMs(durationMs),
+                            color = Color.White.copy(alpha = 0.75f),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    // Playback controls
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        // Rewind 10s
+                        IconButton(
+                            onClick = {
+                                val target = (positionMs - 10_000L).coerceAtLeast(0L)
+                                castContext.sessionManager.currentCastSession?.remoteMediaClient
+                                    ?.seek(MediaSeekOptions.Builder().setPosition(target).build())
+                            },
+                            modifier = Modifier.size(56.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Replay10,
+                                contentDescription = "Rewind 10s",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp),
+                            )
+                        }
+
+                        // Play / Pause
+                        Box(
+                            Modifier
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .clickable {
+                                    val client = castContext.sessionManager.currentCastSession?.remoteMediaClient
+                                    if (isPlaying) client?.pause() else client?.play()
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = Color.Black,
+                                modifier = Modifier.size(38.dp),
+                            )
+                        }
+
+                        // Forward 10s
+                        IconButton(
+                            onClick = {
+                                val target = (positionMs + 10_000L).coerceAtMost(durationMs)
+                                castContext.sessionManager.currentCastSession?.remoteMediaClient
+                                    ?.seek(MediaSeekOptions.Builder().setPosition(target).build())
+                            },
+                            modifier = Modifier.size(56.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Forward10,
+                                contentDescription = "Forward 10s",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp),
+                            )
+                        }
+                    }
+                } // end else (normal playback)
+            } // end when
 
             Spacer(Modifier.height(32.dp))
 
