@@ -80,14 +80,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.media3.common.util.UnstableApi
+import com.streamcloud.app.data.util.GoogleAccountHelper
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -1044,7 +1045,18 @@ private fun ProfileNavItem(
 ) {
     val context = LocalContext.current
     val sl = remember(context) { ServiceLocator.get(context) }
-    val avatar by sl.settings.ytMusicUserAvatar.collectAsState(initial = "")
+    val ytAvatar by sl.settings.ytMusicUserAvatar.collectAsState(initial = "")
+
+    // Fall back to the device Google account photo (Metrolist approach) when
+    // the user hasn't completed the YouTube Music WebView sign-in.
+    var deviceAvatar by remember { mutableStateOf("") }
+    LaunchedEffect(ytAvatar) {
+        if (ytAvatar.isBlank() && deviceAvatar.isBlank()) {
+            deviceAvatar = GoogleAccountHelper.getPhotoUrl(context) ?: ""
+        }
+    }
+    val avatar = if (ytAvatar.isNotBlank()) ytAvatar else deviceAvatar
+
     val primaryColor   = MaterialTheme.colorScheme.primary
     val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
     val mutedColor     = MaterialTheme.colorScheme.onSurfaceVariant
