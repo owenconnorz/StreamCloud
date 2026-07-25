@@ -72,9 +72,11 @@ object DiscordRpcService {
     @Volatile private var trackTitle: String = ""
     @Volatile private var trackArtist: String = ""
     @Volatile private var trackArtwork: String? = null
+    @Volatile private var trackVideoId: String? = null
     @Volatile private var isPlaying: Boolean = false
-    @Volatile private var trackStartSec: Long = 0L
-    @Volatile private var trackEndSec: Long = 0L
+    // Stored in MILLISECONDS — Discord gateway timestamps.start/end must be Unix ms.
+    @Volatile private var trackStartMs: Long = 0L
+    @Volatile private var trackEndMs: Long = 0L
 
     private var musicListener: Player.Listener? = null
     private var attachedController: androidx.media3.session.MediaController? = null
@@ -122,6 +124,7 @@ object DiscordRpcService {
             trackTitle = md.title?.toString() ?: ""
             trackArtist = md.artist?.toString() ?: ""
             trackArtwork = md.artworkUri?.toString()
+            trackVideoId = extractVideoId(ctrl.currentMediaItem?.mediaId)
             isPlaying = ctrl.isPlaying
             refreshTimestamps(ctrl)
 
@@ -130,6 +133,7 @@ object DiscordRpcService {
                     trackTitle = metadata.title?.toString() ?: ""
                     trackArtist = metadata.artist?.toString() ?: ""
                     trackArtwork = metadata.artworkUri?.toString()
+                    trackVideoId = extractVideoId(ctrl.currentMediaItem?.mediaId)
                     scope.launch {
                         withContext(Dispatchers.Main) { refreshTimestamps(ctrl) }
                         sendPresence()
@@ -152,9 +156,32 @@ object DiscordRpcService {
     private fun refreshTimestamps(ctrl: androidx.media3.session.MediaController) {
         val posMs = ctrl.currentPosition.coerceAtLeast(0L)
         val durMs = ctrl.duration.takeIf { it > 0L } ?: 0L
-        val nowSec = System.currentTimeMillis() / 1000L
-        trackStartSec = nowSec - posMs / 1000L
-        trackEndSec = if (durMs > 0L) nowSec + (durMs - posMs) / 1000L else 0L
+        val nowMs = System.currentTimeMillis()
+        // Store raw Unix ms — Discord gateway timestamps.start/end are Unix milliseconds.
+        trackStartMs = nowMs - posMs
+        trackEndMs = if (durMs > 0L) nowMs + (durMs - posMs) else 0L
+    }
+
+    /**
+     * Extracts a bare YouTube video ID from a mediaId that may be a full URL
+     * (https://www.youtube.com/watch?v=XXXXX) or already just the 11-char ID.
+     */
+    private fun extractVideoId(mediaId: String?): String? {
+        if (mediaId.isNullOrBlank()) return null
+        val vParam = mediaId.substringAfter("v=", "").substringBefore("&").trim()
+        if (vParam.isNotBlank()) return vParam
+        // Some implementations store the raw video ID directly
+        return mediaId.takeIf { it.length in 10..12 && !it.contains('/') && !it.contains('?') }
+    }
+
+    /**
+     * Returns a publicly accessible artwork URL Discord can display.
+     * Prefers a YouTube hqdefault thumbnail built from the video ID; falls back
+     * to the raw artworkUri only if it is already an https:// URL.
+     */
+    private fun buildArtworkUrl(videoId: String?, fallback: String?): String? {
+        if (!videoId.isNullOrBlank()) return "https://img.youtube.com/vi/$videoId/hqdefault.jpg"
+        return fallback?.takeIf { it.startsWith("https://") }
     }
 
     private fun connectGateway() {
@@ -268,9 +295,9 @@ object DiscordRpcService {
         val playing = isPlaying
         val title = trackTitle
         val artist = trackArtist
-        val artwork = trackArtwork
-        val startSec = trackStartSec
-        val endSec = trackEndSec
+        val startMs = trackStartMs
+        val endMs = trackEndMs
+        val artworkUrl = buildArtworkUrl(trackVideoId, trackArtwork)
 
         val activities = JSONArray()
         val showActivity = !cfg.clearOnPause || playing
@@ -287,22 +314,23 @@ object DiscordRpcService {
                 activity.put("state", "by ${artist.take(125)}")
             }
 
-            if (cfg.showTimestamps && startSec > 0L) {
+            // Discord gateway timestamps.start/end are Unix MILLISECONDS.
+            if (cfg.showTimestamps && startMs > 0L) {
                 val timestamps = JSONObject()
                 when (cfg.timestampMode) {
-                    "remaining" -> if (endSec > 0L) timestamps.put("end", endSec)
+                    "remaining" -> if (endMs > 0L) timestamps.put("end", endMs)
                     "bar" -> {
-                        timestamps.put("start", startSec)
-                        if (endSec > 0L) timestamps.put("end", endSec)
+                        timestamps.put("start", startMs)
+                        if (endMs > 0L) timestamps.put("end", endMs)
                     }
-                    else -> timestamps.put("start", startSec)
+                    else -> timestamps.put("start", startMs)
                 }
                 if (timestamps.length() > 0) activity.put("timestamps", timestamps)
             }
 
-            if (cfg.showArtwork && !artwork.isNullOrBlank()) {
+            if (cfg.showArtwork && !artworkUrl.isNullOrBlank()) {
                 val assets = JSONObject()
-                assets.put("large_image", artwork)
+                assets.put("large_image", artworkUrl)
                 assets.put("large_text", title.take(128))
                 activity.put("assets", assets)
             }
