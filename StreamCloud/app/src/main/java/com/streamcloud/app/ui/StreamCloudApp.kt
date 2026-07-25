@@ -990,15 +990,15 @@ private fun ScrollableNavBarItem(
                     .clip(RoundedCornerShape(50))
                     .background(primaryColor)
                     .padding(
-                        horizontal = if (showLabel) 18.dp else 20.dp,
-                        vertical   = if (showLabel) 10.dp else 14.dp,
+                        horizontal = if (showLabel) 16.dp else 16.dp,
+                        vertical   = if (showLabel) 10.dp else 12.dp,
                     ),
             ) {
                 Icon(
                     icon,
                     contentDescription = label,
                     tint = onPrimaryColor,
-                    modifier = Modifier.size(if (showLabel) 20.dp else 26.dp),
+                    modifier = Modifier.size(if (showLabel) 20.dp else 24.dp),
                 )
                 if (showLabel) {
                     Spacer(Modifier.width(7.dp))
@@ -1014,15 +1014,15 @@ private fun ScrollableNavBarItem(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(
-                    horizontal = if (showLabel) 12.dp else 16.dp,
-                    vertical   = if (showLabel) 6.dp  else 12.dp,
+                    horizontal = if (showLabel) 12.dp else 12.dp,
+                    vertical   = if (showLabel) 6.dp  else 10.dp,
                 ),
             ) {
                 Icon(
                     icon,
                     contentDescription = label,
                     tint = mutedColor,
-                    modifier = Modifier.size(if (showLabel) 22.dp else 28.dp),
+                    modifier = Modifier.size(if (showLabel) 22.dp else 24.dp),
                 )
                 if (showLabel) {
                     Spacer(Modifier.height(3.dp))
@@ -1046,13 +1046,30 @@ private fun ProfileNavItem(
     val context = LocalContext.current
     val sl = remember(context) { ServiceLocator.get(context) }
     val ytAvatar by sl.settings.ytMusicUserAvatar.collectAsState(initial = "")
+    val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
 
-    // Fall back to the device Google account photo (Metrolist approach) when
-    // the user hasn't completed the YouTube Music WebView sign-in.
+    // When ytMusicUserAvatar is blank (JS scraping during login didn't capture it),
+    // try the YouTube Music account/account_menu API with the stored cookie —
+    // this is the primary Metrolist approach.  Fall back to the device Google
+    // account via AccountManager as a last resort.
     var deviceAvatar by remember { mutableStateOf("") }
-    LaunchedEffect(ytAvatar) {
-        if (ytAvatar.isBlank() && deviceAvatar.isBlank()) {
-            deviceAvatar = GoogleAccountHelper.getPhotoUrl(context) ?: ""
+    LaunchedEffect(ytAvatar, ytCookie) {
+        if (ytAvatar.isNotBlank() || deviceAvatar.isNotBlank()) return@LaunchedEffect
+        val photoUrl = when {
+            ytCookie.isNotBlank() ->
+                GoogleAccountHelper.fetchFromYtMusicApi(ytCookie)
+                    ?: GoogleAccountHelper.getPhotoUrl(context)
+            else ->
+                GoogleAccountHelper.getPhotoUrl(context)
+        }
+        if (!photoUrl.isNullOrBlank()) {
+            if (ytCookie.isNotBlank()) {
+                // Persist so subsequent launches show the photo instantly
+                sl.settings.setYtMusicUserAvatar(photoUrl)
+                // ytAvatar will update via DataStore flow — no need to set deviceAvatar
+            } else {
+                deviceAvatar = photoUrl
+            }
         }
     }
     val avatar = if (ytAvatar.isNotBlank()) ytAvatar else deviceAvatar
@@ -1074,7 +1091,7 @@ private fun ProfileNavItem(
                     .clip(RoundedCornerShape(50))
                     .background(primaryColor)
                     .padding(
-                        horizontal = if (showLabel) 14.dp else 18.dp,
+                        horizontal = if (showLabel) 14.dp else 16.dp,
                         vertical   = if (showLabel) 8.dp  else 12.dp,
                     ),
             ) {
@@ -1093,11 +1110,11 @@ private fun ProfileNavItem(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(
-                    horizontal = if (showLabel) 12.dp else 14.dp,
+                    horizontal = if (showLabel) 12.dp else 12.dp,
                     vertical   = if (showLabel) 6.dp  else 10.dp,
                 ),
             ) {
-                ProfileAvatarCircle(avatar = avatar, size = if (showLabel) 22.dp else 26.dp, tint = mutedColor)
+                ProfileAvatarCircle(avatar = avatar, size = if (showLabel) 22.dp else 24.dp, tint = mutedColor)
                 if (showLabel) {
                     Spacer(Modifier.height(3.dp))
                     Text(
