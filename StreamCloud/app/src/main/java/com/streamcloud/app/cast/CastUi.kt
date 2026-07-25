@@ -4,21 +4,30 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,11 +36,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
+import coil.compose.AsyncImage
+import com.google.android.gms.cast.MediaSeekOptions
+import com.google.android.gms.cast.MediaStatus
 import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.delay
 
@@ -343,4 +358,281 @@ private fun guessMimeType(url: String): String {
 
 fun initCast(context: Context) {
     runCatching { CastContext.getSharedInstance(context.applicationContext) }
+}
+
+private fun formatMs(ms: Long): String {
+    if (ms <= 0L) return "0:00"
+    val totalSec = ms / 1000L
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+}
+
+/**
+ * Full-screen cast remote controller shown on the phone while the movie plays on the TV.
+ * - Polls RemoteMediaClient every 500 ms for position / duration / playing state.
+ * - Exposes play/pause, ±10 s skip, and a seek slider.
+ * - Shows the movie artwork and "Casting to <device>" label.
+ */
+@Composable
+fun CastRemoteController(
+    title: String,
+    artworkUrl: String? = null,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val castContext = remember(context) {
+        runCatching { CastContext.getSharedInstance(context.applicationContext) }.getOrNull()
+    } ?: return
+
+    var positionMs   by remember { mutableLongStateOf(0L) }
+    var durationMs   by remember { mutableLongStateOf(0L) }
+    var isPlaying    by remember { mutableStateOf(true) }
+    var isSeeking    by remember { mutableStateOf(false) }
+    var seekProgress by remember { mutableStateOf(0f) }
+    val deviceName   = remember {
+        castContext.sessionManager.currentCastSession?.castDevice?.friendlyName ?: "TV"
+    }
+
+    // Poll remote state every 500 ms
+    LaunchedEffect(Unit) {
+        while (true) {
+            val client = castContext.sessionManager.currentCastSession?.remoteMediaClient
+            if (client != null) {
+                val status = client.mediaStatus
+                if (status != null) {
+                    val pos = status.streamPosition.coerceAtLeast(0L)
+                    val dur = client.mediaInfo?.streamDuration?.coerceAtLeast(0L) ?: 0L
+                    positionMs = pos
+                    durationMs = dur
+                    isPlaying  = status.playerState == MediaStatus.PLAYER_STATE_PLAYING
+                    if (!isSeeking && dur > 0L) seekProgress = pos.toFloat() / dur
+                }
+            }
+            delay(500)
+        }
+    }
+
+    Box(
+        modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Dimmed artwork backdrop
+        if (!artworkUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = artworkUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                alpha = 0.18f,
+            )
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp),
+        ) {
+            Spacer(Modifier.height(40.dp))
+
+            // Artwork
+            if (!artworkUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = artworkUrl,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(200.dp)
+                        .clip(RoundedCornerShape(16.dp)),
+                )
+            } else {
+                Box(
+                    Modifier
+                        .size(200.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White.copy(alpha = 0.08f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Cast,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.4f),
+                        modifier = Modifier.size(72.dp),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(28.dp))
+
+            // Title
+            Text(
+                title,
+                color = Color.White,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+            )
+
+            Spacer(Modifier.height(6.dp))
+
+            // Casting to <device>
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Default.CastConnected,
+                    contentDescription = null,
+                    tint = Color(0xFF66D9A6),
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "Casting to $deviceName",
+                    color = Color(0xFF66D9A6),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            Spacer(Modifier.height(32.dp))
+
+            // Seek slider
+            Slider(
+                value = if (isSeeking) seekProgress
+                        else if (durationMs > 0L) positionMs.toFloat() / durationMs else 0f,
+                onValueChange = { v ->
+                    isSeeking    = true
+                    seekProgress = v
+                },
+                onValueChangeFinished = {
+                    val target = (seekProgress * durationMs).toLong()
+                    castContext.sessionManager.currentCastSession?.remoteMediaClient
+                        ?.seek(
+                            MediaSeekOptions.Builder()
+                                .setPosition(target)
+                                .setResumeState(MediaSeekOptions.RESUME_STATE_PLAY)
+                                .build()
+                        )
+                    isSeeking = false
+                },
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color.White,
+                    inactiveTrackColor = Color.White.copy(alpha = 0.30f),
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    if (isSeeking) formatMs((seekProgress * durationMs).toLong())
+                    else formatMs(positionMs),
+                    color = Color.White.copy(alpha = 0.75f),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Text(
+                    formatMs(durationMs),
+                    color = Color.White.copy(alpha = 0.75f),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // Playback controls
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                // Rewind 10s
+                IconButton(
+                    onClick = {
+                        val target = (positionMs - 10_000L).coerceAtLeast(0L)
+                        castContext.sessionManager.currentCastSession?.remoteMediaClient
+                            ?.seek(MediaSeekOptions.Builder().setPosition(target).build())
+                    },
+                    modifier = Modifier.size(56.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Replay10,
+                        contentDescription = "Rewind 10s",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp),
+                    )
+                }
+
+                // Play / Pause
+                Box(
+                    Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .clickable {
+                            val client = castContext.sessionManager.currentCastSession?.remoteMediaClient
+                            if (isPlaying) client?.pause() else client?.play()
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = Color.Black,
+                        modifier = Modifier.size(38.dp),
+                    )
+                }
+
+                // Forward 10s
+                IconButton(
+                    onClick = {
+                        val target = (positionMs + 10_000L).coerceAtMost(durationMs)
+                        castContext.sessionManager.currentCastSession?.remoteMediaClient
+                            ?.seek(MediaSeekOptions.Builder().setPosition(target).build())
+                    },
+                    modifier = Modifier.size(56.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Forward10,
+                        contentDescription = "Forward 10s",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(32.dp))
+
+            // Back / disconnect row
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                TextButton(onClick = onBack) {
+                    Text("← Back", color = Color.White.copy(alpha = 0.7f))
+                }
+                TextButton(
+                    onClick = {
+                        castContext.sessionManager.currentCastSession?.remoteMediaClient?.stop()
+                        androidx.mediarouter.media.MediaRouter
+                            .getInstance(context.applicationContext)
+                            .unselect(androidx.mediarouter.media.MediaRouter.UNSELECT_REASON_STOPPED)
+                        onBack()
+                    },
+                ) {
+                    Text("Stop Casting", color = MaterialTheme.colorScheme.error)
+                }
+            }
+
+            Spacer(Modifier.height(40.dp))
+        }
+    }
 }
