@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
+import com.streamcloud.app.ui.theme.tvFocusBorder
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
@@ -554,9 +555,10 @@ private fun HeroPager(
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val pagerState = rememberPagerState(pageCount = { items.size })
+    var pagerHasFocus by remember { mutableStateOf(false) }
 
-    LaunchedEffect(items.size) {
-        if (items.size <= 1) return@LaunchedEffect
+    LaunchedEffect(items.size, pagerHasFocus) {
+        if (items.size <= 1 || pagerHasFocus) return@LaunchedEffect
         while (true) {
             kotlinx.coroutines.delay(6_000)
             val next = (pagerState.currentPage + 1) % items.size
@@ -571,7 +573,11 @@ private fun HeroPager(
             pageSpacing = 0.dp,
         ) { page ->
             val item = items[page]
-            HeroBannerSlide(item = item, onClick = { onClick(item) })
+            HeroBannerSlide(
+                item = item,
+                onClick = { onClick(item) },
+                onFocusChange = { pagerHasFocus = it },
+            )
         }
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -595,11 +601,17 @@ private fun HeroPager(
 }
 
 @Composable
-private fun HeroBannerSlide(item: HeroBannerItem, onClick: () -> Unit) {
+private fun HeroBannerSlide(
+    item: HeroBannerItem,
+    onClick: () -> Unit,
+    onFocusChange: (Boolean) -> Unit = {},
+) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Box(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
+            .then(if (isTv) Modifier.onFocusChanged { onFocusChange(it.hasFocus) } else Modifier)
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
@@ -652,6 +664,7 @@ private fun HeroBannerSlide(item: HeroBannerItem, onClick: () -> Unit) {
             Spacer(Modifier.height(18.dp))
             Box(
                 Modifier
+                    .tvFocusBorder(RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary)
                     .clip(RoundedCornerShape(50))
                     .background(Color.White)
                     .clickable(onClick = onClick)
@@ -829,14 +842,11 @@ private fun ContinueWatchingCard(
     val pct = if (entry.durationMs > 0L)
         (entry.positionMs.toFloat() / entry.durationMs.toFloat()).coerceIn(0f, 1f)
     else 0f
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    var focused by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .width(320.dp)
-            .then(if (isTv) Modifier.onFocusChanged { focused = it.isFocused } else Modifier)
-            .border(if (isTv && focused) 3.dp else 0.dp, if (isTv && focused) Color.White else Color.Transparent, RoundedCornerShape(14.dp))
+            .tvFocusBorder(RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
@@ -900,13 +910,10 @@ private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: (
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    var focused by remember { mutableStateOf(false) }
     Column(
         Modifier
             .width(width)
-            .then(if (isTv) Modifier.onFocusChanged { focused = it.isFocused } else Modifier)
-            .border(if (isTv && focused) 3.dp else 0.dp, if (isTv && focused) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
@@ -936,13 +943,10 @@ private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portr
     val useLandscape = posterStyle == "landscape"
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    var focused by remember { mutableStateOf(false) }
     Column(
         Modifier
             .width(width)
-            .then(if (isTv) Modifier.onFocusChanged { focused = it.isFocused } else Modifier)
-            .border(if (isTv && focused) 3.dp else 0.dp, if (isTv && focused) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
@@ -1130,14 +1134,11 @@ private fun CollectionFolderTile(folder: CollectionFolderEntity, onClick: () -> 
         "square" -> 160.dp to 1f
         else     -> 200.dp to (16f / 9f)
     }
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    var focused by remember { mutableStateOf(false) }
     Box(
         Modifier
             .width(width)
             .aspectRatio(ratio)
-            .then(if (isTv) Modifier.onFocusChanged { focused = it.isFocused } else Modifier)
-            .border(if (isTv && focused) 3.dp else 0.dp, if (isTv && focused) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
