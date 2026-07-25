@@ -12,8 +12,10 @@ import com.dokar.quickjs.quickJs
 import com.streamcloud.app.data.network.BrowserCookieJar
 import com.streamcloud.app.data.network.BrowserHeaders
 import com.streamcloud.app.data.network.CloudflareKiller
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,7 +43,7 @@ object NuvioRuntime {
     private val http = OkHttpClient.Builder()
         .cookieJar(BrowserCookieJar)
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -71,9 +73,11 @@ object NuvioRuntime {
         lastFetchCountByScript[scriptKey] = 0
         lastErrorByScript.remove(scriptKey)
         lastLogByScript.remove(scriptKey)
-        return try {
+        return withContext(Dispatchers.Default) {
+        try {
             withTimeoutOrNull(60_000L) {
-            val deferred = kotlinx.coroutines.CompletableDeferred<String>()
+            val deferred = CompletableDeferred<String>()
+            Log.d(TAG, "[$scriptKey] starting quickJs block")
             quickJs(Dispatchers.Default) {
                 installConsole(scriptKey)
                 installFetchBridge(context, scriptKey)
@@ -82,12 +86,16 @@ object NuvioRuntime {
                 installCheerioBindings(documentCache, elementCache, idCounter)
 
                 function("__capture_result") { args: Array<Any?> ->
-                    deferred.complete(args.firstOrNull()?.toString() ?: "[]")
+                    val json = args.firstOrNull()?.toString() ?: "[]"
+                    Log.d(TAG, "[$scriptKey] __capture_result called, len=${json.length}")
+                    deferred.complete(json)
                     null
                 }
 
                 // Step 1: polyfills — matches official JsBindings.buildPolyfillCode exactly.
+                Log.d(TAG, "[$scriptKey] evaluating polyfills")
                 evaluate<Any?>(buildPolyfillCode(scriptKey))
+                Log.d(TAG, "[$scriptKey] polyfills OK")
 
                 // Step 2: extra per-run globals (not in official but harmless for compat).
                 // Providers that read tmdbId/imdbId/mediaType as free globals find them here.
@@ -104,6 +112,7 @@ object NuvioRuntime {
                     globalThis.season    = $seasonArg;
                     globalThis.episode   = $episodeArg;
                 """.trimIndent())
+                Log.d(TAG, "[$scriptKey] extra globals OK")
 
                 // Step 3: wrappedCode — EXACT copy of official PluginRuntime.kt.
                 // module declaration + provider IIFE are ONE evaluate call so that
@@ -115,13 +124,16 @@ object NuvioRuntime {
                         $scriptText
                     })();
                 """.trimIndent()
+                Log.d(TAG, "[$scriptKey] evaluating wrappedCode (scriptLen=${scriptText.length})")
                 evaluate<Any?>(wrappedCode)
+                Log.d(TAG, "[$scriptKey] wrappedCode OK")
 
                 // Step 4: callCode — EXACT copy of official PluginRuntime.kt.
                 // Args passed by direct interpolation; always 4 positional (official API).
                 val callCode = """
                     (async function() {
                         try {
+                            console.log('[provider] callCode IIFE started');
                             var getStreams = module.exports.getStreams
                                 || (module.exports.default && module.exports.default.getStreams)
                                 || globalThis.getStreams;
@@ -130,20 +142,25 @@ object NuvioRuntime {
                                 __capture_result(JSON.stringify([]));
                                 return;
                             }
+                            console.log('[provider] calling getStreams');
                             var result = await getStreams($tmdbIdJson, $mediaTypeJson, $seasonArg, $episodeArg);
+                            console.log('[provider] getStreams returned, result type=' + (Array.isArray(result) ? 'array[' + (result ? result.length : 0) + ']' : typeof result));
                             __capture_result(JSON.stringify(result || []));
                         } catch (e) {
-                            console.error('[provider] getStreams error:', e && e.message ? e.message : e, e && e.stack ? e.stack : '');
+                            console.error('[provider] getStreams error:', e && e.message ? e.message : String(e), e && e.stack ? e.stack : '');
                             __capture_result(JSON.stringify([]));
                         }
                     })();
                 """.trimIndent()
+                Log.d(TAG, "[$scriptKey] evaluating callCode")
                 evaluate<Any?>(callCode)
+                Log.d(TAG, "[$scriptKey] callCode evaluated, deferred.isCompleted=${deferred.isCompleted}")
 
                 // Step 5: await inside the quickJs block — official pattern.
                 // quickjs-kt drives the JS event loop while suspended here, allowing
                 // the async IIFE Promises to resolve and __capture_result to fire.
                 val capturedJson = deferred.await()
+                Log.d(TAG, "[$scriptKey] deferred resolved, capturedLen=${capturedJson.length}")
                 val streams = parseStreams(capturedJson)
                 Log.i(TAG, "$scriptKey returned ${streams.size} stream(s)")
                 if (streams.isEmpty() && !lastErrorByScript.containsKey(scriptKey)) {
@@ -159,21 +176,23 @@ object NuvioRuntime {
                 streams
             }
             } ?: run {
-                Log.w(TAG, "Provider $scriptKey timed out after 60s")
+                val reqCount = lastFetchCountByScript[scriptKey] ?: 0
+                Log.w(TAG, "Provider $scriptKey timed out after 60s (reqs=$reqCount)")
                 lastErrorByScript[scriptKey] = "Timed out after 60s"
                 emptyList()
             }
         } catch (e: QuickJsException) {
             Log.w(TAG, "QuickJS error in $scriptKey: ${e.message}", e)
-            lastErrorByScript[scriptKey] = "JS error: ${e.message}"
+            lastErrorByScript[scriptKey] = "JS error: ${e.message?.take(200)}"
             emptyList()
         } catch (e: Throwable) {
             Log.w(TAG, "Provider $scriptKey crashed: ${e.message}", e)
-            lastErrorByScript[scriptKey] = "Crashed: ${e.message}"
+            lastErrorByScript[scriptKey] = "Crashed: ${e.message?.take(200)}"
             emptyList()
         } finally {
             documentCache.clear()
             elementCache.clear()
+        }
         }
     }
 
