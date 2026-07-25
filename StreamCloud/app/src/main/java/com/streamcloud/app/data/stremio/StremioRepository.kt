@@ -104,6 +104,8 @@ class StremioRepository(private val context: Context) {
             c.extra?.any { it.isRequired } ?: false
         }
 
+        val nonRequiredCatalogs = manifest.catalogs.filter { !isRequired(it) }
+
         val groups: Map<String, List<StremioCatalogDef>> = when {
             !manifest.catalogGroups.isNullOrEmpty() -> {
                 manifest.catalogGroups.associate { g ->
@@ -120,6 +122,7 @@ class StremioRepository(private val context: Context) {
                     .filter { it.name?.contains(" - ") == true && !isRequired(it) }
                     .groupBy { it.name!!.substringBefore(" - ").trim() }
             }
+            nonRequiredCatalogs.isNotEmpty() -> mapOf(addon.name to nonRequiredCatalogs)
             else -> emptyMap()
         }
 
@@ -166,6 +169,19 @@ class StremioRepository(private val context: Context) {
         val addon = addons.first().firstOrNull { it.manifestUrl == manifestUrl } ?: return@withContext
         val mf = runCatching { fetchManifest(manifestUrl) }.getOrNull() ?: return@withContext
         runCatching { syncAddonCollections(addon, mf, LibraryDb.get(context)) }
+    }
+
+    suspend fun syncAllAddonsCollections() = withContext(Dispatchers.IO) {
+        val db = LibraryDb.get(context)
+        val existingAddonIds = db.userCollections().allSourceAddonIds().toSet()
+        addons.first().forEach { addon ->
+            if (addon.id !in existingAddonIds) {
+                runCatching {
+                    val mf = fetchManifest(addon.manifestUrl)
+                    syncAddonCollections(addon, mf, db)
+                }
+            }
+        }
     }
 
     suspend fun fetchHomeCatalog(addon: InstalledStremioAddon): List<StremioMetaPreview> =
