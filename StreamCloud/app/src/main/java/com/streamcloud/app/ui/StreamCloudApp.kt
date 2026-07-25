@@ -1060,7 +1060,7 @@ fun StreamCloudApp() {
                                             state = hazeState,
                                             shape = RoundedCornerShape(50),
                                             style = HazeStyle(
-                                                backgroundColor = navPillColor.copy(alpha = 0.55f),
+                                                tint = navPillColor.copy(alpha = 0.55f),
                                                 blurRadius = 20.dp,
                                                 noiseFactor = 0.06f,
                                             ),

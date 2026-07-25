@@ -220,6 +220,7 @@ dependencies {
     implementation("androidx.mediarouter:mediarouter:1.7.0")
 
     // Haze — GPU-backed backdrop blur for the liquid glass nav pill.
-    // Same library used by Nuvio (ModernSidebarBlurPanel).
-    implementation("dev.chrisbanes.haze:haze:1.5.1")
+    // Pinned to 0.7.3: 1.x pulls in androidx.core:1.15.0 which requires compileSdk 35.
+    // 0.7.3 also matches the exact API used by NuvioTV's ModernSidebarBlurPanel.
+    implementation("dev.chrisbanes.haze:haze:0.7.3")
 }
