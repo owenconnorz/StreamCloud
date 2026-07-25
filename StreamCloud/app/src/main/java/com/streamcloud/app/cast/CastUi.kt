@@ -268,32 +268,38 @@ fun rememberCastController(
         contentType ?: guessMimeType(streamUrl)
     }
 
-    // Resolve the URL we'll actually give to the Chromecast.
-    // Only route through the local proxy when custom headers are required (Referer, UA, etc.)
-    // or when the URL is a torrent/debrid localhost link.  For plain CDN URLs we give
-    // Chromecast the direct URL, which is simpler and avoids proxy reachability issues.
-    val effectiveCastUrl = remember(streamUrl, headers) {
-        when {
-            streamUrl.isBlank() -> streamUrl
-            streamUrl.startsWith("http://127.0.0.1") ||
-                streamUrl.startsWith("http://localhost") -> streamUrl // unreachable from TV
-            headers.isNotEmpty() ->
-                CastProxyServer.start(streamUrl, headers) ?: streamUrl
-            else -> streamUrl // direct — no proxy needed
-        }
+    // Always give Chromecast the direct URL.
+    // The Cast default receiver runs in an HTTPS context (gstatic.com), so Chrome's
+    // mixed-content policy blocks any HTTP proxy URL we serve from the phone.
+    // Direct HTTPS CDN links work fine; streams that truly require auth headers won't
+    // play on Cast regardless (the default receiver can't send custom headers).
+    val effectiveCastUrl = remember(streamUrl) {
+        if (streamUrl.startsWith("http://127.0.0.1") || streamUrl.startsWith("http://localhost"))
+            "" // localhost torrent proxy — unreachable from TV, signal "don't cast"
+        else
+            streamUrl
     }
 
-    // After proxy starts its background content-type probe, use the real value if it
-    // differs from what we guessed (e.g. URL had no extension but server says m3u8).
+    // Probe the real Content-Type from the phone (which has the headers), so we can
+    // tell Chromecast the correct MIME type even for extension-less URLs.
     var activeMime by remember { mutableStateOf(resolvedMime) }
-    LaunchedEffect(effectiveCastUrl) {
-        // Give the probe up to 3 s to finish, then use whatever is available
-        var waited = 0
-        while (CastProxyServer.detectedContentType == null && waited < 3000) {
-            delay(200)
-            waited += 200
-        }
-        val probed = CastProxyServer.detectedContentType?.substringBefore(';')?.trim()
+    LaunchedEffect(streamUrl) {
+        if (streamUrl.isBlank()) return@LaunchedEffect
+        val probed = runCatching {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    .followRedirects(true).followSslRedirects(true).build()
+                val reqBuilder = okhttp3.Request.Builder().url(streamUrl).head()
+                headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+                client.newCall(reqBuilder.build()).execute().use { resp ->
+                    resp.header("Content-Type")
+                        ?.substringBefore(';')?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                }
+            }
+        }.getOrNull()
         if (!probed.isNullOrBlank()) activeMime = probed
     }
 
@@ -489,10 +495,7 @@ fun CastRemoteController(
         delay(15_000)
         val session = castContext.sessionManager.currentCastSession ?: return@LaunchedEffect
         if (playerState == MediaStatus.PLAYER_STATE_IDLE) {
-            val castUrl = CastProxyServer.currentProxyUrl ?: streamUrl
-            val mime = (CastProxyServer.detectedContentType?.substringBefore(';')?.trim())
-                ?: guessMimeType(streamUrl)
-            loadRemoteMedia(session, castUrl, title, artworkUrl, mime)
+            loadRemoteMedia(session, streamUrl, title, artworkUrl, guessMimeType(streamUrl))
         }
     }
 
