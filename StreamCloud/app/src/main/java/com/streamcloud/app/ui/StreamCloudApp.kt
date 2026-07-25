@@ -888,7 +888,7 @@ fun StreamCloudApp() {
                     }
                 }
 
-                // Floating pills — no solid container, float over content
+                // Nuvio-style flat bottom nav bar
                 if (!useRail && (showMiniPlayer || currentRoute == null || tabs.any { it.route == currentRoute })) {
                     Column(
                         Modifier
@@ -904,27 +904,21 @@ fun StreamCloudApp() {
                         }
                         val showBar = currentRoute == null ||
                             (tabs.any { it.route == currentRoute } && currentRoute != Tab.Settings.route)
-                        if (showBar) Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = navPillColor,
-                                shadowElevation = 10.dp,
-                                tonalElevation = 4.dp,
+                        if (showBar) {
+                            val effectiveShowLabel = navExpanded && showNavLabels
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(navPillColor)
+                                    .navigationBarsPadding(),
                             ) {
                                 Row(
                                     Modifier
-                                        .horizontalScroll(rememberScrollState())
-                                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp, bottom = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceEvenly,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    val effectiveShowLabel = navExpanded && showNavLabels
                                     tabs.forEach { tab ->
                                         val selected = currentRoute == tab.route
                                         if (tab.route == Tab.Settings.route) {
@@ -934,7 +928,7 @@ fun StreamCloudApp() {
                                                 onClick = { navigateToTab(nav, tab.route) },
                                             )
                                         } else {
-                                            ScrollableNavBarItem(
+                                            NuvioNavItem(
                                                 icon = tab.icon,
                                                 label = tab.label,
                                                 selected = selected,
@@ -991,73 +985,38 @@ private fun navigateToTab(nav: NavHostController, route: String) {
 }
 
 @Composable
-private fun ScrollableNavBarItem(
+private fun NuvioNavItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,
     showLabel: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val primaryColor   = MaterialTheme.colorScheme.primary
-    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
-    val mutedColor     = MaterialTheme.colorScheme.onSurfaceVariant
+    val activeColor = Color.White
+    val mutedColor  = Color(0xFF8E8E93)
+    val tint = if (selected) activeColor else mutedColor
 
-    Box(
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        if (selected) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(primaryColor)
-                    .padding(
-                        horizontal = if (showLabel) 16.dp else 16.dp,
-                        vertical   = if (showLabel) 10.dp else 12.dp,
-                    ),
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = label,
-                    tint = onPrimaryColor,
-                    modifier = Modifier.size(if (showLabel) 20.dp else 24.dp),
-                )
-                if (showLabel) {
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = onPrimaryColor,
-                    )
-                }
-            }
-        } else {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(
-                    horizontal = if (showLabel) 12.dp else 12.dp,
-                    vertical   = if (showLabel) 6.dp  else 10.dp,
-                ),
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = label,
-                    tint = mutedColor,
-                    modifier = Modifier.size(if (showLabel) 22.dp else 24.dp),
-                )
-                if (showLabel) {
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = mutedColor,
-                    )
-                }
-            }
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(24.dp),
+        )
+        if (showLabel) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = tint,
+            )
         }
     }
 }
@@ -1099,56 +1058,27 @@ private fun ProfileNavItem(
     }
     val avatar = if (ytAvatar.isNotBlank()) ytAvatar else deviceAvatar
 
-    val primaryColor   = MaterialTheme.colorScheme.primary
-    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
-    val mutedColor     = MaterialTheme.colorScheme.onSurfaceVariant
+    val activeColor = Color.White
+    val mutedColor  = Color(0xFF8E8E93)
+    val tint = if (selected) activeColor else mutedColor
+    val itemLabel = if (avatar.isNotBlank()) "Profile" else "Settings"
 
-    Box(
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        if (selected) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(primaryColor)
-                    .padding(
-                        horizontal = if (showLabel) 14.dp else 16.dp,
-                        vertical   = if (showLabel) 8.dp  else 12.dp,
-                    ),
-            ) {
-                ProfileAvatarCircle(avatar = avatar, size = if (showLabel) 20.dp else 24.dp, tint = onPrimaryColor)
-                if (showLabel) {
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        if (avatar.isNotBlank()) "Profile" else "Settings",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = onPrimaryColor,
-                    )
-                }
-            }
-        } else {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(
-                    horizontal = if (showLabel) 12.dp else 12.dp,
-                    vertical   = if (showLabel) 6.dp  else 10.dp,
-                ),
-            ) {
-                ProfileAvatarCircle(avatar = avatar, size = if (showLabel) 22.dp else 24.dp, tint = mutedColor)
-                if (showLabel) {
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        if (avatar.isNotBlank()) "Profile" else "Settings",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = mutedColor,
-                    )
-                }
-            }
+        ProfileAvatarCircle(avatar = avatar, size = 24.dp, tint = tint)
+        if (showLabel) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                itemLabel,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = tint,
+            )
         }
     }
 }
