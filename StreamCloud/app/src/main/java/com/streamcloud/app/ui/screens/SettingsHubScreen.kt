@@ -110,6 +110,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import com.streamcloud.app.data.nuvio.NuvioAccountService
 import com.streamcloud.app.data.nuvio.NuvioPullResult
+import androidx.compose.ui.window.Dialog
+import com.streamcloud.app.data.discord.DiscordRpcService
 
 private val HubIconBg  = Color(0xFF1B2D52)
 private val HubIconFg  = Color(0xFF5B8DEF)
@@ -203,6 +205,19 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var simklClientId       by remember { mutableStateOf("") }
     var showTraktDialog     by remember { mutableStateOf(false) }
     var showSimklDialog     by remember { mutableStateOf(false) }
+    var showDiscordDialog   by remember { mutableStateOf(false) }
+
+    var discordToken          by remember { mutableStateOf("") }
+    var discordRpcEnabled     by remember { mutableStateOf(false) }
+    var discordAppName        by remember { mutableStateOf("StreamCloud") }
+    var discordShowTitle      by remember { mutableStateOf(true) }
+    var discordShowArtist     by remember { mutableStateOf(true) }
+    var discordShowTimestamps  by remember { mutableStateOf(true) }
+    var discordTsMode         by remember { mutableStateOf("elapsed") }
+    var discordShowArt        by remember { mutableStateOf(true) }
+    var discordClearPause     by remember { mutableStateOf(false) }
+    var discordShowButton     by remember { mutableStateOf(false) }
+    var discordActType        by remember { mutableStateOf("2") }
 
 
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
@@ -281,8 +296,22 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         traktClientId       = sl.settings.traktClientId.first()
         simklToken          = sl.settings.simklAccessToken.first()
         simklClientId       = sl.settings.simklClientId.first()
+        discordToken        = sl.settings.discordToken.first()
+        discordRpcEnabled   = sl.settings.discordRpcEnabled.first()
+        discordAppName      = sl.settings.discordRpcAppName.first()
+        discordShowTitle    = sl.settings.discordRpcShowTitle.first()
+        discordShowArtist   = sl.settings.discordRpcShowArtist.first()
+        discordShowTimestamps = sl.settings.discordRpcShowTimestamps.first()
+        discordTsMode       = sl.settings.discordRpcTsMode.first()
+        discordShowArt      = sl.settings.discordRpcShowArt.first()
+        discordClearPause   = sl.settings.discordRpcClearPause.first()
+        discordShowButton   = sl.settings.discordRpcShowButton.first()
+        discordActType      = sl.settings.discordRpcActType.first()
     }
 
+
+    val discordRpcStatus by DiscordRpcService.status.collectAsState()
+    val discordRpcError  by DiscordRpcService.errorMessage.collectAsState()
 
     var currentPage by remember { mutableStateOf<SettingsPage?>(null) }
 
@@ -779,6 +808,25 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                         )
                     }
                 }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    val rpcSubtitle = when {
+                        discordToken.isBlank() -> "Not configured"
+                        !discordRpcEnabled -> "Disabled"
+                        discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTED -> "Connected"
+                        discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTING -> "Connecting…"
+                        discordRpcStatus == DiscordRpcService.RpcStatus.ERROR ->
+                            discordRpcError.ifBlank { "Connection error" }
+                        else -> "Disconnected"
+                    }
+                    SettingNav(
+                        icon = Icons.Default.Chat,
+                        tint = Color(0xFF5865F2),
+                        title = "Discord Rich Presence",
+                        subtitle = rpcSubtitle,
+                        onClick = { showDiscordDialog = true },
+                    )
+                }
 
                 // ── Trakt.tv dialog ──────────────────────────────────────────────────────
                 if (showTraktDialog) {
@@ -878,6 +926,278 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                             TextButton(onClick = { showSimklDialog = false }) { Text("Cancel") }
                         },
                     )
+                }
+
+                // ── Discord Rich Presence dialog ──────────────────────────────────────────
+                if (showDiscordDialog) {
+                    var discordTokenVisible by remember { mutableStateOf(false) }
+                    Dialog(onDismissRequest = { showDiscordDialog = false }) {
+                        Surface(
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 6.dp,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                Modifier
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(24.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    "Discord Rich Presence",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                )
+                                Text(
+                                    "Open discord.com/app in a browser → press F12 → Network tab → click any request to discord.com → copy the Authorization header value as your token.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                OutlinedTextField(
+                                    value = discordToken,
+                                    onValueChange = { discordToken = it },
+                                    label = { Text("Discord token") },
+                                    singleLine = true,
+                                    visualTransformation = if (discordTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { discordTokenVisible = !discordTokenVisible }) {
+                                            Icon(
+                                                if (discordTokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                contentDescription = null,
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordRpcEnabled = !discordRpcEnabled }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            "Enable Discord RPC",
+                                            style = MaterialTheme.typography.titleMedium,
+                                        )
+                                        Text(
+                                            "Show your music status on your profile",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = discordRpcEnabled,
+                                        onCheckedChange = { discordRpcEnabled = it },
+                                    )
+                                }
+                                HorizontalDivider()
+                                Text(
+                                    "Display",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                OutlinedTextField(
+                                    value = discordAppName,
+                                    onValueChange = { discordAppName = it },
+                                    label = { Text("App name") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Text(
+                                    "Activity type",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                listOf("2" to "Listening", "0" to "Playing", "3" to "Watching")
+                                    .forEach { (value, label) ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { discordActType = value }
+                                                .padding(vertical = 2.dp),
+                                        ) {
+                                            RadioButton(
+                                                selected = discordActType == value,
+                                                onClick = { discordActType = value },
+                                            )
+                                            Text(label, Modifier.padding(start = 4.dp))
+                                        }
+                                    }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowTitle = !discordShowTitle }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Text("Show song title", Modifier.weight(1f))
+                                    Switch(
+                                        checked = discordShowTitle,
+                                        onCheckedChange = { discordShowTitle = it },
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowArtist = !discordShowArtist }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Text("Show artist name", Modifier.weight(1f))
+                                    Switch(
+                                        checked = discordShowArtist,
+                                        onCheckedChange = { discordShowArtist = it },
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowArt = !discordShowArt }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Text("Show album artwork", Modifier.weight(1f))
+                                    Switch(
+                                        checked = discordShowArt,
+                                        onCheckedChange = { discordShowArt = it },
+                                    )
+                                }
+                                HorizontalDivider()
+                                Text(
+                                    "Timestamps",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowTimestamps = !discordShowTimestamps }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Text("Show timestamps", Modifier.weight(1f))
+                                    Switch(
+                                        checked = discordShowTimestamps,
+                                        onCheckedChange = { discordShowTimestamps = it },
+                                    )
+                                }
+                                if (discordShowTimestamps) {
+                                    listOf(
+                                        "elapsed"   to "Elapsed (time since start)",
+                                        "remaining" to "Remaining (time until end)",
+                                        "bar"       to "Progress bar (start + end)",
+                                    ).forEach { (value, label) ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { discordTsMode = value }
+                                                .padding(vertical = 2.dp),
+                                        ) {
+                                            RadioButton(
+                                                selected = discordTsMode == value,
+                                                onClick = { discordTsMode = value },
+                                            )
+                                            Text(label, Modifier.padding(start = 4.dp))
+                                        }
+                                    }
+                                }
+                                HorizontalDivider()
+                                Text(
+                                    "Behaviour",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordClearPause = !discordClearPause }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Clear status when paused")
+                                        Text(
+                                            "Remove presence when music stops",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = discordClearPause,
+                                        onCheckedChange = { discordClearPause = it },
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowButton = !discordShowButton }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Show \"Listen on YT Music\" button")
+                                        Text(
+                                            "Adds a clickable link to your presence",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = discordShowButton,
+                                        onCheckedChange = { discordShowButton = it },
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    TextButton(onClick = { showDiscordDialog = false }) {
+                                        Text("Cancel")
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                sl.settings.setDiscordToken(discordToken)
+                                                sl.settings.setDiscordRpcEnabled(discordRpcEnabled)
+                                                sl.settings.setDiscordRpcAppName(discordAppName)
+                                                sl.settings.setDiscordRpcShowTitle(discordShowTitle)
+                                                sl.settings.setDiscordRpcShowArtist(discordShowArtist)
+                                                sl.settings.setDiscordRpcShowTimestamps(discordShowTimestamps)
+                                                sl.settings.setDiscordRpcTsMode(discordTsMode)
+                                                sl.settings.setDiscordRpcShowArt(discordShowArt)
+                                                sl.settings.setDiscordRpcClearPause(discordClearPause)
+                                                sl.settings.setDiscordRpcShowButton(discordShowButton)
+                                                sl.settings.setDiscordRpcActType(discordActType)
+                                            }
+                                            val cfg = DiscordRpcService.RpcConfig(
+                                                appName = discordAppName,
+                                                activityType = discordActType.toIntOrNull() ?: 2,
+                                                showTitle = discordShowTitle,
+                                                showArtist = discordShowArtist,
+                                                showArtwork = discordShowArt,
+                                                showTimestamps = discordShowTimestamps,
+                                                timestampMode = discordTsMode,
+                                                clearOnPause = discordClearPause,
+                                                showButton = discordShowButton,
+                                            )
+                                            if (discordRpcEnabled && discordToken.isNotBlank()) {
+                                                DiscordRpcService.start(context, discordToken, cfg)
+                                            } else {
+                                                DiscordRpcService.stop()
+                                            }
+                                            showDiscordDialog = false
+                                        },
+                                    ) { Text("Save") }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
