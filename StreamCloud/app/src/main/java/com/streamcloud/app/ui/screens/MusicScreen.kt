@@ -1,14 +1,11 @@
 package com.streamcloud.app.ui.screens
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,8 +39,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,13 +50,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import android.net.Uri
 import coil.compose.AsyncImage
-import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.newpipe.YtTrack
-import com.streamcloud.app.data.ytmusic.HomeSection
-import com.streamcloud.app.data.ytmusic.YtMusicHomeTaxonomy
-import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
-import com.streamcloud.app.ui.util.verticalScrollbar
 import kotlinx.coroutines.launch
 
 private val SUGGESTIONS = listOf(
@@ -121,14 +111,6 @@ fun MusicScreen(
     val nowPlaying = state.nowPlayingTrack
         ?: state.tracks.firstOrNull { it.url == state.nowPlayingUrl }
         ?: state.homeFeed.firstOrNull { it.url == state.nowPlayingUrl }
-    val fallbackSongs = remember(state.homeFeed) { state.homeFeed.mapNotNull { it.toYtmSong() } }
-    val approvedYtSections = remember(state.ytHome.sections, fallbackSongs) {
-        YtMusicHomeTaxonomy.mapSections(state.ytHome.sections, fallbackSongs)
-    }
-    val listenAgainTracks = remember(state.mostPlayed) { state.mostPlayed.take(6) }
-    val forgottenFavoritesTracks = remember(state.liked) { state.liked.takeLast(10).asReversed() }
-    val recentlyPlayedTracks = remember(state.recent) { state.recent.take(6) }
-    val fromLibraryTracks = remember(state.liked) { state.liked.take(10) }
 
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
@@ -148,16 +130,8 @@ fun MusicScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        val listState = rememberLazyListState()
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScrollbar(
-                    state = listState,
-                    width = 5.dp,
-                    dragGestureWidth = 56.dp,
-                ),
-            state = listState,
+            Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = if (nowPlaying != null) 180.dp else 80.dp),
         ) {
             item {
@@ -203,147 +177,121 @@ fun MusicScreen(
             }
 
 
-            if (query.isBlank()) {
+            if (query.isBlank() && state.tracks.isEmpty()) {
                 item { SuggestionsRow(onPick = { query = it; vm.search(it) }) }
 
-                item { SectionTitle("Listen Again") }
-                item(key = "listen_again_row") {
-                    if (listenAgainTracks.isEmpty()) {
-                        HomeCategoryEmptyRow()
-                    } else {
-                        TrackEntityCarousel(
-                            tracks = listenAgainTracks,
-                            nowPlayingUrl = state.nowPlayingUrl,
-                            isPlaying = isPlaying,
-                            onTrackClick = { entity ->
-                                playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
-                            },
-                        )
+
+                if (state.liked.isNotEmpty()) {
+                    item { SectionTitle("Liked songs") }
+                    items(state.liked.take(5), key = { "lib_liked_${it.url}" }) { entity ->
+                        LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
+                            val track = YtTrack(
+                                title = entity.title, uploader = entity.artist,
+                                durationSec = entity.durationSec,
+                                url = entity.url, thumbnail = entity.thumbnail,
+                            )
+                            if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
+                            else if (state.nowPlayingUrl == track.url) player?.play()
+                            else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+                        }
                     }
                 }
 
-                item { SectionTitle("Forgotten Favorites") }
-                item(key = "forgotten_favorites_row") {
-                    if (forgottenFavoritesTracks.isEmpty()) {
-                        HomeCategoryEmptyRow()
-                    } else {
-                        TrackEntityCarousel(
-                            tracks = forgottenFavoritesTracks,
-                            nowPlayingUrl = state.nowPlayingUrl,
-                            isPlaying = isPlaying,
-                            onTrackClick = { entity ->
-                                playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
-                            },
-                        )
-                    }
-                }
 
-                approvedYtSections.forEachIndexed { idx, section ->
+
+
+
+                state.ytHome.sections.forEachIndexed { idx, section ->
                     when (section) {
-                        is HomeSection.MoodChips -> {
-                            item(key = "yt_chips_title_$idx") { SectionTitle(section.title) }
+                        is com.streamcloud.app.data.ytmusic.HomeSection.MoodChips -> {
                             item(key = "yt_chips_$idx") {
                                 YtMoodChipRow(section.chips, onChipClick = { label -> onSearchWithQuery(label) })
                             }
                         }
-                        is HomeSection.PlaylistRail -> {
+                        is com.streamcloud.app.data.ytmusic.HomeSection.PlaylistRail -> {
                             item(key = "yt_prail_title_$idx") { SectionTitle(section.title) }
-                            if (section.items.isEmpty()) {
-                                item(key = "yt_prail_empty_$idx") { HomeCategoryEmptyRow() }
-                            } else {
-                                item(key = "yt_prail_$idx") {
-                                    LazyRow(
-                                        contentPadding = PaddingValues(horizontal = 16.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    ) {
-                                        items(section.items) { pl ->
-                                            YtHomePlaylistCard(pl) {
-                                                if (pl.isVideo) {
-                                                    // Music video card — play directly; do NOT navigate
-                                                    // to YtPlaylistScreen (it can't browse a videoId).
-                                                    dlScope.launch {
-                                                        val song = com.streamcloud.app.data.ytmusic.YtmSong(
-                                                            videoId = pl.id,
-                                                            title   = pl.title,
-                                                            artist  = pl.subtitle
-                                                                ?.substringBefore(" •")?.trim()
-                                                                ?.substringBefore(" · ")?.trim()
-                                                                .orEmpty(),
-                                                            album            = null,
-                                                            thumbnail        = pl.thumbnail,
-                                                            durationSeconds  = null,
-                                                            isVideo          = true,
-                                                        )
-                                                        runCatching {
-                                                            com.streamcloud.app.data.ytmusic.YtPlayback
-                                                                .playSong(context, song)
-                                                        }.onFailure { e ->
-                                                            Log.e("MusicScreen", "PlaylistRail video play failed for ${pl.id}: ${e.message}", e)
-                                                        }
-                                                    }
-                                                } else {
-                                                    onOpenPlaylist(pl.id, pl.title)
-                                                }
-                                            }
+                            item(key = "yt_prail_$idx") {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    items(section.items) { pl ->
+                                        YtHomePlaylistCard(pl) {
+                                            onOpenPlaylist(pl.id, pl.title)
                                         }
                                     }
                                 }
                             }
                         }
-                        is HomeSection.SongRail -> {
+                        is com.streamcloud.app.data.ytmusic.HomeSection.SongRail -> {
                             item(key = "yt_srail_title_$idx") { SectionTitle(section.title) }
-                            if (section.items.isEmpty()) {
-                                item(key = "yt_srail_empty_$idx") { HomeCategoryEmptyRow() }
-                            } else {
-                                item(key = "yt_srail_$idx") {
-                                    YtmSongCarousel(
-                                        songs = section.items,
-                                        isArtistRail = section.title.equals("Top Artists", ignoreCase = true),
-                                        onPlay = { s ->
-                                            dlScope.launch {
-                                                runCatching {
-                                                    com.streamcloud.app.data.ytmusic.YtPlayback.playSong(context, s)
-                                                }.onFailure { e ->
-                                                    Log.e("MusicScreen", "SongRail play failed for ${s.videoId}: ${e.message}", e)
-                                                }
-                                            }
-                                        },
-                                    )
-                                }
+                            items(section.items) { s ->
+                                YtHomeSongRow(s)
                             }
                         }
                     }
                 }
 
-                item { SectionTitle("Recently Played") }
-                item(key = "recently_played_row") {
-                    if (recentlyPlayedTracks.isEmpty()) {
-                        HomeCategoryEmptyRow()
-                    } else {
-                        TrackEntityCarousel(
-                            tracks = recentlyPlayedTracks,
+
+
+                if (state.ytHome.sections.isEmpty() && state.homeFeed.isNotEmpty()) {
+                    item { SectionTitle("Trending today") }
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(state.homeFeed.take(10), key = { "home_${it.url}" }) { track ->
+                                HeroCard(
+                                    track = track,
+                                    isPlaying = isPlaying && state.nowPlayingUrl == track.url,
+                                    onClick = {
+                                        if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
+                                        else if (state.nowPlayingUrl == track.url) player?.play()
+                                        else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    item { SectionTitle("More from YouTube") }
+                    items(state.homeFeed.drop(10), key = { "homerow_${it.url}" }) { track ->
+                        SongRow(
+                            track = track,
                             nowPlayingUrl = state.nowPlayingUrl,
-                            isPlaying = isPlaying,
-                            onTrackClick = { entity ->
-                                playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
-                            },
+                            isPlaying = isPlaying && state.nowPlayingUrl == track.url,
+                            loading = state.resolvingUrl == track.url,
+                            onClick = {
+                                if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
+                                else if (state.nowPlayingUrl == track.url) player?.play()
+                                else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+                            }
                         )
                     }
-                }
-
-                item { SectionTitle("From Your Library") }
-                item(key = "from_library_row") {
-                    if (fromLibraryTracks.isEmpty()) {
-                        HomeCategoryEmptyRow()
-                    } else {
-                        TrackEntityCarousel(
-                            tracks = fromLibraryTracks,
-                            nowPlayingUrl = state.nowPlayingUrl,
-                            isPlaying = isPlaying,
-                            onTrackClick = { entity ->
-                                playLibraryTrack(entity, state.nowPlayingUrl, player, vm)
-                            },
-                        )
+                } else if ((state.ytHomeLoading && state.ytHome.sections.isEmpty()) || state.homeLoading) {
+                    item {
+                        Box(
+                            Modifier.fillMaxWidth().padding(40.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { CircularProgressIndicator() }
+                    }
+                } else {
+                    item {
+                        Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                Modifier.size(96.dp).clip(CircleShape).background(
+                                    Brush.linearGradient(
+                                        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)
+                                    )
+                                ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(40.dp))
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            Text("Tap a vibe or search", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
+                            Text("Stream from YouTube · audio only", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -516,7 +464,6 @@ private fun MusicHeader(
                 tint = MaterialTheme.colorScheme.onBackground,
             )
         }
-        com.streamcloud.app.ui.components.ProfileButton(onClick = onProfileClick)
     }
 }
 
@@ -613,11 +560,11 @@ private fun SearchResultRow(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val imgMod = Modifier.size(54.dp)
+        val imgShape = if (isCircle) CircleShape else RoundedCornerShape(8.dp)
         com.streamcloud.app.ui.components.MusicThumbnail(
             url = thumbnail,
-            modifier = imgMod,
-            shape = if (isCircle) CircleShape else RoundedCornerShape(8.dp),
+            size = 54.dp,
+            shape = imgShape,
         )
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
@@ -910,11 +857,11 @@ private fun SongRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (highlighted) MaterialTheme.colorScheme.surface else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
     ) {
         Box(
             Modifier
@@ -973,34 +920,24 @@ private fun LibraryRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .padding(8.dp),
     ) {
         Box(
             Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
         ) {
-            if (entity.thumbnail != null) {
-                AsyncImage(
-                    model = entity.thumbnail,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(
-                    Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
+            AsyncImage(
+                model = entity.thumbnail,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -1051,10 +988,14 @@ private fun YtHomePlaylistCard(
             .width(150.dp)
             .clickable(onClick = onClick),
     ) {
-        com.streamcloud.app.ui.components.MusicThumbnail(
-            url = pl.thumbnail,
-            size = 150.dp,
-            shape = RoundedCornerShape(12.dp),
+        AsyncImage(
+            model = pl.thumbnail,
+            contentDescription = pl.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(150.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.height(6.dp))
         Text(
@@ -1091,7 +1032,6 @@ private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
     val onPlay = {
         scope.launch {
             runCatching { com.streamcloud.app.data.ytmusic.YtPlayback.playSong(context, s) }
-                .onFailure { e -> Log.e("MusicScreen", "YtHomeSongRow play failed for ${s.videoId}: ${e.message}", e) }
         }
         Unit
     }
@@ -1102,10 +1042,14 @@ private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        com.streamcloud.app.ui.components.MusicThumbnail(
-            url = s.thumbnail,
-            size = 54.dp,
-            shape = RoundedCornerShape(8.dp),
+        AsyncImage(
+            model = s.thumbnail,
+            contentDescription = s.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(54.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -1128,241 +1072,3 @@ private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
     }
 }
 
-private fun playLibraryTrack(
-    entity: TrackEntity,
-    nowPlayingUrl: String?,
-    player: Player?,
-    vm: MusicViewModel,
-) {
-    val track = YtTrack(
-        title = entity.title,
-        uploader = entity.artist,
-        durationSec = entity.durationSec,
-        url = entity.url,
-        thumbnail = entity.thumbnail,
-    )
-    if (nowPlayingUrl == track.url && (player?.isPlaying == true)) player.pause()
-    else if (nowPlayingUrl == track.url) player?.play()
-    else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
-}
-
-private fun YtTrack.toYtmSong(): YtmSong? {
-    val videoId = url.substringAfter("v=", "").substringBefore("&")
-        .ifBlank { url.substringAfterLast("/") }
-        .takeIf { it.isNotBlank() }
-        ?: return null
-    return YtmSong(
-        videoId = videoId,
-        title = title,
-        artist = uploader,
-        album = null,
-        thumbnail = thumbnail,
-        durationSeconds = durationSec,
-        isVideo = isVideo,
-    )
-}
-
-@Composable
-private fun HomeCategoryEmptyRow() {
-    Text(
-        text = "Nothing here yet",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    )
-}
-
-// ── Quick-pick carousels ───────────────────────────────────────────────────────
-
-/**
- * Horizontal carousel for [TrackEntity] items (Listen Again / Recently Played etc.).
- * Shows 6 items initially; swipe/scroll left to reveal more.
- * Supports smooth snap-scrolling, keyboard focus, and ARIA-style content descriptions.
- */
-@Composable
-private fun TrackEntityCarousel(
-    tracks: List<TrackEntity>,
-    nowPlayingUrl: String?,
-    isPlaying: Boolean,
-    onTrackClick: (TrackEntity) -> Unit,
-) {
-    val lazyState = rememberLazyListState()
-    val snapBehavior = rememberSnapFlingBehavior(lazyState)
-    LazyRow(
-        state = lazyState,
-        flingBehavior = snapBehavior,
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = "Track carousel" },
-    ) {
-        items(tracks, key = { "carousel_${it.url}" }) { entity ->
-            TrackCarouselCard(
-                entity = entity,
-                isPlaying = isPlaying && nowPlayingUrl == entity.url,
-                onClick = { onTrackClick(entity) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun TrackCarouselCard(
-    entity: TrackEntity,
-    isPlaying: Boolean,
-    onClick: () -> Unit,
-) {
-    val cardWidth = 130.dp
-    Column(
-        modifier = Modifier
-            .width(cardWidth)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = "${entity.title} by ${entity.artist}" },
-    ) {
-        Box(
-            modifier = Modifier
-                .size(cardWidth)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.BottomEnd,
-        ) {
-            if (entity.thumbnail != null) {
-                AsyncImage(
-                    model = entity.thumbnail,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(
-                    Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(40.dp).align(Alignment.Center),
-                )
-            }
-            if (isPlaying) {
-                Box(
-                    modifier = Modifier
-                        .padding(6.dp)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Default.Pause,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            entity.title,
-            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            entity.artist,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/**
- * Horizontal carousel for [YtmSong] items (Trending Now / Top Songs / Top Artists).
- * When [isArtistRail] is true, shows circular avatar cards instead of square thumbnails.
- */
-@Composable
-private fun YtmSongCarousel(
-    songs: List<YtmSong>,
-    isArtistRail: Boolean,
-    onPlay: (YtmSong) -> Unit,
-) {
-    val lazyState = rememberLazyListState()
-    val snapBehavior = rememberSnapFlingBehavior(lazyState)
-    LazyRow(
-        state = lazyState,
-        flingBehavior = snapBehavior,
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(if (isArtistRail) 16.dp else 10.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = "Song carousel" },
-    ) {
-        items(songs, key = { "ytm_carousel_${it.videoId}" }) { s ->
-            if (isArtistRail) {
-                ArtistCarouselCard(song = s, onClick = { onPlay(s) })
-            } else {
-                SongCarouselCard(song = s, onClick = { onPlay(s) })
-            }
-        }
-    }
-}
-
-@Composable
-private fun SongCarouselCard(song: YtmSong, onClick: () -> Unit) {
-    val cardWidth = 130.dp
-    Column(
-        modifier = Modifier
-            .width(cardWidth)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = "${song.title} by ${song.artist}" },
-    ) {
-        com.streamcloud.app.ui.components.MusicThumbnail(
-            url = song.thumbnail,
-            size = cardWidth,
-            shape = RoundedCornerShape(10.dp),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            song.title,
-            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            song.artist,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun ArtistCarouselCard(song: YtmSong, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .width(96.dp)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = song.artist },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        com.streamcloud.app.ui.components.MusicThumbnail(
-            url = song.thumbnail,
-            size = 80.dp,
-            shape = CircleShape,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            song.artist.ifBlank { song.title },
-            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-    }
-}
