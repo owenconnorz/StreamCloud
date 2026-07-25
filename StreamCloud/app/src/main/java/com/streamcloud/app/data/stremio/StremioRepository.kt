@@ -114,15 +114,30 @@ class StremioRepository(private val context: Context) {
             }
             manifest.catalogs.any { it.group != null } -> {
                 manifest.catalogs
-                    .filter { it.group != null && !isRequired(it) }
-                    .groupBy { it.group!! }
+                    .filter { !isRequired(it) }
+                    .groupBy { it.group ?: it.type.replaceFirstChar { c -> c.titlecase() } }
             }
             manifest.catalogs.any { it.name?.contains(" - ") == true } -> {
-                manifest.catalogs
-                    .filter { it.name?.contains(" - ") == true && !isRequired(it) }
-                    .groupBy { it.name!!.substringBefore(" - ").trim() }
+                // Split by " - " prefix; catalogs whose name has no dash fall back to their type
+                val result = linkedMapOf<String, MutableList<StremioCatalogDef>>()
+                manifest.catalogs.filter { !isRequired(it) }.forEach { c ->
+                    val key = if (c.name?.contains(" - ") == true)
+                        c.name!!.substringBefore(" - ").trim()
+                    else
+                        c.type.replaceFirstChar { it.titlecase() }
+                    result.getOrPut(key) { mutableListOf() }.add(c)
+                }
+                result
             }
-            nonRequiredCatalogs.isNotEmpty() -> mapOf(addon.name to nonRequiredCatalogs)
+            nonRequiredCatalogs.isNotEmpty() -> {
+                // Group by content type so addons with many types get one collection each
+                val byType = nonRequiredCatalogs.groupBy { it.type }
+                if (byType.size > 1) {
+                    byType.mapKeys { (type, _) -> type.replaceFirstChar { it.titlecase() } }
+                } else {
+                    mapOf(addon.name to nonRequiredCatalogs)
+                }
+            }
             else -> emptyMap()
         }
 
@@ -173,13 +188,10 @@ class StremioRepository(private val context: Context) {
 
     suspend fun syncAllAddonsCollections() = withContext(Dispatchers.IO) {
         val db = LibraryDb.get(context)
-        val existingAddonIds = db.userCollections().allSourceAddonIds().toSet()
         addons.first().forEach { addon ->
-            if (addon.id !in existingAddonIds) {
-                runCatching {
-                    val mf = fetchManifest(addon.manifestUrl)
-                    syncAddonCollections(addon, mf, db)
-                }
+            runCatching {
+                val mf = fetchManifest(addon.manifestUrl)
+                syncAddonCollections(addon, mf, db)
             }
         }
     }
