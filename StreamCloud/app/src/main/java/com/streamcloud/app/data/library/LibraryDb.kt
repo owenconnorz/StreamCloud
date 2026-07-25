@@ -206,6 +206,7 @@ data class UserCollectionEntity(
     @ColumnInfo(name = "is_pinned") val isPinned: Boolean = false,
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "source_addon_id", defaultValue = "") val sourceAddonId: String = "",
 )
 
 @Entity(tableName = "collection_folders")
@@ -239,6 +240,12 @@ interface UserCollectionDao {
 
     @Query("UPDATE user_collections SET sort_order = :order WHERE id = :id")
     suspend fun updateOrder(id: Long, order: Int)
+
+    @Query("SELECT * FROM user_collections WHERE source_addon_id = :addonId")
+    suspend fun bySourceAddon(addonId: String): List<UserCollectionEntity>
+
+    @Query("DELETE FROM user_collections WHERE source_addon_id = :addonId")
+    suspend fun deleteBySourceAddon(addonId: String)
 }
 
 @Dao
@@ -265,70 +272,6 @@ interface CollectionFolderDao {
     fun all(): Flow<List<CollectionFolderEntity>>
 }
 
-// ── Followed Artists ──────────────────────────────────────────────────────────
-
-@Entity(tableName = "followed_artists")
-data class FollowedArtistEntity(
-    @PrimaryKey @ColumnInfo(name = "channel_id") val channelId: String,
-    val name: String,
-    val thumbnail: String?,
-    @ColumnInfo(name = "subscriber_label") val subscriberLabel: String?,
-    @ColumnInfo(name = "followed_at") val followedAt: Long = System.currentTimeMillis(),
-    /** browseId (or album title+year hash) of the most recently seen release, used to
-     *  detect new albums/singles in the background check worker. */
-    @ColumnInfo(name = "latest_release_id") val latestReleaseId: String? = null,
-)
-
-@Dao
-interface FollowedArtistDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun follow(entity: FollowedArtistEntity)
-
-    @Query("DELETE FROM followed_artists WHERE channel_id = :channelId")
-    suspend fun unfollow(channelId: String)
-
-    @Query("SELECT * FROM followed_artists ORDER BY followed_at DESC")
-    fun all(): Flow<List<FollowedArtistEntity>>
-
-    @Query("SELECT COUNT(*) > 0 FROM followed_artists WHERE channel_id = :channelId")
-    fun isFollowed(channelId: String): Flow<Boolean>
-
-    @Query("SELECT * FROM followed_artists WHERE channel_id = :channelId LIMIT 1")
-    suspend fun byChannelId(channelId: String): FollowedArtistEntity?
-
-    @Query("UPDATE followed_artists SET latest_release_id = :releaseId WHERE channel_id = :channelId")
-    suspend fun updateLatestRelease(channelId: String, releaseId: String)
-}
-
-
-// ── Adult History ─────────────────────────────────────────────────────────────
-
-@Entity(tableName = "adult_history")
-data class AdultHistoryEntity(
-    @PrimaryKey val id: String,
-    val title: String,
-    val thumbnail: String?,
-    val source: String,
-    @ColumnInfo(name = "embed_url") val embedUrl: String?,
-    @ColumnInfo(name = "duration_label") val durationLabel: String?,
-    @ColumnInfo(name = "watched_at") val watchedAt: Long = System.currentTimeMillis(),
-)
-
-@Dao
-interface AdultHistoryDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(entry: AdultHistoryEntity)
-
-    @Query("SELECT * FROM adult_history ORDER BY watched_at DESC LIMIT 100")
-    fun recent(): Flow<List<AdultHistoryEntity>>
-
-    @Query("DELETE FROM adult_history WHERE id = :id")
-    suspend fun remove(id: String)
-
-    @Query("DELETE FROM adult_history")
-    suspend fun clearAll()
-}
-
 // ── Database ─────────────────────────────────────────────────────────────────
 
 @Database(
@@ -341,10 +284,8 @@ interface AdultHistoryDao {
         FormatEntity::class,
         UserCollectionEntity::class,
         CollectionFolderEntity::class,
-        FollowedArtistEntity::class,
-        AdultHistoryEntity::class,
     ],
-    version = 11,
+    version = 10,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -355,8 +296,6 @@ abstract class LibraryDb : RoomDatabase() {
     abstract fun formats(): FormatDao
     abstract fun userCollections(): UserCollectionDao
     abstract fun collectionFolders(): CollectionFolderDao
-    abstract fun followedArtists(): FollowedArtistDao
-    abstract fun adultHistory(): AdultHistoryDao
 
     companion object {
         private val MIGRATION_5_6 = object : Migration(5, 6) {
@@ -380,37 +319,10 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_10_11 = object : Migration(10, 11) {
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS adult_history (
-                        id TEXT NOT NULL PRIMARY KEY,
-                        title TEXT NOT NULL,
-                        thumbnail TEXT,
-                        source TEXT NOT NULL,
-                        embed_url TEXT,
-                        duration_label TEXT,
-                        watched_at INTEGER NOT NULL DEFAULT 0
-                    )
-                    """.trimIndent()
-                )
-            }
-        }
-
-                private val MIGRATION_9_10 = object : Migration(9, 10) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS followed_artists (
-                        channel_id TEXT PRIMARY KEY NOT NULL,
-                        name TEXT NOT NULL,
-                        thumbnail TEXT,
-                        subscriber_label TEXT,
-                        followed_at INTEGER NOT NULL DEFAULT 0,
-                        latest_release_id TEXT
-                    )
-                    """.trimIndent()
+                    "ALTER TABLE user_collections ADD COLUMN source_addon_id TEXT NOT NULL DEFAULT ''"
                 )
             }
         }
@@ -449,7 +361,7 @@ abstract class LibraryDb : RoomDatabase() {
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
 }
