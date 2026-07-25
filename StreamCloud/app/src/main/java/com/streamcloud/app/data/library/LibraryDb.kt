@@ -391,8 +391,17 @@ abstract class LibraryDb : RoomDatabase() {
 
         private val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // Safe no-op for devices already having these tables from a prior v11 build,
-                // and creates them for devices that skipped to v11 via our previous migration.
+                // source_addon_id was added in MIGRATION_9_10 but the device's original v11
+                // DB may predate that column — add it safely with a try/catch because SQLite
+                // has no ALTER TABLE ... ADD COLUMN IF NOT EXISTS syntax.
+                try {
+                    db.execSQL(
+                        "ALTER TABLE user_collections ADD COLUMN source_addon_id TEXT NOT NULL DEFAULT ''"
+                    )
+                } catch (_: Exception) {
+                    // Column already exists — nothing to do.
+                }
+                // Create new tables; IF NOT EXISTS is safe for devices that already have them.
                 db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS adult_history (
