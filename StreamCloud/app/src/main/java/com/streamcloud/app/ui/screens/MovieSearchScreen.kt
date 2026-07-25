@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.viewmodel.CsSearchResult
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.ui.viewmodel.StremioSearchResult
@@ -45,6 +47,8 @@ fun MovieSearchScreen(
     onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit = { _, _, _, _, _ -> },
 ) {
     val context = LocalContext.current
+    val sl = remember { ServiceLocator.get(context) }
+    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
@@ -61,6 +65,7 @@ fun MovieSearchScreen(
         }
     }
 
+    MoviesThemeWrapper(moviesThemeName) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -132,6 +137,7 @@ fun MovieSearchScreen(
             )
         }
     }
+    } // MoviesThemeWrapper
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
