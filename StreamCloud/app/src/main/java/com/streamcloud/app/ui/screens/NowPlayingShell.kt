@@ -80,7 +80,6 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.lyrics.LyricsRepository
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
-import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.ui.player.MusicActionsSheet
 import com.streamcloud.app.ui.player.SonosDevicePickerSheet
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
@@ -109,26 +108,9 @@ fun NowPlayingShell(
     var artist by remember { mutableStateOf(controller.mediaMetadata.artist?.toString().orEmpty()) }
     var artwork by remember { mutableStateOf(controller.mediaMetadata.artworkUri?.toString()) }
     var mediaId by remember { mutableStateOf(controller.currentMediaItem?.mediaId) }
-    var currentIsMusicVideo by remember {
-        mutableStateOf(controller.currentMediaItem?.mediaMetadata?.extras?.getBoolean(YtPlayback.EXTRA_IS_MUSIC_VIDEO) == true)
-    }
-    var currentVideoId by remember {
-        mutableStateOf(controller.currentMediaItem?.mediaMetadata?.extras?.getString(YtPlayback.EXTRA_VIDEO_ID).orEmpty())
-    }
-    var currentWatchUrl by remember {
-        mutableStateOf(controller.currentMediaItem?.mediaMetadata?.extras?.getString(YtPlayback.EXTRA_WATCH_URL).orEmpty())
-    }
     var isPlaying by remember { mutableStateOf(controller.isPlaying) }
     var shuffleOn by remember { mutableStateOf(controller.shuffleModeEnabled) }
     var repeatMode by remember { mutableStateOf(controller.repeatMode) }
-
-    fun syncCurrentMediaItem(item: MediaItem?) {
-        mediaId = item?.mediaId
-        val extras = item?.mediaMetadata?.extras
-        currentIsMusicVideo = extras?.getBoolean(YtPlayback.EXTRA_IS_MUSIC_VIDEO) == true
-        currentVideoId = extras?.getString(YtPlayback.EXTRA_VIDEO_ID).orEmpty()
-        currentWatchUrl = extras?.getString(YtPlayback.EXTRA_WATCH_URL).orEmpty()
-    }
 
     DisposableEffect(controller) {
         val listener = object : Player.Listener {
@@ -136,13 +118,12 @@ fun NowPlayingShell(
                 title = md.title?.toString().orEmpty()
                 artist = md.artist?.toString().orEmpty()
                 artwork = md.artworkUri?.toString()
-                syncCurrentMediaItem(controller.currentMediaItem)
+                mediaId = controller.currentMediaItem?.mediaId
             }
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onShuffleModeEnabledChanged(enabled: Boolean) { shuffleOn = enabled }
             override fun onRepeatModeChanged(mode: Int) { repeatMode = mode }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                syncCurrentMediaItem(mediaItem)
                 // When casting, tell Sonos to load and play the newly-selected track.
                 val cstate = SonosRepository.castState.value
                 if (cstate is SonosRepository.CastState.Casting && mediaItem != null) {
@@ -191,7 +172,6 @@ fun NowPlayingShell(
         animationSpec = tween(durationMillis = 600),
         label = "np-bg",
     )
-    val onBg = if (animDominant.luminance() > 0.5f) Color(0xFF111111) else Color.White
 
 
     val artworkSwipeX = remember { Animatable(0f) }
@@ -234,11 +214,22 @@ fun NowPlayingShell(
 
 
 
-    val videoId = remember(mediaId, currentVideoId, currentIsMusicVideo) {
-        selectedMusicVideoId(currentIsMusicVideo, currentVideoId, mediaId)
+    val videoId = remember(mediaId) {
+        val mid = mediaId ?: return@remember ""
+        if (mid.startsWith("http")) {
+
+            mid.substringAfter("v=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: ""
+        } else {
+
+            mid
+        }
     }
-    val sonosCastWatchUrl = remember(mediaId, videoId, currentWatchUrl) {
-        selectedMusicVideoWatchUrl(currentWatchUrl, mediaId, videoId)
+    val sonosCastWatchUrl = remember(mediaId, videoId) {
+        when {
+            mediaId?.startsWith("http") == true -> mediaId.orEmpty()
+            videoId.isNotBlank() -> "https://music.youtube.com/watch?v=$videoId"
+            else -> ""
+        }
     }
 
 
@@ -251,12 +242,11 @@ fun NowPlayingShell(
     var videoStreamUrl  by remember(mediaId) { mutableStateOf<String?>(null) }
     var showVideoPlayer by remember(mediaId) { mutableStateOf(false) }
 
-    LaunchedEffect(currentIsMusicVideo, videoId) {
-        isMusicVideo   = false
+    LaunchedEffect(videoId) {
+        isMusicVideo   = null
         videoStreamUrl = null
         showVideoPlayer = false
-        if (!currentIsMusicVideo || videoId.isBlank()) return@LaunchedEffect
-        isMusicVideo = null
+        if (videoId.isBlank()) return@LaunchedEffect
         val result = withContext(Dispatchers.IO) { YtPlayerUtils.resolveVideoStream(videoId) }
         isMusicVideo   = result.isMusicVideo
         videoStreamUrl = result.url
@@ -272,31 +262,20 @@ fun NowPlayingShell(
     }
 
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, isMusicVideo, videoStreamUrl, showVideoPlayer) {
+    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie) {
         canvasUrl = null
-        // Only skip canvas when a music video stream is confirmed and ready — if the video
-        // player failed to resolve a stream, fall back to canvas instead of showing nothing.
-        // Only suppress canvas when the music video player is actively on screen.
-        // Resolving a stream URL in the background should not hide the canvas —
-        // the user controls whether to open the video player via the PlayCircle badge.
-        val hasWorkingVideo = showVideoPlayer && videoStreamUrl != null
-        // Use mediaId as the canvas cache key — videoId is blank for regular (non-music-video)
-        // tracks because selectedMusicVideoId() returns "" when isMusicVideo=false.
-        // Every track has a mediaId, so this unblocks canvas for all songs.
-        val cacheKey = mediaId ?: return@LaunchedEffect
-        if (!canvasEnabled || title.isBlank() || cacheKey.isBlank() ||
-            spotifyCookie.isBlank() || hasWorkingVideo) return@LaunchedEffect
+        if (!canvasEnabled || title.isBlank() || videoId.isBlank() || spotifyCookie.isBlank()) return@LaunchedEffect
         canvasUrl = runCatching {
-            SpotifyCanvasRepository.getCanvasUrl(cacheKey, title, artist)
+            SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
         }.getOrNull()
     }
-    // Auto-reveal the inline video player as soon as the stream URL is ready
-    LaunchedEffect(currentIsMusicVideo, isMusicVideo, videoStreamUrl) {
-        if (currentIsMusicVideo && isMusicVideo == true && videoStreamUrl != null) {
-            showVideoPlayer = true
-        }
-    }
     val activeCanvas = if (canvasEnabled) canvasUrl else null
+
+    // When canvas is playing its background is always dark; use white text.
+    // Without canvas the gradient bg varies, so derive from the dominant artwork colour.
+    val onBg = if (activeCanvas != null) Color.White
+               else if (animDominant.luminance() > 0.5f) Color(0xFF111111)
+               else Color.White
 
     // Controls visibility — auto-hides after 3.5 s, tap screen to reveal
     var controlsVisible by remember { mutableStateOf(true) }
@@ -535,6 +514,19 @@ fun NowPlayingShell(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Album art thumbnail — only shown when Spotify Canvas is playing;
+                        // without canvas the full artwork is already visible in the centre.
+                        if (activeCanvas != null && !artwork.isNullOrBlank()) {
+                            AsyncImage(
+                                model = artwork,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                        }
                         Column(Modifier.weight(1f)) {
                             Text(
                                 title.ifBlank { "—" },
@@ -897,7 +889,7 @@ private fun ToolbarChip(
 }
 
 @Composable
-fun rememberDominant(thumbnailUrl: String?): State<Color> {
+private fun rememberDominant(thumbnailUrl: String?): State<Color> {
     val context = LocalContext.current
     val state = remember { mutableStateOf(Color(0xFF8A6A48)) }
     LaunchedEffect(thumbnailUrl) {
