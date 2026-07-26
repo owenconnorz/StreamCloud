@@ -34,6 +34,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.animation.animateColorAsState
@@ -329,6 +330,12 @@ fun LibraryScreen(
         )
 
         if (openTile != null) {
+            val tileName = when (openTile) {
+                "downloaded" -> "Downloaded"
+                "top50" -> "My top 50"
+                "cached" -> "Cached"
+                else -> openTile.orEmpty()
+            }
             val list = when (openTile) {
                 "liked" -> liked
                 "downloaded" -> downloaded
@@ -336,14 +343,35 @@ fun LibraryScreen(
                 "cached" -> recent
                 else -> emptyList()
             }
-            BackButton(label = openTile.orEmpty().replaceFirstChar { it.uppercase() }) { openTile = null }
-            Spacer(Modifier.height(8.dp))
             val openTileListState = rememberLazyListState()
             LazyColumn(
                 state = openTileListState,
                 modifier = Modifier.fillMaxSize().verticalScrollbar(openTileListState),
             ) {
-                items(list, key = { it.url }) { e -> LibTrackRow(e) }
+                item {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to animVibrant.copy(alpha = 0.40f),
+                                    1f to Color.Transparent,
+                                )
+                            )
+                            .padding(bottom = 20.dp),
+                    ) {
+                        Column {
+                            BackButton(label = tileName) { openTile = null }
+                            Text(
+                                "${list.size} songs",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                modifier = Modifier.padding(start = 52.dp),
+                            )
+                        }
+                    }
+                }
+                items(list, key = { it.url }) { e -> LibTrackRow(e, accentColor = animVibrant) }
             }
         } else {
 
@@ -581,7 +609,10 @@ private fun BackButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun LibTrackRow(entity: TrackEntity) {
+private fun LibTrackRow(
+    entity: TrackEntity,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -620,7 +651,7 @@ private fun LibTrackRow(entity: TrackEntity) {
         if (entity.localPath != null) {
             Icon(
                 Icons.Default.DownloadDone, "Downloaded",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accentColor,
                 modifier = Modifier.size(20.dp),
             )
         }
