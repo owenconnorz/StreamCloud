@@ -52,13 +52,13 @@ import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-private val BgColor = Color(0xFF120D07)
+private val BgColor = Color(0xFF000000)
 private val AccentColor = Color(0xFFE8735A)
 private val StarColor = Color(0xFFE8B25A)
-private val TextPrimary = Color(0xFFF5F0EA)
-private val TextSecondary = Color(0xFFAA9B8A)
-private val SurfaceColor = Color(0xFF1E1710)
-private val DarkOverlay = Color(0xFF1A1108).copy(alpha = 0.7f)
+private val TextPrimary = Color(0xFFFFFFFF)
+private val TextSecondary = Color(0xFFAAAAAA)
+private val SurfaceColor = Color(0xFF141414)
+private val DarkOverlay = Color(0xFF000000).copy(alpha = 0.7f)
 
 /**
  * Converts a raw plugin error string into a concise, user-friendly message.
