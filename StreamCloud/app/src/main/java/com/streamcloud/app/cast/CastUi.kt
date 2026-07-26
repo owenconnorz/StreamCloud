@@ -27,6 +27,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,14 +53,14 @@ import com.google.android.gms.cast.MediaSeekOptions
 import com.google.android.gms.cast.MediaStatus
 import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.delay
+import com.streamcloud.app.cast.dlna.DlnaDevice
+import com.streamcloud.app.cast.dlna.DlnaDiscovery
+import com.streamcloud.app.cast.dlna.DlnaRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
     val context = LocalContext.current
-
-
-
 
     val castContext = remember(context) {
         runCatching { CastContext.getSharedInstance(context.applicationContext) }
@@ -69,13 +70,13 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
     val mediaRouter = remember(context) { MediaRouter.getInstance(context.applicationContext) }
     val selector = remember(castContext) { castContext.mergedSelector ?: MediaRouteSelector.EMPTY }
 
-
     val routes = remember { mutableStateListOf<MediaRouter.RouteInfo>() }
     var selectedRouteId by remember { mutableStateOf<String?>(null) }
     var showDialog by remember { mutableStateOf(false) }
 
-
-
+    val dlnaState by DlnaRepository.state.collectAsState()
+    val dlnaSelected by DlnaRepository.selectedDevice.collectAsState()
+    val dlnaDevices = (dlnaState as? com.streamcloud.app.cast.dlna.DlnaRepository.State.Ready)?.devices ?: emptyList()
 
     DisposableEffect(selector, showDialog) {
         val callback = object : MediaRouter.Callback() {
@@ -107,7 +108,6 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
         onDispose { mediaRouter.removeCallback(callback) }
     }
 
-
     LaunchedEffect(showDialog) {
         while (showDialog) {
             delay(1500)
@@ -115,7 +115,11 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
         }
     }
 
-    val connected = selectedRouteId != null
+    LaunchedEffect(showDialog) {
+        if (showDialog) DlnaRepository.discover(context)
+    }
+
+    val connected = selectedRouteId != null || dlnaSelected != null
 
     Box(
         modifier
@@ -137,12 +141,22 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
         CastRouteDialog(
             routes = routes,
             selectedRouteId = selectedRouteId,
+            dlnaDevices = dlnaDevices,
+            selectedDlnaDevice = dlnaSelected,
+            isDlnaDiscovering = dlnaState is com.streamcloud.app.cast.dlna.DlnaRepository.State.Discovering,
             onPickRoute = { route ->
+                DlnaRepository.selectDevice(null)
                 mediaRouter.selectRoute(route)
+                showDialog = false
+            },
+            onPickDlna = { device ->
+                mediaRouter.unselect(MediaRouter.UNSELECT_REASON_DISCONNECTED)
+                DlnaRepository.selectDevice(device)
                 showDialog = false
             },
             onDisconnect = {
                 mediaRouter.unselect(MediaRouter.UNSELECT_REASON_DISCONNECTED)
+                DlnaRepository.selectDevice(null)
                 showDialog = false
             },
             onDismiss = { showDialog = false },
@@ -170,23 +184,27 @@ private fun refreshRoutes(
 private fun CastRouteDialog(
     routes: List<MediaRouter.RouteInfo>,
     selectedRouteId: String?,
+    dlnaDevices: List<DlnaDevice>,
+    selectedDlnaDevice: DlnaDevice?,
+    isDlnaDiscovering: Boolean,
     onPickRoute: (MediaRouter.RouteInfo) -> Unit,
+    onPickDlna: (DlnaDevice) -> Unit,
     onDisconnect: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val anyConnected = selectedRouteId != null || selectedDlnaDevice != null
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Cast to") },
         text = {
             Column(Modifier.fillMaxWidth()) {
-                if (routes.isEmpty()) {
+                if (routes.isNotEmpty()) {
                     Text(
-                        "Looking for nearby devices…",
-                        style = MaterialTheme.typography.bodyMedium,
+                        "Chromecast / Google TV",
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 12.dp),
+                        modifier = Modifier.padding(bottom = 4.dp),
                     )
-                } else {
                     routes.forEach { route ->
                         RouteRow(
                             route = route,
@@ -195,7 +213,58 @@ private fun CastRouteDialog(
                         )
                     }
                 }
-                if (selectedRouteId != null) {
+
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Samsung / LG Smart TV (DLNA)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                when {
+                    isDlnaDiscovering && dlnaDevices.isEmpty() -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        ) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "Scanning for TVs on your network…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    dlnaDevices.isEmpty() -> {
+                        Text(
+                            "No DLNA TVs found. Make sure your TV is on the same Wi-Fi.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                    else -> {
+                        dlnaDevices.forEach { device ->
+                            DlnaDeviceRow(
+                                device = device,
+                                isSelected = device.udn == selectedDlnaDevice?.udn,
+                                onClick = { onPickDlna(device) },
+                            )
+                        }
+                    }
+                }
+
+                if (routes.isEmpty() && !isDlnaDiscovering && dlnaDevices.isEmpty()) {
+                    Text(
+                        "Looking for nearby devices…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                }
+
+                if (anyConnected) {
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
                         Text("Disconnect", color = MaterialTheme.colorScheme.error)
@@ -205,6 +274,47 @@ private fun CastRouteDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
+}
+
+@Composable
+private fun DlnaDeviceRow(
+    device: DlnaDevice,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+    ) {
+        Icon(
+            Icons.Default.Tv,
+            contentDescription = null,
+            tint = if (isSelected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                device.name,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                device.host,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (isSelected) {
+            Text("Connected", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary)
+        }
+    }
 }
 
 @Composable
@@ -809,4 +919,67 @@ fun CastRemoteController(
             Spacer(Modifier.height(40.dp))
         }
     }
+}
+
+/**
+ * DLNA cast controller — mirrors [rememberCastController] but targets a DLNA/UPnP
+ * media renderer (Samsung, LG, and other DLNA-capable smart TVs).
+ *
+ * Call this alongside [rememberCastController] in the player screen; the returned
+ * state is `true` whenever a DLNA device is selected and media has been loaded.
+ *
+ * The same [CastProxyServer] used for Chromecast is reused so that IP-restricted
+ * debrid links work correctly (phone IP is whitelisted, TV IP is not).
+ */
+@Composable
+fun rememberDlnaCastController(
+    streamUrl: String,
+    title: String,
+    contentType: String? = null,
+    headers: Map<String, String> = emptyMap(),
+): androidx.compose.runtime.MutableState<Boolean> {
+    val context = LocalContext.current
+    val isCasting = remember { mutableStateOf(false) }
+    val selectedDevice by DlnaRepository.selectedDevice.collectAsState()
+
+    val isLocalhost = remember(streamUrl) {
+        streamUrl.startsWith("http://127.0.0.1") || streamUrl.startsWith("http://localhost")
+    }
+
+    LaunchedEffect(selectedDevice, streamUrl) {
+        val device = selectedDevice
+        if (device == null || streamUrl.isBlank() || isLocalhost) {
+            isCasting.value = false
+            DlnaRepository.stopPolling()
+            return@LaunchedEffect
+        }
+
+        isCasting.value = true
+
+        val mime = contentType ?: guessMimeType(streamUrl)
+
+        // Try to start the proxy (reuses CastProxyServer which is already running for
+        // Chromecast sessions, or starts a new one if only DLNA is active).
+        val proxyUrl = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            CastProxyServer.start(streamUrl, headers)
+        }
+        val effectiveUrl = proxyUrl ?: streamUrl
+
+        val ok = com.streamcloud.app.cast.dlna.DlnaController.setUri(device, effectiveUrl, title, mime)
+        if (ok) {
+            com.streamcloud.app.cast.dlna.DlnaController.play(device)
+            DlnaRepository.startPolling()
+        } else {
+            isCasting.value = false
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            DlnaRepository.stopPolling()
+            CastProxyServer.stop()
+        }
+    }
+
+    return isCasting
 }
