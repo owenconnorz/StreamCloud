@@ -133,7 +133,7 @@ fun MoviesScreen(
                     )
                 }
             } else {
-                if (state.heroBanner.isNotEmpty()) {
+                if (state.heroBanner.isNotEmpty() && state.showHeroSection) {
                     item(key = "hero_pager") {
                         HeroPager(
                             items = state.heroBanner,
