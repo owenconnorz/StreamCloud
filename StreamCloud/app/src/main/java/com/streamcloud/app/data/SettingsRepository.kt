@@ -85,6 +85,11 @@ object SettingsKeys {
     val STREMIO_HOME_CATALOGS = stringPreferencesKey("stremio_home_catalogs")
     val DELETED_MANAGED_COLLECTIONS = stringPreferencesKey("deleted_managed_collections")
 
+    // Home Layout
+    val HOME_SHOW_HERO       = booleanPreferencesKey("home_show_hero")
+    val HOME_HIDE_UNRELEASED = booleanPreferencesKey("home_hide_unreleased")
+    val HOME_HIDE_UNDERLINE  = booleanPreferencesKey("home_hide_underline")
+
     val SMART_TRIMMER          = booleanPreferencesKey("smart_trimmer")
     val VIDEO_CACHE_MAX_MB     = stringPreferencesKey("video_cache_max_mb")
     val IMAGE_CACHE_MAX_MB     = stringPreferencesKey("image_cache_max_mb")
@@ -165,6 +170,15 @@ class SettingsRepository(private val context: Context) {
     val homeCollectionsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.HOME_COLLECTIONS] }
 
     val stremioDisabledCatalogsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.STREMIO_HOME_CATALOGS] }
+
+    // Home Layout toggles
+    val showHeroSection:       Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_SHOW_HERO]       ?: true  }
+    val hideUnreleasedContent: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_HIDE_UNRELEASED] ?: false }
+    val hideCatalogUnderline:  Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_HIDE_UNDERLINE]  ?: false }
+
+    suspend fun setShowHeroSection(v: Boolean)       = context.dataStore.edit { it[SettingsKeys.HOME_SHOW_HERO]       = v }
+    suspend fun setHideUnreleasedContent(v: Boolean) = context.dataStore.edit { it[SettingsKeys.HOME_HIDE_UNRELEASED] = v }
+    suspend fun setHideCatalogUnderline(v: Boolean)  = context.dataStore.edit { it[SettingsKeys.HOME_HIDE_UNDERLINE]  = v }
 
     /** Set of "sourceAddonId::collectionName" keys the user has manually deleted. */
     val deletedManagedCollections: Flow<Set<String>> = context.dataStore.data.map { prefs ->
