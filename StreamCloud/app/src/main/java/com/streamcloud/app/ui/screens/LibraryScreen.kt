@@ -49,6 +49,7 @@ import coil.compose.AsyncImage
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.MovieDownloadEntity
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
@@ -166,6 +167,8 @@ fun LibraryScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var sectionMode by remember { mutableStateOf("Music") }
     val watchlistItems by LibraryDb.get(context).watchlist().all().collectAsState(initial = emptyList())
+    val downloadedMovies by LibraryDb.get(context).movieDownloads().all().collectAsState(initial = emptyList())
+    var movieSubTab by remember { mutableStateOf("Watchlist") }
 
     val localPlaylists by remember(context) {
         LibraryDb.get(context).localPlaylists().allPlaylists()
@@ -235,61 +238,170 @@ fun LibraryScreen(
         Spacer(Modifier.height(16.dp))
 
         if (sectionMode == "Movies") {
-            if (watchlistItems.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Movie, null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                            modifier = Modifier.size(64.dp))
-                        Spacer(Modifier.height(14.dp))
-                        Text("No saved movies yet",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(4.dp))
-                        Text("Bookmark a movie or show to see it here",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            style = MaterialTheme.typography.bodyMedium)
+            // ── Sub-tab: Watchlist / Downloaded ───────────────────────────────
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf("Watchlist", "Downloaded").forEach { label ->
+                    val selected = movieSubTab == label
+                    FilterChip(
+                        selected = selected,
+                        onClick = { movieSubTab = label },
+                        label = { Text(label, style = MaterialTheme.typography.bodyMedium) },
+                        leadingIcon = if (label == "Downloaded") {
+                            { Icon(Icons.Default.DownloadDone, null, modifier = Modifier.size(16.dp)) }
+                        } else null,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+
+            if (movieSubTab == "Downloaded") {
+                if (downloadedMovies.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.DownloadDone, null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                modifier = Modifier.size(64.dp))
+                            Spacer(Modifier.height(14.dp))
+                            Text("No downloaded movies",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(4.dp))
+                            Text("Tap the ··· menu on a movie to download it",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(if (isTv) 5 else 3),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(downloadedMovies, key = { "dl_${it.tmdbId}" }) { entry ->
+                            Column(
+                                Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onMovieClick(entry.tmdbId) }
+                            ) {
+                                Box {
+                                    AsyncImage(
+                                        model = entry.posterUrl,
+                                        contentDescription = entry.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(2f / 3f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    )
+                                    if (entry.status == "downloading") {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .fillMaxWidth()
+                                                .background(Color.Black.copy(alpha = 0.55f))
+                                                .padding(4.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            LinearProgressIndicator(
+                                                progress = { entry.progress },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    } else if (entry.status == "done") {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(4.dp)
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(Icons.Default.DownloadDone, null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    entry.title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(if (isTv) 5 else 3),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(watchlistItems, key = { "wl_${it.tmdbId}" }) { entry ->
-                        Column(
-                            Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    when (entry.mediaType) {
-                                        "tv" -> onTvClick(entry.tmdbId)
-                                        "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
-                                        else -> onMovieClick(entry.tmdbId)
-                                    }
-                                }
-                        ) {
-                            AsyncImage(
-                                model = entry.posterUrl,
-                                contentDescription = entry.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(2f / 3f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                            )
+                if (watchlistItems.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Movie, null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                modifier = Modifier.size(64.dp))
+                            Spacer(Modifier.height(14.dp))
+                            Text("No saved movies yet",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(4.dp))
-                            Text(
-                                entry.title,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Text("Bookmark a movie or show to see it here",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(if (isTv) 5 else 3),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(watchlistItems, key = { "wl_${it.tmdbId}" }) { entry ->
+                            Column(
+                                Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        when (entry.mediaType) {
+                                            "tv" -> onTvClick(entry.tmdbId)
+                                            "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
+                                            else -> onMovieClick(entry.tmdbId)
+                                        }
+                                    }
+                            ) {
+                                AsyncImage(
+                                    model = entry.posterUrl,
+                                    contentDescription = entry.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(2f / 3f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    entry.title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }

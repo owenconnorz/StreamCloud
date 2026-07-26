@@ -7,13 +7,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,9 +44,7 @@ import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.WatchProgressKey
-import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.Episode
-import com.lagradost.cloudstream3.LiveStreamLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MovieLoadResponse
@@ -58,29 +67,20 @@ private val DarkOverlay = Color(0xFF1A1108).copy(alpha = 0.7f)
 private fun friendlyPluginError(raw: String?): String? {
     if (raw.isNullOrBlank()) return null
     return when {
-        "JsonSyntaxException" in raw || "BEGIN_OBJECT" in raw || "BEGIN_ARRAY" in raw
-            || "MalformedJsonException" in raw || "JsonParseException" in raw ->
+        "JsonSyntaxException" in raw || "BEGIN_OBJECT" in raw || "BEGIN_ARRAY" in raw ->
             "Plugin received an unexpected response from its API — it may need updating."
-        "IncompatibleClassChangeError" in raw || "NoSuchMethodError" in raw ->
+        "IncompatibleClassChangeError" in raw ->
             "Plugin is incompatible with this version of StreamCloud."
         "ClassNotFoundException" in raw || "NoClassDefFoundError" in raw ->
             "Plugin is missing required components — try reinstalling it."
-        "SocketTimeoutException" in raw || "ConnectException" in raw
-            || "Connection refused" in raw ->
+        "SocketTimeoutException" in raw || "ConnectException" in raw ->
             "Network timeout or connection error."
         "UnknownHostException" in raw ->
             "Could not reach the plugin's server — check your connection."
-        "SSLException" in raw || "SSLHandshakeException" in raw
-            || "CertPathValidatorException" in raw ->
+        "SSLException" in raw || "SSLHandshakeException" in raw ->
             "Secure connection failed. The plugin's server may be down."
-        "HTTP 5" in raw || "500" in raw || "502" in raw || "503" in raw ->
-            "The plugin's server is temporarily unavailable. Try again later."
-        "HTTP 4" in raw || "404" in raw || "403" in raw ->
+        "HTTP 4" in raw || "404" in raw ->
             "The plugin's server returned an error."
-        "Timed out" in raw || "timeout" in raw ->
-            "The request timed out — the plugin's server may be slow or unavailable."
-        "No links found" in raw || "returned 0 results" in raw ->
-            "No playable streams found. The plugin may need updating or the content is unavailable."
         else -> raw
     }
 }
@@ -112,11 +112,14 @@ fun CloudStreamDetailScreen(
     val repo = remember { PluginRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
     val watchlistDao = remember { LibraryDb.get(context.applicationContext).watchlist() }
+    val watchedDao = remember { LibraryDb.get(context.applicationContext).watchedMovies() }
     val syntheticId = remember(pluginInternalName, url) {
         val h = (pluginInternalName + "|" + url).hashCode().toLong()
         if (h < 0L) h else -(h + 1L)
     }
     val isWatchlisted by watchlistDao.isWatchlisted(syntheticId).collectAsState(initial = false)
+    val isWatched by watchedDao.isWatched(syntheticId).collectAsState(initial = false)
+    var actionsExpanded by remember { mutableStateOf(false) }
 
     var state by remember { mutableStateOf<CsDetailState>(CsDetailState.Loading) }
     var sourcesState by remember { mutableStateOf<SourcesState>(SourcesState.Idle) }
@@ -150,7 +153,7 @@ fun CloudStreamDetailScreen(
                 CsDetailState.Error(msg)
             } else {
                 // Background pre-fetch of sources for the source count badge
-                val dataUrl = lr.primaryPlaybackData()
+                val dataUrl = (lr as? MovieLoadResponse)?.dataUrl
                 if (dataUrl != null) {
                     sourcesState = SourcesState.Fetching
                     scope.launch {
@@ -177,7 +180,7 @@ fun CloudStreamDetailScreen(
             resolvingData = data
             try {
                 val links = if (data == (state as? CsDetailState.Ready)?.let {
-                        it.response.primaryPlaybackData() } && cachedSources.isNotEmpty()
+                        (it.response as? MovieLoadResponse)?.dataUrl } && cachedSources.isNotEmpty()
                 ) {
                     cachedSources
                 } else {
@@ -198,17 +201,12 @@ fun CloudStreamDetailScreen(
                 val sources = links.toPlayerSources(pluginDisplayName ?: pluginInternalName)
                 val sorted = sources.sortedByDescending { it.qualityScoreCs() }
                 val displayTitle = listOfNotNull(initialTitle, episodeTitle).joinToString(" · ")
-                val readyResponse = (state as? CsDetailState.Ready)?.response
-                val poster = readyResponse?.posterUrl ?: initialPoster
+                val poster = (state as? CsDetailState.Ready)?.response?.posterUrl ?: initialPoster
                 val progressKey = WatchProgressKey(
                     tmdbId = -((pluginInternalName + "|" + url + "|" + (episodeTitle ?: "")).hashCode().toLong()),
                     title = displayTitle,
                     posterUrl = poster,
-                    mediaType = when {
-                        episodeTitle != null -> "tv"
-                        readyResponse is LiveStreamLoadResponse -> "live"
-                        else -> "movie"
-                    },
+                    mediaType = if (episodeTitle != null) "tv" else "movie",
                     sourceRoute = "cs:$pluginInternalName|||$url|||$displayTitle|||${poster ?: ""}",
                 )
                 onPlay(sorted.first().url, displayTitle, sorted, progressKey)
@@ -230,42 +228,54 @@ fun CloudStreamDetailScreen(
         when (val s = state) {
             is CsDetailState.Loading -> CsLoadingScreen(initialTitle)
             is CsDetailState.Error  -> CsErrorScreen(s.message, onBack)
-            is CsDetailState.Ready  -> {
-                val primaryData = s.response.primaryPlaybackData()
-                CsReadyContent(
-                    lr                = s.response,
-                    initialTitle      = initialTitle,
-                    initialPoster     = initialPoster,
-                    pluginName        = pluginDisplayName.orEmpty(),
-                    sourcesState      = sourcesState,
-                    resolvingData     = resolvingData,
-                    isWatchlisted     = isWatchlisted,
-                    onPlayMovie       = if (primaryData != null) {
-                        { resolveAndPlay(primaryData, null) }
-                    } else {
-                        null
-                    },
-                    onPlayEpisode     = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
-                    onToggleWatchlist = {
-                        scope.launch {
-                            if (isWatchlisted) {
-                                watchlistDao.remove(syntheticId)
-                            } else {
-                                watchlistDao.add(
-                                    WatchlistEntity(
-                                        tmdbId    = syntheticId,
-                                        title     = s.response.name.ifBlank { initialTitle },
-                                        posterUrl = s.response.posterUrl ?: initialPoster,
-                                        mediaType = "cloudstream",
-                                        csPlugin  = pluginInternalName,
-                                        csUrl     = url,
-                                    )
+            is CsDetailState.Ready  -> CsReadyContent(
+                lr                = s.response,
+                initialTitle      = initialTitle,
+                initialPoster     = initialPoster,
+                pluginName        = pluginDisplayName.orEmpty(),
+                sourcesState      = sourcesState,
+                resolvingData     = resolvingData,
+                isWatchlisted     = isWatchlisted,
+                isWatched         = isWatched,
+                actionsExpanded   = actionsExpanded,
+                onActionsExpanded = { actionsExpanded = it },
+                onPlayMovie       = { resolveAndPlay((s.response as MovieLoadResponse).dataUrl, null) },
+                onPlayEpisode     = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
+                onToggleWatchlist = {
+                    scope.launch {
+                        if (isWatchlisted) {
+                            watchlistDao.remove(syntheticId)
+                        } else {
+                            watchlistDao.add(
+                                WatchlistEntity(
+                                    tmdbId    = syntheticId,
+                                    title     = s.response.name.ifBlank { initialTitle },
+                                    posterUrl = s.response.posterUrl ?: initialPoster,
+                                    mediaType = "cloudstream",
+                                    csPlugin  = pluginInternalName,
+                                    csUrl     = url,
                                 )
-                            }
+                            )
                         }
-                    },
-                )
-            }
+                    }
+                },
+                onToggleWatched = {
+                    scope.launch {
+                        if (isWatched) {
+                            watchedDao.unmark(syntheticId)
+                        } else {
+                            watchedDao.mark(
+                                WatchedMovieEntity(
+                                    tmdbId    = syntheticId,
+                                    title     = s.response.name.ifBlank { initialTitle },
+                                    posterUrl = s.response.posterUrl ?: initialPoster,
+                                    mediaType = "cloudstream",
+                                )
+                            )
+                        }
+                    }
+                },
+            )
         }
 
         // Back button — always visible, overlaid on content
@@ -336,15 +346,17 @@ private fun CsReadyContent(
     sourcesState: SourcesState,
     resolvingData: String?,
     isWatchlisted: Boolean,
-    onPlayMovie: (() -> Unit)?,
+    isWatched: Boolean,
+    actionsExpanded: Boolean,
+    onActionsExpanded: (Boolean) -> Unit,
+    onPlayMovie: () -> Unit,
     onPlayEpisode: (Episode) -> Unit,
     onToggleWatchlist: () -> Unit,
+    onToggleWatched: () -> Unit,
 ) {
     val resolving = resolvingData != null
-    val episodes = lr.playableEpisodes()
-    val isSeries = episodes.isNotEmpty()
-    val isLive = lr is LiveStreamLoadResponse
-    val canPlayPrimary = onPlayMovie != null
+    val isSeries = lr is TvSeriesLoadResponse
+    val episodes = (lr as? TvSeriesLoadResponse)?.episodes.orEmpty()
     val displayTitle = lr.name.ifBlank { initialTitle }
 
     // Use Score.toDouble(10) for a 0-10 scale display value
@@ -436,11 +448,10 @@ private fun CsReadyContent(
                         // Play button
                         val playLabel = when {
                             resolving -> "Finding streams…"
-                            !canPlayPrimary -> if (isLive) "Live playback unavailable" else "Playback unavailable"
                             sourcesState is SourcesState.Done && (sourcesState as SourcesState.Done).count > 0 ->
-                                "${if (isLive) "Play Live" else "Play Movie"} · ${(sourcesState as SourcesState.Done).count} sources"
-                            sourcesState is SourcesState.Fetching -> if (isLive) "Play Live" else "Play Movie"
-                            else -> if (isLive) "Play Live" else "Play Movie"
+                                "Play Movie · ${(sourcesState as SourcesState.Done).count} sources"
+                            sourcesState is SourcesState.Fetching -> "Play Movie"
+                            else -> "Play Movie"
                         }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -450,7 +461,7 @@ private fun CsReadyContent(
                                 .height(52.dp)
                                 .clip(RoundedCornerShape(50))
                                 .background(AccentColor)
-                                .clickable(enabled = !resolving && canPlayPrimary) { onPlayMovie?.invoke() }
+                                .clickable(enabled = !resolving, onClick = onPlayMovie)
                                 .padding(horizontal = 20.dp),
                         ) {
                             if (resolving) {
@@ -473,29 +484,31 @@ private fun CsReadyContent(
                             )
                         }
 
-                        // Bookmark button
-                        Box(
-                            Modifier
-                                .size(52.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(SurfaceColor)
-                                .clickable(onClick = onToggleWatchlist),
-                            contentAlignment = Alignment.Center,
+                        AnimatedVisibility(
+                            visible = actionsExpanded,
+                            enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
+                            exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
                         ) {
-                            Icon(
-                                if (isWatchlisted) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                contentDescription = if (isWatchlisted) "Remove from watchlist" else "Add to watchlist",
-                                tint = if (isWatchlisted) AccentColor else TextSecondary,
-                                modifier = Modifier.size(24.dp),
-                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CsActionCircle(
+                                    icon = if (isWatchlisted) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                    active = isWatchlisted,
+                                    activeColor = AccentColor,
+                                    onClick = onToggleWatchlist,
+                                )
+                                CsActionCircle(
+                                    icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                                    active = isWatched,
+                                    activeColor = AccentColor,
+                                    onClick = onToggleWatched,
+                                )
+                            }
                         }
-                    }
-                    if (!canPlayPrimary) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "This plugin item doesn’t expose a direct playable stream yet.",
-                            color = TextSecondary,
-                            style = MaterialTheme.typography.bodySmall,
+                        CsActionCircle(
+                            icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
+                            active = false,
+                            activeColor = AccentColor,
+                            onClick = { onActionsExpanded(!actionsExpanded) },
                         )
                     }
                     Spacer(Modifier.height(6.dp))
@@ -650,21 +663,6 @@ private fun Episode.displayLabel(): String {
     return parts.joinToString(" · ")
 }
 
-private fun LoadResponse.primaryPlaybackData(): String? = when (this) {
-    is MovieLoadResponse -> dataUrl
-    is LiveStreamLoadResponse -> dataUrl
-    is TvSeriesLoadResponse -> episodes.singleOrNull()?.data
-    is AnimeLoadResponse -> episodes.values.flatten().singleOrNull()?.data
-    else -> null
-}
-
-private fun LoadResponse.playableEpisodes(): List<Episode> = when (this) {
-    is TvSeriesLoadResponse -> episodes
-    is AnimeLoadResponse -> episodes.values.flatten()
-        .sortedWith(compareBy<Episode>({ it.season ?: Int.MAX_VALUE }, { it.episode ?: Int.MAX_VALUE }, { it.name ?: "" }))
-    else -> emptyList()
-}
-
 private fun List<ExtractorLink>.toPlayerSources(pluginDisplayName: String): List<PlayerSource> =
     this.mapIndexedNotNull { idx, link ->
         if (link.url.isBlank()) return@mapIndexedNotNull null
@@ -691,6 +689,30 @@ private fun List<ExtractorLink>.toPlayerSources(pluginDisplayName: String): List
             },
         )
     }
+
+@Composable
+private fun CsActionCircle(
+    icon: ImageVector,
+    active: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(52.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (active) activeColor.copy(alpha = 0.18f) else SurfaceColor)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (active) activeColor else TextSecondary,
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
 
 private fun qualityLabel(q: Int): String? = when {
     q >= 2160 -> "4K"

@@ -306,6 +306,63 @@ interface AdultHistoryDao {
     suspend fun clearAll()
 }
 
+// ── Watched Movies ───────────────────────────────────────────────────────────
+
+@Entity(tableName = "watched_movies")
+data class WatchedMovieEntity(
+    @PrimaryKey @ColumnInfo(name = "tmdb_id") val tmdbId: Long,
+    val title: String,
+    @ColumnInfo(name = "poster_url") val posterUrl: String?,
+    @ColumnInfo(name = "media_type") val mediaType: String = "movie",
+    @ColumnInfo(name = "watched_at") val watchedAt: Long = System.currentTimeMillis(),
+)
+
+@Dao
+interface WatchedMovieDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun mark(entity: WatchedMovieEntity)
+
+    @Query("DELETE FROM watched_movies WHERE tmdb_id = :tmdbId")
+    suspend fun unmark(tmdbId: Long)
+
+    @Query("SELECT COUNT(*) > 0 FROM watched_movies WHERE tmdb_id = :tmdbId")
+    fun isWatched(tmdbId: Long): Flow<Boolean>
+
+    @Query("SELECT * FROM watched_movies ORDER BY watched_at DESC")
+    fun all(): Flow<List<WatchedMovieEntity>>
+}
+
+// ── Movie Downloads ───────────────────────────────────────────────────────────
+
+@Entity(tableName = "movie_downloads")
+data class MovieDownloadEntity(
+    @PrimaryKey @ColumnInfo(name = "tmdb_id") val tmdbId: Long,
+    val title: String,
+    @ColumnInfo(name = "poster_url") val posterUrl: String?,
+    @ColumnInfo(name = "media_type") val mediaType: String = "movie",
+    @ColumnInfo(name = "stream_url") val streamUrl: String,
+    @ColumnInfo(name = "file_path") val filePath: String? = null,
+    val status: String = "queued",
+    val progress: Float = 0f,
+    @ColumnInfo(name = "size_bytes") val sizeBytes: Long = 0L,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Dao
+interface MovieDownloadDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: MovieDownloadEntity)
+
+    @Query("DELETE FROM movie_downloads WHERE tmdb_id = :tmdbId")
+    suspend fun remove(tmdbId: Long)
+
+    @Query("SELECT * FROM movie_downloads WHERE tmdb_id = :tmdbId LIMIT 1")
+    fun watchById(tmdbId: Long): Flow<MovieDownloadEntity?>
+
+    @Query("SELECT * FROM movie_downloads ORDER BY created_at DESC")
+    fun all(): Flow<List<MovieDownloadEntity>>
+}
+
 // ── Followed Artists ─────────────────────────────────────────────────────────
 
 @Entity(tableName = "followed_artists")
@@ -350,8 +407,10 @@ interface FollowedArtistDao {
         CollectionFolderEntity::class,
         AdultHistoryEntity::class,
         FollowedArtistEntity::class,
+        WatchedMovieEntity::class,
+        MovieDownloadEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -364,6 +423,8 @@ abstract class LibraryDb : RoomDatabase() {
     abstract fun collectionFolders(): CollectionFolderDao
     abstract fun adultHistory(): AdultHistoryDao
     abstract fun followedArtists(): FollowedArtistDao
+    abstract fun watchedMovies(): WatchedMovieDao
+    abstract fun movieDownloads(): MovieDownloadDao
 
     companion object {
         private val MIGRATION_5_6 = object : Migration(5, 6) {
@@ -496,11 +557,43 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS watched_movies (
+                        tmdb_id INTEGER PRIMARY KEY NOT NULL,
+                        title TEXT NOT NULL,
+                        poster_url TEXT,
+                        media_type TEXT NOT NULL DEFAULT 'movie',
+                        watched_at INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS movie_downloads (
+                        tmdb_id INTEGER PRIMARY KEY NOT NULL,
+                        title TEXT NOT NULL,
+                        poster_url TEXT,
+                        media_type TEXT NOT NULL DEFAULT 'movie',
+                        stream_url TEXT NOT NULL,
+                        file_path TEXT,
+                        status TEXT NOT NULL DEFAULT 'queued',
+                        progress REAL NOT NULL DEFAULT 0,
+                        size_bytes INTEGER NOT NULL DEFAULT 0,
+                        created_at INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LibraryDb? = null
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_13_14).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
 }
