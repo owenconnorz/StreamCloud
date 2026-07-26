@@ -115,6 +115,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.streamcloud.app.data.discord.DiscordRpcService
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.material.icons.filled.Dashboard
 
 private val HubIconBg  = Color(0xFF1B2D52)
 private val HubIconFg  = Color(0xFF5B8DEF)
@@ -132,7 +136,7 @@ private val ColourSonos      = Color(0xFF56C8D8)
 private enum class SettingsPage {
     SystemUpdate, Appearance, PlayerAudio, Account,
     ListenTogether, Content, Privacy,
-    Storage, BackupRestore, About, Logs, CsHomeSettings
+    Storage, BackupRestore, About, Logs, HomeLayout
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1752,11 +1756,11 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
 
             SettingsPage.Logs -> LogsPage(onBack = { currentPage = null })
 
-            SettingsPage.CsHomeSettings -> SubPageScaffold(
-                title = "Pin to home",
+            SettingsPage.HomeLayout -> SubPageScaffold(
+                title = "Home Layout",
                 onBack = { currentPage = null },
             ) {
-                CsHomeSettingsPage(sl = sl, pluginRepo = pluginRepo)
+                HomeLayoutPage(sl = sl, pluginRepo = pluginRepo)
             }
 
         }
@@ -2021,7 +2025,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         )),
         HubSection("MOVIES", listOf(
             HubItem(Icons.Default.Extension,  "Plugins & Addons", "Manage stream sources and addons",        ColourAi,      onClick = onOpenPlugins),
-            HubItem(Icons.Default.PlayCircle, "Pin to home",       "Configure home screen sections",          ColourContent, onClick = { onNavigate(SettingsPage.CsHomeSettings) }),
+            HubItem(Icons.Default.Dashboard,  "Home Layout",        "Reorder and toggle home screen rows",     ColourContent, onClick = { onNavigate(SettingsPage.HomeLayout) }),
             HubItem(Icons.Default.Layers,     "Collections",       "Manage collections and folders",          ColourSystem,  onClick = onOpenCollections),
             HubItem(Icons.Default.Download,   "Downloads",         "Manage downloaded movies and episodes",   ColourStorage, onClick = onOpenDownloads),
         )),
@@ -3324,18 +3328,56 @@ private fun formatBytes(bytes: Long): String = when {
 }
 
 @Composable
-private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
+@Suppress("LocalVariableName")
+private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // ── Layout toggles ─────────────────────────────────────────────────────
+    var showHero       by remember { mutableStateOf(true) }
+    var hideUnreleased by remember { mutableStateOf(false) }
+    var hideUnderline  by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        showHero       = sl.settings.showHeroSection.first()
+        hideUnreleased = sl.settings.hideUnreleasedContent.first()
+        hideUnderline  = sl.settings.hideCatalogUnderline.first()
+    }
+
+    // ── TMDB reorder state ─────────────────────────────────────────────────
+    var tmdbEnabledIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val tmdbOrdered = remember { mutableStateListOf<com.streamcloud.app.data.collections.HomeCollection>() }
+    var dragging       by remember { mutableStateOf(false) }
+    var dragIdx        by remember { mutableIntStateOf(-1) }
+    var accY           by remember { mutableFloatStateOf(0f) }
+    var itemHeightPx   by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        val csv = sl.settings.homeCollectionsCsv.first()
+        val enabledSet = if (csv.isNullOrBlank())
+            HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
+        else
+            csv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        tmdbEnabledIds = enabledSet
+        val enabledInOrder = csv?.takeIf { it.isNotBlank() }
+            ?.split(",")?.mapNotNull { id -> HomeCollections.byId(id.trim()) }
+            ?: HomeCollections.ALL.filter { it.defaultEnabled }
+        val disabledItems = HomeCollections.ALL.filter { it.id !in enabledSet }
+        tmdbOrdered.clear()
+        tmdbOrdered.addAll(enabledInOrder + disabledItems)
+    }
+
+    fun saveTmdbOrder() {
+        val enabledInOrder = tmdbOrdered.filter { it.id in tmdbEnabledIds }.map { it.id }
+        scope.launch { sl.settings.setHomeCollections(enabledInOrder) }
+    }
+
     // ── CloudStream state ──────────────────────────────────────────────────
     val installedPlugins by pluginRepo.installed.collectAsState(initial = emptyList())
-    var pinnedSections by remember { mutableStateOf<List<PinnedCsSection>>(emptyList()) }
-    var sectionsMap by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
-    var csLoadingSet by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var pinnedSections   by remember { mutableStateOf<List<PinnedCsSection>>(emptyList()) }
+    var sectionsMap      by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+    var csLoadingSet     by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     LaunchedEffect(Unit) { pinnedSections = sl.settings.csHomeSections.first() }
-
     LaunchedEffect(installedPlugins) {
         installedPlugins.forEach { plugin ->
             if (sectionsMap.containsKey(plugin.internalName)) return@forEach
@@ -3350,7 +3392,7 @@ private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository)
         }
     }
 
-    fun toggleSection(plugin: InstalledPlugin, sectionName: String, enabled: Boolean) {
+    fun toggleCsSection(plugin: InstalledPlugin, sectionName: String, enabled: Boolean) {
         val updated = if (enabled)
             pinnedSections + PinnedCsSection(plugin.internalName, plugin.name, sectionName)
         else
@@ -3359,22 +3401,12 @@ private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository)
         scope.launch { sl.settings.setCsHomeSections(updated) }
     }
 
-    // ── TMDB state ─────────────────────────────────────────────────────────
-    var tmdbEnabledIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    LaunchedEffect(Unit) {
-        val csv = sl.settings.homeCollectionsCsv.first()
-        tmdbEnabledIds = if (csv.isNullOrBlank())
-            HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
-        else
-            csv.split(",").map { it.trim() }.toSet()
-    }
-
     // ── Stremio state ──────────────────────────────────────────────────────
-    val stremioRepo = remember { sl.stremio }
-    val stremioAddons by sl.stremio.addons.collectAsState(initial = emptyList())
-    var stremioDisabledKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var stremioCatalogsMap by remember { mutableStateOf<Map<String, List<StremioCatalogMeta>>>(emptyMap()) }
-    var stremioLoadingSet by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val stremioRepo       = remember { sl.stremio }
+    val stremioAddons     by sl.stremio.addons.collectAsState(initial = emptyList())
+    var stremioDisabledKeys  by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var stremioCatalogsMap   by remember { mutableStateOf<Map<String, List<StremioCatalogMeta>>>(emptyMap()) }
+    var stremioLoadingSet    by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     LaunchedEffect(Unit) {
         val csv = sl.settings.stremioDisabledCatalogsCsv.first()
@@ -3392,59 +3424,188 @@ private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository)
         }
     }
 
-    // ── Section header helper ──────────────────────────────────────────────
+    // ── Local section-header helper ────────────────────────────────────────
     @Composable
-    fun SectionHeader(label: String) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 24.dp, bottom = 10.dp),
-        )
+    fun SectionHeader(label: String, trailingText: String? = null, onTrailing: (() -> Unit)? = null) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            if (trailingText != null && onTrailing != null) {
+                Text(
+                    trailingText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable(onClick = onTrailing)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
+        }
     }
 
-    // ══ TMDB ══════════════════════════════════════════════════════════════
-    SectionHeader("TMDB")
-    Text(
-        "Toggle which TMDB rows appear on the Movies home page.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(bottom = 10.dp),
-    )
+    // ── Summary card ───────────────────────────────────────────────────────
+    val visibleCount = if (tmdbOrdered.isEmpty()) 0 else tmdbOrdered.count { it.id in tmdbEnabledIds }
+    val totalCount   = tmdbOrdered.size
     SettingsGroup {
-        HomeCollections.ALL.forEachIndexed { idx, collection ->
-            if (idx > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-            SettingToggle(
-                icon = Icons.Default.PlayCircle,
-                tint = MaterialTheme.colorScheme.secondary,
-                title = collection.title,
-                subtitle = collection.subtitle,
-                checked = collection.id in tmdbEnabledIds,
-                onChange = { checked ->
-                    val updated = if (checked) tmdbEnabledIds + collection.id else tmdbEnabledIds - collection.id
-                    tmdbEnabledIds = updated
-                    scope.launch { sl.settings.setHomeCollections(updated.toList()) }
-                },
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
+            Text(
+                "Keep Home focused",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "$visibleCount of $totalCount catalogs visible",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Open a catalog only when you need to rename or reorder it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 
+    // ══ HOME LAYOUT toggles ════════════════════════════════════════════════
+    SectionHeader("HOME LAYOUT")
+    SettingsGroup {
+        SettingToggle(
+            icon     = Icons.Default.PlayCircle,
+            tint     = MaterialTheme.colorScheme.secondary,
+            title    = "Show Hero Section",
+            subtitle = "Display hero carousel at top of home.",
+            checked  = showHero,
+            onChange = { v -> showHero = v; scope.launch { sl.settings.setShowHeroSection(v) } },
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+        SettingToggle(
+            icon     = Icons.Default.PlayCircle,
+            tint     = MaterialTheme.colorScheme.secondary,
+            title    = "Hide Unreleased Content",
+            subtitle = "Hide movies and shows that haven't been released yet.",
+            checked  = hideUnreleased,
+            onChange = { v -> hideUnreleased = v; scope.launch { sl.settings.setHideUnreleasedContent(v) } },
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+        SettingToggle(
+            icon     = Icons.Default.PlayCircle,
+            tint     = MaterialTheme.colorScheme.secondary,
+            title    = "Hide Catalog Underline",
+            subtitle = "Remove the accent line under catalog and collection titles throughout the app.",
+            checked  = hideUnderline,
+            onChange = { v -> hideUnderline = v; scope.launch { sl.settings.setHideCatalogUnderline(v) } },
+        )
+    }
+
+    // ══ CATALOGS & COLLECTIONS ═════════════════════════════════════════════
+    SectionHeader(
+        label       = "CATALOGS & COLLECTIONS",
+        trailingText = "Reset to Default",
+        onTrailing  = {
+            val defaultSet = HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
+            tmdbEnabledIds = defaultSet
+            tmdbOrdered.clear()
+            tmdbOrdered.addAll(HomeCollections.ALL)
+            scope.launch { sl.settings.setHomeCollections(HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }) }
+        },
+    )
+
+    // TMDB rows — toggle + drag-to-reorder
+    SettingsGroup {
+        tmdbOrdered.forEachIndexed { i, collection ->
+            if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+            val enabled = collection.id in tmdbEnabledIds
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (dragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        else Color.Transparent,
+                    )
+                    .onGloballyPositioned { coords ->
+                        if (itemHeightPx == 0f) itemHeightPx = coords.size.height.toFloat()
+                    }
+                    .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        collection.title,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        buildString {
+                            append("TMDB")
+                            if (enabled) append(" • Visible") else append(" • Hidden")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked           = enabled,
+                    onCheckedChange   = null,
+                    colors            = SwitchDefaults.colors(
+                        checkedThumbColor   = Color.White,
+                        checkedTrackColor   = MaterialTheme.colorScheme.primary,
+                        uncheckedThumbColor = Color.White,
+                    ),
+                    modifier = Modifier.clickable {
+                        val updated = if (enabled) tmdbEnabledIds - collection.id else tmdbEnabledIds + collection.id
+                        tmdbEnabledIds = updated
+                        val ordered = tmdbOrdered.filter { it.id in updated }.map { it.id }
+                        scope.launch { sl.settings.setHomeCollections(ordered) }
+                    },
+                )
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    imageVector         = Icons.Default.Reorder,
+                    contentDescription  = "Drag to reorder",
+                    tint                = if (dragIdx == i) MaterialTheme.colorScheme.primary
+                                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .size(22.dp)
+                        .pointerInput(collection.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { _ ->
+                                    val idx = tmdbOrdered.indexOf(collection)
+                                    if (idx >= 0) { dragging = true; dragIdx = idx; accY = 0f }
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    accY += dragAmount.y
+                                    val threshold = (itemHeightPx + 10.dp.toPx()).coerceAtLeast(72f)
+                                    while (accY > threshold / 2f && dragIdx < tmdbOrdered.size - 1) {
+                                        tmdbOrdered.add(dragIdx + 1, tmdbOrdered.removeAt(dragIdx))
+                                        dragIdx++; accY -= threshold
+                                    }
+                                    while (accY < -threshold / 2f && dragIdx > 0) {
+                                        tmdbOrdered.add(dragIdx - 1, tmdbOrdered.removeAt(dragIdx))
+                                        dragIdx--; accY += threshold
+                                    }
+                                },
+                                onDragEnd    = { saveTmdbOrder(); dragging = false; dragIdx = -1 },
+                                onDragCancel = { dragging = false; dragIdx = -1 },
+                            )
+                        },
+                )
+            }
+        }
+    }
+
     // ══ Stremio ════════════════════════════════════════════════════════════
-    SectionHeader("Stremio")
-    if (stremioAddons.isEmpty()) {
-        Text(
-            "No Stremio addons installed.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 10.dp),
-        )
-    } else {
-        Text(
-            "Toggle which Stremio catalog rows appear on the Movies home page.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 10.dp),
-        )
+    if (stremioAddons.isNotEmpty()) {
+        SectionHeader("STREMIO CATALOGS")
         stremioAddons.forEach { addon ->
             SettingsGroup {
                 Row(
@@ -3456,24 +3617,24 @@ private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository)
                     Text(addon.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                val metas = stremioCatalogsMap[addon.id]
+                val metas   = stremioCatalogsMap[addon.id]
                 val loading = addon.id in stremioLoadingSet
                 when {
-                    loading -> Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    loading  -> Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(12.dp))
                         Text("Loading catalogs…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    metas == null -> Text("Catalogs not yet loaded.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
+                    metas == null  -> Text("Catalogs not yet loaded.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
                     metas.isEmpty() -> Text("No home catalogs for this addon.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
                     else -> metas.forEachIndexed { idx, meta ->
                         if (idx > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                         SettingToggle(
-                            icon = Icons.Default.PlayCircle,
-                            tint = MaterialTheme.colorScheme.secondary,
-                            title = meta.catalogName,
+                            icon     = Icons.Default.PlayCircle,
+                            tint     = MaterialTheme.colorScheme.secondary,
+                            title    = meta.catalogName,
                             subtitle = "${meta.type} · ${meta.catalogId}",
-                            checked = meta.rowKey !in stremioDisabledKeys,
+                            checked  = meta.rowKey !in stremioDisabledKeys,
                             onChange = { checked ->
                                 val updated = if (checked) stremioDisabledKeys - meta.rowKey else stremioDisabledKeys + meta.rowKey
                                 stremioDisabledKeys = updated
@@ -3488,21 +3649,8 @@ private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository)
     }
 
     // ══ CloudStream ════════════════════════════════════════════════════════
-    SectionHeader("CloudStream")
-    if (installedPlugins.isEmpty()) {
-        Text(
-            "No CloudStream plugins installed.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 10.dp),
-        )
-    } else {
-        Text(
-            "Toggle which plugin sections appear as rows on the Movies home page.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 10.dp),
-        )
+    if (installedPlugins.isNotEmpty()) {
+        SectionHeader("CLOUDSTREAM SECTIONS")
         installedPlugins.forEach { plugin ->
             SettingsGroup {
                 Row(
@@ -3515,23 +3663,23 @@ private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                 val sections = sectionsMap[plugin.internalName]
-                val loading = plugin.internalName in csLoadingSet
+                val loading  = plugin.internalName in csLoadingSet
                 when {
-                    loading -> Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    loading  -> Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(12.dp))
                         Text("Loading sections…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    sections == null -> Text("Sections not yet loaded.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
+                    sections == null  -> Text("Sections not yet loaded.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
                     sections.isEmpty() -> Text("No sections found for this plugin.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
                     else -> sections.forEachIndexed { idx, sectionName ->
                         if (idx > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                         SettingToggle(
-                            icon = Icons.Default.PlayCircle,
-                            tint = MaterialTheme.colorScheme.secondary,
-                            title = sectionName,
-                            checked = pinnedSections.any { it.pluginInternalName == plugin.internalName && it.sectionName == sectionName },
-                            onChange = { toggleSection(plugin, sectionName, it) },
+                            icon     = Icons.Default.PlayCircle,
+                            tint     = MaterialTheme.colorScheme.secondary,
+                            title    = sectionName,
+                            checked  = pinnedSections.any { it.pluginInternalName == plugin.internalName && it.sectionName == sectionName },
+                            onChange = { toggleCsSection(plugin, sectionName, it) },
                         )
                     }
                 }
@@ -3539,6 +3687,8 @@ private fun CsHomeSettingsPage(sl: ServiceLocator, pluginRepo: PluginRepository)
             Spacer(Modifier.height(12.dp))
         }
     }
+
+    Spacer(Modifier.height(32.dp))
 }
 
 private val ColourNuvio = Color(0xFF6C5CE7)
