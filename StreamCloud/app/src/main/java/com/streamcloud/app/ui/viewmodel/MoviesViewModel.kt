@@ -105,6 +105,9 @@ data class MoviesState(
     val loading: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
+    val showHeroSection: Boolean = true,
+    val hideCatalogUnderline: Boolean = false,
+    val hideUnreleasedContent: Boolean = false,
 )
 
 class MoviesViewModel(
@@ -163,6 +166,22 @@ class MoviesViewModel(
             sl.settings.stremioDisabledCatalogsCsv.collectLatest { applyStremioFilter() }
         }
         viewModelScope.launch {
+            sl.settings.showHeroSection.collectLatest { v ->
+                _state.update { it.copy(showHeroSection = v) }
+            }
+        }
+        viewModelScope.launch {
+            sl.settings.hideCatalogUnderline.collectLatest { v ->
+                _state.update { it.copy(hideCatalogUnderline = v) }
+            }
+        }
+        viewModelScope.launch {
+            sl.settings.hideUnreleasedContent.collectLatest { v ->
+                _state.update { it.copy(hideUnreleasedContent = v) }
+                loadDiscover()
+            }
+        }
+        viewModelScope.launch {
             try {
                 combine(
                     LibraryDb.get(appContext).userCollections().pinned(),
@@ -216,10 +235,18 @@ class MoviesViewModel(
                 val ids = csv?.takeIf { it.isNotBlank() }?.split(',')
                     ?: HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }
                 val collections: List<HomeCollection> = ids.mapNotNull { HomeCollections.byId(it) }
+                val hideUnreleased = sl.settings.hideUnreleasedContent.first()
+                val today = java.time.LocalDate.now().toString()
 
                 val rows = collections.map { def ->
                     async {
-                        val items = runCatching { def.fetch(sl.tmdb, key) }.getOrDefault(emptyList())
+                        var items = runCatching { def.fetch(sl.tmdb, key) }.getOrDefault(emptyList())
+                        if (hideUnreleased) {
+                            items = items.filter { m ->
+                                val rd = m.releaseDate ?: m.firstAirDate
+                                !rd.isNullOrBlank() && rd <= today
+                            }
+                        }
                         if (items.isEmpty()) null
                         else CollectionRow(def.id, def.title, def.emoji, items)
                     }
