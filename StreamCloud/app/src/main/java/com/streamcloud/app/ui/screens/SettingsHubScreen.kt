@@ -3424,6 +3424,49 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
         }
     }
 
+    // ── Stremio flat-list reorder state ───────────────────────────────────
+    val stremioFlat    = remember { mutableStateListOf<Pair<String, StremioCatalogMeta>>() }
+    var stremioDragging  by remember { mutableStateOf(false) }
+    var stremioDragIdx   by remember { mutableIntStateOf(-1) }
+    var stremioAccY      by remember { mutableFloatStateOf(0f) }
+    var stremioItemH     by remember { mutableFloatStateOf(0f) }
+
+    val stremioAllLoaded = stremioAddons.isNotEmpty() &&
+        stremioAddons.all { stremioCatalogsMap.containsKey(it.id) }
+
+    LaunchedEffect(stremioAllLoaded, stremioCatalogsMap.size) {
+        if (!stremioAllLoaded || stremioDragging) return@LaunchedEffect
+        val csv        = sl.settings.stremioCatalogOrderCsv.first()
+        val orderedKeys = csv?.takeIf { it.isNotBlank() }?.split(",")?.map { it.trim() } ?: emptyList()
+        val allItems   = stremioAddons.flatMap { addon ->
+            (stremioCatalogsMap[addon.id] ?: emptyList()).map { meta -> Pair(addon.name, meta) }
+        }
+        val sorted = if (orderedKeys.isEmpty()) allItems else {
+            val byKey = allItems.associateBy { it.second.rowKey }
+            orderedKeys.mapNotNull { byKey[it] } + allItems.filter { it.second.rowKey !in orderedKeys.toSet() }
+        }
+        stremioFlat.clear()
+        stremioFlat.addAll(sorted)
+    }
+
+    fun saveStremioOrder() {
+        scope.launch { sl.settings.setStremioCatalogOrder(stremioFlat.map { it.second.rowKey }) }
+    }
+
+    // ── CS pinned-sections reorder state ──────────────────────────────────
+    val csPinnedOrdered = remember { mutableStateListOf<PinnedCsSection>() }
+    var csDragging  by remember { mutableStateOf(false) }
+    var csDragIdx   by remember { mutableIntStateOf(-1) }
+    var csAccY      by remember { mutableFloatStateOf(0f) }
+    var csItemH     by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(pinnedSections) {
+        if (!csDragging) {
+            csPinnedOrdered.clear()
+            csPinnedOrdered.addAll(pinnedSections)
+        }
+    }
+
     // ── Local section-header helper ────────────────────────────────────────
     @Composable
     fun SectionHeader(label: String, trailingText: String? = null, onTrailing: (() -> Unit)? = null) {
@@ -3519,7 +3562,7 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
         },
     )
 
-    // TMDB rows — toggle + drag-to-reorder
+    // TMDB rows — toggle (row click) + drag-to-reorder
     SettingsGroup {
         tmdbOrdered.forEachIndexed { i, collection ->
             if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
@@ -3531,114 +3574,190 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
                         if (dragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                         else Color.Transparent,
                     )
-                    .onGloballyPositioned { coords ->
-                        if (itemHeightPx == 0f) itemHeightPx = coords.size.height.toFloat()
+                    .onGloballyPositioned { if (itemHeightPx == 0f) itemHeightPx = it.size.height.toFloat() }
+                    .clickable {
+                        val updated = if (enabled) tmdbEnabledIds - collection.id else tmdbEnabledIds + collection.id
+                        tmdbEnabledIds = updated
+                        scope.launch { sl.settings.setHomeCollections(tmdbOrdered.filter { it.id in updated }.map { it.id }) }
                     }
                     .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        collection.title,
+                    Text(collection.title,
                         style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        buildString {
-                            append("TMDB")
-                            if (enabled) append(" • Visible") else append(" • Hidden")
-                        },
+                        color = MaterialTheme.colorScheme.onSurface)
+                    Text(if (enabled) "TMDB • Visible" else "TMDB • Hidden",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(
-                    checked           = enabled,
-                    onCheckedChange   = null,
-                    colors            = SwitchDefaults.colors(
-                        checkedThumbColor   = Color.White,
-                        checkedTrackColor   = MaterialTheme.colorScheme.primary,
-                        uncheckedThumbColor = Color.White,
-                    ),
-                    modifier = Modifier.clickable {
-                        val updated = if (enabled) tmdbEnabledIds - collection.id else tmdbEnabledIds + collection.id
-                        tmdbEnabledIds = updated
-                        val ordered = tmdbOrdered.filter { it.id in updated }.map { it.id }
-                        scope.launch { sl.settings.setHomeCollections(ordered) }
-                    },
+                    checked = enabled, onCheckedChange = null,
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White),
                 )
                 Spacer(Modifier.width(6.dp))
-                Icon(
-                    imageVector         = Icons.Default.Reorder,
-                    contentDescription  = "Drag to reorder",
-                    tint                = if (dragIdx == i) MaterialTheme.colorScheme.primary
-                                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier
-                        .size(22.dp)
-                        .pointerInput(collection.id) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = { _ ->
-                                    val idx = tmdbOrdered.indexOf(collection)
-                                    if (idx >= 0) { dragging = true; dragIdx = idx; accY = 0f }
-                                },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    accY += dragAmount.y
-                                    val threshold = (itemHeightPx + 10.dp.toPx()).coerceAtLeast(72f)
-                                    while (accY > threshold / 2f && dragIdx < tmdbOrdered.size - 1) {
-                                        tmdbOrdered.add(dragIdx + 1, tmdbOrdered.removeAt(dragIdx))
-                                        dragIdx++; accY -= threshold
-                                    }
-                                    while (accY < -threshold / 2f && dragIdx > 0) {
-                                        tmdbOrdered.add(dragIdx - 1, tmdbOrdered.removeAt(dragIdx))
-                                        dragIdx--; accY += threshold
-                                    }
-                                },
-                                onDragEnd    = { saveTmdbOrder(); dragging = false; dragIdx = -1 },
-                                onDragCancel = { dragging = false; dragIdx = -1 },
-                            )
-                        },
+                Icon(Icons.Default.Reorder, "Drag to reorder",
+                    tint = if (dragIdx == i) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(22.dp).pointerInput(collection.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { _ ->
+                                val idx = tmdbOrdered.indexOf(collection)
+                                if (idx >= 0) { dragging = true; dragIdx = idx; accY = 0f }
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume(); accY += dragAmount.y
+                                val thr = (itemHeightPx + 10.dp.toPx()).coerceAtLeast(72f)
+                                while (accY > thr / 2f && dragIdx < tmdbOrdered.size - 1) {
+                                    tmdbOrdered.add(dragIdx + 1, tmdbOrdered.removeAt(dragIdx)); dragIdx++; accY -= thr
+                                }
+                                while (accY < -thr / 2f && dragIdx > 0) {
+                                    tmdbOrdered.add(dragIdx - 1, tmdbOrdered.removeAt(dragIdx)); dragIdx--; accY += thr
+                                }
+                            },
+                            onDragEnd    = { saveTmdbOrder(); dragging = false; dragIdx = -1 },
+                            onDragCancel = { dragging = false; dragIdx = -1 },
+                        )
+                    },
                 )
             }
         }
     }
 
-    // ══ Stremio ════════════════════════════════════════════════════════════
+    // ══ Stremio — flat list with toggle + drag-to-reorder ═════════════════
     if (stremioAddons.isNotEmpty()) {
         SectionHeader("STREMIO CATALOGS")
-        stremioAddons.forEach { addon ->
-            SettingsGroup {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text(addon.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+        when {
+            stremioAddons.any { it.id in stremioLoadingSet } ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Loading catalogs…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                val metas   = stremioCatalogsMap[addon.id]
-                val loading = addon.id in stremioLoadingSet
-                when {
-                    loading  -> Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Text("Loading catalogs…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    metas == null  -> Text("Catalogs not yet loaded.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
-                    metas.isEmpty() -> Text("No home catalogs for this addon.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
-                    else -> metas.forEachIndexed { idx, meta ->
-                        if (idx > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-                        SettingToggle(
-                            icon     = Icons.Default.PlayCircle,
-                            tint     = MaterialTheme.colorScheme.secondary,
-                            title    = meta.catalogName,
-                            subtitle = "${meta.type} · ${meta.catalogId}",
-                            checked  = meta.rowKey !in stremioDisabledKeys,
-                            onChange = { checked ->
-                                val updated = if (checked) stremioDisabledKeys - meta.rowKey else stremioDisabledKeys + meta.rowKey
+            stremioFlat.isEmpty() ->
+                Text("No home catalogs available.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 10.dp))
+            else -> SettingsGroup {
+                stremioFlat.forEachIndexed { i, (addonName, meta) ->
+                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                    val enabled = meta.rowKey !in stremioDisabledKeys
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (stremioDragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.Transparent)
+                            .onGloballyPositioned { if (stremioItemH == 0f) stremioItemH = it.size.height.toFloat() }
+                            .clickable {
+                                val updated = if (enabled) stremioDisabledKeys + meta.rowKey else stremioDisabledKeys - meta.rowKey
                                 stremioDisabledKeys = updated
                                 scope.launch { sl.settings.setStremioDisabledCatalogs(updated) }
+                            }
+                            .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(meta.catalogName,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onSurface)
+                            Text("$addonName • ${if (enabled) "Visible" else "Hidden"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = enabled, onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Default.Reorder, "Drag to reorder",
+                            tint = if (stremioDragIdx == i) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(22.dp).pointerInput(meta.rowKey) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { _ ->
+                                        val idx = stremioFlat.indexOfFirst { it.second.rowKey == meta.rowKey }
+                                        if (idx >= 0) { stremioDragging = true; stremioDragIdx = idx; stremioAccY = 0f }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume(); stremioAccY += dragAmount.y
+                                        val thr = (stremioItemH + 10.dp.toPx()).coerceAtLeast(72f)
+                                        while (stremioAccY > thr / 2f && stremioDragIdx < stremioFlat.size - 1) {
+                                            stremioFlat.add(stremioDragIdx + 1, stremioFlat.removeAt(stremioDragIdx)); stremioDragIdx++; stremioAccY -= thr
+                                        }
+                                        while (stremioAccY < -thr / 2f && stremioDragIdx > 0) {
+                                            stremioFlat.add(stremioDragIdx - 1, stremioFlat.removeAt(stremioDragIdx)); stremioDragIdx--; stremioAccY += thr
+                                        }
+                                    },
+                                    onDragEnd    = { saveStremioOrder(); stremioDragging = false; stremioDragIdx = -1 },
+                                    onDragCancel = { stremioDragging = false; stremioDragIdx = -1 },
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // ══ CloudStream — pinned flat list (drag) + per-plugin toggle ══════════
+    if (installedPlugins.isNotEmpty()) {
+        SectionHeader("CLOUDSTREAM SECTIONS")
+
+        // Flat reorderable list of enabled (pinned) sections
+        if (csPinnedOrdered.isNotEmpty()) {
+            SettingsGroup {
+                csPinnedOrdered.forEachIndexed { i, pinned ->
+                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (csDragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.Transparent)
+                            .onGloballyPositioned { if (csItemH == 0f) csItemH = it.size.height.toFloat() }
+                            .clickable {
+                                val plugin = installedPlugins.firstOrNull { it.internalName == pinned.pluginInternalName }
+                                if (plugin != null) toggleCsSection(plugin, pinned.sectionName, false)
+                            }
+                            .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(pinned.sectionName,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onSurface)
+                            Text("${pinned.pluginDisplayName} • Visible",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = true, onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Default.Reorder, "Drag to reorder",
+                            tint = if (csDragIdx == i) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(22.dp).pointerInput(pinned.pluginInternalName + pinned.sectionName) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { _ ->
+                                        val idx = csPinnedOrdered.indexOfFirst {
+                                            it.pluginInternalName == pinned.pluginInternalName && it.sectionName == pinned.sectionName
+                                        }
+                                        if (idx >= 0) { csDragging = true; csDragIdx = idx; csAccY = 0f }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume(); csAccY += dragAmount.y
+                                        val thr = (csItemH + 10.dp.toPx()).coerceAtLeast(72f)
+                                        while (csAccY > thr / 2f && csDragIdx < csPinnedOrdered.size - 1) {
+                                            csPinnedOrdered.add(csDragIdx + 1, csPinnedOrdered.removeAt(csDragIdx)); csDragIdx++; csAccY -= thr
+                                        }
+                                        while (csAccY < -thr / 2f && csDragIdx > 0) {
+                                            csPinnedOrdered.add(csDragIdx - 1, csPinnedOrdered.removeAt(csDragIdx)); csDragIdx--; csAccY += thr
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        pinnedSections = csPinnedOrdered.toList()
+                                        scope.launch { sl.settings.setCsHomeSections(pinnedSections) }
+                                        csDragging = false; csDragIdx = -1
+                                    },
+                                    onDragCancel = { csDragging = false; csDragIdx = -1 },
+                                )
                             },
                         )
                     }
@@ -3646,45 +3765,40 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
             }
             Spacer(Modifier.height(12.dp))
         }
-    }
 
-    // ══ CloudStream ════════════════════════════════════════════════════════
-    if (installedPlugins.isNotEmpty()) {
-        SectionHeader("CLOUDSTREAM SECTIONS")
+        // Per-plugin list for toggling un-pinned sections ON
         installedPlugins.forEach { plugin ->
-            SettingsGroup {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.Extension, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text(plugin.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                val sections = sectionsMap[plugin.internalName]
-                val loading  = plugin.internalName in csLoadingSet
-                when {
-                    loading  -> Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Text("Loading sections…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val sections   = sectionsMap[plugin.internalName]
+            val loading    = plugin.internalName in csLoadingSet
+            val unpinned   = sections?.filter { sName ->
+                pinnedSections.none { it.pluginInternalName == plugin.internalName && it.sectionName == sName }
+            } ?: emptyList()
+            if (loading || unpinned.isNotEmpty()) {
+                SettingsGroup {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Extension, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(plugin.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
                     }
-                    sections == null  -> Text("Sections not yet loaded.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
-                    sections.isEmpty() -> Text("No sections found for this plugin.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp))
-                    else -> sections.forEachIndexed { idx, sectionName ->
-                        if (idx > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-                        SettingToggle(
-                            icon     = Icons.Default.PlayCircle,
-                            tint     = MaterialTheme.colorScheme.secondary,
-                            title    = sectionName,
-                            checked  = pinnedSections.any { it.pluginInternalName == plugin.internalName && it.sectionName == sectionName },
-                            onChange = { toggleCsSection(plugin, sectionName, it) },
-                        )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    when {
+                        loading -> Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Text("Loading sections…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        else -> unpinned.forEachIndexed { idx, sectionName ->
+                            if (idx > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                            SettingToggle(
+                                icon = Icons.Default.PlayCircle, tint = MaterialTheme.colorScheme.secondary,
+                                title = sectionName, checked = false,
+                                onChange = { if (it) toggleCsSection(plugin, sectionName, true) },
+                            )
+                        }
                     }
                 }
+                Spacer(Modifier.height(12.dp))
             }
-            Spacer(Modifier.height(12.dp))
         }
     }
 
