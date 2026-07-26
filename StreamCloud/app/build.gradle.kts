@@ -110,6 +110,17 @@ android {
     }
 }
 
+// Force androidx.activity to the version our Compose BOM (2024.09.03) pins.
+// haze pulls in org.jetbrains.compose which transitively upgrades activity to
+// 1.10.x (requires compileSdk 35). This block prevents that upgrade.
+configurations.all {
+    resolutionStrategy {
+        force("androidx.activity:activity:1.9.2")
+        force("androidx.activity:activity-ktx:1.9.2")
+        force("androidx.activity:activity-compose:1.9.2")
+    }
+}
+
 dependencies {
     // Core Android
     implementation("androidx.core:core-ktx:1.13.1")
