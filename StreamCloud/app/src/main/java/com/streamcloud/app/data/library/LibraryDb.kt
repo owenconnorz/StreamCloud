@@ -359,6 +359,9 @@ interface MovieDownloadDao {
     @Query("SELECT * FROM movie_downloads WHERE tmdb_id = :tmdbId LIMIT 1")
     fun watchById(tmdbId: Long): Flow<MovieDownloadEntity?>
 
+    @Query("SELECT * FROM movie_downloads WHERE tmdb_id = :tmdbId LIMIT 1")
+    suspend fun getByTmdbId(tmdbId: Long): MovieDownloadEntity?
+
     @Query("SELECT * FROM movie_downloads ORDER BY created_at DESC")
     fun all(): Flow<List<MovieDownloadEntity>>
 }
