@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Reorder
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Subtitles
@@ -1988,6 +1989,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
     val checker = remember { UpdateChecker(context.applicationContext) }
     var updateLabel by remember { mutableStateOf<String?>(null) }
     val errorCount by AppLogger.errorCount.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -1996,43 +1998,140 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         }
     }
 
+    // ── Section / item model ────────────────────────────────────────────────
+    data class HubItem(
+        val icon: ImageVector,
+        val title: String,
+        val subtitle: String,
+        val iconTint: Color,
+        val badge: String? = null,
+        val badgeError: Boolean = false,
+        val onClick: () -> Unit,
+    )
+    data class HubSection(val label: String, val items: List<HubItem>)
+
+    val sections = listOf(
+        HubSection("ACCOUNT", listOf(
+            HubItem(Icons.Default.Group,  "Switch Profile", "Change to a different profile",       ColourAccount, onClick = onSwitchProfile),
+            HubItem(Icons.Default.Person, "Account",        "Account and sync status",             ColourAccount, onClick = { onNavigate(SettingsPage.Account) }),
+        )),
+        HubSection("MUSIC", listOf(
+            HubItem(Icons.Default.PlayArrow, "Player and audio", "Playback, equaliser, crossfade, quality",  ColourPlayer, onClick = { onNavigate(SettingsPage.PlayerAudio) }),
+            HubItem(Icons.Default.Group,     "Listen Together",  "Sync playback with friends",               ColourSonos,  onClick = { onNavigate(SettingsPage.ListenTogether) }),
+        )),
+        HubSection("MOVIES", listOf(
+            HubItem(Icons.Default.Extension,  "Plugins & Addons", "Manage stream sources and addons",        ColourAi,      onClick = onOpenPlugins),
+            HubItem(Icons.Default.PlayCircle, "Pin to home",       "Configure home screen sections",          ColourContent, onClick = { onNavigate(SettingsPage.CsHomeSettings) }),
+            HubItem(Icons.Default.Layers,     "Collections",       "Manage collections and folders",          ColourSystem,  onClick = onOpenCollections),
+            HubItem(Icons.Default.Download,   "Downloads",         "Manage downloaded movies and episodes",   ColourStorage, onClick = onOpenDownloads),
+        )),
+        HubSection("GENERAL", listOf(
+            HubItem(Icons.Default.Palette,     "Appearance",         "Theme, colours, navigation, display",       ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }),
+            HubItem(Icons.Default.Shield,      "Privacy",            "Safe search, history, explicit content",    ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }),
+            HubItem(Icons.Default.Public,      "Content",            "Language, region, subtitles, parental",     ColourContent,    onClick = { onNavigate(SettingsPage.Content) }),
+            HubItem(Icons.Default.Storage,     "Storage",            "Cache management and storage usage",        ColourStorage,    onClick = { onNavigate(SettingsPage.Storage) }),
+            HubItem(Icons.Default.CloudUpload, "Backup and restore", "Back up or restore your app data",          ColourSystem,     onClick = { onNavigate(SettingsPage.BackupRestore) }),
+        )),
+        HubSection("ABOUT", listOf(
+            HubItem(
+                Icons.Default.BugReport, "App logs",
+                subtitle    = "Bug reports and error logs",
+                iconTint    = ColourSystem,
+                badge       = if (errorCount > 0) "$errorCount error${if (errorCount == 1) "" else "s"}" else null,
+                badgeError  = errorCount > 0,
+                onClick     = { onNavigate(SettingsPage.Logs) },
+            ),
+            HubItem(Icons.Default.Info,         "About",         "Version info and app details",                         ColourSystem, onClick = { onNavigate(SettingsPage.About) }),
+            HubItem(Icons.Default.SystemUpdate, "System update", updateLabel?.let { "Update available: $it" } ?: "Check for updates",
+                iconTint = ColourSystem,
+                badge    = updateLabel?.let { "Update" },
+                onClick  = { onNavigate(SettingsPage.SystemUpdate) },
+            ),
+        )),
+    )
+
+    val filtered = if (searchQuery.isBlank()) sections else {
+        val q = searchQuery.trim().lowercase()
+        sections.mapNotNull { section ->
+            val matching = section.items.filter {
+                it.title.lowercase().contains(q) || it.subtitle.lowercase().contains(q)
+            }
+            if (matching.isEmpty()) null else section.copy(items = matching)
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, bottom = 100.dp),
     ) {
+        // ── Title ──────────────────────────────────────────────────────────
         item {
             Text(
                 "Settings",
                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp),
+                modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 14.dp),
             )
         }
-        item { HubRow(icon = Icons.Default.Person,      title = "Account",             iconTint = ColourAccount,    onClick = { onNavigate(SettingsPage.Account) }) }
-        item { HubRow(icon = Icons.Default.Palette,     title = "Appearance",          iconTint = ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }) }
-        item { HubRow(icon = Icons.Default.PlayArrow,   title = "Player and audio",    iconTint = ColourPlayer,     onClick = { onNavigate(SettingsPage.PlayerAudio) }) }
-        item { HubRow(icon = Icons.Default.Group,       title = "Listen Together",     iconTint = ColourSonos,      onClick = { onNavigate(SettingsPage.ListenTogether) }) }
-        item { HubRow(icon = Icons.Default.Extension,   title = "Plugins & Addons",    iconTint = ColourAi,         onClick = onOpenPlugins) }
-        item { HubRow(icon = Icons.Default.PlayCircle,  title = "Pin to home",         iconTint = ColourContent,    onClick = { onNavigate(SettingsPage.CsHomeSettings) }) }
-        item { HubRow(icon = Icons.Default.Layers,      title = "Collections",         iconTint = ColourSystem,     onClick = onOpenCollections) }
-        item { HubRow(icon = Icons.Default.Storage,     title = "Storage",             iconTint = ColourStorage,    onClick = { onNavigate(SettingsPage.Storage) }) }
-        item { HubRow(icon = Icons.Default.CloudUpload, title = "Backup and restore",  iconTint = ColourSystem,     onClick = { onNavigate(SettingsPage.BackupRestore) }) }
-        item { HubRow(icon = Icons.Default.Shield,      title = "Privacy",             iconTint = ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }) }
-        item { HubRow(icon = Icons.Default.Public,      title = "Content",             iconTint = ColourContent,    onClick = { onNavigate(SettingsPage.Content) }) }
+        // ── Search bar ─────────────────────────────────────────────────────
         item {
-            HubRow(
-                icon       = Icons.Default.BugReport,
-                title      = "App logs",
-                badge      = if (errorCount > 0) "$errorCount error${if (errorCount == 1) "" else "s"}" else null,
-                badgeError = errorCount > 0,
-                onClick    = { onNavigate(SettingsPage.Logs) },
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = {
+                    Text("Search settings…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 22.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor   = MaterialTheme.colorScheme.outlineVariant,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedContainerColor   = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
             )
         }
-        item { HubRow(icon = Icons.Default.Info, title = "About", iconTint = ColourSystem, onClick = { onNavigate(SettingsPage.About) }) }
+        // ── Sections ───────────────────────────────────────────────────────
+        filtered.forEach { section ->
+            item(key = "lbl:${section.label}") {
+                Text(
+                    section.label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight    = FontWeight.Bold,
+                        letterSpacing = 0.9.sp,
+                    ),
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
+                )
+            }
+            item(key = "grp:${section.label}") {
+                SettingsGroup {
+                    section.items.forEachIndexed { idx, it ->
+                        HubRow(
+                            icon       = it.icon,
+                            title      = it.title,
+                            subtitle   = it.subtitle,
+                            badge      = it.badge,
+                            badgeError = it.badgeError,
+                            iconTint   = it.iconTint,
+                            onClick    = it.onClick,
+                        )
+                        if (idx < section.items.lastIndex) SettingDivider()
+                    }
+                }
+                Spacer(Modifier.height(22.dp))
+            }
+        }
     }
 }
 
@@ -2040,6 +2139,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
 private fun HubRow(
     icon: ImageVector,
     title: String,
+    subtitle: String? = null,
     badge: String? = null,
     badgeError: Boolean = false,
     iconTint: Color = HubIconFg,
@@ -2049,32 +2149,40 @@ private fun HubRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 13.dp),
     ) {
         Box(
             Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.errorContainer else iconTint.copy(alpha = 0.18f)),
+                .size(40.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(
+                    if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.errorContainer
+                    else Color(0xFF2C2C2E)
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 icon,
                 contentDescription = null,
                 tint = if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.error else iconTint,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(21.dp),
             )
         }
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
             )
+            if (!subtitle.isNullOrBlank() && badge.isNullOrBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (!badge.isNullOrBlank()) {
                 Text(
                     badge,
@@ -2086,8 +2194,8 @@ private fun HubRow(
         Icon(
             Icons.Default.ChevronRight,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+            modifier = Modifier.size(18.dp),
         )
     }
 }
