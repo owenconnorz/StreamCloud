@@ -1164,8 +1164,8 @@ fun StreamCloudApp() {
                                             .padding(horizontal = pillHPad)
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(50))
-                                            .hazeEffect(state = hazeState) { blurRadius = 24.dp }
-                                            .background(Color(0xFF1C1C1E).copy(alpha = 0.55f)),
+                                            .hazeEffect(state = hazeState) { blurRadius = 50.dp }
+                                            .background(Color(0xFF0D0D0D).copy(alpha = 0.78f)),
                                     ) {
                                         Row(
                                             Modifier
