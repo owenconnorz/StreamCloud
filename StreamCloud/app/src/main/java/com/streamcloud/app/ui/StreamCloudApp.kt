@@ -145,7 +145,8 @@ fun StreamCloudApp() {
         currentRoute.startsWith("cs-detail/") ||
         currentRoute.startsWith("cs-section/") ||
         currentRoute.startsWith("movie/") ||
-        currentRoute.startsWith("tv/")
+        currentRoute.startsWith("tv/") ||
+        currentRoute.startsWith("player/")
     )
 
     val context = LocalContext.current

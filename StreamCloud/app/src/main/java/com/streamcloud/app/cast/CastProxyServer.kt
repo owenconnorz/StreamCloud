@@ -1,5 +1,7 @@
 package com.streamcloud.app.cast
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -45,6 +47,12 @@ object CastProxyServer {
     /** Content-type detected from the upstream URL (HEAD probe), or null if unknown. */
     @Volatile var detectedContentType: String? = null
 
+    /**
+     * Android application context — required when serving local content:// or file:// URIs.
+     * Set by [rememberCastController] before calling [start] whenever the stream URL is local.
+     */
+    @Volatile var appContext: Context? = null
+
     private val http: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -84,9 +92,15 @@ object CastProxyServer {
         currentProxyUrl = proxyUrl
         Log.d(TAG, "Proxy started: $proxyUrl → $realUrl")
 
-        // Probe content type in background so we know if this is HLS/DASH/MP4
+        // Probe content type in background so we know if this is HLS/DASH/MP4.
+        // For local content:// / file:// URIs use ContentResolver instead of HTTP HEAD.
         pool.submit {
-            detectedContentType = probeContentType(realUrl, headers)
+            detectedContentType = when {
+                realUrl.startsWith("content://") || realUrl.startsWith("file://") ->
+                    appContext?.contentResolver?.getType(Uri.parse(realUrl))
+                        ?.substringBefore(';')?.trim()
+                else -> probeContentType(realUrl, headers)
+            }
             Log.d(TAG, "Detected content type: $detectedContentType")
         }
 
@@ -129,6 +143,78 @@ object CastProxyServer {
         } catch (_: Exception) { null }
     }
 
+    /**
+     * Serves a local content:// or file:// URI directly from storage with full
+     * HTTP range-request support so Chromecast can seek through the file.
+     */
+    private fun serveLocalFile(output: java.io.OutputStream, uri: String, rangeHeader: String?) {
+        val ctx = appContext ?: run {
+            output.write("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".toByteArray())
+            output.flush()
+            return
+        }
+        try {
+            val parsedUri = Uri.parse(uri)
+            val mimeType = ctx.contentResolver.getType(parsedUri)
+                ?.substringBefore(';')?.trim() ?: "video/mp4"
+
+            val pfd = ctx.contentResolver.openFileDescriptor(parsedUri, "r") ?: run {
+                output.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
+                output.flush()
+                return
+            }
+
+            pfd.use { descriptor ->
+                val fileSize = descriptor.statSize
+
+                // Parse Range header: "bytes=START-END"
+                var start = 0L
+                var end = fileSize - 1
+                if (rangeHeader != null && fileSize > 0) {
+                    Regex("""bytes=(\d*)-(\d*)""").find(rangeHeader)?.let { m ->
+                        val s = m.groupValues[1]; val e = m.groupValues[2]
+                        if (s.isNotEmpty()) start = s.toLong()
+                        end = if (e.isNotEmpty()) minOf(e.toLong(), fileSize - 1) else fileSize - 1
+                    }
+                }
+                val contentLength = end - start + 1
+                val isRange = rangeHeader != null && fileSize > 0
+
+                val sb = StringBuilder()
+                if (isRange) {
+                    sb.append("HTTP/1.1 206 Partial Content\r\n")
+                    sb.append("Content-Range: bytes $start-$end/$fileSize\r\n")
+                } else {
+                    sb.append("HTTP/1.1 200 OK\r\n")
+                }
+                sb.append("Content-Type: $mimeType\r\n")
+                sb.append("Content-Length: $contentLength\r\n")
+                sb.append("Accept-Ranges: bytes\r\n")
+                sb.append("Access-Control-Allow-Origin: *\r\n")
+                sb.append("Connection: close\r\n")
+                sb.append("\r\n")
+                output.write(sb.toString().toByteArray(Charsets.ISO_8859_1))
+                output.flush()
+
+                java.io.FileInputStream(descriptor.fileDescriptor).use { fis ->
+                    if (start > 0) fis.skip(start)
+                    val buf = ByteArray(BUFFER)
+                    var remaining = contentLength
+                    var n: Int
+                    while (remaining > 0 &&
+                        fis.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+                            .also { n = it } != -1) {
+                        output.write(buf, 0, n)
+                        remaining -= n
+                    }
+                    output.flush()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "serveLocalFile error for $uri", e)
+        }
+    }
+
     private fun handleClient(socket: Socket) {
         try {
             socket.soTimeout = 30_000
@@ -148,6 +234,12 @@ object CastProxyServer {
                 val lower = line.lowercase()
                 if (lower.startsWith("range:")) rangeHeader = line.substringAfter(":").trim()
                 line = input.readLine()
+            }
+
+            // Local content:// or file:// URIs are served directly from storage — OkHttp can't open them.
+            if (fetchUrl.startsWith("content://") || fetchUrl.startsWith("file://")) {
+                serveLocalFile(output, fetchUrl, rangeHeader)
+                return
             }
 
             val reqBuilder = Request.Builder().url(fetchUrl).get()
