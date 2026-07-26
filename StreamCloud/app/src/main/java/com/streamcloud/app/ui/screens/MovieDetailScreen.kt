@@ -23,6 +23,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,10 +35,15 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -68,6 +78,9 @@ import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
 import com.streamcloud.app.data.nuvio.NuvioStream
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
+import com.streamcloud.app.data.downloads.MovieDownloader
+import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
@@ -225,6 +238,9 @@ fun MovieDetailScreen(
         loadingEpisodes = false
     }
 
+    val watchedDao = remember { LibraryDb.get(context.applicationContext).watchedMovies() }
+    val isWatched by watchedDao.isWatched(movieId).collectAsState(initial = false)
+
     fun playMovie() {
         imdbId ?: run { resolverMessage = "Loading IMDB id… try again in a second."; return }
         if (installedAddons.isEmpty() && installedNuvio.isEmpty() && installedCsPlugins.isEmpty()) {
@@ -243,6 +259,22 @@ fun MovieDetailScreen(
         }
         pickerSeason = seasonNum; pickerEpisode = episodeNum; pickerEpTitle = episodeTitle
         showStreamPicker = true
+    }
+
+    fun toggleWatched() {
+        val m = movie ?: return
+        scope.launch {
+            if (isWatched) {
+                watchedDao.unmark(movieId)
+            } else {
+                watchedDao.mark(
+                    WatchedMovieEntity(
+                        tmdbId = movieId, title = m.displayTitle,
+                        posterUrl = m.posterUrl, mediaType = mediaType,
+                    ),
+                )
+            }
+        }
     }
 
     fun openCsSourcePicker(plugin: InstalledPlugin) {
@@ -280,6 +312,13 @@ fun MovieDetailScreen(
     val moviesVm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
     val watchlistIds = moviesVm.state.collectAsState().value.watchlist.map { it.tmdbId }.toSet()
     val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
+
+    var actionsExpanded by remember { mutableStateOf(false) }
+    var downloadMode by remember { mutableStateOf(false) }
+    val downloadDao = remember { LibraryDb.get(context.applicationContext).movieDownloads() }
+    val downloadEntry by downloadDao.watchById(movieId).collectAsState(initial = null)
+    val downloadProgressMap by MovieDownloader.progressFlow.collectAsState()
+    val downloadProgress = downloadProgressMap[movieId]
 
     MoviesThemeWrapper(moviesThemeName) {
     val scrollState = rememberScrollState()
@@ -352,6 +391,7 @@ fun MovieDetailScreen(
                     val firstSeason = tvSeasons.firstOrNull()
                     Row(
                         Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Button(
@@ -378,24 +418,35 @@ fun MovieDetailScreen(
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             )
                         }
-                        IconButton(
-                            onClick = {
-                                movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
-                            },
-                            modifier = Modifier.size(52.dp)
-                                .tvFocusBorder(RoundedCornerShape(14.dp))
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(MaterialTheme.colorScheme.surface),
+                        AnimatedVisibility(
+                            visible = actionsExpanded,
+                            enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
+                            exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
                         ) {
-                            Icon(
-                                if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                null,
-                                tint = if (inWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                MovieActionCircle(
+                                    icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                    active = inWatchlist,
+                                ) {
+                                    movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
+                                }
+                                MovieActionCircle(
+                                    icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                                    active = isWatched,
+                                ) { toggleWatched() }
+                            }
                         }
+                        MovieActionCircle(
+                            icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
+                            active = false,
+                        ) { actionsExpanded = !actionsExpanded }
                     }
                 } else {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         Box(Modifier.weight(1f)) {
                             PlayMovieCta(
                                 addonCount = addonCount,
@@ -405,21 +456,39 @@ fun MovieDetailScreen(
                                 modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
                             )
                         }
-                        IconButton(
-                            onClick = {
-                                movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
-                            },
-                            modifier = Modifier.size(52.dp)
-                                .tvFocusBorder(RoundedCornerShape(14.dp))
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(MaterialTheme.colorScheme.surface),
+                        AnimatedVisibility(
+                            visible = actionsExpanded,
+                            enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
+                            exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
                         ) {
-                            Icon(
-                                if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                null,
-                                tint = if (inWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            )
+                            val dlDone = downloadEntry?.status == "done"
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                MovieActionCircle(
+                                    icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                    active = inWatchlist,
+                                ) {
+                                    movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
+                                }
+                                MovieActionCircle(
+                                    icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                                    active = isWatched,
+                                ) { toggleWatched() }
+                                MovieActionCircle(
+                                    icon = if (dlDone) Icons.Default.DownloadDone else Icons.Default.Download,
+                                    active = dlDone,
+                                    progress = downloadProgress,
+                                ) {
+                                    if (!dlDone && downloadProgress == null) {
+                                        downloadMode = true
+                                        playMovie()
+                                    }
+                                }
+                            }
                         }
+                        MovieActionCircle(
+                            icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
+                            active = false,
+                        ) { actionsExpanded = !actionsExpanded }
                     }
                 }
 
@@ -1006,9 +1075,10 @@ fun MovieDetailScreen(
             movie = movie, mediaType = mediaType, tmdbId = movieId, imdbId = imdbId,
             season = pickerSeason, episode = pickerEpisode, episodeTitle = pickerEpTitle,
             installedAddons = installedAddons, installedNuvio = installedNuvio, installedCsPlugins = installedCsPlugins,
-            onBack = { showStreamPicker = false },
+            onBack = { showStreamPicker = false; downloadMode = false },
             onPlay = { url, sources ->
                 showStreamPicker = false
+                downloadMode = false
                 val m = movie
                 val displayTitle = buildString {
                     append(m?.displayTitle ?: "Playback")
@@ -1020,6 +1090,22 @@ fun MovieDetailScreen(
                     posterUrl = m?.posterUrl ?: m?.backdropUrl, mediaType = mediaType)
                 onPlay(url, displayTitle, sources, progressKey)
             },
+            onDownload = if (downloadMode) { source ->
+                showStreamPicker = false
+                downloadMode = false
+                val m = movie
+                scope.launch {
+                    MovieDownloader.download(
+                        context = context,
+                        tmdbId = movieId,
+                        title = m?.displayTitle ?: "Movie",
+                        posterUrl = m?.posterUrl,
+                        mediaType = mediaType,
+                        url = source.url,
+                        headers = source.headers,
+                    )
+                }
+            } else null,
         )
     }
 
@@ -1036,6 +1122,43 @@ fun MovieDetailScreen(
 // ─────────────────────────────────────────────────────────────────────────────
 // Small UI components
 // ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun MovieActionCircle(
+    icon: ImageVector,
+    active: Boolean,
+    progress: Float? = null,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(52.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                else MaterialTheme.colorScheme.surfaceVariant,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (progress != null) {
+            CircularProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.size(26.dp),
+                strokeWidth = 2.5.dp,
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+    }
+}
 
 @Composable
 private fun SectionHeader(title: String) {
