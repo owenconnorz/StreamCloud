@@ -301,7 +301,7 @@ fun StreamCloudApp() {
                     }
                 }
             }
-            Box(Modifier.fillMaxSize().nestedScroll(navScrollConnection).haze(hazeState)) {
+            Box(Modifier.fillMaxSize().nestedScroll(navScrollConnection).haze(hazeState, backgroundColor = androidx.compose.ui.graphics.Color(0xFF0D0D0D))) {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxSize()) {
                         val startRoute = resolvedStartRoute
@@ -1055,6 +1055,7 @@ fun StreamCloudApp() {
                                     // resolution is bypassed and icons stay visible.
                                     Box(
                                         modifier = Modifier
+                                            .clip(RoundedCornerShape(50))
                                             .hazeChild(
                                                 state = hazeState,
                                                 shape = RoundedCornerShape(50),
@@ -1068,8 +1069,7 @@ fun StreamCloudApp() {
                                                 width = 0.5.dp,
                                                 color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.18f),
                                                 shape = RoundedCornerShape(50),
-                                            )
-                                            .clip(RoundedCornerShape(50)),
+                                            ),
                                     ) {
                                         androidx.compose.runtime.CompositionLocalProvider(
                                             androidx.compose.material3.LocalContentColor provides androidx.compose.ui.graphics.Color.White,
