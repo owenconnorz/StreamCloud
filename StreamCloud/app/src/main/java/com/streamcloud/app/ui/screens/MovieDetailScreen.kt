@@ -48,7 +48,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -451,6 +454,7 @@ fun MovieDetailScreen(
                                 addonCount = addonCount,
                                 enabled = playEnabled,
                                 loading = resolving,
+                                downloadProgress = downloadProgress,
                                 onClick = { playMovie() },
                                 modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
                             )
@@ -1339,37 +1343,78 @@ private fun PlayMovieCta(
     addonCount: Int,
     enabled: Boolean,
     loading: Boolean,
+    downloadProgress: Float? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+    val primary  = MaterialTheme.colorScheme.primary
+    val surface  = MaterialTheme.colorScheme.surface
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val isDownloading = downloadProgress != null
+    val animatedFill by animateFloatAsState(
+        targetValue = downloadProgress ?: 0f,
+        label = "dlFill",
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
         modifier = modifier
             .fillMaxWidth()
             .height(52.dp)
             .tvFocusBorder(RoundedCornerShape(50))
             .clip(RoundedCornerShape(50))
-            .background(if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
-            .clickable(enabled = enabled, onClick = onClick),
+            .then(
+                if (isDownloading)
+                    Modifier.drawBehind {
+                        drawRect(color = surface)
+                        drawRect(color = primary, size = Size(width = size.width * animatedFill, height = size.height))
+                    }
+                else
+                    Modifier.background(if (enabled) primary else surface)
+            )
+            .clickable(enabled = enabled && !isDownloading, onClick = onClick),
     ) {
-        if (loading) {
-            CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-            Spacer(Modifier.width(12.dp))
-            Text("Finding best stream…", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onPrimary)
-        } else {
-            Icon(Icons.Default.PlayArrow, null,
-                tint = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(26.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Play Movie", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
-            if (addonCount > 0) {
+        when {
+            isDownloading -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(Icons.Default.Download, null, tint = onPrimary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Downloading · ${(animatedFill * 100).toInt()}%",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = onPrimary,
+                )
+            }
+            loading -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = onPrimary)
+                Spacer(Modifier.width(12.dp))
+                Text("Finding best stream…",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = onPrimary)
+            }
+            else -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(Icons.Default.PlayArrow, null,
+                    tint = if (enabled) onPrimary else onSurfaceVariant,
+                    modifier = Modifier.size(26.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("· $addonCount source${if (addonCount == 1) "" else "s"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (enabled) MaterialTheme.colorScheme.onPrimary.copy(0.8f) else MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Play Movie",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (enabled) onPrimary else onSurfaceVariant)
+                if (addonCount > 0) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("· $addonCount source${if (addonCount == 1) "" else "s"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (enabled) onPrimary.copy(0.8f) else onSurfaceVariant)
+                }
             }
         }
     }
