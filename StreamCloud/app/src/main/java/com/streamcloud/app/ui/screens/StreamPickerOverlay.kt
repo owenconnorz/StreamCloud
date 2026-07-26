@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -69,6 +70,7 @@ fun StreamPickerOverlay(
     installedCsPlugins: List<InstalledPlugin>,
     onBack: () -> Unit,
     onPlay: (url: String, sources: List<PlayerSource>) -> Unit,
+    onDownload: ((source: PlayerSource) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
@@ -400,6 +402,7 @@ fun StreamPickerOverlay(
                                 PickerStreamCard(
                                     source = src,
                                     onClick = { onPlay(src.url, allSources) },
+                                    onDownload = onDownload?.let { cb -> { cb(src) } },
                                 )
                             }
                         }
@@ -482,7 +485,11 @@ private fun PickerSectionHeader(name: String, isLoading: Boolean) {
 }
 
 @Composable
-private fun PickerStreamCard(source: PlayerSource, onClick: () -> Unit) {
+private fun PickerStreamCard(
+    source: PlayerSource,
+    onClick: () -> Unit,
+    onDownload: (() -> Unit)? = null,
+) {
     val lines = source.label.lines().map { it.trim() }.filter { it.isNotBlank() }
     val titleLine = lines.firstOrNull() ?: source.addonName
     val descLines = lines.drop(1)
@@ -494,7 +501,8 @@ private fun PickerStreamCard(source: PlayerSource, onClick: () -> Unit) {
             .tvFocusBorder(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = if (onDownload != null) 4.dp else 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(
             Modifier.weight(1f),
@@ -544,6 +552,19 @@ private fun PickerStreamCard(source: PlayerSource, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (onDownload != null) {
+            IconButton(
+                onClick = onDownload,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    Icons.Default.Download,
+                    contentDescription = "Download this stream",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }
