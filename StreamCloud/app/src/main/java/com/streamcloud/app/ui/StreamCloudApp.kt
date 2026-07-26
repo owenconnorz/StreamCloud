@@ -1046,16 +1046,15 @@ fun StreamCloudApp() {
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (navLiquidGlass) {
-                                    // Pure-Compose glass pill: translucent base + top-edge
-                                    // shine gradient + thin white rim. No backdrop-blur lib
-                                    // needed — looks identical to Nuvio's floating pill.
+                                    // Glass pill: fixed near-black base (Nuvio never inherits
+                                    // dynamic album-art colour) + top-edge shine + white rim.
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(50))
-                                            .background(navPillColor.copy(alpha = 0.72f))
+                                            .background(androidx.compose.ui.graphics.Color(0xFF1A1A1A).copy(alpha = 0.88f))
                                             .border(
                                                 width = 0.5.dp,
-                                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.22f),
+                                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.18f),
                                                 shape = RoundedCornerShape(50),
                                             ),
                                     ) {
@@ -1065,8 +1064,8 @@ fun StreamCloudApp() {
                                                 .matchParentSize()
                                                 .background(
                                                     Brush.verticalGradient(
-                                                        0f to androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f),
-                                                        0.45f to androidx.compose.ui.graphics.Color.Transparent,
+                                                        0f to androidx.compose.ui.graphics.Color.White.copy(alpha = 0.10f),
+                                                        0.40f to androidx.compose.ui.graphics.Color.Transparent,
                                                     )
                                                 )
                                         )
@@ -1081,6 +1080,7 @@ fun StreamCloudApp() {
                                                     ProfileNavItem(
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
+                                                        glassActive = true,
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
                                                 } else {
@@ -1089,6 +1089,7 @@ fun StreamCloudApp() {
                                                         label = tab.label,
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
+                                                        glassActive = true,
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
                                                 }
@@ -1213,32 +1214,48 @@ private fun NuvioNavItem(
     label: String,
     selected: Boolean,
     showLabel: Boolean = true,
+    glassActive: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val activeColor = Color.White
-    val mutedColor  = Color(0xFF8E8E93)
-    val tint = if (selected) activeColor else mutedColor
+    // Glass mode: white oval behind selected icon (dark icon inside), white label.
+    // Standard mode: white icon when selected, grey when not.
+    val iconTint = when {
+        glassActive && selected -> Color(0xFF1C1C1E)
+        else -> if (selected) Color.White else Color(0xFF8E8E93)
+    }
+    val labelColor = if (selected) Color.White else Color(0xFF8E8E93)
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = tint,
-            modifier = Modifier.size(24.dp),
-        )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = if (glassActive && selected)
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White)
+                    .padding(horizontal = 14.dp, vertical = 5.dp)
+            else
+                Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = iconTint,
+                modifier = Modifier.size(22.dp),
+            )
+        }
         if (showLabel) {
             Spacer(Modifier.height(2.dp))
             Text(
                 label,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = tint,
+                color = labelColor,
             )
         }
     }
@@ -1248,6 +1265,7 @@ private fun NuvioNavItem(
 private fun ProfileNavItem(
     selected: Boolean,
     showLabel: Boolean,
+    glassActive: Boolean = false,
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1281,9 +1299,11 @@ private fun ProfileNavItem(
     }
     val avatar = if (ytAvatar.isNotBlank()) ytAvatar else deviceAvatar
 
-    val activeColor = Color.White
-    val mutedColor  = Color(0xFF8E8E93)
-    val tint = if (selected) activeColor else mutedColor
+    val iconTint = when {
+        glassActive && selected -> Color(0xFF1C1C1E)
+        else -> if (selected) Color.White else Color(0xFF8E8E93)
+    }
+    val labelColor = if (selected) Color.White else Color(0xFF8E8E93)
     val itemLabel = if (avatar.isNotBlank()) "Profile" else "Settings"
 
     Column(
@@ -1291,16 +1311,27 @@ private fun ProfileNavItem(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
-        ProfileAvatarCircle(avatar = avatar, size = 24.dp, tint = tint)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = if (glassActive && selected)
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White)
+                    .padding(horizontal = 14.dp, vertical = 5.dp)
+            else
+                Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+        ) {
+            ProfileAvatarCircle(avatar = avatar, size = 22.dp, tint = iconTint)
+        }
         if (showLabel) {
             Spacer(Modifier.height(2.dp))
             Text(
                 itemLabel,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = tint,
+                color = labelColor,
             )
         }
     }
