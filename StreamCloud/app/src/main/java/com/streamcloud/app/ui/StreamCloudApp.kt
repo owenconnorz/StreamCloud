@@ -1071,7 +1071,7 @@ fun StreamCloudApp() {
                                         )
                                         Row(
                                             Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
-                                            horizontalArrangement = Arrangement.SpaceEvenly,
+                                            horizontalArrangement = Arrangement.Center,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             tabs.forEach { tab ->
@@ -1106,7 +1106,7 @@ fun StreamCloudApp() {
                                         Row(
                                             Modifier
                                                 .padding(horizontal = 4.dp, vertical = 6.dp),
-                                            horizontalArrangement = Arrangement.SpaceEvenly,
+                                            horizontalArrangement = Arrangement.Center,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             tabs.forEach { tab ->
