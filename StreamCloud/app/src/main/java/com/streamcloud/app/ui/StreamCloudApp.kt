@@ -87,11 +87,16 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import android.os.Build
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -227,6 +232,18 @@ fun StreamCloudApp() {
     }
     // Always expand when navigating to a new top-level tab
     LaunchedEffect(currentRoute) { navExpanded = true }
+
+    // Animated pill size — shrinks when user scrolls down
+    val navPillVPad by animateDpAsState(
+        targetValue = if (navExpanded) 6.dp else 2.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "navPillVPad",
+    )
+    val navOuterBottomPad by animateDpAsState(
+        targetValue = if (navExpanded) 12.dp else 6.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "navOuterBottomPad",
+    )
 
     // Show miniplayer on all non-media routes (including music home)
     val showMiniPlayer = currentRoute != null && !isMediaRoute
@@ -1042,38 +1059,66 @@ fun StreamCloudApp() {
                                 Modifier
                                     .fillMaxWidth()
                                     .navigationBarsPadding()
-                                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                                    .padding(start = 16.dp, end = 16.dp, bottom = navOuterBottomPad),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (navLiquidGlass) {
-                                    // Glass pill: fixed near-black base (Nuvio never inherits
-                                    // dynamic album-art colour) + top-edge shine + white rim.
+                                    // Glass pill — frosted dark base + blur layer (API 31+) +
+                                    // white rim + top-edge shine. Shrinks smoothly on scroll-down.
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(50))
-                                            .background(androidx.compose.ui.graphics.Color(0xFF1A1A1A).copy(alpha = 0.88f))
+                                            .background(Color(0xFF1C1C1F).copy(alpha = 0.82f))
                                             .border(
-                                                width = 0.5.dp,
-                                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.18f),
+                                                width = 0.6.dp,
+                                                color = Color.White.copy(alpha = 0.20f),
                                                 shape = RoundedCornerShape(50),
                                             ),
                                     ) {
-                                        // Top-edge glass shine
+                                        // ── Frosted blur layer (API 31 / Android 12+) ────────
+                                        // BlurEffect blurs what is drawn inside this layer —
+                                        // combining with a semi-transparent bg creates a soft
+                                        // frosted-glass haze that bleeds with the dark base.
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                            Box(
+                                                Modifier
+                                                    .matchParentSize()
+                                                    .graphicsLayer {
+                                                        renderEffect = androidx.compose.ui.graphics.BlurEffect(
+                                                            radiusX = 50f, radiusY = 50f,
+                                                            edgeTreatment = androidx.compose.ui.graphics.TileMode.Clamp,
+                                                        )
+                                                    }
+                                                    .background(Color(0xFF2A2A2E).copy(alpha = 0.50f))
+                                            )
+                                        }
+                                        // ── Top-edge glass shine ─────────────────────────────
                                         Box(
                                             Modifier
                                                 .matchParentSize()
                                                 .background(
                                                     Brush.verticalGradient(
-                                                        0f to androidx.compose.ui.graphics.Color.White.copy(alpha = 0.10f),
-                                                        0.40f to androidx.compose.ui.graphics.Color.Transparent,
+                                                        0f    to Color.White.copy(alpha = 0.13f),
+                                                        0.45f to Color.Transparent,
+                                                    )
+                                                )
+                                        )
+                                        // ── Bottom-edge inner shadow ─────────────────────────
+                                        Box(
+                                            Modifier
+                                                .matchParentSize()
+                                                .background(
+                                                    Brush.verticalGradient(
+                                                        0.7f to Color.Transparent,
+                                                        1.0f to Color.Black.copy(alpha = 0.18f),
                                                     )
                                                 )
                                         )
                                         Row(
                                             Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                                                .padding(horizontal = 4.dp, vertical = navPillVPad),
                                             horizontalArrangement = Arrangement.SpaceEvenly,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
@@ -1110,7 +1155,7 @@ fun StreamCloudApp() {
                                         Row(
                                             Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                                                .padding(horizontal = 4.dp, vertical = navPillVPad),
                                             horizontalArrangement = Arrangement.SpaceEvenly,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
