@@ -35,7 +35,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -115,8 +114,7 @@ fun MoviesScreen(
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     MoviesThemeWrapper(moviesThemeName) {
-    val bgTintColor by AlbumArtThemeBus.bgTint.collectAsState()
-    Box(Modifier.fillMaxSize().background(bgTintColor)) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
