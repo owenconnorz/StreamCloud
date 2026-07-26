@@ -110,14 +110,24 @@ android {
     }
 }
 
-// Force androidx.activity to the version our Compose BOM (2024.09.03) pins.
-// haze pulls in org.jetbrains.compose which transitively upgrades activity to
-// 1.10.x (requires compileSdk 35). This block prevents that upgrade.
+// Pin transitive dependency versions that haze would otherwise upgrade beyond
+// what this project's compileSdk / toolchain supports.
+//
+// haze 1.5.4 (via org.jetbrains.compose) pulls in:
+//   - androidx.activity 1.10.x  → requires compileSdk 35 (we use 34)
+//   - kotlin-stdlib    2.1.0    → compiler emits metadata 2.1.0; Room kapt
+//                                  (kotlinx-metadata-jvm bundled in Room) caps
+//                                  at 2.0.0 and crashes. Kotlin compiler plugin
+//                                  is 2.0.21 so stdlib must match.
 configurations.all {
     resolutionStrategy {
         force("androidx.activity:activity:1.9.2")
         force("androidx.activity:activity-ktx:1.9.2")
         force("androidx.activity:activity-compose:1.9.2")
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.21")
+        force("org.jetbrains.kotlin:kotlin-stdlib-common:2.0.21")
     }
 }
 
