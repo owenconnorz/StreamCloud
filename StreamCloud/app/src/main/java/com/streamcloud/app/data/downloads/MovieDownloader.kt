@@ -91,6 +91,7 @@ object MovieDownloader {
 
         gate.withPermit {
             try {
+                MovieDownloadNotifier.postProgress(ctx, tmdbId, title, null)
                 dao.upsert(
                     MovieDownloadEntity(
                         tmdbId = tmdbId, title = title, posterUrl = posterUrl,
@@ -101,19 +102,15 @@ object MovieDownloader {
                 val ext = fileExt(url)
                 val safeTitle = title.replace(Regex("[/\\\\:*?\"<>|]"), "_")
 
-                var lastDbUpdate = 0L
                 val filePath = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     downloadViaMediaStore(ctx, tmdbId, safeTitle, ext, url, headers) { fraction ->
                         setProgress(tmdbId, fraction)
-                        val now = System.currentTimeMillis()
-                        if (now - lastDbUpdate > 2000) {
-                            lastDbUpdate = now
-                            // progress DB update happens in finally block
-                        }
+                        MovieDownloadNotifier.postProgress(ctx, tmdbId, title, fraction)
                     }
                 } else {
                     downloadLegacy(ctx, tmdbId, safeTitle, ext, url, headers) { fraction ->
                         setProgress(tmdbId, fraction)
+                        MovieDownloadNotifier.postProgress(ctx, tmdbId, title, fraction)
                     }
                 }
 
@@ -124,6 +121,7 @@ object MovieDownloader {
                         filePath = filePath, status = "done", progress = 1f,
                     ),
                 )
+                MovieDownloadNotifier.postComplete(ctx, tmdbId, title)
             } catch (e: Throwable) {
                 dao.upsert(
                     MovieDownloadEntity(
@@ -131,6 +129,7 @@ object MovieDownloader {
                         mediaType = mediaType, streamUrl = url, status = "error", progress = 0f,
                     ),
                 )
+                MovieDownloadNotifier.cancel(ctx, tmdbId)
             } finally {
                 setProgress(tmdbId, null)
                 synchronized(activeJobs) { activeJobs.remove(tmdbId) }
