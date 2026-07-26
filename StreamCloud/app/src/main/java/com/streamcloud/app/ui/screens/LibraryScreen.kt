@@ -47,11 +47,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import android.content.Intent
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.core.content.FileProvider
 import java.io.File
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
+import com.streamcloud.app.data.downloads.MovieDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.MovieDownloadEntity
 import com.streamcloud.app.data.library.TrackEntity
@@ -83,6 +87,7 @@ fun LibraryScreen(
     onOpenArtist: (channelUrl: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
     onMovieClick: (Long) -> Unit = {},
+    onPlayLocalFile: (filePath: String, title: String, tmdbId: Long, mediaType: String) -> Unit = { _, _, _, _ -> },
     onTvClick: (Long) -> Unit = {},
     onCsClick: (plugin: String, url: String, title: String, poster: String?) -> Unit = { _, _, _, _ -> },
 ) {
@@ -289,99 +294,112 @@ fun LibraryScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        var menuEntry by remember { mutableStateOf<MovieDownloadEntity?>(null) }
                         items(downloadedMovies, key = { "dl_${it.tmdbId}" }) { entry ->
-                            Column(
-                                Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { onMovieClick(entry.tmdbId) }
-                            ) {
-                                Box {
-                                    AsyncImage(
-                                        model = entry.posterUrl,
-                                        contentDescription = entry.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(2f / 3f)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    )
-                                    if (entry.status == "downloading") {
-                                        Box(
-                                            Modifier
-                                                .align(Alignment.BottomCenter)
+                            @OptIn(ExperimentalFoundationApi::class)
+                            Box {
+                                Column(
+                                    Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .combinedClickable(
+                                            onClick = {
+                                                if (entry.status == "done" && !entry.filePath.isNullOrBlank()) {
+                                                    onPlayLocalFile(entry.filePath, entry.title, entry.tmdbId, entry.mediaType)
+                                                } else {
+                                                    onMovieClick(entry.tmdbId)
+                                                }
+                                            },
+                                            onLongClick = { menuEntry = entry },
+                                        )
+                                ) {
+                                    Box {
+                                        AsyncImage(
+                                            model = entry.posterUrl,
+                                            contentDescription = entry.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
                                                 .fillMaxWidth()
-                                                .background(Color.Black.copy(alpha = 0.55f))
-                                                .padding(4.dp),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            LinearProgressIndicator(
-                                                progress = { entry.progress },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                color = MaterialTheme.colorScheme.primary,
-                                            )
-                                        }
-                                    } else if (entry.status == "done") {
-                                        Box(
-                                            Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(4.dp)
-                                                .size(22.dp)
-                                                .clip(CircleShape)
-                                                .background(MaterialTheme.colorScheme.primary),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Icon(Icons.Default.DownloadDone, null,
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.size(14.dp))
+                                                .aspectRatio(2f / 3f)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        )
+                                        if (entry.status == "downloading") {
+                                            Box(
+                                                Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .fillMaxWidth()
+                                                    .background(Color.Black.copy(alpha = 0.55f))
+                                                    .padding(4.dp),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                LinearProgressIndicator(
+                                                    progress = { entry.progress },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                )
+                                            }
+                                        } else if (entry.status == "done") {
+                                            Box(
+                                                Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(4.dp)
+                                                    .size(22.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colorScheme.primary),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(Icons.Default.DownloadDone, null,
+                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                    modifier = Modifier.size(14.dp))
+                                            }
                                         }
                                     }
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        entry.title,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    entry.title,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                if (entry.status == "done" && !entry.filePath.isNullOrBlank()) {
-                                    val ctx = context
-                                    TextButton(
-                                        onClick = {
-                                            val file = File(entry.filePath)
-                                            try {
-                                                val uri = FileProvider.getUriForFile(
-                                                    ctx,
-                                                    "${ctx.packageName}.fileprovider",
-                                                    file,
-                                                )
-                                                ctx.startActivity(
-                                                    Intent.createChooser(
-                                                        Intent(Intent.ACTION_VIEW).apply {
-                                                            setDataAndType(uri, "video/*")
-                                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                        },
-                                                        "Open with",
+                                DropdownMenu(
+                                    expanded = menuEntry?.tmdbId == entry.tmdbId,
+                                    onDismissRequest = { menuEntry = null },
+                                ) {
+                                    if (!entry.filePath.isNullOrBlank()) {
+                                        DropdownMenuItem(
+                                            text = { Text("Open in Files") },
+                                            leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
+                                            onClick = {
+                                                menuEntry = null
+                                                val file = File(entry.filePath)
+                                                try {
+                                                    val uri = FileProvider.getUriForFile(
+                                                        context, "${context.packageName}.fileprovider", file,
                                                     )
-                                                )
-                                            } catch (_: Exception) { }
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
-                                        modifier = Modifier.height(28.dp),
-                                    ) {
-                                        Icon(
-                                            Icons.Default.FolderOpen, null,
-                                            modifier = Modifier.size(13.dp),
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                        Spacer(Modifier.width(3.dp))
-                                        Text(
-                                            "Open in Files",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary,
+                                                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                                        setDataAndType(uri, "video/*")
+                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                    val samsungIntent = Intent(viewIntent).setPackage("com.sec.android.app.myfiles")
+                                                    try {
+                                                        context.startActivity(samsungIntent)
+                                                    } catch (_: Exception) {
+                                                        context.startActivity(Intent.createChooser(viewIntent, "Open with"))
+                                                    }
+                                                } catch (_: Exception) { }
+                                            },
                                         )
                                     }
+                                    DropdownMenuItem(
+                                        text = { Text("Delete Movie", color = MaterialTheme.colorScheme.error) },
+                                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            menuEntry = null
+                                            scope.launch { MovieDownloader.remove(context, entry.tmdbId) }
+                                        },
+                                    )
                                 }
                             }
                         }
