@@ -1283,10 +1283,12 @@ private fun StremioStream.toPlayerSource(addon: InstalledStremioAddon): PlayerSo
 private fun StremioStream.stremioProxyRequestHeaders(): Map<String, String> {
     val proxyHeaders = behaviorHints?.proxyHeaders ?: return emptyMap()
     val requestObj = proxyHeaders["request"] as? kotlinx.serialization.json.JsonObject ?: return emptyMap()
-    return requestObj.entries.mapNotNull { (k, v) ->
-        val str = (v as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
-        k to str
-    }.toMap()
+    val result = mutableMapOf<String, String>()
+    for ((k, v) in requestObj) {
+        val prim = v as? kotlinx.serialization.json.JsonPrimitive ?: continue
+        result[k] = prim.content
+    }
+    return result
 }
 
 private fun StremioStream.toPlayableUrl(): String? = when {
