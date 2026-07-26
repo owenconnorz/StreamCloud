@@ -105,6 +105,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.media3.common.util.UnstableApi
 import com.streamcloud.app.data.util.GoogleAccountHelper
 import androidx.activity.compose.BackHandler
@@ -233,6 +237,9 @@ fun StreamCloudApp() {
     // Always expand when navigating to a new top-level tab
     LaunchedEffect(currentRoute) { navExpanded = true }
 
+    // Swipeable tabs (all tabs except Settings)
+    val swipeableTabs = remember(tabs) { tabs.filter { it.route != Tab.Settings.route } }
+
     // Animated pill size — shrinks when user scrolls down
     val navPillVPad by animateDpAsState(
         targetValue = if (navExpanded) 6.dp else 2.dp,
@@ -313,7 +320,56 @@ fun StreamCloudApp() {
                     }
                 }
             }
-            Box(Modifier.fillMaxSize().nestedScroll(navScrollConnection)) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .nestedScroll(navScrollConnection)
+                    .pointerInput(swipeableTabs, currentRoute) {
+                        // Only activate on main tab screens (not sub-screens / settings)
+                        if (currentRoute == null ||
+                            swipeableTabs.none { it.route == currentRoute }) return@pointerInput
+
+                        val edgePx = 52.dp.toPx()
+
+                        awaitEachGesture {
+                            // Wait for first finger down — don't require it to be unconsumed
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val startX = down.position.x
+                            val startY = down.position.y
+
+                            // Only fire from the left or right edge strip
+                            if (startX > edgePx && startX < size.width - edgePx) return@awaitEachGesture
+
+                            var endX = startX
+                            var endY = startY
+
+                            // Track pointer at Final pass so children handle their gestures first
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Final)
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                endX = change.position.x
+                                endY = change.position.y
+                                if (!change.pressed) break
+                            }
+
+                            val dx = endX - startX
+                            val dy = endY - startY
+
+                            // Must be sufficiently horizontal (2:1 ratio) and at least 72dp
+                            if (kotlin.math.abs(dx) < kotlin.math.abs(dy) * 2f) return@awaitEachGesture
+                            if (kotlin.math.abs(dx) < 72.dp.toPx()) return@awaitEachGesture
+
+                            val idx = swipeableTabs.indexOfFirst { it.route == currentRoute }
+                            if (idx < 0) return@awaitEachGesture
+
+                            val target = swipeableTabs.getOrNull(
+                                if (dx > 0) idx - 1 else idx + 1
+                            ) ?: return@awaitEachGesture
+
+                            navigateToTab(nav, target.route)
+                        }
+                    }
+            ) {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxSize()) {
                         val startRoute = resolvedStartRoute
