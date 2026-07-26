@@ -838,6 +838,29 @@ fun StreamCloudApp() {
                         },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onPlayLocalFile = { filePath, title, tmdbId, mediaType ->
+                            com.streamcloud.app.player.MoviePlayerSession.set(
+                                listOf(
+                                    com.streamcloud.app.player.PlayerSource(
+                                        id = "local::$tmdbId",
+                                        url = "file://$filePath",
+                                        label = title,
+                                        addonName = "Downloaded",
+                                    )
+                                ),
+                                progressKey = com.streamcloud.app.player.WatchProgressKey(
+                                    tmdbId = tmdbId,
+                                    title = title,
+                                    posterUrl = null,
+                                    mediaType = mediaType,
+                                ),
+                                tmdbId = tmdbId,
+                                mediaType = mediaType,
+                            )
+                            val u = java.net.URLEncoder.encode("file://$filePath", "UTF-8")
+                            val t = java.net.URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/movie/$u/$t")
+                        },
                         onTvClick = { id -> nav.navigate("tv/$id") },
                         onCsClick = { plugin, itemUrl, itemName, poster ->
                             val p  = URLEncoder.encode(plugin,  "UTF-8")
