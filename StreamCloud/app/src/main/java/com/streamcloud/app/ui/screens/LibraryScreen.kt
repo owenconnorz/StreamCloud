@@ -287,6 +287,7 @@ fun LibraryScreen(
                         }
                     }
                 } else {
+                    var menuEntry by remember { mutableStateOf<MovieDownloadEntity?>(null) }
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(if (isTv) 5 else 3),
                         modifier = Modifier.fillMaxSize(),
@@ -294,7 +295,6 @@ fun LibraryScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        var menuEntry by remember { mutableStateOf<MovieDownloadEntity?>(null) }
                         items(downloadedMovies, key = { "dl_${it.tmdbId}" }) { entry ->
                             @OptIn(ExperimentalFoundationApi::class)
                             Box {
