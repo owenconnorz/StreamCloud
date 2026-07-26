@@ -221,4 +221,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
     implementation("androidx.mediarouter:mediarouter:1.7.0")
 
+    // Haze — real background-blur / frosted-glass effect for the floating nav pill.
+    // Same library and version used by Nuvio.
+    implementation("dev.chrisbanes.haze:haze:1.7.2")
+
 }
