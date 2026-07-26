@@ -2065,7 +2065,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 16.dp, bottom = 100.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 100.dp),
     ) {
         // ── Title ──────────────────────────────────────────────────────────
         item {
