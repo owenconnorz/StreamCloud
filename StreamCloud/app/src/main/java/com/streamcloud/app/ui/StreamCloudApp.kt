@@ -1050,6 +1050,7 @@ fun StreamCloudApp() {
                                     // dynamic album-art colour) + top-edge shine + white rim.
                                     Box(
                                         modifier = Modifier
+                                            .fillMaxWidth()
                                             .clip(RoundedCornerShape(50))
                                             .background(androidx.compose.ui.graphics.Color(0xFF1A1A1A).copy(alpha = 0.88f))
                                             .border(
@@ -1070,8 +1071,10 @@ fun StreamCloudApp() {
                                                 )
                                         )
                                         Row(
-                                            Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
-                                            horizontalArrangement = Arrangement.Center,
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceEvenly,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             tabs.forEach { tab ->
@@ -1102,11 +1105,13 @@ fun StreamCloudApp() {
                                         color = navPillColor,
                                         shadowElevation = 10.dp,
                                         tonalElevation = 4.dp,
+                                        modifier = Modifier.fillMaxWidth(),
                                     ) {
                                         Row(
                                             Modifier
+                                                .fillMaxWidth()
                                                 .padding(horizontal = 4.dp, vertical = 6.dp),
-                                            horizontalArrangement = Arrangement.Center,
+                                            horizontalArrangement = Arrangement.SpaceEvenly,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             tabs.forEach { tab ->
