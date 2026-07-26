@@ -314,7 +314,6 @@ fun MovieDetailScreen(
     val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
 
     var actionsExpanded by remember { mutableStateOf(false) }
-    var downloadMode by remember { mutableStateOf(false) }
     val downloadDao = remember { LibraryDb.get(context.applicationContext).movieDownloads() }
     val downloadEntry by downloadDao.watchById(movieId).collectAsState(initial = null)
     val downloadProgressMap by MovieDownloader.progressFlow.collectAsState(initial = emptyMap())
@@ -473,16 +472,6 @@ fun MovieDetailScreen(
                                     icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
                                     active = isWatched,
                                 ) { toggleWatched() }
-                                MovieActionCircle(
-                                    icon = if (dlDone) Icons.Default.DownloadDone else Icons.Default.Download,
-                                    active = dlDone,
-                                    progress = downloadProgress,
-                                ) {
-                                    if (!dlDone && downloadProgress == null) {
-                                        downloadMode = true
-                                        playMovie()
-                                    }
-                                }
                             }
                         }
                         MovieActionCircle(
@@ -1075,10 +1064,9 @@ fun MovieDetailScreen(
             movie = movie, mediaType = mediaType, tmdbId = movieId, imdbId = imdbId,
             season = pickerSeason, episode = pickerEpisode, episodeTitle = pickerEpTitle,
             installedAddons = installedAddons, installedNuvio = installedNuvio, installedCsPlugins = installedCsPlugins,
-            onBack = { showStreamPicker = false; downloadMode = false },
+            onBack = { showStreamPicker = false },
             onPlay = { url, sources ->
                 showStreamPicker = false
-                downloadMode = false
                 val m = movie
                 val displayTitle = buildString {
                     append(m?.displayTitle ?: "Playback")
@@ -1090,9 +1078,8 @@ fun MovieDetailScreen(
                     posterUrl = m?.posterUrl ?: m?.backdropUrl, mediaType = mediaType)
                 onPlay(url, displayTitle, sources, progressKey)
             },
-            onDownload = if (downloadMode) { source ->
+            onDownload = { source ->
                 showStreamPicker = false
-                downloadMode = false
                 val m = movie
                 scope.launch {
                     MovieDownloader.download(
@@ -1105,7 +1092,7 @@ fun MovieDetailScreen(
                         headers = source.headers,
                     )
                 }
-            } else null,
+            },
         )
     }
 
