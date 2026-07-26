@@ -265,6 +265,9 @@ interface CollectionFolderDao {
     @Query("DELETE FROM collection_folders WHERE collection_id = :collectionId")
     suspend fun deleteForCollection(collectionId: Long)
 
+    @Query("UPDATE collection_folders SET sort_order = :order WHERE id = :id")
+    suspend fun updateOrder(id: Long, order: Int)
+
     @Query("SELECT * FROM collection_folders WHERE collection_id = :collectionId ORDER BY sort_order ASC")
     fun forCollection(collectionId: Long): Flow<List<CollectionFolderEntity>>
 

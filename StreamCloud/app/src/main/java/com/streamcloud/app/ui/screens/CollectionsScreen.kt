@@ -15,8 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -47,7 +46,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,7 +57,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -213,12 +217,27 @@ private fun CollectionsList(
     onEdit: (UserCollectionEntity) -> Unit,
     onDelete: (UserCollectionEntity) -> Unit,
 ) {
-    val collections by db.userCollections().all().collectAsState(initial = emptyList())
+    val dbCollections by db.userCollections().all().collectAsState(initial = emptyList())
     val allFolders by db.collectionFolders().all().collectAsState(initial = emptyList())
     val folderCountMap = remember(allFolders) {
         allFolders.groupBy { it.collectionId }.mapValues { it.value.size }
     }
     var pendingDelete by remember { mutableStateOf<UserCollectionEntity?>(null) }
+    val scope = rememberCoroutineScope()
+
+    // Drag-to-reorder state
+    val ordered = remember { mutableStateListOf<UserCollectionEntity>() }
+    var dragging by remember { mutableStateOf(false) }
+    var dragIdx by remember { mutableIntStateOf(-1) }
+    var accY by remember { mutableFloatStateOf(0f) }
+    var itemHeightPx by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(dbCollections) {
+        if (!dragging) {
+            ordered.clear()
+            ordered.addAll(dbCollections)
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(ScreenBg)) {
         Row(
@@ -236,7 +255,7 @@ private fun CollectionsList(
             )
         }
         Text(
-            "${collections.size} collection(s) · ${allFolders.size} folder(s)",
+            "${dbCollections.size} collection(s) · ${allFolders.size} folder(s)",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.Gray,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
@@ -257,19 +276,63 @@ private fun CollectionsList(
             color = Color.Gray,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
         )
-        LazyColumn(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Column(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp),
         ) {
-            items(collections, key = { it.id }) { col ->
+            ordered.forEachIndexed { i, col ->
                 CollectionCard(
                     collection = col,
                     folderCount = folderCountMap[col.id] ?: 0,
-                    onEdit = { onEdit(col) },
-                    onDelete = { pendingDelete = col },
+                    onEdit = { if (!dragging) onEdit(col) },
+                    onDelete = { if (!dragging) pendingDelete = col },
+                    isBeingDragged = dragIdx == i,
+                    cardModifier = Modifier.onGloballyPositioned { coords ->
+                        if (itemHeightPx == 0f) itemHeightPx = coords.size.height.toFloat()
+                    },
+                    dragHandleModifier = Modifier.pointerInput(col.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { _ ->
+                                val idx = ordered.indexOf(col)
+                                if (idx >= 0) {
+                                    dragging = true
+                                    dragIdx = idx
+                                    accY = 0f
+                                }
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                accY += dragAmount.y
+                                val threshold = (itemHeightPx + 10.dp.toPx()).coerceAtLeast(80f)
+                                while (accY > threshold / 2f && dragIdx < ordered.size - 1) {
+                                    ordered.add(dragIdx + 1, ordered.removeAt(dragIdx))
+                                    dragIdx++
+                                    accY -= threshold
+                                }
+                                while (accY < -threshold / 2f && dragIdx > 0) {
+                                    ordered.add(dragIdx - 1, ordered.removeAt(dragIdx))
+                                    dragIdx--
+                                    accY += threshold
+                                }
+                            },
+                            onDragEnd = {
+                                scope.launch {
+                                    ordered.forEachIndexed { idx, c ->
+                                        db.userCollections().updateOrder(c.id, idx)
+                                    }
+                                }
+                                dragging = false
+                                dragIdx = -1
+                            },
+                            onDragCancel = { dragging = false; dragIdx = -1 },
+                        )
+                    },
                 )
+                if (i < ordered.size - 1) Spacer(Modifier.height(10.dp))
             }
-            item { Spacer(Modifier.height(16.dp)) }
+            Spacer(Modifier.height(16.dp))
         }
     }
 
@@ -294,8 +357,18 @@ private fun CollectionCard(
     folderCount: Int,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    isBeingDragged: Boolean = false,
+    cardModifier: Modifier = Modifier,
+    dragHandleModifier: Modifier = Modifier,
 ) {
-    Surface(shape = RoundedCornerShape(16.dp), color = CardBg, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = if (isBeingDragged) Color(0xFF2C2C2E) else CardBg,
+        modifier = Modifier
+            .fillMaxWidth()
+            .zIndex(if (isBeingDragged) 1f else 0f)
+            .then(cardModifier),
+    ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -318,7 +391,14 @@ private fun CollectionCard(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Icon(Icons.Default.Menu, "Drag handle", tint = Color.Gray, modifier = Modifier.size(20.dp))
+            Icon(
+                Icons.Default.Menu,
+                "Drag to reorder",
+                tint = if (isBeingDragged) Color.White else Color.Gray,
+                modifier = Modifier
+                    .size(20.dp)
+                    .then(dragHandleModifier),
+            )
         }
     }
 }
@@ -338,7 +418,22 @@ private fun EditCollectionView(
     var nameInput by remember(collection.id) { mutableStateOf(collection.name) }
     var coverInput by remember(collection.id) { mutableStateOf(collection.coverUrl) }
     var isPinned by remember(collection.id) { mutableStateOf(collection.isPinned) }
-    val folders by db.collectionFolders().forCollection(collection.id).collectAsState(initial = emptyList())
+    val dbFolders by db.collectionFolders().forCollection(collection.id).collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+
+    // Drag-to-reorder state for folders
+    val orderedFolders = remember { mutableStateListOf<CollectionFolderEntity>() }
+    var draggingFolder by remember { mutableStateOf(false) }
+    var folderDragIdx by remember { mutableIntStateOf(-1) }
+    var folderAccY by remember { mutableFloatStateOf(0f) }
+    var folderItemHeightPx by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(dbFolders) {
+        if (!draggingFolder) {
+            orderedFolders.clear()
+            orderedFolders.addAll(dbFolders)
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(ScreenBg)) {
         Row(
@@ -398,19 +493,60 @@ private fun EditCollectionView(
                     Text("Add Folder", color = EditBlue)
                 }
             }
-            if (folders.isEmpty()) {
+            if (orderedFolders.isEmpty()) {
                 Text(
                     "No folders yet. Tap \"+Add Folder\" to create one.",
                     style = MaterialTheme.typography.bodyMedium, color = Color.Gray,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
             } else {
-                folders.forEach { folder ->
+                orderedFolders.forEachIndexed { i, folder ->
                     Spacer(Modifier.height(8.dp))
                     FolderCard(
                         folder = folder,
-                        onEdit = { onEditFolder(folder) },
-                        onDelete = { onDeleteFolder(folder) },
+                        onEdit = { if (!draggingFolder) onEditFolder(folder) },
+                        onDelete = { if (!draggingFolder) onDeleteFolder(folder) },
+                        isBeingDragged = folderDragIdx == i,
+                        cardModifier = Modifier.onGloballyPositioned { coords ->
+                            if (folderItemHeightPx == 0f) folderItemHeightPx = coords.size.height.toFloat()
+                        },
+                        dragHandleModifier = Modifier.pointerInput(folder.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { _ ->
+                                    val idx = orderedFolders.indexOf(folder)
+                                    if (idx >= 0) {
+                                        draggingFolder = true
+                                        folderDragIdx = idx
+                                        folderAccY = 0f
+                                    }
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    folderAccY += dragAmount.y
+                                    val threshold = (folderItemHeightPx + 8.dp.toPx()).coerceAtLeast(70f)
+                                    while (folderAccY > threshold / 2f && folderDragIdx < orderedFolders.size - 1) {
+                                        orderedFolders.add(folderDragIdx + 1, orderedFolders.removeAt(folderDragIdx))
+                                        folderDragIdx++
+                                        folderAccY -= threshold
+                                    }
+                                    while (folderAccY < -threshold / 2f && folderDragIdx > 0) {
+                                        orderedFolders.add(folderDragIdx - 1, orderedFolders.removeAt(folderDragIdx))
+                                        folderDragIdx--
+                                        folderAccY += threshold
+                                    }
+                                },
+                                onDragEnd = {
+                                    scope.launch {
+                                        orderedFolders.forEachIndexed { idx, f ->
+                                            db.collectionFolders().updateOrder(f.id, idx)
+                                        }
+                                    }
+                                    draggingFolder = false
+                                    folderDragIdx = -1
+                                },
+                                onDragCancel = { draggingFolder = false; folderDragIdx = -1 },
+                            )
+                        },
                     )
                 }
             }
@@ -432,6 +568,9 @@ private fun FolderCard(
     folder: CollectionFolderEntity,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    isBeingDragged: Boolean = false,
+    cardModifier: Modifier = Modifier,
+    dragHandleModifier: Modifier = Modifier,
 ) {
     val providerLabel = when (folder.providerType) {
         "cloudstream" -> "CloudStream"
@@ -458,8 +597,12 @@ private fun FolderCard(
         else -> HomeCollections.byId(folder.linkedCategoryId)?.title ?: "No category"
     }
     Surface(
-        shape = RoundedCornerShape(14.dp), color = CardBg,
-        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = if (isBeingDragged) Color(0xFF2C2C2E) else CardBg,
+        modifier = Modifier
+            .fillMaxWidth()
+            .zIndex(if (isBeingDragged) 1f else 0f)
+            .then(cardModifier),
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -482,7 +625,14 @@ private fun FolderCard(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Icon(Icons.Default.Menu, "Drag handle", tint = Color.Gray, modifier = Modifier.size(18.dp))
+            Icon(
+                Icons.Default.Menu,
+                "Drag to reorder",
+                tint = if (isBeingDragged) Color.White else Color.Gray,
+                modifier = Modifier
+                    .size(18.dp)
+                    .then(dragHandleModifier),
+            )
         }
     }
 }
