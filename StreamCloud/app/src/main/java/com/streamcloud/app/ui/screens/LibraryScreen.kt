@@ -46,6 +46,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import android.content.Intent
+import androidx.core.content.FileProvider
+import java.io.File
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import com.streamcloud.app.data.library.LibraryDb
@@ -341,6 +345,44 @@ fun LibraryScreen(
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                                if (entry.status == "done" && !entry.filePath.isNullOrBlank()) {
+                                    val ctx = context
+                                    TextButton(
+                                        onClick = {
+                                            val file = File(entry.filePath)
+                                            try {
+                                                val uri = FileProvider.getUriForFile(
+                                                    ctx,
+                                                    "${ctx.packageName}.fileprovider",
+                                                    file,
+                                                )
+                                                ctx.startActivity(
+                                                    Intent.createChooser(
+                                                        Intent(Intent.ACTION_VIEW).apply {
+                                                            setDataAndType(uri, "video/*")
+                                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                        },
+                                                        "Open with",
+                                                    )
+                                                )
+                                            } catch (_: Exception) { }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                                        modifier = Modifier.height(28.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.FolderOpen, null,
+                                            modifier = Modifier.size(13.dp),
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                        Spacer(Modifier.width(3.dp))
+                                        Text(
+                                            "Open in Files",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
