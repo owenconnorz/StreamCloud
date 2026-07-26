@@ -117,6 +117,10 @@ import androidx.compose.ui.focus.focusRequester
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import com.streamcloud.app.ui.theme.AllMoviesThemes
 import com.streamcloud.app.ui.theme.TvOverscanPadding
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -211,6 +215,7 @@ fun StreamCloudApp() {
     }
 
     val navLiquidGlass by sl.settings.navLiquidGlass.collectAsState(initial = false)
+    val hazeState = rememberHazeState()
 
     // Dynamic album-art theme — distinct colour per UI layer (Metrolist-style)
     val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
@@ -349,6 +354,7 @@ fun StreamCloudApp() {
             Box(
                 Modifier
                     .fillMaxSize()
+                    .hazeSource(hazeState)
                     .nestedScroll(navScrollConnection)
                     .pointerInput(swipeableTabs, currentRoute) {
                         // Only activate on main tab screens (not sub-screens / settings)
@@ -1145,41 +1151,22 @@ fun StreamCloudApp() {
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (navLiquidGlass) {
-                                    // Glass pill — frosted dark base + blur layer (API 31+) +
-                                    // white rim + top-edge shine. Shrinks smoothly on scroll-down.
+                                    // Nuvio-faithful glass pill: real hazeEffect blur behind,
+                                    // no border, no shine/shadow overlays, accent-pill selected
+                                    // indicator, dynamic width on label collapse.
+                                    val pillHPad by animateDpAsState(
+                                        targetValue = if (effectiveShowLabel) 0.dp else 32.dp,
+                                        animationSpec = tween(300),
+                                        label = "pillHPad",
+                                    )
                                     Box(
                                         modifier = Modifier
+                                            .padding(horizontal = pillHPad)
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(50))
-                                            .background(Color(0xFF1C1C1F).copy(alpha = 0.82f))
-                                            .border(
-                                                width = 0.6.dp,
-                                                color = Color.White.copy(alpha = 0.20f),
-                                                shape = RoundedCornerShape(50),
-                                            ),
+                                            .hazeEffect(state = hazeState) { blurRadius = 24.dp }
+                                            .background(Color(0xFF1C1C1E).copy(alpha = 0.55f)),
                                     ) {
-                                        // ── Top-edge glass shine ─────────────────────────────
-                                        Box(
-                                            Modifier
-                                                .matchParentSize()
-                                                .background(
-                                                    Brush.verticalGradient(
-                                                        0f    to Color.White.copy(alpha = 0.13f),
-                                                        0.45f to Color.Transparent,
-                                                    )
-                                                )
-                                        )
-                                        // ── Bottom-edge inner shadow ─────────────────────────
-                                        Box(
-                                            Modifier
-                                                .matchParentSize()
-                                                .background(
-                                                    Brush.verticalGradient(
-                                                        0.7f to Color.Transparent,
-                                                        1.0f to Color.Black.copy(alpha = 0.18f),
-                                                    )
-                                                )
-                                        )
                                         Row(
                                             Modifier
                                                 .fillMaxWidth()
@@ -1193,7 +1180,6 @@ fun StreamCloudApp() {
                                                     ProfileNavItem(
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
-                                                        glassActive = true,
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
                                                 } else {
@@ -1202,7 +1188,6 @@ fun StreamCloudApp() {
                                                         label = tab.label,
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
-                                                        glassActive = true,
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
                                                 }
@@ -1332,45 +1317,38 @@ private fun NuvioNavItem(
     glassActive: Boolean = false,
     onClick: () -> Unit,
 ) {
-    // Glass mode: white oval behind selected icon (dark icon inside), white label.
-    // Standard mode: white icon when selected, grey when not.
-    val iconTint = when {
-        glassActive && selected -> Color(0xFF1C1C1E)
-        else -> if (selected) Color.White else Color(0xFF8E8E93)
-    }
-    val labelColor = if (selected) Color.White else Color(0xFF8E8E93)
-
+    val iconTint by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF8E8E93),
+        label = "navIconTint",
+    )
+    val selectedBg by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
+        label = "navItemBg",
+    )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(50))
+            .background(selectedBg)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = if (glassActive && selected)
-                Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(Color.White)
-                    .padding(horizontal = 14.dp, vertical = 5.dp)
-            else
-                Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
-        ) {
-            Icon(
-                icon,
-                contentDescription = label,
-                tint = iconTint,
-                modifier = Modifier.size(22.dp),
-            )
-        }
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = iconTint,
+            modifier = Modifier.size(28.dp),
+        )
         if (showLabel) {
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
                 label,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = labelColor,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                ),
+                color = iconTint,
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
             )
         }
     }
@@ -1414,39 +1392,35 @@ private fun ProfileNavItem(
     }
     val avatar = if (ytAvatar.isNotBlank()) ytAvatar else deviceAvatar
 
-    val iconTint = when {
-        glassActive && selected -> Color(0xFF1C1C1E)
-        else -> if (selected) Color.White else Color(0xFF8E8E93)
-    }
-    val labelColor = if (selected) Color.White else Color(0xFF8E8E93)
+    val iconTint by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF8E8E93),
+        label = "profileNavIconTint",
+    )
+    val selectedBg by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
+        label = "profileNavItemBg",
+    )
     val itemLabel = if (avatar.isNotBlank()) "Profile" else "Settings"
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(50))
+            .background(selectedBg)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = if (glassActive && selected)
-                Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(Color.White)
-                    .padding(horizontal = 14.dp, vertical = 5.dp)
-            else
-                Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
-        ) {
-            ProfileAvatarCircle(avatar = avatar, size = 22.dp, tint = iconTint)
-        }
+        ProfileAvatarCircle(avatar = avatar, size = 28.dp, tint = iconTint)
         if (showLabel) {
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
                 itemLabel,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = labelColor,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                ),
+                color = iconTint,
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
             )
         }
     }
