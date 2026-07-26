@@ -59,7 +59,12 @@ import com.streamcloud.app.cast.dlna.DlnaRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
+fun CastButton(
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White,
+    showDialog: Boolean = false,
+    onShowDialogChange: (Boolean) -> Unit = {},
+) {
     val context = LocalContext.current
 
     val castContext = remember(context) {
@@ -72,7 +77,6 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
 
     val routes = remember { mutableStateListOf<MediaRouter.RouteInfo>() }
     var selectedRouteId by remember { mutableStateOf<String?>(null) }
-    var showDialog by remember { mutableStateOf(false) }
 
     val dlnaState by DlnaRepository.state.collectAsState()
     val dlnaSelected by DlnaRepository.selectedDevice.collectAsState()
@@ -126,7 +130,7 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
             .size(40.dp)
             .clip(RoundedCornerShape(50))
             .background(Color.Black.copy(alpha = 0.45f))
-            .clickable { showDialog = true },
+            .clickable { onShowDialogChange(true) },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -147,19 +151,19 @@ fun CastButton(modifier: Modifier = Modifier, tint: Color = Color.White) {
             onPickRoute = { route ->
                 DlnaRepository.selectDevice(null)
                 mediaRouter.selectRoute(route)
-                showDialog = false
+                onShowDialogChange(false)
             },
             onPickDlna = { device ->
                 mediaRouter.unselect(MediaRouter.UNSELECT_REASON_DISCONNECTED)
                 DlnaRepository.selectDevice(device)
-                showDialog = false
+                onShowDialogChange(false)
             },
             onDisconnect = {
                 mediaRouter.unselect(MediaRouter.UNSELECT_REASON_DISCONNECTED)
                 DlnaRepository.selectDevice(null)
-                showDialog = false
+                onShowDialogChange(false)
             },
-            onDismiss = { showDialog = false },
+            onDismiss = { onShowDialogChange(false) },
         )
     }
 }
