@@ -401,8 +401,10 @@ fun NativePlayerScreen(
     }
 
 
-    LaunchedEffect(controlsVisible, lastInteractionTs, anyDeviceCasting) {
-        if (controlsVisible && !anyDeviceCasting) {
+    var showCastDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(controlsVisible, lastInteractionTs, anyDeviceCasting, showCastDialog) {
+        if (controlsVisible && !anyDeviceCasting && !showCastDialog) {
             delay(5_000)
             if (System.currentTimeMillis() - lastInteractionTs >= 4_900) controlsVisible = false
         }
@@ -701,7 +703,11 @@ fun NativePlayerScreen(
                     .align(Alignment.TopEnd)
                     .padding(end = 14.dp, top = 14.dp),
             ) {
-                com.streamcloud.app.cast.CastButton(modifier = Modifier)
+                com.streamcloud.app.cast.CastButton(
+                    modifier = Modifier,
+                    showDialog = showCastDialog,
+                    onShowDialogChange = { showCastDialog = it },
+                )
             }
         }
 
@@ -749,7 +755,11 @@ fun NativePlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (!locked && !anyDeviceCasting) {
-                        com.streamcloud.app.cast.CastButton(modifier = Modifier)
+                        com.streamcloud.app.cast.CastButton(
+                            modifier = Modifier,
+                            showDialog = showCastDialog,
+                            onShowDialogChange = { showCastDialog = it },
+                        )
                     }
                     PlayerCapsuleIcon(
                         icon = if (locked) androidx.compose.material.icons.Icons.Default.LockOpen
