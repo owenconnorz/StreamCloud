@@ -120,7 +120,7 @@ import com.streamcloud.app.ui.theme.TvOverscanPadding
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
+import androidx.compose.ui.text.style.TextOverflow
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -215,7 +215,7 @@ fun StreamCloudApp() {
     }
 
     val navLiquidGlass by sl.settings.navLiquidGlass.collectAsState(initial = false)
-    val hazeState = rememberHazeState()
+    val hazeState = remember { HazeState() }
 
     // Dynamic album-art theme — distinct colour per UI layer (Metrolist-style)
     val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
