@@ -60,7 +60,6 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.ui.graphics.vector.ImageVector
 import com.streamcloud.app.data.downloads.MovieDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.MovieDownloadEntity
