@@ -67,6 +67,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
@@ -230,7 +231,9 @@ fun NativePlayerScreen(
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("StreamCloud/1.0 (ExoPlayer)")
             .also { f -> if (effectiveHeaders.isNotEmpty()) f.setDefaultRequestProperties(effectiveHeaders) }
-        val dsFactory: DataSource.Factory = httpFactory
+        // DefaultDataSource wraps httpFactory and also handles content:// and file:// URIs,
+        // which is required for locally-downloaded movies stored via MediaStore.
+        val dsFactory: DataSource.Factory = DefaultDataSource.Factory(context, httpFactory)
 
         val mediaItem = MediaItem.fromUri(url)
         val source: MediaSource = when {
