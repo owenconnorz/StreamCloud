@@ -317,7 +317,7 @@ fun MovieDetailScreen(
     var downloadMode by remember { mutableStateOf(false) }
     val downloadDao = remember { LibraryDb.get(context.applicationContext).movieDownloads() }
     val downloadEntry by downloadDao.watchById(movieId).collectAsState(initial = null)
-    val downloadProgressMap by MovieDownloader.progressFlow.collectAsState()
+    val downloadProgressMap by MovieDownloader.progressFlow.collectAsState(initial = emptyMap())
     val downloadProgress = downloadProgressMap[movieId]
 
     MoviesThemeWrapper(moviesThemeName) {
