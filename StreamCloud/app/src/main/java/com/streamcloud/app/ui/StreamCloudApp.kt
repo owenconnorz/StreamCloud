@@ -1076,23 +1076,6 @@ fun StreamCloudApp() {
                                                 shape = RoundedCornerShape(50),
                                             ),
                                     ) {
-                                        // ── Frosted blur layer (API 31 / Android 12+) ────────
-                                        // BlurEffect blurs what is drawn inside this layer —
-                                        // combining with a semi-transparent bg creates a soft
-                                        // frosted-glass haze that bleeds with the dark base.
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                            Box(
-                                                Modifier
-                                                    .matchParentSize()
-                                                    .graphicsLayer {
-                                                        renderEffect = androidx.compose.ui.graphics.BlurEffect(
-                                                            radiusX = 50f, radiusY = 50f,
-                                                            edgeTreatment = androidx.compose.ui.graphics.TileMode.Clamp,
-                                                        )
-                                                    }
-                                                    .background(Color(0xFF2A2A2E).copy(alpha = 0.50f))
-                                            )
-                                        }
                                         // ── Top-edge glass shine ─────────────────────────────
                                         Box(
                                             Modifier
