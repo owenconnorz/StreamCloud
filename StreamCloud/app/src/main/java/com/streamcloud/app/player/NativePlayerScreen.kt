@@ -188,10 +188,18 @@ fun NativePlayerScreen(
         headers = effectiveHeaders,
     )
 
+    val isDlnaCasting by com.streamcloud.app.cast.rememberDlnaCastController(
+        streamUrl = resolvedUrl.orEmpty(),
+        title = title,
+        headers = effectiveHeaders,
+    )
+
+    val anyDeviceCasting = isCastConnected || isDlnaCasting
+
     // Pause / resume the local player based on cast state so the phone stays silent
-    LaunchedEffect(isCastConnected) {
+    LaunchedEffect(anyDeviceCasting) {
         val p = player.value ?: return@LaunchedEffect
-        if (isCastConnected) p.pause() else if (!p.isPlaying) p.play()
+        if (anyDeviceCasting) p.pause() else if (!p.isPlaying) p.play()
     }
     val needsWebView = remember(resolvedUrl, forceDirectPlay) {
         if (forceDirectPlay) false
@@ -390,8 +398,8 @@ fun NativePlayerScreen(
     }
 
 
-    LaunchedEffect(controlsVisible, lastInteractionTs, isCastConnected) {
-        if (controlsVisible && !isCastConnected) {
+    LaunchedEffect(controlsVisible, lastInteractionTs, anyDeviceCasting) {
+        if (controlsVisible && !anyDeviceCasting) {
             delay(5_000)
             if (System.currentTimeMillis() - lastInteractionTs >= 4_900) controlsVisible = false
         }
@@ -524,7 +532,7 @@ fun NativePlayerScreen(
             }
     ) {
 
-        if (isCastConnected) {
+        if (anyDeviceCasting) {
             // Phone acts as remote — no local video, show the cast controller instead
             com.streamcloud.app.cast.CastRemoteController(
                 title = title,
@@ -684,7 +692,7 @@ fun NativePlayerScreen(
         }
 
         // Cast button — always pinned at top-end while a Cast session is active
-        if (isCastConnected) {
+        if (anyDeviceCasting) {
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
@@ -701,7 +709,7 @@ fun NativePlayerScreen(
         var showAudioSheet by remember { mutableStateOf(false) }
 
         AnimatedVisibility(
-            visible = controlsVisible && !needsWebView && !isCastConnected,
+            visible = controlsVisible && !needsWebView && !anyDeviceCasting,
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
@@ -737,7 +745,7 @@ fun NativePlayerScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (!locked && !isCastConnected) {
+                    if (!locked && !anyDeviceCasting) {
                         com.streamcloud.app.cast.CastButton(modifier = Modifier)
                     }
                     PlayerCapsuleIcon(
