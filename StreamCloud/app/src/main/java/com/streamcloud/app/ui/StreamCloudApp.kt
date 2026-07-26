@@ -115,6 +115,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
+import com.streamcloud.app.ui.theme.AllMoviesThemes
 import com.streamcloud.app.ui.theme.TvOverscanPadding
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import java.net.URLDecoder
@@ -215,8 +216,33 @@ fun StreamCloudApp() {
     val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
     val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
     val showNavLabels by sl.settings.navLabels.collectAsState(initial = true)
+
+    // Movie theme colour for the nav pill — used when on any movie-related route
+    val moviesThemeNameForPill by sl.settings.moviesTheme.collectAsState(initial = "violet")
+    val movieNavPillColor = remember(moviesThemeNameForPill) {
+        AllMoviesThemes.find { it.id == moviesThemeNameForPill }?.container ?: Color(0xFF3E2070)
+    }
+    val isMoviesRoute = remember(currentRoute) {
+        val r = currentRoute ?: return@remember false
+        r == Tab.Movies.route ||
+        r == "movie-search" ||
+        r == "collections" ||
+        r.startsWith("movie/") ||
+        r.startsWith("tv/") ||
+        r.startsWith("cs-detail/") ||
+        r.startsWith("cs-section/") ||
+        r.startsWith("catalog/") ||
+        r.startsWith("stremio-detail/") ||
+        r.startsWith("cloudstream") ||
+        r.startsWith("collection-folder/")
+    }
+
     val navPillColor by animateColorAsState(
-        targetValue = if (dynamicMiniTheme) navPillBgColor else Color(0xFF1C1C1E),
+        targetValue = when {
+            isMoviesRoute    -> movieNavPillColor
+            dynamicMiniTheme -> navPillBgColor
+            else             -> Color(0xFF1C1C1E)
+        },
         animationSpec = tween(600),
         label = "navPillBg",
     )
