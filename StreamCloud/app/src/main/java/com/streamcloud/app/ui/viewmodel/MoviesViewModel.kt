@@ -314,7 +314,14 @@ class MoviesViewModel(
             val disabled = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet() ?: emptySet()
             val filtered = if (disabled.isEmpty()) allFetchedStremioRows
                            else allFetchedStremioRows.filter { it.rowKey !in disabled }
-            stremioHeroItems = filtered
+            // Apply saved catalog order
+            val orderCsv    = sl.settings.stremioCatalogOrderCsv.first()
+            val orderedKeys = orderCsv?.takeIf { it.isNotBlank() }?.split(",")?.map { it.trim() } ?: emptyList()
+            val sorted = if (orderedKeys.isEmpty()) filtered else {
+                val byKey = filtered.associateBy { it.rowKey }
+                orderedKeys.mapNotNull { byKey[it] } + filtered.filter { it.rowKey !in orderedKeys.toSet() }
+            }
+            stremioHeroItems = sorted
                 .flatMap { row -> row.items.take(2) }
                 .distinctBy { it.id }
                 .filter { !it.background.isNullOrBlank() || !it.poster.isNullOrBlank() }
@@ -330,7 +337,7 @@ class MoviesViewModel(
                         mediaType   = if (meta.type == "series") "tv" else "movie",
                     )
                 }
-            _state.update { it.copy(stremioRows = filtered, heroBanner = (tmdbHeroItems + stremioHeroItems).take(12)) }
+            _state.update { it.copy(stremioRows = sorted, heroBanner = (tmdbHeroItems + stremioHeroItems).take(12)) }
         }
     }
 
