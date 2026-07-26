@@ -375,6 +375,11 @@ fun rememberCastController(
     val isLocalhost = remember(streamUrl) {
         streamUrl.startsWith("http://127.0.0.1") || streamUrl.startsWith("http://localhost")
     }
+    // Local downloaded files (content:// from MediaStore or file://) cannot be fetched
+    // directly by Chromecast — the phone serves them via the cast proxy instead.
+    val isLocalFile = remember(streamUrl) {
+        streamUrl.startsWith("content://") || streamUrl.startsWith("file://")
+    }
 
     // The URL we actually give Chromecast.  Starts as the direct URL while the
     // phone-side proxy spins up, then switches to http://PHONE_IP:PORT once ready.
@@ -382,22 +387,26 @@ fun rememberCastController(
     //   • Debrid CDN links are IP-restricted — Chromecast's IP gets a 403, phone's IP is allowed.
     //   • Many streams require Referer/User-Agent headers the Cast receiver cannot send.
     //   • HLS segment rewriting ensures every chunk also flows through the proxy.
+    //   • Local files (content://) need the proxy to be reachable by Chromecast at all.
     // Chromecast CAN load HTTP from local-network IPs via its native media APIs —
     // the "mixed content" restriction only applies to XHR/fetch inside web pages.
-    var castUrl by remember { mutableStateOf(if (isLocalhost) "" else streamUrl) }
+    var castUrl by remember { mutableStateOf(if (isLocalhost || isLocalFile) "" else streamUrl) }
     var activeMime by remember { mutableStateOf(contentType ?: guessMimeType(streamUrl)) }
 
     LaunchedEffect(streamUrl) {
         if (streamUrl.isBlank() || isLocalhost) return@LaunchedEffect
 
+        // Give the proxy server access to ContentResolver for local file serving.
+        CastProxyServer.appContext = context
+
         // Start the proxy on an IO thread (opens a ServerSocket)
         val proxy = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            CastProxyServer.start(streamUrl, headers)
+            CastProxyServer.start(streamUrl, if (isLocalFile) emptyMap() else headers)
         }
 
         if (proxy != null) {
             castUrl = proxy
-            // Wait for the proxy's background HEAD probe (up to 5 s) to get the real MIME
+            // Wait for the proxy's background probe (up to 5 s) to get the real MIME
             repeat(10) {
                 delay(500)
                 val ct = CastProxyServer.detectedContentType
@@ -407,7 +416,9 @@ fun rememberCastController(
                 }
             }
         } else {
-            // Proxy unavailable (no WiFi IP?) — fall back to direct URL + manual HEAD probe
+            // Proxy unavailable — local files can't be cast without it; HTTP streams can try direct
+            if (isLocalFile) return@LaunchedEffect
+            // Fall back to direct URL + manual HEAD probe
             castUrl = streamUrl
             val probed = runCatching {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
