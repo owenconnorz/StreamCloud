@@ -200,10 +200,9 @@ object CastProxyServer {
                     if (start > 0) fis.skip(start)
                     val buf = ByteArray(BUFFER)
                     var remaining = contentLength
-                    var n: Int
-                    while (remaining > 0 &&
-                        fis.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
-                            .also { n = it } != -1) {
+                    while (remaining > 0) {
+                        val n = fis.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+                        if (n == -1) break
                         output.write(buf, 0, n)
                         remaining -= n
                     }
