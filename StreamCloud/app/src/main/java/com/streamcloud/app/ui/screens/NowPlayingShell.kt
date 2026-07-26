@@ -889,7 +889,7 @@ private fun ToolbarChip(
 }
 
 @Composable
-private fun rememberDominant(thumbnailUrl: String?): State<Color> {
+internal fun rememberDominant(thumbnailUrl: String?): State<Color> {
     val context = LocalContext.current
     val state = remember { mutableStateOf(Color(0xFF8A6A48)) }
     LaunchedEffect(thumbnailUrl) {

@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -48,19 +50,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import com.streamcloud.app.data.downloads.MusicDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
 fun MusicActionsSheet(
     controller: Player,
@@ -76,6 +81,14 @@ fun MusicActionsSheet(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val bgTintRaw by AlbumArtThemeBus.bgTint.collectAsState()
+    val accentRaw  by AlbumArtThemeBus.accent.collectAsState()
+    val sheetBg    by animateColorAsState(
+        bgTintRaw.copy(alpha = 0.92f).compositeOver(Color(0xFF0E0E0E)),
+        animationSpec = tween(700), label = "sheetBg",
+    )
+    val sheetAccent by animateColorAsState(accentRaw, animationSpec = tween(700), label = "sheetAccent")
 
     var showDetails by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
@@ -104,7 +117,7 @@ fun MusicActionsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF0E0E0E),
+        containerColor = sheetBg,
         scrimColor = Color.Black.copy(alpha = 0.55f),
     ) {
         Column(
@@ -115,7 +128,7 @@ fun MusicActionsSheet(
                 .padding(bottom = 24.dp),
         ) {
 
-            VolumeRow(context)
+            VolumeRow(context, accentColor = sheetAccent)
 
             Divider(Modifier.padding(vertical = 12.dp))
 
@@ -302,7 +315,7 @@ fun MusicActionsSheet(
 }
 
 @Composable
-private fun VolumeRow(context: Context) {
+private fun VolumeRow(context: Context, accentColor: Color = Color(0xFFB8E0DA)) {
     val am = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVol = remember { am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
     var current by remember { mutableStateOf(am.getStreamVolume(AudioManager.STREAM_MUSIC)) }
@@ -324,7 +337,7 @@ private fun VolumeRow(context: Context) {
                 else -> Icons.Default.VolumeUp
             },
             contentDescription = "Volume",
-            tint = Color(0xFFB8E0DA),
+            tint = accentColor,
             modifier = Modifier.size(22.dp),
         )
         Spacer(Modifier.width(10.dp))
@@ -341,8 +354,8 @@ private fun VolumeRow(context: Context) {
             },
             modifier = Modifier.weight(1f),
             colors = SliderDefaults.colors(
-                thumbColor = Color(0xFFB8E0DA),
-                activeTrackColor = Color(0xFFB8E0DA),
+                thumbColor = accentColor,
+                activeTrackColor = accentColor,
                 inactiveTrackColor = Color.White.copy(alpha = 0.1f),
             ),
         )
