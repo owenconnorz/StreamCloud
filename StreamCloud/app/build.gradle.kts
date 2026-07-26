@@ -223,6 +223,6 @@ dependencies {
 
     // Haze — real background-blur / frosted-glass effect for the floating nav pill.
     // Same library and version used by Nuvio.
-    implementation("dev.chrisbanes.haze:haze:1.7.2")
+    implementation("dev.chrisbanes.haze:haze:1.5.4")
 
 }
