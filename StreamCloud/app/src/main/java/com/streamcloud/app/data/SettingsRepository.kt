@@ -83,6 +83,7 @@ object SettingsKeys {
 
     val CS_HOME_SECTIONS  = stringPreferencesKey("cs_home_sections")
     val STREMIO_HOME_CATALOGS = stringPreferencesKey("stremio_home_catalogs")
+    val STREMIO_CATALOG_ORDER = stringPreferencesKey("stremio_catalog_order")
     val DELETED_MANAGED_COLLECTIONS = stringPreferencesKey("deleted_managed_collections")
 
     // Home Layout
@@ -170,6 +171,10 @@ class SettingsRepository(private val context: Context) {
     val homeCollectionsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.HOME_COLLECTIONS] }
 
     val stremioDisabledCatalogsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.STREMIO_HOME_CATALOGS] }
+    val stremioCatalogOrderCsv:    Flow<String?> = context.dataStore.data.map { it[SettingsKeys.STREMIO_CATALOG_ORDER] }
+
+    suspend fun setStremioCatalogOrder(keys: List<String>) =
+        context.dataStore.edit { it[SettingsKeys.STREMIO_CATALOG_ORDER] = keys.joinToString(",") }
 
     // Home Layout toggles
     val showHeroSection:       Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_SHOW_HERO]       ?: true  }
