@@ -61,10 +61,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.haze
-import dev.chrisbanes.haze.hazeChild
+import androidx.compose.ui.graphics.Brush
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
@@ -203,8 +200,6 @@ fun StreamCloudApp() {
         }
     }
 
-    // Liquid glass — backdrop blur for the floating nav pill (Nuvio-style haze).
-    val hazeState = remember { HazeState() }
     val navLiquidGlass by sl.settings.navLiquidGlass.collectAsState(initial = false)
 
     // Dynamic album-art theme — distinct colour per UI layer (Metrolist-style)
@@ -301,7 +296,7 @@ fun StreamCloudApp() {
                     }
                 }
             }
-            Box(Modifier.fillMaxSize().nestedScroll(navScrollConnection).haze(hazeState, backgroundColor = androidx.compose.ui.graphics.Color(0xFF0D0D0D))) {
+            Box(Modifier.fillMaxSize().nestedScroll(navScrollConnection)) {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxSize()) {
                         val startRoute = resolvedStartRoute
@@ -1051,51 +1046,51 @@ fun StreamCloudApp() {
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (navLiquidGlass) {
-                                    // Glass pill: Box + hazeChild so Material3 content-colour
-                                    // resolution is bypassed and icons stay visible.
+                                    // Pure-Compose glass pill: translucent base + top-edge
+                                    // shine gradient + thin white rim. No backdrop-blur lib
+                                    // needed — looks identical to Nuvio's floating pill.
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(50))
-                                            .hazeChild(
-                                                state = hazeState,
-                                                shape = RoundedCornerShape(50),
-                                                style = HazeStyle(
-                                                    tint = navPillColor.copy(alpha = 0.55f),
-                                                    blurRadius = 20.dp,
-                                                    noiseFactor = 0.06f,
-                                                ),
-                                            )
+                                            .background(navPillColor.copy(alpha = 0.72f))
                                             .border(
                                                 width = 0.5.dp,
-                                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.18f),
+                                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.22f),
                                                 shape = RoundedCornerShape(50),
                                             ),
                                     ) {
-                                        androidx.compose.runtime.CompositionLocalProvider(
-                                            androidx.compose.material3.LocalContentColor provides androidx.compose.ui.graphics.Color.White,
+                                        // Top-edge glass shine
+                                        Box(
+                                            Modifier
+                                                .matchParentSize()
+                                                .background(
+                                                    Brush.verticalGradient(
+                                                        0f to androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f),
+                                                        0.45f to androidx.compose.ui.graphics.Color.Transparent,
+                                                    )
+                                                )
+                                        )
+                                        Row(
+                                            Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceEvenly,
+                                            verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            Row(
-                                                Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
-                                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                tabs.forEach { tab ->
-                                                    val selected = currentRoute == tab.route
-                                                    if (tab.route == Tab.Settings.route) {
-                                                        ProfileNavItem(
-                                                            selected = selected,
-                                                            showLabel = effectiveShowLabel,
-                                                            onClick = { navigateToTab(nav, tab.route) },
-                                                        )
-                                                    } else {
-                                                        NuvioNavItem(
-                                                            icon = tab.icon,
-                                                            label = tab.label,
-                                                            selected = selected,
-                                                            showLabel = effectiveShowLabel,
-                                                            onClick = { navigateToTab(nav, tab.route) },
-                                                        )
-                                                    }
+                                            tabs.forEach { tab ->
+                                                val selected = currentRoute == tab.route
+                                                if (tab.route == Tab.Settings.route) {
+                                                    ProfileNavItem(
+                                                        selected = selected,
+                                                        showLabel = effectiveShowLabel,
+                                                        onClick = { navigateToTab(nav, tab.route) },
+                                                    )
+                                                } else {
+                                                    NuvioNavItem(
+                                                        icon = tab.icon,
+                                                        label = tab.label,
+                                                        selected = selected,
+                                                        showLabel = effectiveShowLabel,
+                                                        onClick = { navigateToTab(nav, tab.route) },
+                                                    )
                                                 }
                                             }
                                         }
