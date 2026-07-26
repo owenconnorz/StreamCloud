@@ -4,4 +4,6 @@
     <cache-path name="updates" path="." />
     <files-path name="files" path="." />
     <external-cache-path name="ext_cache" path="." />
+    <!-- Movie downloads stored in getExternalFilesDir("movies") -->
+    <external-files-path name="movies" path="movies/" />
 </paths>
