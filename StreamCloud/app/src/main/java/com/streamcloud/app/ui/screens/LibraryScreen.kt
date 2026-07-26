@@ -1,4 +1,8 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+@file:OptIn(
+    androidx.media3.common.util.UnstableApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
 package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -55,6 +59,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.streamcloud.app.data.downloads.MovieDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.MovieDownloadEntity
@@ -109,6 +115,7 @@ fun LibraryScreen(
             }.toMap()
     }
     val scope = rememberCoroutineScope()
+    var menuEntry by remember { mutableStateOf<MovieDownloadEntity?>(null) }
 
 
 
@@ -287,7 +294,6 @@ fun LibraryScreen(
                         }
                     }
                 } else {
-                    var menuEntry by remember { mutableStateOf<MovieDownloadEntity?>(null) }
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(if (isTv) 5 else 3),
                         modifier = Modifier.fillMaxSize(),
@@ -296,111 +302,70 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         items(downloadedMovies, key = { "dl_${it.tmdbId}" }) { entry ->
-                            @OptIn(ExperimentalFoundationApi::class)
-                            Box {
-                                Column(
-                                    Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .combinedClickable(
-                                            onClick = {
-                                                if (entry.status == "done" && !entry.filePath.isNullOrBlank()) {
-                                                    onPlayLocalFile(entry.filePath, entry.title, entry.tmdbId, entry.mediaType)
-                                                } else {
-                                                    onMovieClick(entry.tmdbId)
-                                                }
-                                            },
-                                            onLongClick = { menuEntry = entry },
-                                        )
-                                ) {
-                                    Box {
-                                        AsyncImage(
-                                            model = entry.posterUrl,
-                                            contentDescription = entry.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier
+                            Column(
+                                Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (entry.status == "done" && !entry.filePath.isNullOrBlank()) {
+                                                onPlayLocalFile(entry.filePath, entry.title, entry.tmdbId, entry.mediaType)
+                                            } else {
+                                                onMovieClick(entry.tmdbId)
+                                            }
+                                        },
+                                        onLongClick = { menuEntry = entry },
+                                    )
+                            ) {
+                                Box {
+                                    AsyncImage(
+                                        model = entry.posterUrl,
+                                        contentDescription = entry.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(2f / 3f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    )
+                                    if (entry.status == "downloading") {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.BottomCenter)
                                                 .fillMaxWidth()
-                                                .aspectRatio(2f / 3f)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                                        )
-                                        if (entry.status == "downloading") {
-                                            Box(
-                                                Modifier
-                                                    .align(Alignment.BottomCenter)
-                                                    .fillMaxWidth()
-                                                    .background(Color.Black.copy(alpha = 0.55f))
-                                                    .padding(4.dp),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                LinearProgressIndicator(
-                                                    progress = { entry.progress },
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                )
-                                            }
-                                        } else if (entry.status == "done") {
-                                            Box(
-                                                Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .padding(4.dp)
-                                                    .size(22.dp)
-                                                    .clip(CircleShape)
-                                                    .background(MaterialTheme.colorScheme.primary),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Icon(Icons.Default.DownloadDone, null,
-                                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                                    modifier = Modifier.size(14.dp))
-                                            }
+                                                .background(Color.Black.copy(alpha = 0.55f))
+                                                .padding(4.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            LinearProgressIndicator(
+                                                progress = { entry.progress },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    } else if (entry.status == "done") {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(4.dp)
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(Icons.Default.DownloadDone, null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(14.dp))
                                         }
                                     }
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        entry.title,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
                                 }
-                                DropdownMenu(
-                                    expanded = menuEntry?.tmdbId == entry.tmdbId,
-                                    onDismissRequest = { menuEntry = null },
-                                ) {
-                                    if (!entry.filePath.isNullOrBlank()) {
-                                        DropdownMenuItem(
-                                            text = { Text("Open in Files") },
-                                            leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
-                                            onClick = {
-                                                menuEntry = null
-                                                val file = File(entry.filePath)
-                                                try {
-                                                    val uri = FileProvider.getUriForFile(
-                                                        context, "${context.packageName}.fileprovider", file,
-                                                    )
-                                                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                                                        setDataAndType(uri, "video/*")
-                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                    }
-                                                    val samsungIntent = Intent(viewIntent).setPackage("com.sec.android.app.myfiles")
-                                                    try {
-                                                        context.startActivity(samsungIntent)
-                                                    } catch (_: Exception) {
-                                                        context.startActivity(Intent.createChooser(viewIntent, "Open with"))
-                                                    }
-                                                } catch (_: Exception) { }
-                                            },
-                                        )
-                                    }
-                                    DropdownMenuItem(
-                                        text = { Text("Delete Movie", color = MaterialTheme.colorScheme.error) },
-                                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                                        onClick = {
-                                            menuEntry = null
-                                            scope.launch { MovieDownloader.remove(context, entry.tmdbId) }
-                                        },
-                                    )
-                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    entry.title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         }
                     }
@@ -657,6 +622,158 @@ fun LibraryScreen(
             }
         }
         } // end Music else
+    }
+
+    // ── Download options bottom sheet ─────────────────────────────────────────
+    if (menuEntry != null) {
+        val dlEntry = menuEntry!!
+        ModalBottomSheet(
+            onDismissRequest = { menuEntry = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                AsyncImage(
+                    model = dlEntry.posterUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(width = 52.dp, height = 74.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        dlEntry.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (dlEntry.mediaType == "tv") "TV Show" else "Movie",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            HorizontalDivider()
+            if (!dlEntry.filePath.isNullOrBlank()) {
+                val samsungInstalled = remember {
+                    try { context.packageManager.getPackageInfo("com.sec.android.app.myfiles", 0); true }
+                    catch (_: Exception) { false }
+                }
+                if (samsungInstalled) {
+                    DlMenuItem(
+                        icon = Icons.Default.FolderOpen,
+                        title = "Open in Samsung My Files",
+                        subtitle = "Browse the StreamCloud folder",
+                        onClick = {
+                            menuEntry = null
+                            openInSamsungMyFiles(context, dlEntry.filePath)
+                        },
+                    )
+                }
+                DlMenuItem(
+                    icon = Icons.Default.Share,
+                    title = "Open with...",
+                    subtitle = "Send or open with another app",
+                    onClick = {
+                        menuEntry = null
+                        openWithChooser(context, dlEntry.filePath)
+                    },
+                )
+            }
+            HorizontalDivider()
+            DlMenuItem(
+                icon = Icons.Default.Delete,
+                title = "Delete Movie",
+                subtitle = "Remove from downloads permanently",
+                isDestructive = true,
+                onClick = {
+                    menuEntry = null
+                    scope.launch { MovieDownloader.remove(context, dlEntry.tmdbId) }
+                },
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+private fun openInSamsungMyFiles(context: android.content.Context, filePath: String) {
+    val samsungPkg = "com.sec.android.app.myfiles"
+    val moviesDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MOVIES)
+    val streamCloudDir = java.io.File(moviesDir, "StreamCloud")
+    val folderUri = android.net.Uri.fromFile(streamCloudDir)
+    try {
+        context.startActivity(
+            android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setPackage(samsungPkg)
+                setDataAndType(folderUri, "resource/folder")
+            }
+        )
+        return
+    } catch (_: Exception) { }
+    try {
+        val launch = context.packageManager.getLaunchIntentForPackage(samsungPkg)
+        if (launch != null) { context.startActivity(launch); return }
+    } catch (_: Exception) { }
+    openWithChooser(context, filePath)
+}
+
+private fun openWithChooser(context: android.content.Context, filePath: String) {
+    val uri: android.net.Uri = if (filePath.startsWith("content://")) {
+        android.net.Uri.parse(filePath)
+    } else {
+        try {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(filePath))
+        } catch (_: Exception) { return }
+    }
+    try {
+        context.startActivity(
+            Intent.createChooser(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "video/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                },
+                "Open with",
+            )
+        )
+    } catch (_: Exception) { }
+}
+
+@Composable
+private fun DlMenuItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    isDestructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val contentColor = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(24.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = contentColor)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isDestructive) MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
