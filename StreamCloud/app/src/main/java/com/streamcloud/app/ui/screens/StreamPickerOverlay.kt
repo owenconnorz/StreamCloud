@@ -402,7 +402,14 @@ fun StreamPickerOverlay(
                                 PickerStreamCard(
                                     source = src,
                                     onClick = { onPlay(src.url, allSources) },
-                                    onDownload = onDownload?.let { cb -> { cb(src) } },
+                                    onDownload = onDownload
+                                        ?.takeIf {
+                                            !src.isMagnet &&
+                                            !src.url.contains(".m3u8", ignoreCase = true) &&
+                                            !src.url.contains("youtube.com", ignoreCase = true) &&
+                                            !src.url.contains("youtu.be", ignoreCase = true)
+                                        }
+                                        ?.let { cb -> { cb(src) } },
                                 )
                             }
                         }
