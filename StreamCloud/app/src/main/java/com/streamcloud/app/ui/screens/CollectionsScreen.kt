@@ -68,15 +68,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.UserCollectionEntity
+import com.streamcloud.app.data.nuvio.NuvioAccountService
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioCatalogDef
 import com.streamcloud.app.data.stremio.StremioRepository
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private val DeleteRed = Color(0xFFD32F2F)
@@ -152,6 +155,16 @@ fun CollectionsScreen(
                 scope.launch {
                     db.collectionFolders().deleteForCollection(col.id)
                     db.userCollections().delete(col.id)
+                    // If managed (Nuvio/Stremio), record deletion so syncs don't restore it.
+                    if (col.sourceAddonId.isNotBlank()) {
+                        val sl = ServiceLocator.get(context)
+                        sl.settings.addDeletedManagedCollection("${col.sourceAddonId}::${col.name}")
+                        // For Nuvio: push immediately so the server no longer has the collection.
+                        val token = sl.settings.nuvioAccessToken.first()
+                        if (token.isNotBlank()) {
+                            runCatching { NuvioAccountService.get(context).syncAll(token) }
+                        }
+                    }
                 }
             },
         )

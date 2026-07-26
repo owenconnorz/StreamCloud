@@ -83,6 +83,7 @@ object SettingsKeys {
 
     val CS_HOME_SECTIONS  = stringPreferencesKey("cs_home_sections")
     val STREMIO_HOME_CATALOGS = stringPreferencesKey("stremio_home_catalogs")
+    val DELETED_MANAGED_COLLECTIONS = stringPreferencesKey("deleted_managed_collections")
 
     val SMART_TRIMMER          = booleanPreferencesKey("smart_trimmer")
     val VIDEO_CACHE_MAX_MB     = stringPreferencesKey("video_cache_max_mb")
@@ -164,6 +165,19 @@ class SettingsRepository(private val context: Context) {
     val homeCollectionsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.HOME_COLLECTIONS] }
 
     val stremioDisabledCatalogsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.STREMIO_HOME_CATALOGS] }
+
+    /** Set of "sourceAddonId::collectionName" keys the user has manually deleted. */
+    val deletedManagedCollections: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        prefs[SettingsKeys.DELETED_MANAGED_COLLECTIONS]
+            ?.split("||")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+    }
+
+    suspend fun addDeletedManagedCollection(key: String) = context.dataStore.edit { prefs ->
+        val current = prefs[SettingsKeys.DELETED_MANAGED_COLLECTIONS]
+            ?.split("||")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+        current.add(key)
+        prefs[SettingsKeys.DELETED_MANAGED_COLLECTIONS] = current.joinToString("||")
+    }
 
 
     val ytMusicCookie: Flow<String> = context.dataStore.data.map { it[SettingsKeys.YT_MUSIC_COOKIE] ?: "" }

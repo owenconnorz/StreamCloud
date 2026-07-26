@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.UserCollectionEntity
@@ -158,6 +159,8 @@ class StremioRepository(private val context: Context) {
 
         if (groups.isEmpty()) return@withContext
 
+        val deletedKeys = SettingsRepository(context).deletedManagedCollections.first()
+
         val oldCols = collectionDao.bySourceAddon(addon.id)
         oldCols.forEach { col ->
             folderDao.deleteForCollection(col.id)
@@ -165,6 +168,8 @@ class StremioRepository(private val context: Context) {
         }
 
         groups.entries.forEachIndexed { groupIdx, (groupName, catalogs) ->
+            // Skip groups the user has manually deleted
+            if ("${addon.id}::$groupName" in deletedKeys) return@forEachIndexed
             val collectionId = collectionDao.upsert(
                 UserCollectionEntity(
                     name = groupName,

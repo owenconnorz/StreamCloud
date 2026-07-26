@@ -3,6 +3,7 @@ package com.streamcloud.app.data.nuvio
 import android.content.Context
 import android.util.Log
 import com.streamcloud.app.data.library.CollectionFolderEntity
+import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.UserCollectionEntity
 import com.streamcloud.app.data.library.WatchlistEntity
@@ -326,12 +327,15 @@ class NuvioAccountService(private val context: Context) {
             if (collections.isNotEmpty()) {
                 val collectionDao = db.userCollections()
                 val folderDao = db.collectionFolders()
+                val deletedKeys = SettingsRepository(context).deletedManagedCollections.first()
                 val oldNuvio = collectionDao.bySourceAddon(NUVIO_CLOUD_SOURCE)
                 oldNuvio.forEach { col ->
                     folderDao.deleteForCollection(col.id)
                     collectionDao.delete(col.id)
                 }
                 collections.forEachIndexed { idx, col ->
+                    // Skip collections the user has manually deleted
+                    if ("$NUVIO_CLOUD_SOURCE::${col.name}" in deletedKeys) return@forEachIndexed
                     val colId = collectionDao.upsert(
                         UserCollectionEntity(
                             name = col.name,
