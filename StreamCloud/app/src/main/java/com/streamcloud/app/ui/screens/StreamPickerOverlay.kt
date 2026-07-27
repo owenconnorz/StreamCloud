@@ -381,9 +381,9 @@ fun StreamPickerOverlay(
                         }
                     } else {
                         val sections = groupState.streams.pickerInnerSections(addonName)
-                        sections.forEach { (innerName, sectionStreams) ->
+                        sections.forEachIndexed { sectionIdx, (innerName, sectionStreams) ->
                             if (sections.size > 1 || innerName != addonName) {
-                                item(key = "inner:$key:$innerName") {
+                                item(key = "inner:$key:$sectionIdx:$innerName") {
                                     Text(
                                         innerName,
                                         style = MaterialTheme.typography.labelMedium.copy(
