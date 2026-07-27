@@ -36,7 +36,7 @@ fun TorrentDownloadSheet(
     torrentRepo: TorrentRepository,
 ) {
     val context = LocalContext.current
-    val sheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
+    val sheetState = rememberModalBottomSheetState()
 
     var loading by remember { mutableStateOf(true) }
     var torrents by remember { mutableStateOf<List<YtsTorrent>>(emptyList()) }
