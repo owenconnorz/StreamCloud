@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cast
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Cloud
@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -37,13 +38,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
-import com.streamcloud.app.ui.theme.LocalUiFormFactor
-import com.streamcloud.app.ui.theme.UiFormFactor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import com.streamcloud.app.data.plugins.CloudStreamPlugin
@@ -293,7 +291,7 @@ private fun AddonHubCard(
     }
 }
 
-// ─── CloudStream sub-screen ───────────────────────────────────────────────────
+// ─── CloudStream / CS3 sub-screen ─────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -305,9 +303,9 @@ private fun CloudStreamPluginsPage(
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
 
-    var showAdd by remember { mutableStateOf(false) }
-    var addName by remember { mutableStateOf("") }
-    var addUrl  by remember { mutableStateOf("") }
+    var addName    by remember { mutableStateOf("") }
+    var addUrl     by remember { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf("") }
 
     var pluginHasSettings by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -328,15 +326,10 @@ private fun CloudStreamPluginsPage(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("CloudStream") },
+                title = { Text("CloudStream / CS3") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showAdd = true }) {
-                        Icon(Icons.Default.Add, "Add repo")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -348,14 +341,84 @@ private fun CloudStreamPluginsPage(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             state.info?.let  { item { StatusBanner(it, isError = false) { vm.clearMessages() } } }
             state.error?.let { item { StatusBanner(it, isError = true)  { vm.clearMessages() } } }
 
+            // Overview chips
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { StatChip("${state.repos.size} repositories", ColourCloudStream) }
+                    item { StatChip("${state.installed.size} installed", ColourCloudStream) }
+                    item { StatChip("CS3 packages", MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+
+            // Info blurb
+            item {
+                Text(
+                    "Install .cs3 plugin packages from community repository URLs. Each repository lists plugins you can install individually.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+                )
+            }
+
+            // Add repository section
+            item {
+                SectionLabel("Add CloudStream Repository")
+            }
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedTextField(
+                        value = addName,
+                        onValueChange = { addName = it },
+                        label = { Text("Display name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    OutlinedTextField(
+                        value = addUrl,
+                        onValueChange = { addUrl = it },
+                        label = { Text("repo.json URL") },
+                        placeholder = { Text("https://example.com/repo.json") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    Button(
+                        onClick = {
+                            vm.addRepo(addName, addUrl)
+                            addName = ""
+                            addUrl = ""
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = addName.isNotBlank() && addUrl.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = ColourCloudStream),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add Repository")
+                    }
+                }
+            }
+
+            // Installed plugins section
             if (state.installed.isNotEmpty()) {
-                item { SectionLabel("Installed (${state.installed.size})") }
+                item { Spacer(Modifier.height(4.dp)) }
+                item { SectionLabel("Installed Plugins (${state.installed.size})") }
                 items(
                     state.installed,
                     key = { p -> "inst_${p.sourceRepoId}_${p.internalName}_${p.installedAt}" },
@@ -368,10 +431,11 @@ private fun CloudStreamPluginsPage(
                         } else null,
                     )
                 }
-                item { Spacer(Modifier.height(8.dp)) }
             }
 
-            item { SectionLabel("Repositories") }
+            // CS3 Repositories section
+            item { Spacer(Modifier.height(4.dp)) }
+            item { SectionLabel("CS3 Repositories (${state.repos.size})") }
 
             if (state.repos.isEmpty()) {
                 item {
@@ -379,7 +443,7 @@ private fun CloudStreamPluginsPage(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surface)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                             .padding(20.dp),
                     ) {
                         Text(
@@ -389,7 +453,7 @@ private fun CloudStreamPluginsPage(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Tap + and paste a CloudStream repo.json URL to get started.\n\n" +
+                            "Add a repository URL above to get started.\n\n" +
                                 "Popular repos:\n" +
                                 "• https://raw.githubusercontent.com/recloudstream/extensions/builds\n" +
                                 "• https://raw.githubusercontent.com/SaurabhKaperwan/CSX/master\n" +
@@ -401,10 +465,29 @@ private fun CloudStreamPluginsPage(
                 }
             }
 
+            // Search filter for plugins
+            if (state.repos.isNotEmpty()) {
+                item {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search plugins…") },
+                        leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(20.dp)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                }
+            }
+
             items(state.repos, key = { it.id }) { repo ->
                 RepoCard(
                     repo             = repo,
-                    plugins          = state.pluginsByRepo[repo.id].orEmpty(),
+                    plugins          = state.pluginsByRepo[repo.id].orEmpty()
+                        .let { list ->
+                            if (searchQuery.isBlank()) list
+                            else list.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                        },
                     isLoading        = state.loadingRepoIds.contains(repo.id),
                     installingNames  = state.installingNames,
                     installedNames   = state.installed.map { it.internalName }.toSet(),
@@ -419,53 +502,9 @@ private fun CloudStreamPluginsPage(
             }
         }
     }
-
-    if (showAdd) {
-        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-        val confirmFocus = remember { FocusRequester() }
-        LaunchedEffect(Unit) {
-            if (isTv) try { confirmFocus.requestFocus() } catch (_: Exception) {}
-        }
-        AlertDialog(
-            onDismissRequest = { showAdd = false },
-            title = { Text("Add CloudStream Repository") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = addName, onValueChange = { addName = it },
-                        label = { Text("Display name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = addUrl, onValueChange = { addUrl = it },
-                        label = { Text("repo.json URL") },
-                        placeholder = { Text("https://example.com/repo.json") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text(
-                        "Paste a CloudStream repo.json URL — e.g., the community extensions list or any community fork.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { vm.addRepo(addName, addUrl); addName = ""; addUrl = ""; showAdd = false },
-                    modifier = if (isTv) Modifier.focusRequester(confirmFocus) else Modifier,
-                ) { Text("Add") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAdd = false }) { Text("Cancel") }
-            },
-        )
-    }
 }
 
-// ─── Stremio sub-screen ───────────────────────────────────────────────────────
+// ─── Stremio "Addons" sub-screen ──────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -474,22 +513,17 @@ private fun StremioAddonsPage(
     state: PluginsState,
     onBack: () -> Unit,
 ) {
-    var showAdd    by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     var stremioUrl by remember { mutableStateOf("") }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Stremio Addons") },
+                title = { Text("Addons") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showAdd = true }) {
-                        Icon(Icons.Default.Add, "Add addon")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -501,101 +535,111 @@ private fun StremioAddonsPage(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             state.info?.let  { item { StatusBanner(it, isError = false) { vm.clearMessages() } } }
             state.error?.let { item { StatusBanner(it, isError = true)  { vm.clearMessages() } } }
 
-            item { SectionLabel("Installed addons (${state.stremioAddons.size})") }
+            // Overview chips
+            if (state.stremioAddons.isNotEmpty()) {
+                item {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item { StatChip("${state.stremioAddons.size} addons", ColourStremio) }
+                        item { StatChip("${state.stremioAddons.size} active", ColourStremio) }
+                        item { StatChip("Stremio", MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+            }
 
-            if (state.stremioAddons.isEmpty()) {
+            // Add Addon section
+            item { SectionLabel("Add Addon") }
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedTextField(
+                        value = stremioUrl,
+                        onValueChange = { stremioUrl = it },
+                        label = { Text("Manifest URL") },
+                        placeholder = { Text("https://your-addon.com/manifest.json") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    Text(
+                        "Paste any Stremio addon manifest URL, e.g. torrentio.strem.fun/manifest.json",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = { vm.addStremioAddon(stremioUrl); stremioUrl = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = stremioUrl.isNotBlank() && !state.addingStremio,
+                        colors = ButtonDefaults.buttonColors(containerColor = ColourStremio),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        if (state.addingStremio) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Installing…")
+                        } else {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Install Addon")
+                        }
+                    }
+                }
+            }
+
+            // Installed Addons section
+            if (state.stremioAddons.isNotEmpty()) {
+                item { Spacer(Modifier.height(4.dp)) }
+                item { SectionLabel("Installed Addons (${state.stremioAddons.size})") }
+                items(state.stremioAddons, key = { it.manifestUrl }) { addon ->
+                    StremioAddonRow(
+                        addon    = addon,
+                        onRemove = { vm.removeStremioAddon(addon.manifestUrl) },
+                        onRefresh = { vm.syncStremioCollections(addon.manifestUrl) },
+                    )
+                }
+            } else {
                 item {
                     Column(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(16.dp),
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(20.dp),
                     ) {
                         Text(
-                            "No Stremio addons yet",
+                            "No addons installed yet",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Tap + and paste any Stremio addon manifest URL.\n\n" +
-                                "Examples:\n" +
+                            "Popular addons to try:\n" +
                                 "• https://v3-cinemeta.strem.io/manifest.json\n" +
                                 "• https://torrentio.strem.fun/manifest.json\n" +
-                                "• https://nuviostreams.hayd.uk/manifest.json (NuvioStreams)",
+                                "• https://nuviostreams.hayd.uk/manifest.json",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-
-            items(state.stremioAddons, key = { it.manifestUrl }) { addon ->
-                StremioAddonRow(
-                    addon,
-                    onRemove = { vm.removeStremioAddon(addon.manifestUrl) },
-                )
-            }
         }
-    }
-
-    if (showAdd) {
-        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-        val confirmFocus = remember { FocusRequester() }
-        LaunchedEffect(Unit) {
-            if (isTv) try { confirmFocus.requestFocus() } catch (_: Exception) {}
-        }
-        AlertDialog(
-            onDismissRequest = { showAdd = false },
-            title = { Text("Add Stremio Addon") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = stremioUrl, onValueChange = { stremioUrl = it },
-                        label = { Text("Manifest URL") },
-                        placeholder = { Text("https://your-addon.com/manifest.json") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text(
-                        "Paste any Stremio addon manifest URL.\n\n" +
-                            "Examples that work right away:\n" +
-                            "• https://v3-cinemeta.strem.io/manifest.json\n" +
-                            "• https://torrentio.strem.fun/manifest.json\n" +
-                            "• https://nuviostreams.hayd.uk/manifest.json",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !state.addingStremio,
-                    onClick = { vm.addStremioAddon(stremioUrl); stremioUrl = ""; showAdd = false },
-                    modifier = if (isTv) Modifier.focusRequester(confirmFocus) else Modifier,
-                ) {
-                    if (state.addingStremio)
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    else
-                        Text("Add")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAdd = false }) { Text("Cancel") }
-            },
-        )
     }
 }
 
-// ─── Nuvio sub-screen ─────────────────────────────────────────────────────────
+// ─── Nuvio "Plugins" sub-screen ───────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -604,22 +648,21 @@ private fun NuvioProvidersPage(
     state: PluginsState,
     onBack: () -> Unit,
 ) {
-    var showBrowse     by remember { mutableStateOf(false) }
     var nuvioRepoInput by remember { mutableStateOf("") }
+
+    // Group providers by repo URL for the installed repos section
+    val providersByRepo = remember(state.nuvioProviders) {
+        state.nuvioProviders.groupBy { it.repoUrl }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Nuvio Providers") },
+                title = { Text("Plugins") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showBrowse = true }) {
-                        Icon(Icons.Default.Add, "Browse repo")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -631,38 +674,219 @@ private fun NuvioProvidersPage(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             state.info?.let  { item { StatusBanner(it, isError = false) { vm.clearMessages() } } }
             state.error?.let { item { StatusBanner(it, isError = true)  { vm.clearMessages() } } }
 
+            // Overview chips
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { StatChip("${state.nuvioSavedRepos.size} repos", ColourNuvio) }
+                    item { StatChip("${state.nuvioProviders.size} providers", ColourNuvio) }
+                    item {
+                        StatChip(
+                            if (state.nuvioProviders.isEmpty()) "No plugins" else "Plugins enabled",
+                            if (state.nuvioProviders.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+                            else ColourNuvio,
+                        )
+                    }
+                }
+            }
+
+            // Install repo section
+            item { SectionLabel("Install Plugin Repository") }
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedTextField(
+                        value = nuvioRepoInput,
+                        onValueChange = { nuvioRepoInput = it },
+                        label = { Text("Repository URL") },
+                        placeholder = { Text("https://raw.githubusercontent.com/…/main/") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    Button(
+                        onClick = { vm.loadNuvioRepo(nuvioRepoInput) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = nuvioRepoInput.isNotBlank() && !state.loadingNuvioRepo,
+                        colors = ButtonDefaults.buttonColors(containerColor = ColourNuvio),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        if (state.loadingNuvioRepo) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Loading…")
+                        } else {
+                            Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Load Repository")
+                        }
+                    }
+                }
+            }
+
+            // Loaded manifest: show repo + providers
+            val mf = state.nuvioRepoManifest
+            if (mf != null) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(ColourNuvio.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Default.CloudDownload, null, tint = ColourNuvio, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    mf.name ?: "Repository",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                )
+                                Text(
+                                    "${mf.allProviders.size} providers available",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        mf.allProviders.forEach { entry ->
+                            val installing = entry.id in state.installingNuvioIds
+                            val already    = state.nuvioProviders.any { it.id == entry.id }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .padding(10.dp),
+                            ) {
+                                if (!entry.logo.isNullOrBlank() || !entry.icon.isNullOrBlank()) {
+                                    coil.compose.AsyncImage(
+                                        model = entry.logo ?: entry.icon,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    )
+                                } else {
+                                    Box(
+                                        Modifier
+                                            .size(32.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(ColourNuvio.copy(alpha = 0.12f)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            entry.name.firstOrNull()?.uppercaseChar()?.toString() ?: "N",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = ColourNuvio,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        entry.name,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (!entry.description.isNullOrBlank()) {
+                                        Text(
+                                            entry.description,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    if (!entry.version.isNullOrBlank()) {
+                                        Text(
+                                            "v${entry.version}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = ColourNuvio,
+                                        )
+                                    }
+                                }
+                                when {
+                                    installing -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    already -> Icon(
+                                        Icons.Default.CheckCircle, "Installed",
+                                        tint = ColourNuvio,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                    else -> TextButton(
+                                        onClick = { vm.installNuvioProvider(entry) },
+                                        colors = ButtonDefaults.textButtonColors(contentColor = ColourNuvio),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    ) { Text("Install", style = MaterialTheme.typography.labelMedium) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Installed Repositories section
             if (state.nuvioSavedRepos.isNotEmpty()) {
-                item { SectionLabel("Repos (${state.nuvioSavedRepos.size})") }
+                item { Spacer(Modifier.height(4.dp)) }
+                item { SectionLabel("Installed Repositories (${state.nuvioSavedRepos.size})") }
                 items(state.nuvioSavedRepos, key = { "repo_${it.id}" }) { savedRepo ->
+                    val repoProviderCount = providersByRepo[savedRepo.url]?.size ?: 0
                     NuvioSavedRepoRow(
                         repo     = savedRepo,
+                        providerCount = repoProviderCount,
                         onBrowse = {
                             nuvioRepoInput = savedRepo.url
-                            showBrowse = true
                             vm.loadNuvioRepo(savedRepo.url)
                         },
                         onDelete = { vm.removeNuvioSavedRepo(savedRepo.id) },
                     )
                 }
-                item { Spacer(Modifier.height(4.dp)) }
             }
 
-            item { SectionLabel("Installed providers (${state.nuvioProviders.size})") }
-
-            if (state.nuvioProviders.isEmpty()) {
+            // Installed Providers section
+            if (state.nuvioProviders.isNotEmpty()) {
+                item { Spacer(Modifier.height(4.dp)) }
+                item { SectionLabel("Providers (${state.nuvioProviders.size})") }
+                items(state.nuvioProviders, key = { it.id }) { p ->
+                    NuvioProviderRow(
+                        p        = p,
+                        onRemove = { vm.uninstallNuvioProvider(p.id) },
+                    )
+                }
+            } else if (state.nuvioSavedRepos.isEmpty()) {
                 item {
                     Column(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(16.dp),
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(20.dp),
                     ) {
                         Text(
                             "No Nuvio providers installed",
@@ -671,129 +895,17 @@ private fun NuvioProvidersPage(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Tap + to browse a Nuvio provider repository.\n\n" +
+                            "Load a Nuvio provider repository URL above to browse and install providers.\n\n" +
                                 "Popular repos:\n" +
                                 "• https://raw.githubusercontent.com/yoruix/nuvio-providers/main/\n" +
-                                "• https://raw.githubusercontent.com/phisher98/phisher-nuvio-providers/main/\n\n" +
-                                "Nuvio providers run inside an embedded JavaScript engine (QuickJS) — " +
-                                "no native libraries needed.",
+                                "• https://raw.githubusercontent.com/phisher98/phisher-nuvio-providers/main/",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-
-            items(state.nuvioProviders, key = { it.id }) { p ->
-                NuvioProviderRow(
-                    p         = p,
-                    onRemove  = { vm.uninstallNuvioProvider(p.id) },
-                    onBrowseRepo = {
-                        nuvioRepoInput = p.repoUrl
-                        showBrowse = true
-                        vm.loadNuvioRepo(p.repoUrl)
-                    },
-                )
-            }
         }
-    }
-
-    if (showBrowse) {
-        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-        val doneFocus = remember { FocusRequester() }
-        LaunchedEffect(Unit) {
-            if (isTv) try { doneFocus.requestFocus() } catch (_: Exception) {}
-        }
-        AlertDialog(
-            onDismissRequest = { showBrowse = false; nuvioRepoInput = "" },
-            title = { Text("Browse Nuvio Repo") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = nuvioRepoInput, onValueChange = { nuvioRepoInput = it },
-                        label = { Text("Repo URL") },
-                        placeholder = { Text("https://raw.githubusercontent.com/yoruix/nuvio-providers/main/") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Row(
-                        horizontalArrangement = Arrangement.End,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        TextButton(onClick = { vm.loadNuvioRepo(nuvioRepoInput) }) {
-                            if (state.loadingNuvioRepo)
-                                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                            else
-                                Text("Load")
-                        }
-                    }
-                    val mf = state.nuvioRepoManifest
-                    if (mf != null) {
-                        Text(
-                            "${mf.name ?: "Repo"} · ${mf.allProviders.size} providers",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Column(
-                            Modifier
-                                .heightIn(max = 320.dp)
-                                .verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            mf.allProviders.forEach { entry ->
-                                val installing = entry.id in state.installingNuvioIds
-                                val already    = state.nuvioProviders.any { it.id == entry.id }
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                                        .padding(8.dp),
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(
-                                            entry.name,
-                                            style = MaterialTheme.typography.titleMedium,
-                                        )
-                                        if (!entry.description.isNullOrBlank()) {
-                                            Text(
-                                                entry.description,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                    }
-                                    when {
-                                        installing -> CircularProgressIndicator(
-                                            Modifier.size(18.dp), strokeWidth = 2.dp,
-                                        )
-                                        already -> Icon(
-                                            Icons.Default.CheckCircle, "Installed",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                        else -> TextButton(
-                                            onClick = { vm.installNuvioProvider(entry) },
-                                        ) { Text("Install") }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { showBrowse = false; nuvioRepoInput = "" },
-                    modifier = if (isTv) Modifier.focusRequester(doneFocus) else Modifier,
-                ) {
-                    Text("Done")
-                }
-            },
-        )
     }
 }
 
@@ -807,6 +919,22 @@ private fun SectionLabel(text: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
     )
+}
+
+@Composable
+private fun StatChip(label: String, color: Color) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.12f))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = color,
+        )
+    }
 }
 
 @Composable
@@ -844,38 +972,44 @@ private fun InstalledRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(12.dp),
     ) {
-        if (!p.iconUrl.isNullOrBlank()) {
-            coil.compose.AsyncImage(
-                model = p.iconUrl,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            )
-        } else {
-            Icon(
-                Icons.Default.Extension, null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(36.dp),
-            )
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(AddonIconBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!p.iconUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = p.iconUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
+                )
+            } else {
+                Icon(
+                    Icons.Default.Extension, null,
+                    tint = ColourCloudStream,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 p.name,
                 color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 "v${p.version} · ${p.internalName}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
         if (onSettings != null) {
@@ -883,12 +1017,13 @@ private fun InstalledRow(
                 Icon(
                     Icons.Default.Tune,
                     contentDescription = "Plugin settings",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
         IconButton(onClick = onUninstall) {
-            Icon(Icons.Default.Delete, "Uninstall", tint = MaterialTheme.colorScheme.error)
+            Icon(Icons.Default.Delete, "Uninstall", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -897,69 +1032,99 @@ private fun InstalledRow(
 private fun NuvioProviderRow(
     p: com.streamcloud.app.data.nuvio.InstalledNuvioProvider,
     onRemove: () -> Unit,
-    onBrowseRepo: () -> Unit,
 ) {
     val lastError = com.streamcloud.app.data.nuvio.NuvioRuntime.lastError(p.id)
     val repoHost = remember(p.repoUrl) {
         runCatching { java.net.URI(p.repoUrl).host }.getOrElse { p.repoUrl }
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(12.dp),
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(14.dp),
     ) {
-        if (!p.logo.isNullOrBlank()) {
-            coil.compose.AsyncImage(
-                model = p.logo,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            )
-        } else {
-            Icon(
-                Icons.Default.Extension, null,
-                tint = if (lastError != null) MaterialTheme.colorScheme.error
-                       else MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.size(36.dp),
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                p.name,
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (lastError != null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (lastError != null) MaterialTheme.colorScheme.errorContainer
+                        else ColourNuvio.copy(alpha = 0.14f)
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!p.logo.isNullOrBlank()) {
+                    coil.compose.AsyncImage(
+                        model = p.logo,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
+                    )
+                } else {
+                    Text(
+                        p.name.firstOrNull()?.uppercaseChar()?.toString() ?: "N",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = if (lastError != null) MaterialTheme.colorScheme.error else ColourNuvio,
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                // Repo tag
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(ColourNuvio.copy(alpha = 0.10f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        repoHost ?: "nuvio",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ColourNuvio,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    lastError,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            } else {
-                Text(
-                    repoHost ?: p.repoUrl,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
+                    p.name,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (!p.description.isNullOrBlank()) {
+                    Text(
+                        p.description,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
             }
         }
-        IconButton(onClick = onBrowseRepo) {
-            Icon(Icons.Default.CloudDownload, "Browse repo", tint = ColourNuvio)
+        if (lastError != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                lastError,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        IconButton(onClick = onRemove) {
-            Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error)
+        if (!p.version.isNullOrBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                EcosystemChip("v${p.version}", ColourNuvio)
+                EcosystemChip("Nuvio", ColourNuvio)
+            }
         }
     }
 }
@@ -967,6 +1132,7 @@ private fun NuvioProviderRow(
 @Composable
 private fun NuvioSavedRepoRow(
     repo: com.streamcloud.app.data.nuvio.NuvioSavedRepo,
+    providerCount: Int,
     onBrowse: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -977,22 +1143,22 @@ private fun NuvioSavedRepoRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable(onClick = onBrowse)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Box(
             Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .size(40.dp)
+                .clip(RoundedCornerShape(10.dp))
                 .background(ColourNuvio.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 Icons.Default.CloudDownload, null,
                 tint = ColourNuvio,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(22.dp),
             )
         }
         Spacer(Modifier.width(12.dp))
@@ -1004,20 +1170,29 @@ private fun NuvioSavedRepoRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (repo.name != null) {
+            Text(
+                host ?: repo.url,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (providerCount > 0) {
                 Text(
-                    host ?: repo.url,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    "$providerCount providers installed",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ColourNuvio,
                 )
             }
+        }
+        IconButton(onClick = onBrowse) {
+            Icon(Icons.Default.Refresh, "Browse repo", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
         IconButton(onClick = onDelete) {
             Icon(
                 Icons.Default.Delete, "Remove repo",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -1027,51 +1202,84 @@ private fun NuvioSavedRepoRow(
 private fun StremioAddonRow(
     addon: com.streamcloud.app.data.stremio.InstalledStremioAddon,
     onRemove: () -> Unit,
+    onRefresh: () -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(12.dp),
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(14.dp),
     ) {
-        if (!addon.logo.isNullOrBlank()) {
-            coil.compose.AsyncImage(
-                model = addon.logo,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            )
-        } else {
-            Icon(
-                Icons.Default.Extension, null,
-                tint = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.size(36.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(AddonIconBg),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!addon.logo.isNullOrBlank()) {
+                    coil.compose.AsyncImage(
+                        model = addon.logo,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Extension, null,
+                        tint = ColourStremio,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    addon.name,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    addon.id,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Default.Refresh, "Refresh", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+            }
         }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                addon.name,
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                "Stremio · ${addon.id}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            EcosystemChip("Active", ColourStremio)
+            if (!addon.version.isNullOrBlank()) EcosystemChip("v${addon.version}", ColourStremio)
+            EcosystemChip("Stremio", MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        IconButton(onClick = onRemove) {
-            Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error)
-        }
+    }
+}
+
+@Composable
+private fun EcosystemChip(label: String, color: Color) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(color.copy(alpha = 0.12f))
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            color = color,
+        )
     }
 }
 
@@ -1092,20 +1300,30 @@ private fun RepoCard(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(ColourCloudStream.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Cloud, null, tint = ColourCloudStream, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     repo.name,
                     color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                 )
                 Text(
                     repo.url,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1114,21 +1332,37 @@ private fun RepoCard(
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             } else {
                 IconButton(onClick = onFetch) {
-                    Icon(Icons.Default.Refresh, "Fetch")
+                    Icon(Icons.Default.Refresh, "Fetch", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 }
             }
             IconButton(onClick = onRemove) {
-                Icon(Icons.Default.Delete, "Remove repo", tint = MaterialTheme.colorScheme.error)
+                Icon(Icons.Default.Delete, "Remove repo", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
             }
         }
         if (plugins.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "${plugins.size} plugins · tap to ${if (expanded) "collapse" else "expand"}",
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.clickable { expanded = !expanded },
-            )
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${plugins.size} plugins",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = ColourCloudStream,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    if (expanded) Icons.Default.Tune else Icons.Default.ChevronRight,
+                    null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
             if (expanded) {
                 Spacer(Modifier.height(6.dp))
                 plugins.forEach { plugin ->
@@ -1141,6 +1375,11 @@ private fun RepoCard(
                         onUninstall = { onUninstall(plugin) },
                     )
                 }
+            }
+        } else if (!isLoading) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                EcosystemChip("Tap refresh to load plugins", ColourCloudStream)
             }
         }
     }
@@ -1156,24 +1395,38 @@ private fun PluginRow(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
     ) {
-        if (!plugin.iconUrl.isNullOrBlank()) {
-            coil.compose.AsyncImage(
-                model = plugin.iconUrl,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            )
-            Spacer(Modifier.width(10.dp))
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(AddonIconBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!plugin.iconUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = plugin.iconUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                )
+            } else {
+                Text(
+                    plugin.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = ColourCloudStream,
+                )
+            }
         }
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 plugin.name,
                 color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1181,25 +1434,39 @@ private fun PluginRow(
                 Text(
                     it,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(
-                "v${plugin.version} · ${plugin.language ?: "?"} · ${plugin.tvTypes?.joinToString() ?: ""}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                EcosystemChip("v${plugin.version}", ColourCloudStream)
+                plugin.language?.let { EcosystemChip(it, MaterialTheme.colorScheme.onSurfaceVariant) }
+                plugin.tvTypes?.firstOrNull()?.let { EcosystemChip(it, MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
         }
+        Spacer(Modifier.width(6.dp))
         when {
             installing -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            installed -> IconButton(onClick = onUninstall) {
-                Icon(Icons.Default.Delete, "Uninstall", tint = MaterialTheme.colorScheme.error)
+            installed -> FilledTonalIconButton(
+                onClick = onUninstall,
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(Icons.Default.Delete, "Uninstall", modifier = Modifier.size(16.dp))
             }
-            else -> IconButton(onClick = onInstall) {
-                Icon(Icons.Default.CloudDownload, "Install", tint = MaterialTheme.colorScheme.primary)
+            else -> FilledTonalIconButton(
+                onClick = onInstall,
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = ColourCloudStream.copy(alpha = 0.14f),
+                    contentColor = ColourCloudStream,
+                ),
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(Icons.Default.CloudDownload, "Install", modifier = Modifier.size(16.dp))
             }
         }
     }
