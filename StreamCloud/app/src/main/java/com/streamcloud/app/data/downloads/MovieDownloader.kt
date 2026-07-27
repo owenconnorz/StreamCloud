@@ -196,32 +196,43 @@ object MovieDownloader {
     }
 
     private fun <T> streamDownload(url: String, headers: Map<String, String>, block: (InputStream, Long) -> T): T {
-        if (isManifestUrl(url))
+        // TorrServer runs on localhost — trust it completely, skip all content-type guards.
+        val isLocalhost = url.startsWith("http://127.") || url.startsWith("http://localhost")
+
+        if (!isLocalhost && isManifestUrl(url))
             error("This stream is an HLS/DASH adaptive playlist and cannot be saved as a single file. Choose a direct MP4/MKV source instead.")
+
+        val client = if (isLocalhost) {
+            // Give TorrServer up to 60 s to connect and begin sending data from peers.
+            OkHttpClient.Builder()
+                .connectTimeout(60, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.SECONDS)
+                .build()
+        } else {
+            http
+        }
 
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
             .also { b -> headers.forEach { (k, v) -> b.header(k, v) } }
             .build()
-        return http.newCall(req).execute().use { resp ->
+        return client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) error("HTTP ${resp.code}")
 
             val ct = resp.header("Content-Type", "").orEmpty().lowercase()
-            // Reject obvious non-video responses (HTML error pages, JSON, plain-text manifests)
-            if (ct.contains("text/html") || ct.contains("application/json") || ct.contains("text/plain")) {
+            // For external URLs: reject obvious non-video responses (HTML error pages, JSON, M3U8 text).
+            if (!isLocalhost && (ct.contains("text/html") || ct.contains("application/json") || ct.contains("text/plain"))) {
                 val preview = resp.body?.source()?.let { src ->
                     src.request(512); src.buffer.snapshot().utf8()
                 }?.take(200) ?: ""
-                // If the body itself starts with an M3U8 marker it's an adaptive stream
                 if (preview.trimStart().startsWith("#EXTM3U"))
                     error("This stream is an HLS playlist and cannot be saved as a single file. Choose a direct MP4/MKV source instead.")
                 error("Stream URL returned $ct instead of video data — the source may have expired or require authentication.")
             }
 
             val contentLength = resp.body?.contentLength() ?: -1L
-            val bodyStream = resp.body!!.byteStream()
-            block(bodyStream, contentLength)
+            block(resp.body!!.byteStream(), contentLength)
         }
     }
 
