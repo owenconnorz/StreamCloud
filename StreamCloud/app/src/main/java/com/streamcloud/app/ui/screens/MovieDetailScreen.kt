@@ -319,6 +319,7 @@ fun MovieDetailScreen(
 
     var actionsExpanded by remember { mutableStateOf(false) }
     var magnetSource by remember { mutableStateOf<PlayerSource?>(null) }
+    var downloadError by remember { mutableStateOf<String?>(null) }
     val downloadDao = remember { LibraryDb.get(context.applicationContext).movieDownloads() }
     val downloadEntry by downloadDao.watchById(movieId).collectAsState(initial = null)
     val downloadProgressMap by MovieDownloader.progressFlow.collectAsState(initial = emptyMap())
@@ -1091,15 +1092,20 @@ fun MovieDetailScreen(
                     showStreamPicker = false
                     val m = movie
                     scope.launch {
-                        MovieDownloader.download(
-                            context = context,
-                            tmdbId = movieId,
-                            title = m?.displayTitle ?: "Movie",
-                            posterUrl = m?.posterUrl,
-                            mediaType = mediaType,
-                            url = source.url,
-                            headers = source.headers,
-                        )
+                        runCatching {
+                            MovieDownloader.download(
+                                context = context,
+                                tmdbId = movieId,
+                                title = m?.displayTitle ?: "Movie",
+                                posterUrl = m?.posterUrl,
+                                mediaType = mediaType,
+                                url = source.url,
+                                headers = source.headers,
+                            )
+                        }.onFailure { e ->
+                            downloadError = e.message?.takeIf { it.isNotBlank() }
+                                ?: "Download failed — the source may have expired."
+                        }
                     }
                 }
             },
@@ -1123,6 +1129,29 @@ fun MovieDetailScreen(
             mediaType = mediaType,
             onDismiss = { magnetSource = null },
         )
+    }
+
+    downloadError?.let { msg ->
+        androidx.compose.runtime.LaunchedEffect(msg) {
+            kotlinx.coroutines.delay(4_000)
+            downloadError = null
+        }
+        androidx.compose.foundation.layout.Box(
+            modifier = androidx.compose.ui.Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            contentAlignment = androidx.compose.ui.Alignment.BottomCenter,
+        ) {
+            androidx.compose.material3.Snackbar(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+            ) {
+                androidx.compose.material3.Text(
+                    msg,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
     }
     } // MoviesThemeWrapper
 }
