@@ -4,11 +4,13 @@ import android.content.Context
 import com.streamcloud.app.BuildConfig
 import com.streamcloud.app.data.api.StreamCloudBackendApi
 import com.streamcloud.app.data.api.TmdbApi
+import com.streamcloud.app.data.api.YtsApi
 import com.streamcloud.app.data.network.Net
 import com.streamcloud.app.data.nuvio.NuvioRepository
 import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.profiles.ProfileRepository
 import com.streamcloud.app.data.stremio.StremioRepository
+import com.streamcloud.app.data.torrent.TorrentRepository
 import kotlinx.coroutines.flow.first
 
 class ServiceLocator(context: Context) {
@@ -20,6 +22,9 @@ class ServiceLocator(context: Context) {
 
     val tmdb: TmdbApi = Net.retrofit("https://api.themoviedb.org/").create(TmdbApi::class.java)
     val tmdbApiKey: String = BuildConfig.TMDB_API_KEY
+    val yts: TorrentRepository = TorrentRepository(
+        Net.retrofit("https://yts.mx/api/v2/").create(YtsApi::class.java)
+    )
 
     suspend fun backend(): StreamCloudBackendApi {
         val url = settings.backendUrl.first()
