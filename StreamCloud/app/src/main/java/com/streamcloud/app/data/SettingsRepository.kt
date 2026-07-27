@@ -515,7 +515,7 @@ class SettingsRepository(private val context: Context) {
     val hardwareDecodingEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HARDWARE_DECODING]          ?: true }
     val pipEnabled: Flow<Boolean>              = context.dataStore.data.map { it[SettingsKeys.PIP_ENABLED]                ?: true }
     val gestureVolumeEnabled: Flow<Boolean>    = context.dataStore.data.map { it[SettingsKeys.GESTURE_VOLUME_ENABLED]     ?: true }
-    val gestureBrightnessEnabled: Flow<Boolean>= context.dataStore.data.map { it[SettingsKeys.GESTURE_BRIGHTNESS_ENABLED] ?: true }
+    val gestureBrightnessEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.GESTURE_BRIGHTNESS_ENABLED] ?: true }
     val resumePlayback: Flow<Boolean>          = context.dataStore.data.map { it[SettingsKeys.RESUME_PLAYBACK]            ?: true }
 
     suspend fun setSeekIncrementSeconds(s: String)       = context.dataStore.edit { it[SettingsKeys.SEEK_INCREMENT_SECONDS]     = s }
