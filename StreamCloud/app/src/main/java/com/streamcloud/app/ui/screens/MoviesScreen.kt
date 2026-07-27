@@ -318,7 +318,10 @@ fun MoviesScreen(
 
 
                                         vm.openStremioMeta(meta) { tmdbId, _ ->
-                                            if (tmdbId != null) onMovieClick(tmdbId)
+                                            if (tmdbId != null) {
+                                                if (meta.type == "series") onTvClick(tmdbId)
+                                                else onMovieClick(tmdbId)
+                                            }
                                         }
                                     } else {
 
