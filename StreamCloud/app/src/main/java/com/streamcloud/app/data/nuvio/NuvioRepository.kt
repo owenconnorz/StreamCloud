@@ -1,12 +1,10 @@
 package com.streamcloud.app.data.nuvio
 
 import android.content.Context
-import android.util.Log
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.streamcloud.app.data.network.Net
-import com.streamcloud.app.data.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -27,7 +25,6 @@ import java.util.concurrent.TimeUnit
 private val Context.nuvioStore by preferencesDataStore("streamcloud_nuvio")
 private val KEY_INSTALLED   = stringPreferencesKey("installed_json")
 private val KEY_SAVED_REPOS = stringPreferencesKey("saved_repos_json")
-private const val TAG = "NuvioRepository"
 
 class NuvioRepository(private val context: Context) {
 
@@ -40,9 +37,6 @@ class NuvioRepository(private val context: Context) {
 
     private fun cacheDir(): File =
         File(context.filesDir, "nuvio").apply { mkdirs() }
-
-    private suspend fun backendProxyUrl(): String? =
-        SettingsRepository(context).backendUrl.first().trim().takeIf { it.isNotBlank() }
 
     val installed: Flow<List<InstalledNuvioProvider>> = context.nuvioStore.data.map { prefs ->
         prefs[KEY_INSTALLED]?.let {
@@ -130,30 +124,21 @@ class NuvioRepository(private val context: Context) {
         episode: Int? = null,
         imdbId: String? = null,
     ): List<Pair<InstalledNuvioProvider, NuvioStream>> = coroutineScope {
-        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType, season, episode)
-            ?: return@coroutineScope emptyList()
-        // Auto-lookup IMDb ID from TMDB when caller didn't supply one.
-        // Many Nuvio providers guard with `if (!imdbId) return` so passing null
-        // causes phase=precheck (0 req) for every plugin.
-        val effectiveImdbId = imdbId ?: lookupImdbId(resolvedTmdb, mediaType)
+        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
         val list = installed.first()
         list.map { provider ->
             async(Dispatchers.IO) {
                 val js = runCatching { File(provider.filePath).readText() }.getOrNull()
                     ?: return@async emptyList()
-                val normalizedContentId = normaliseNuvioContentId(resolvedTmdb, season, episode)
-                    ?: resolvedTmdb
                 val streams = NuvioRuntime.runProvider(
                     scriptText = js,
-                    tmdbId = normalizedContentId,
-                    imdbId = effectiveImdbId,
+                    tmdbId = resolvedTmdb,
+                    imdbId = imdbId,
                     mediaType = nuvioMediaType(mediaType),
                     season = season,
                     episode = episode,
                     scriptKey = provider.id,
                     context = context,
-                    filePath = provider.filePath,
-                    proxyBaseUrl = backendProxyUrl(),
                 )
                 streams.map { provider to it }
             }
@@ -163,7 +148,14 @@ class NuvioRepository(private val context: Context) {
 
     private val tmdbIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private suspend fun resolveTmdbId(raw: String, mediaType: String): String? {
-        val noPrefix = normaliseNuvioIdToken(raw) ?: return null
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
+        val noPrefix = trimmed
+            .removePrefix("tmdb:").removePrefix("tmdb/")
+            .removePrefix("imdb:").removePrefix("movie:").removePrefix("series:")
+            .substringBefore(':').substringBefore('/')
+            .trim()
+        if (noPrefix.isBlank()) return null
         if (noPrefix.all(Char::isDigit)) return noPrefix
         if (!noPrefix.startsWith("tt", ignoreCase = true)) return null
 
@@ -191,34 +183,6 @@ class NuvioRepository(private val context: Context) {
         }
     }
 
-    // Reverse-lookup: TMDB numeric ID → IMDb "tt..." ID.
-    // Called when resolveAll is given no imdbId so that every provider receives
-    // a real imdbId — the most common cause of phase=precheck (0 req).
-    private val imdbIdCache = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private suspend fun lookupImdbId(tmdbId: String, mediaType: String): String? {
-        val num = tmdbId.trim().takeIf { it.all(Char::isDigit) } ?: return null
-        val mt  = normaliseMediaType(mediaType)
-        val cacheKey = "$num:$mt"
-        imdbIdCache[cacheKey]?.let { return it }
-        return withContext(Dispatchers.IO) {
-            val apiKey = com.streamcloud.app.BuildConfig.TMDB_API_KEY
-            if (apiKey.isBlank()) return@withContext null
-            val endpoint = if (mt == "tv") "tv" else "movie"
-            val url = "https://api.themoviedb.org/3/$endpoint/$num/external_ids?api_key=$apiKey"
-            runCatching {
-                val text = httpGet(url)
-                val root = Net.json.parseToJsonElement(text) as?
-                    kotlinx.serialization.json.JsonObject ?: return@runCatching null
-                val imdb = (root["imdb_id"] as? kotlinx.serialization.json.JsonPrimitive)
-                    ?.content
-                    ?.trim()
-                    ?.takeIf { it.startsWith("tt") && it.length >= 7 }
-                if (imdb != null) imdbIdCache[cacheKey] = imdb
-                imdb
-            }.getOrNull()
-        }
-    }
-
     private fun normaliseMediaType(mediaType: String): String =
         when (mediaType.trim().lowercase()) {
             "movie", "film" -> "movie"
@@ -228,7 +192,7 @@ class NuvioRepository(private val context: Context) {
 
     private fun nuvioMediaType(mediaType: String): String =
         when (normaliseMediaType(mediaType)) {
-            "tv" -> "tv"
+            "tv" -> "series"
             else -> "movie"
         }
 
@@ -242,22 +206,16 @@ class NuvioRepository(private val context: Context) {
     ): List<NuvioStream> = withContext(Dispatchers.IO) {
         val js = runCatching { File(provider.filePath).readText() }.getOrNull()
             ?: return@withContext emptyList()
-        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType, season, episode)
-            ?: return@withContext emptyList()
-        val normalizedContentId = normaliseNuvioContentId(resolvedTmdb, season, episode)
-            ?: resolvedTmdb
-        val effectiveImdbId = imdbId ?: lookupImdbId(resolvedTmdb, mediaType)
+        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
         NuvioRuntime.runProvider(
             scriptText = js,
-            tmdbId = normalizedContentId,
-            imdbId = effectiveImdbId,
+            tmdbId = resolvedTmdb,
+            imdbId = imdbId,
             mediaType = nuvioMediaType(mediaType),
             season = season,
             episode = episode,
             scriptKey = provider.id,
             context = context,
-            filePath = provider.filePath,
-            proxyBaseUrl = backendProxyUrl(),
         )
     }
 
@@ -270,40 +228,21 @@ class NuvioRepository(private val context: Context) {
         val js = runCatching { File(provider.filePath).readText() }.getOrElse {
             return@withContext 0 to "Could not read provider file"
         }
-        val resolvedTmdb = resolvedTmdbIdOrWarn(tmdbId, mediaType, null, null)
-            ?: return@withContext 0 to "Invalid TMDB ID after sanitization"
-        val normalizedContentId = normaliseNuvioContentId(resolvedTmdb)
-            ?: resolvedTmdb
+        val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
         try {
             val streams = NuvioRuntime.runProvider(
                 scriptText = js,
-                tmdbId = normalizedContentId,
+                tmdbId = resolvedTmdb,
                 imdbId = imdbId,
                 mediaType = nuvioMediaType(mediaType),
                 season = null,
                 episode = null,
                 scriptKey = "test__${provider.id}",
                 context = context,
-                filePath = provider.filePath,
-                proxyBaseUrl = backendProxyUrl(),
             )
             streams.size to null
         } catch (e: Exception) {
             0 to (e.message ?: "Unknown error")
-        }
-    }
-
-    private suspend fun resolvedTmdbIdOrWarn(
-        raw: String,
-        mediaType: String,
-        season: Int? = null,
-        episode: Int? = null,
-    ): String? {
-        val resolved = resolveTmdbId(raw, mediaType) ?: raw
-        return sanitizeNuvioTmdbId(resolved, season, episode) ?: run {
-            val shown = raw.trim().ifBlank { "<blank>" }
-            Log.w(TAG, "Skipping Nuvio lookup for invalid TMDB id \"$shown\" (mediaType=${normaliseMediaType(mediaType)})")
-            null
         }
     }
 
@@ -315,20 +254,34 @@ class NuvioRepository(private val context: Context) {
     private fun normaliseRepoUrl(s: String): String {
         val t = s.trim()
         return when {
+            // Already a full manifest URL — use as-is
             t.endsWith("manifest.json") -> t
-            t.startsWith("http") -> "$t/manifest.json".replace("//manifest.json", "/manifest.json")
+
+            // GitHub repo URL → raw manifest URL
+            // https://github.com/user/repo  →  https://raw.githubusercontent.com/user/repo/main/manifest.json
+            Regex("""^https?://github\.com/[^/]+/[^/]+/?$""").containsMatchIn(t) -> {
+                val path = t.removePrefix("https://github.com/")
+                    .removePrefix("http://github.com/")
+                    .trimEnd('/')
+                "https://raw.githubusercontent.com/$path/main/manifest.json"
+            }
+
+            // Codeberg repo URL → raw manifest URL
+            // https://codeberg.org/user/repo  →  https://codeberg.org/user/repo/raw/branch/main/manifest.json
+            Regex("""^https?://codeberg\.org/[^/]+/[^/]+/?$""").containsMatchIn(t) -> {
+                "${t.trimEnd('/')}/raw/branch/main/manifest.json"
+            }
+
+            t.startsWith("http") ->
+                "$t/manifest.json".replace("//manifest.json", "/manifest.json")
+
             else -> "https://$t/manifest.json"
         }
     }
 
 
     private fun resolveDownloadUrl(manifestUrl: String, e: NuvioProviderEntry): String? {
-        // Prefer explicit URL fields over the filename fallback.  Only use `filename` as a
-        // last resort and only when it looks like a relative path (contains a '/') or an
-        // absolute URL — a plain basename like "provider.js" is relative to the manifest dir.
-        val raw = e.downloadUrl ?: e.downloadUrlSnake ?: e.url
-            ?: e.filename?.takeIf { it.isNotBlank() }
-            ?: return null
+        val raw = e.downloadUrl ?: e.downloadUrlSnake ?: e.url ?: e.filename ?: return null
         if (raw.startsWith("http")) return raw
 
         val base = manifestUrl.substringBeforeLast('/')
@@ -337,7 +290,7 @@ class NuvioRepository(private val context: Context) {
 
     private suspend fun httpGet(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", NUVIO_DEFAULT_USER_AGENT)
+            .header("User-Agent", BrowserHeaders.USER_AGENT)
             .header("Accept", BrowserHeaders.ACCEPT_JSON)
             .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
             .build()
@@ -350,7 +303,7 @@ class NuvioRepository(private val context: Context) {
             hdrs = resp.headers.toMultimap()
         }
         if (CloudflareKiller.isCfChallenge(code, hdrs, body)) {
-            val bypassed = CloudflareKiller.bypass(context, url, NUVIO_DEFAULT_USER_AGENT, BrowserCookieJar)
+            val bypassed = CloudflareKiller.bypass(context, url, BrowserHeaders.USER_AGENT, BrowserCookieJar)
             if (bypassed) {
                 http.newCall(req).execute().use { r ->
                     if (!r.isSuccessful) error("HTTP ${r.code} from $url (after CF bypass)")
