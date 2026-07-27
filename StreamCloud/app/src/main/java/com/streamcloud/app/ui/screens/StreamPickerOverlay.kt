@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -152,6 +153,7 @@ fun StreamPickerOverlay(
                     val streams = withContext(Dispatchers.IO) {
                         withTimeoutOrNull(30_000L) {
                             runCatching {
+                                val seen = mutableSetOf<String>()
                                 sl.nuvio.resolveSingle(
                                     provider = provider,
                                     tmdbId = tmdbId.toString(),
@@ -160,6 +162,7 @@ fun StreamPickerOverlay(
                                     episode = episode,
                                     imdbId = imdbId,
                                 ).map { it.pickerToPlayerSource(provider) }
+                                    .filter { seen.add(it.url) }
                             }.getOrElse { e ->
                                 Log.d("StreamPicker", "Nuvio ${provider.name}: ${e.message}")
                                 emptyList()
@@ -398,7 +401,7 @@ fun StreamPickerOverlay(
                             // Key is namespaced with the provider key so streams from
                             // two providers that share an id (e.g. both query Torrentio)
                             // never produce duplicate LazyColumn keys.
-                            items(sectionStreams, key = { src -> "s:$key:${src.id}" }) { src ->
+                            itemsIndexed(sectionStreams, key = { idx, src -> "s:$key:${src.id}:$idx" }) { _, src ->
                                 PickerStreamCard(
                                     source = src,
                                     onClick = { onPlay(src.url, allSources) },
