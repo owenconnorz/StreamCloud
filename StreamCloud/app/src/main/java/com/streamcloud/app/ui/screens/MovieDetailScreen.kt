@@ -1117,6 +1117,10 @@ fun MovieDetailScreen(
     magnetSource?.let { src ->
         MagnetOptionsSheet(
             source = src,
+            tmdbId = movieId,
+            title = movie?.displayTitle ?: "",
+            posterUrl = movie?.posterUrl,
+            mediaType = mediaType,
             onDismiss = { magnetSource = null },
         )
     }
