@@ -44,6 +44,7 @@ fun CatalogPageScreen(
     subtitle: String,
     onBack: () -> Unit,
     onMovieClick: (Long) -> Unit,
+    onTvClick: (Long) -> Unit = {},
     onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit =
         { _, _, _, _, _ -> },
 ) {
@@ -73,14 +74,8 @@ fun CatalogPageScreen(
                 val items = def.fetchPage(sl.tmdb, sl.tmdbApiKey, page)
                 if (items.isEmpty()) endReached = true
                 else {
-                    val existingIds = tmdbItems.mapTo(mutableSetOf()) { it.id }
-                    val newItems = items.filter { it.id !in existingIds }
-                    if (newItems.isEmpty()) {
-                        endReached = true
-                    } else {
-                        tmdbItems = tmdbItems + newItems
-                        page++
-                    }
+                    tmdbItems = tmdbItems + items
+                    page++
                 }
             } else if (isStremio) {
                 val parts = source.removePrefix("stremio:").split(":")
@@ -175,7 +170,9 @@ fun CatalogPageScreen(
                                     val t = r.movieResults.firstOrNull()?.id
                                         ?: r.tvResults.firstOrNull()?.id
                                     if (t != null) {
-                                        withContext(Dispatchers.Main) { onMovieClick(t) }
+                                        withContext(Dispatchers.Main) {
+                                            if (type == "series") onTvClick(t) else onMovieClick(t)
+                                        }
                                     } else if (addonId.isNotBlank() && type.isNotBlank()) {
 
 
