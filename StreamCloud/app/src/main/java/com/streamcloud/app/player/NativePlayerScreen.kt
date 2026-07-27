@@ -217,6 +217,16 @@ fun NativePlayerScreen(
         }
     }
 
+    // ── Per-session playback settings (must be declared before the LaunchedEffect that reads them) ──
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val seekIncrementSec      by sl.settings.seekIncrementSeconds.collectAsState(initial = "10")
+    val defaultSpeedStr       by sl.settings.defaultPlaybackSpeed.collectAsState(initial = "1.0")
+    val hwDecodingEnabled     by sl.settings.hardwareDecodingEnabled.collectAsState(initial = true)
+    val gestureVolumeOn       by sl.settings.gestureVolumeEnabled.collectAsState(initial = true)
+    val gestureBrightnessOn   by sl.settings.gestureBrightnessEnabled.collectAsState(initial = true)
+    val resumePlaybackOn      by sl.settings.resumePlayback.collectAsState(initial = true)
+    val pipEnabledOn          by sl.settings.pipEnabled.collectAsState(initial = true)
+
     LaunchedEffect(resolvedUrl, needsWebView, restartKey) {
 
 
@@ -290,15 +300,6 @@ fun NativePlayerScreen(
     var volumeOverlay by remember { mutableStateOf<Float?>(null) }
     var brightnessOverlay by remember { mutableStateOf<Float?>(null) }
 
-    // ── Per-session playback settings ────────────────────────────────────────
-    val sl = remember(context) { ServiceLocator.get(context) }
-    val seekIncrementSec      by sl.settings.seekIncrementSeconds.collectAsState(initial = "10")
-    val defaultSpeedStr       by sl.settings.defaultPlaybackSpeed.collectAsState(initial = "1.0")
-    val hwDecodingEnabled     by sl.settings.hardwareDecodingEnabled.collectAsState(initial = true)
-    val gestureVolumeOn       by sl.settings.gestureVolumeEnabled.collectAsState(initial = true)
-    val gestureBrightnessOn   by sl.settings.gestureBrightnessEnabled.collectAsState(initial = true)
-    val resumePlaybackOn      by sl.settings.resumePlayback.collectAsState(initial = true)
-    val pipEnabledOn          by sl.settings.pipEnabled.collectAsState(initial = true)
 
     DisposableEffect(Unit) {
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
