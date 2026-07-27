@@ -78,6 +78,7 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.torrent.TorrentService
 import com.streamcloud.app.torrent.TorrentState
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -245,29 +246,38 @@ fun NativePlayerScreen(
             .setUsage(androidx.media3.common.C.USAGE_MEDIA)
             .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
+        val renderersFactory = if (!hwDecodingEnabled) {
+            androidx.media3.exoplayer.DefaultRenderersFactory(context)
+                .setExtensionRendererMode(
+                    androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                )
+        } else null
+
         val ex = ExoPlayer.Builder(context)
+            .apply { if (renderersFactory != null) setRenderersFactory(renderersFactory) }
             .setMediaSourceFactory(DefaultMediaSourceFactory(dsFactory))
-
-
-            .setAudioAttributes(videoAudioAttrs,  true)
-
+            .setAudioAttributes(videoAudioAttrs, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
             .apply {
                 setMediaSource(source)
                 prepare()
                 playWhenReady = true
+                val defSpeed = defaultSpeedStr.toFloatOrNull() ?: 1f
+                if (defSpeed != 1f) playbackParameters = PlaybackParameters(defSpeed)
             }
 
-        val savedPosition = progressKey?.let { pk ->
-            runCatching {
-                com.streamcloud.app.data.library.LibraryDb.get(context.applicationContext)
-                    .watchProgress()
-                    .byId(pk.tmdbId)
-                    ?.positionMs
-                    ?.takeIf { it > 5_000L }
-            }.getOrNull()
-        }
+        val savedPosition = if (resumePlaybackOn) {
+            progressKey?.let { pk ->
+                runCatching {
+                    com.streamcloud.app.data.library.LibraryDb.get(context.applicationContext)
+                        .watchProgress()
+                        .byId(pk.tmdbId)
+                        ?.positionMs
+                        ?.takeIf { it > 5_000L }
+                }.getOrNull()
+            }
+        } else null
         if (savedPosition != null) ex.seekTo(savedPosition)
         player.value = ex
     }
@@ -279,6 +289,16 @@ fun NativePlayerScreen(
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var volumeOverlay by remember { mutableStateOf<Float?>(null) }
     var brightnessOverlay by remember { mutableStateOf<Float?>(null) }
+
+    // ── Per-session playback settings ────────────────────────────────────────
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val seekIncrementSec      by sl.settings.seekIncrementSeconds.collectAsState(initial = "10")
+    val defaultSpeedStr       by sl.settings.defaultPlaybackSpeed.collectAsState(initial = "1.0")
+    val hwDecodingEnabled     by sl.settings.hardwareDecodingEnabled.collectAsState(initial = true)
+    val gestureVolumeOn       by sl.settings.gestureVolumeEnabled.collectAsState(initial = true)
+    val gestureBrightnessOn   by sl.settings.gestureBrightnessEnabled.collectAsState(initial = true)
+    val resumePlaybackOn      by sl.settings.resumePlayback.collectAsState(initial = true)
+    val pipEnabledOn          by sl.settings.pipEnabled.collectAsState(initial = true)
 
     DisposableEffect(Unit) {
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -601,9 +621,10 @@ fun NativePlayerScreen(
                                             if (now - lastTapTime < 400 &&
                                                 kotlin.math.abs(startX - lastTapX) < 160f
                                             ) {
-                                                // Double-tap → seek
+                                                // Double-tap → seek (configurable increment)
                                                 ex?.let { p ->
-                                                    val side = if (startX < widthPx / 2f) -10_000L else +10_000L
+                                                    val seekMs = (seekIncrementSec.toIntOrNull() ?: 10) * 1_000L
+                                                    val side = if (startX < widthPx / 2f) -seekMs else +seekMs
                                                     p.seekTo((p.currentPosition + side).coerceAtLeast(0L))
                                                     bumpInteraction()
                                                 }
@@ -633,13 +654,13 @@ fun NativePlayerScreen(
                                 if (dragging) {
                                     change.consume()
                                     val delta = -(change.position.y - change.previousPosition.y) * 0.003f
-                                    if (dragSide < widthPx / 2f) {
+                                    if (dragSide < widthPx / 2f && gestureVolumeOn) {
                                         val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                                         val cur    = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
                                         val newVol = (cur + (delta * maxVol).toInt()).coerceIn(0, maxVol)
                                         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
                                         volumeOverlay = newVol.toFloat() / maxVol
-                                    } else {
+                                    } else if (dragSide >= widthPx / 2f && gestureBrightnessOn) {
                                         val lp  = window?.attributes ?: break
                                         val cur = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
                                         val newBr = (cur + delta).coerceIn(0.01f, 1f)
@@ -708,6 +729,17 @@ fun NativePlayerScreen(
                     showDialog = showCastDialog,
                     onShowDialogChange = { showCastDialog = it },
                 )
+            }
+        }
+
+        // PiP BackHandler — takes priority over the outer onBack handler when enabled
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && pipEnabledOn) {
+            BackHandler {
+                runCatching {
+                    activity?.enterPictureInPictureMode(
+                        android.app.PictureInPictureParams.Builder().build()
+                    )
+                }.onFailure { onBack() }
             }
         }
 
@@ -783,8 +815,9 @@ fun NativePlayerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(56.dp),
                     ) {
-                        OutlinedPlayIcon(Icons.Default.Replay10, "Rewind 10s") {
-                            ex?.seekTo((ex.currentPosition - 10_000L).coerceAtLeast(0L))
+                        OutlinedPlayIcon(Icons.Default.Replay10, "Rewind ${seekIncrementSec}s") {
+                            val seekMs = (seekIncrementSec.toIntOrNull() ?: 10) * 1_000L
+                            ex?.seekTo((ex.currentPosition - seekMs).coerceAtLeast(0L))
                             bumpInteraction()
                         }
                         OutlinedPlayIcon(
@@ -796,8 +829,9 @@ fun NativePlayerScreen(
                             if (ex.isPlaying) ex.pause() else ex.play()
                             bumpInteraction()
                         }
-                        OutlinedPlayIcon(Icons.Default.Forward10, "Forward 10s") {
-                            ex?.seekTo((ex.currentPosition + 10_000L).coerceAtMost(durationMs))
+                        OutlinedPlayIcon(Icons.Default.Forward10, "Forward ${seekIncrementSec}s") {
+                            val seekMs = (seekIncrementSec.toIntOrNull() ?: 10) * 1_000L
+                            ex?.seekTo((ex.currentPosition + seekMs).coerceAtMost(durationMs))
                             bumpInteraction()
                         }
                     }
