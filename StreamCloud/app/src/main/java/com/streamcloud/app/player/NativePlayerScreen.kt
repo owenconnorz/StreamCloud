@@ -215,8 +215,6 @@ fun NativePlayerScreen(
         }
     }
 
-    // ── Per-session playback settings (must be declared before the LaunchedEffect that reads them) ──
-    val sl = remember(context) { ServiceLocator.get(context) }
     val seekIncrementSec      by sl.settings.seekIncrementSeconds.collectAsState(initial = "10")
     val defaultSpeedStr       by sl.settings.defaultPlaybackSpeed.collectAsState(initial = "1.0")
     val hwDecodingEnabled     by sl.settings.hardwareDecodingEnabled.collectAsState(initial = true)
