@@ -309,7 +309,10 @@ fun LibraryScreen(
                                             if (entry.status == "done" && !entry.filePath.isNullOrBlank()) {
                                                 onPlayLocalFile(entry.filePath, entry.title, entry.tmdbId, entry.mediaType)
                                             } else {
-                                                onMovieClick(entry.tmdbId)
+                                                when (entry.mediaType) {
+                                                    "tv" -> onTvClick(entry.tmdbId)
+                                                    else -> onMovieClick(entry.tmdbId)
+                                                }
                                             }
                                         },
                                         onLongClick = { menuEntry = entry },
