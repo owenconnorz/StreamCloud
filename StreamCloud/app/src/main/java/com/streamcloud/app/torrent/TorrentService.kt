@@ -78,6 +78,33 @@ class TorrentService(context: Context) {
     }
 
 
+    /**
+     * Resolves a magnet link to a TorrServer local HTTP stream URL suitable for downloading,
+     * WITHOUT stopping any currently playing stream.
+     */
+    suspend fun resolveStreamUrlFromMagnet(magnet: String): String = withContext(Dispatchers.IO) {
+        binary.start()
+
+        val fidxRegex = Regex("[&?]_sc_fidx=(\\d+)", RegexOption.IGNORE_CASE)
+        val fileIdxHint = fidxRegex.find(magnet)?.groupValues?.get(1)?.toIntOrNull()
+        val cleanMagnet = magnet.replace(fidxRegex, "")
+
+        val infoHash = Regex("urn:btih:([a-zA-Z0-9]{32,40})", RegexOption.IGNORE_CASE)
+            .find(cleanMagnet)?.groupValues?.get(1)
+            ?: throw TorrentException("Could not parse infoHash from magnet")
+
+        val trackers = Regex("[&?]tr=([^&]+)").findAll(cleanMagnet)
+            .map { runCatching { java.net.URLDecoder.decode(it.groupValues[1], "UTF-8") }.getOrDefault(it.groupValues[1]) }
+            .filter { it.isNotBlank() }.toList()
+
+        val fullMagnet = buildMagnet(infoHash, trackers)
+        val hash = api.addTorrent(fullMagnet)
+            ?: throw TorrentException("TorrServer rejected the torrent")
+
+        val fileIdx = resolveFileIndex(hash, fileIdxHint, null)
+        api.getStreamUrl(fullMagnet, fileIdx)
+    }
+
     suspend fun startStreamFromMagnet(magnet: String): String = withContext(Dispatchers.IO) {
 
         val fidxRegex = Regex("[&?]_sc_fidx=(\\d+)", RegexOption.IGNORE_CASE)
