@@ -181,6 +181,9 @@ object NuvioRuntime {
                 lastErrorByScript[scriptKey] = "Timed out after 60s"
                 emptyList()
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Normal coroutine cancellation (user closed the screen, etc.) — never record as a crash.
+            throw e
         } catch (e: QuickJsException) {
             Log.w(TAG, "QuickJS error in $scriptKey: ${e.message}", e)
             val msg = e.message?.takeIf { it.isNotBlank() && it != "null" } ?: "Provider threw an exception"
