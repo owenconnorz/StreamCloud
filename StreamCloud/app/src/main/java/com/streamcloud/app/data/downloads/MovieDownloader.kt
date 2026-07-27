@@ -48,6 +48,12 @@ object MovieDownloader {
         url.substringBefore('?').substringAfterLast('.')
             .lowercase().takeIf { it.length in 2..4 && it.all { c -> c.isLetter() } } ?: "mp4"
 
+    /** Returns true for HLS / DASH manifests that cannot be downloaded as single files. */
+    private fun isManifestUrl(url: String): Boolean {
+        val path = url.substringBefore('?').lowercase()
+        return path.endsWith(".m3u8") || path.endsWith(".mpd") || path.contains("/hls/") || path.contains("/dash/")
+    }
+
     private fun legacyDir(context: Context): File =
         (context.applicationContext.getExternalFilesDir("movies")
             ?: File(context.applicationContext.filesDir, "movies"))
@@ -190,6 +196,9 @@ object MovieDownloader {
     }
 
     private fun <T> streamDownload(url: String, headers: Map<String, String>, block: (InputStream, Long) -> T): T {
+        if (isManifestUrl(url))
+            error("This stream is an HLS/DASH adaptive playlist and cannot be saved as a single file. Choose a direct MP4/MKV source instead.")
+
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
@@ -197,7 +206,22 @@ object MovieDownloader {
             .build()
         return http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) error("HTTP ${resp.code}")
-            block(resp.body!!.byteStream(), resp.body?.contentLength() ?: -1L)
+
+            val ct = resp.header("Content-Type", "").orEmpty().lowercase()
+            // Reject obvious non-video responses (HTML error pages, JSON, plain-text manifests)
+            if (ct.contains("text/html") || ct.contains("application/json") || ct.contains("text/plain")) {
+                val preview = resp.body?.source()?.let { src ->
+                    src.request(512); src.buffer.snapshot().utf8()
+                }?.take(200) ?: ""
+                // If the body itself starts with an M3U8 marker it's an adaptive stream
+                if (preview.trimStart().startsWith("#EXTM3U"))
+                    error("This stream is an HLS playlist and cannot be saved as a single file. Choose a direct MP4/MKV source instead.")
+                error("Stream URL returned $ct instead of video data — the source may have expired or require authentication.")
+            }
+
+            val contentLength = resp.body?.contentLength() ?: -1L
+            val bodyStream = resp.body!!.byteStream()
+            block(bodyStream, contentLength)
         }
     }
 
