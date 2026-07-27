@@ -9,6 +9,7 @@ import com.streamcloud.app.data.nuvio.NuvioRepository
 import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.profiles.ProfileRepository
 import com.streamcloud.app.data.stremio.StremioRepository
+import com.streamcloud.app.torrent.TorrentService
 import kotlinx.coroutines.flow.first
 
 class ServiceLocator(context: Context) {
@@ -17,6 +18,8 @@ class ServiceLocator(context: Context) {
     val stremio = StremioRepository(context.applicationContext)
     val nuvio = NuvioRepository(context.applicationContext)
     val profiles = ProfileRepository(context.applicationContext)
+
+    val torrentService: TorrentService = TorrentService(context.applicationContext)
 
     val tmdb: TmdbApi = Net.retrofit("https://api.themoviedb.org/").create(TmdbApi::class.java)
     val tmdbApiKey: String = BuildConfig.TMDB_API_KEY
