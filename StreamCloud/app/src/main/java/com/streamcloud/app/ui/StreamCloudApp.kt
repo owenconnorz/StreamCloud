@@ -526,6 +526,7 @@ fun StreamCloudApp() {
                         subtitle = sub.trim(),
                         onBack = { nav.popBackStack() },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
                         onOpenStremio = { addonId, type, metaId, ttl, poster ->
                             val a = URLEncoder.encode(addonId, "UTF-8")
                             val ty = URLEncoder.encode(type, "UTF-8")
