@@ -405,7 +405,11 @@ fun StreamPickerOverlay(
                                 PickerStreamCard(
                                     source = src,
                                     onClick = { onPlay(src.url, allSources) },
-                                    onDownload = onDownload?.let { cb -> { cb(src) } },
+                                    onDownload = onDownload?.let { cb ->
+                                        if (src.isMagnet || pickerIsDirectStream(src.url)) {
+                                            { cb(src) }
+                                        } else null
+                                    },
                                 )
                             }
                         }
@@ -657,6 +661,23 @@ private fun NuvioStream.pickerToPlayerSource(provider: InstalledNuvioProvider): 
         isMagnet = url.startsWith("magnet:"),
         headers = headers ?: emptyMap(),
     )
+}
+
+/**
+ * Returns true if [url] looks like a single downloadable video file (MP4, MKV, AVI, etc.)
+ * rather than an HLS/DASH adaptive playlist or a generic opaque URL.
+ * Magnet links are handled separately via [PlayerSource.isMagnet].
+ */
+private fun pickerIsDirectStream(url: String): Boolean {
+    val path = url.substringBefore('?').lowercase()
+    if (path.endsWith(".m3u8") || path.endsWith(".mpd")
+        || path.contains("/hls/") || path.contains("/dash/")
+    ) return false
+    val directExts = setOf("mp4", "mkv", "avi", "mov", "webm", "ts", "flv", "wmv", "m4v")
+    val ext = path.substringAfterLast('.').takeIf { it.length in 2..4 }
+    if (ext != null && ext in directExts) return true
+    val isLocalhost = url.startsWith("http://127.") || url.startsWith("http://localhost")
+    return isLocalhost
 }
 
 private fun pickerNormaliseQuality(q: String?): String? {
