@@ -71,8 +71,14 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Brightness6
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -254,6 +260,20 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var showImageCachePicker  by remember { mutableStateOf(false) }
     var showPosterCachePicker by remember { mutableStateOf(false) }
 
+    var seekIncrement          by remember { mutableStateOf("10") }
+    var defaultSpeed           by remember { mutableStateOf("1.0") }
+    var preferredAudioLang     by remember { mutableStateOf("en") }
+    var preferredSubtitleLang  by remember { mutableStateOf("en") }
+    var hwDecoding             by remember { mutableStateOf(true) }
+    var pipEnabled             by remember { mutableStateOf(true) }
+    var gestureVolume          by remember { mutableStateOf(true) }
+    var gestureBrightness      by remember { mutableStateOf(true) }
+    var resumePlayback         by remember { mutableStateOf(true) }
+    var showSeekDialog         by remember { mutableStateOf(false) }
+    var showDefaultSpeedDialog by remember { mutableStateOf(false) }
+    var showAudioLangDialog    by remember { mutableStateOf(false) }
+    var showSubtitleLangDialog by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         backendUrl          = sl.settings.backendUrl.first()
         provider            = sl.settings.aiProvider.first()
@@ -324,7 +344,16 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         discordShowArt      = sl.settings.discordRpcShowArt.first()
         discordClearPause   = sl.settings.discordRpcClearPause.first()
         discordShowButton   = sl.settings.discordRpcShowButton.first()
-        discordActType      = sl.settings.discordRpcActType.first()
+        discordActType        = sl.settings.discordRpcActType.first()
+        seekIncrement         = sl.settings.seekIncrementSeconds.first()
+        defaultSpeed          = sl.settings.defaultPlaybackSpeed.first()
+        preferredAudioLang    = sl.settings.preferredAudioLang.first()
+        preferredSubtitleLang = sl.settings.preferredSubtitleLang.first()
+        hwDecoding            = sl.settings.hardwareDecodingEnabled.first()
+        pipEnabled            = sl.settings.pipEnabled.first()
+        gestureVolume         = sl.settings.gestureVolumeEnabled.first()
+        gestureBrightness     = sl.settings.gestureBrightnessEnabled.first()
+        resumePlayback        = sl.settings.resumePlayback.first()
     }
 
 
@@ -773,6 +802,87 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                         subtitle = "Show time-synced scrolling lyrics when available",
                         checked = syncedLyrics,
                         onChange = { syncedLyrics = it; scope.launch { sl.settings.setSyncedLyrics(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Video Player")
+                    SettingNav(
+                        icon = Icons.Default.FastForward, tint = ColourPlayer,
+                        title = "Seek increment",
+                        subtitle = "Seconds skipped by double-tap and seek buttons",
+                        value = "${seekIncrement}s",
+                        onClick = { showSeekDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Speed, tint = ColourPlayer,
+                        title = "Default playback speed",
+                        subtitle = "Speed applied when opening a video",
+                        value = "${defaultSpeed}×",
+                        onClick = { showDefaultSpeedDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Restore, tint = ColourPlayer,
+                        title = "Resume from last position",
+                        subtitle = "Continue where you left off when reopening a video",
+                        checked = resumePlayback,
+                        onChange = { resumePlayback = it; scope.launch { sl.settings.setResumePlayback(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Bolt, tint = ColourPlayer,
+                        title = "Hardware video decoding",
+                        subtitle = "Use hardware decoder for smoother playback",
+                        checked = hwDecoding,
+                        onChange = { hwDecoding = it; scope.launch { sl.settings.setHardwareDecodingEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.FitScreen, tint = ColourPlayer,
+                        title = "Picture in Picture",
+                        subtitle = "Float video in a small window when leaving the player",
+                        checked = pipEnabled,
+                        onChange = { pipEnabled = it; scope.launch { sl.settings.setPipEnabled(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Gestures")
+                    SettingToggle(
+                        icon = Icons.Default.VolumeUp, tint = ColourPlayer,
+                        title = "Volume gesture",
+                        subtitle = "Swipe up/down on the left side of the player",
+                        checked = gestureVolume,
+                        onChange = { gestureVolume = it; scope.launch { sl.settings.setGestureVolumeEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Brightness6, tint = ColourPlayer,
+                        title = "Brightness gesture",
+                        subtitle = "Swipe up/down on the right side of the player",
+                        checked = gestureBrightness,
+                        onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Track Preferences")
+                    SettingNav(
+                        icon = Icons.Default.Language, tint = ColourPlayer,
+                        title = "Preferred audio language",
+                        subtitle = "Auto-select audio track matching this language",
+                        value = langDisplayName(preferredAudioLang),
+                        onClick = { showAudioLangDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Preferred subtitle language",
+                        subtitle = "Auto-select subtitle track matching this language",
+                        value = langDisplayName(preferredSubtitleLang),
+                        onClick = { showSubtitleLangDialog = true },
                     )
                 }
             }
@@ -1900,6 +2010,81 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
             selected = lyricsSource,
             onSelect = { lyricsSource = it; scope.launch { sl.settings.setLyricsSource(it) }; showLyricsSourceDialog = false },
             onDismiss = { showLyricsSourceDialog = false },
+        )
+    }
+    if (showSeekDialog) {
+        QualityDialog(
+            title = "Seek increment",
+            options = listOf(
+                "5"  to "5 seconds",
+                "10" to "10 seconds (default)",
+                "15" to "15 seconds",
+                "30" to "30 seconds",
+            ),
+            selected = seekIncrement,
+            onSelect = { seekIncrement = it; scope.launch { sl.settings.setSeekIncrementSeconds(it) }; showSeekDialog = false },
+            onDismiss = { showSeekDialog = false },
+        )
+    }
+    if (showDefaultSpeedDialog) {
+        QualityDialog(
+            title = "Default playback speed",
+            options = listOf(
+                "0.5"  to "0.5×",
+                "0.75" to "0.75×",
+                "1.0"  to "1.0× (normal)",
+                "1.25" to "1.25×",
+                "1.5"  to "1.5×",
+                "1.75" to "1.75×",
+                "2.0"  to "2.0×",
+            ),
+            selected = defaultSpeed,
+            onSelect = { defaultSpeed = it; scope.launch { sl.settings.setDefaultPlaybackSpeed(it) }; showDefaultSpeedDialog = false },
+            onDismiss = { showDefaultSpeedDialog = false },
+        )
+    }
+    if (showAudioLangDialog) {
+        QualityDialog(
+            title = "Preferred audio language",
+            options = listOf(
+                "en" to "English",
+                "es" to "Spanish",
+                "fr" to "French",
+                "de" to "German",
+                "pt" to "Portuguese",
+                "it" to "Italian",
+                "ja" to "Japanese",
+                "ko" to "Korean",
+                "zh" to "Chinese",
+                "ar" to "Arabic",
+                "hi" to "Hindi",
+                "ru" to "Russian",
+            ),
+            selected = preferredAudioLang,
+            onSelect = { preferredAudioLang = it; scope.launch { sl.settings.setPreferredAudioLang(it) }; showAudioLangDialog = false },
+            onDismiss = { showAudioLangDialog = false },
+        )
+    }
+    if (showSubtitleLangDialog) {
+        QualityDialog(
+            title = "Preferred subtitle language",
+            options = listOf(
+                "en" to "English",
+                "es" to "Spanish",
+                "fr" to "French",
+                "de" to "German",
+                "pt" to "Portuguese",
+                "it" to "Italian",
+                "ja" to "Japanese",
+                "ko" to "Korean",
+                "zh" to "Chinese",
+                "ar" to "Arabic",
+                "hi" to "Hindi",
+                "ru" to "Russian",
+            ),
+            selected = preferredSubtitleLang,
+            onSelect = { preferredSubtitleLang = it; scope.launch { sl.settings.setPreferredSubtitleLang(it) }; showSubtitleLangDialog = false },
+            onDismiss = { showSubtitleLangDialog = false },
         )
     }
     if (showUiModeDialog) {
@@ -4068,4 +4253,20 @@ private fun NuvioAccountRow() {
             },
         )
     }
+}
+
+private fun langDisplayName(code: String): String = when (code) {
+    "en" -> "English"
+    "es" -> "Spanish"
+    "fr" -> "French"
+    "de" -> "German"
+    "pt" -> "Portuguese"
+    "it" -> "Italian"
+    "ja" -> "Japanese"
+    "ko" -> "Korean"
+    "zh" -> "Chinese"
+    "ar" -> "Arabic"
+    "hi" -> "Hindi"
+    "ru" -> "Russian"
+    else -> code.uppercase()
 }
