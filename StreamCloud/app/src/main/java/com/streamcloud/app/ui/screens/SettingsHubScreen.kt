@@ -317,8 +317,11 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         contentLanguage     = sl.settings.contentLanguage.first()
         contentCountry      = sl.settings.contentCountry.first()
         val csv = sl.settings.homeCollectionsCsv.first()
-        enabledCollections  = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet()
-            ?: HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
+        enabledCollections  = when {
+            csv == "_none_"     -> emptySet()
+            csv.isNullOrBlank() -> HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
+            else                -> csv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        }
         pluginsCacheBytes   = pluginRepo.pluginsCacheSize()
         smartTrimmer        = sl.settings.smartTrimmer.first()
         videoCacheMaxMb     = sl.settings.videoCacheMaxMb.first()
@@ -3538,14 +3541,17 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
 
     LaunchedEffect(Unit) {
         val csv = sl.settings.homeCollectionsCsv.first()
-        val enabledSet = if (csv.isNullOrBlank())
-            HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
-        else
-            csv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        val enabledSet = when {
+            csv == "_none_"     -> emptySet()
+            csv.isNullOrBlank() -> HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
+            else                -> csv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        }
         tmdbEnabledIds = enabledSet
-        val enabledInOrder = csv?.takeIf { it.isNotBlank() }
-            ?.split(",")?.mapNotNull { id -> HomeCollections.byId(id.trim()) }
-            ?: HomeCollections.ALL.filter { it.defaultEnabled }
+        val enabledInOrder = when {
+            csv == "_none_"     -> emptyList()
+            csv.isNullOrBlank() -> HomeCollections.ALL.filter { it.defaultEnabled }
+            else                -> csv.split(",").mapNotNull { id -> HomeCollections.byId(id.trim()) }
+        }
         val disabledItems = HomeCollections.ALL.filter { it.id !in enabledSet }
         tmdbOrdered.clear()
         tmdbOrdered.addAll(enabledInOrder + disabledItems)
