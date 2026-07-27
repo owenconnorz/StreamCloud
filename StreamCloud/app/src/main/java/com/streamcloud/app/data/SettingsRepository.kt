@@ -247,7 +247,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun setHfToken(k: String) = context.dataStore.edit { it[SettingsKeys.HF_TOKEN] = k }
 
     suspend fun setHomeCollections(ids: List<String>) =
-        context.dataStore.edit { it[SettingsKeys.HOME_COLLECTIONS] = ids.joinToString(",") }
+        context.dataStore.edit {
+            it[SettingsKeys.HOME_COLLECTIONS] = if (ids.isEmpty()) "_none_" else ids.joinToString(",")
+        }
 
     suspend fun setStremioDisabledCatalogs(keys: Set<String>) =
         context.dataStore.edit { it[SettingsKeys.STREMIO_HOME_CATALOGS] = keys.joinToString(",") }
