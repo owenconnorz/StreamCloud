@@ -83,7 +83,7 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.downloads.MovieDownloader
 import com.streamcloud.app.data.library.LibraryDb
-import com.streamcloud.app.ui.components.TorrentDownloadSheet
+import com.streamcloud.app.ui.components.MagnetOptionsSheet
 import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
@@ -318,7 +318,7 @@ fun MovieDetailScreen(
     val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
 
     var actionsExpanded by remember { mutableStateOf(false) }
-    var showTorrentSheet by remember { mutableStateOf(false) }
+    var magnetSource by remember { mutableStateOf<PlayerSource?>(null) }
     val downloadDao = remember { LibraryDb.get(context.applicationContext).movieDownloads() }
     val downloadEntry by downloadDao.watchById(movieId).collectAsState(initial = null)
     val downloadProgressMap by MovieDownloader.progressFlow.collectAsState(initial = emptyMap())
@@ -478,10 +478,6 @@ fun MovieDetailScreen(
                                     icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
                                     active = isWatched,
                                 ) { toggleWatched() }
-                                MovieActionCircle(
-                                    icon = Icons.Default.Download,
-                                    active = false,
-                                ) { showTorrentSheet = true }
                             }
                         }
                         MovieActionCircle(
@@ -1089,18 +1085,22 @@ fun MovieDetailScreen(
                 onPlay(url, displayTitle, sources, progressKey)
             },
             onDownload = { source ->
-                showStreamPicker = false
-                val m = movie
-                scope.launch {
-                    MovieDownloader.download(
-                        context = context,
-                        tmdbId = movieId,
-                        title = m?.displayTitle ?: "Movie",
-                        posterUrl = m?.posterUrl,
-                        mediaType = mediaType,
-                        url = source.url,
-                        headers = source.headers,
-                    )
+                if (source.isMagnet) {
+                    magnetSource = source
+                } else {
+                    showStreamPicker = false
+                    val m = movie
+                    scope.launch {
+                        MovieDownloader.download(
+                            context = context,
+                            tmdbId = movieId,
+                            title = m?.displayTitle ?: "Movie",
+                            posterUrl = m?.posterUrl,
+                            mediaType = mediaType,
+                            url = source.url,
+                            headers = source.headers,
+                        )
+                    }
                 }
             },
         )
@@ -1114,13 +1114,10 @@ fun MovieDetailScreen(
         )
     }
 
-    if (showTorrentSheet) {
-        TorrentDownloadSheet(
-            onDismiss = { showTorrentSheet = false },
-            imdbId = imdbId,
-            title = movie?.displayTitle ?: "",
-            year = movie?.year(),
-            torrentRepo = sl.yts,
+    magnetSource?.let { src ->
+        MagnetOptionsSheet(
+            source = src,
+            onDismiss = { magnetSource = null },
         )
     }
     } // MoviesThemeWrapper
