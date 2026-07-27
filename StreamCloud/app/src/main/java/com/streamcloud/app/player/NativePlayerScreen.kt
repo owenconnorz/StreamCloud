@@ -124,13 +124,11 @@ fun NativePlayerScreen(
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
-
-
+    val sl = remember(context) { ServiceLocator.get(context) }
 
     var resolvedUrl by remember { mutableStateOf<String?>(null) }
     var resolveError by remember { mutableStateOf<String?>(null) }
-    val torrentService = remember { TorrentService(context.applicationContext) }
+    val torrentService = sl.torrentService
     val torrentState by torrentService.state.collectAsState()
 
     // ── Auto source-switching state ────────────────────────────────────────
@@ -343,7 +341,7 @@ fun NativePlayerScreen(
         onDispose {
             player.value?.release()
             player.value = null
-            torrentService.shutdown()
+            torrentService.stopStream()
         }
     }
 
