@@ -3562,40 +3562,45 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
         },
     )
 
-    // TMDB rows — toggle (row click) + drag-to-reorder
+    // TMDB rows — toggle + drag-to-reorder
     SettingsGroup {
         tmdbOrdered.forEachIndexed { i, collection ->
             if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
             val enabled = collection.id in tmdbEnabledIds
+            val toggleTmdb: () -> Unit = {
+                val updated = if (enabled) tmdbEnabledIds - collection.id else tmdbEnabledIds + collection.id
+                tmdbEnabledIds = updated
+                scope.launch { sl.settings.setHomeCollections(tmdbOrdered.filter { it.id in updated }.map { it.id }) }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        if (dragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        else Color.Transparent,
-                    )
+                    .background(if (dragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.Transparent)
                     .onGloballyPositioned { if (itemHeightPx == 0f) itemHeightPx = it.size.height.toFloat() }
-                    .clickable {
-                        val updated = if (enabled) tmdbEnabledIds - collection.id else tmdbEnabledIds + collection.id
-                        tmdbEnabledIds = updated
-                        scope.launch { sl.settings.setHomeCollections(tmdbOrdered.filter { it.id in updated }.map { it.id }) }
-                    }
-                    .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                    .padding(end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text(collection.title,
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurface)
-                    Text(if (enabled) "TMDB • Visible" else "TMDB • Hidden",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // ── Toggle area: inner row is clickable, isolated from the drag handle ──
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(onClick = toggleTmdb)
+                        .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(collection.title,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurface)
+                        Text(if (enabled) "TMDB • Visible" else "TMDB • Hidden",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = enabled, onCheckedChange = null,
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
                 }
-                Switch(
-                    checked = enabled, onCheckedChange = null,
-                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White),
-                )
+                // ── Drag handle: separate from the toggle area ──────────────────────
                 Spacer(Modifier.width(6.dp))
                 Icon(Icons.Default.Reorder, "Drag to reorder",
                     tint = if (dragIdx == i) MaterialTheme.colorScheme.primary
@@ -3642,30 +3647,38 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
                 stremioFlat.forEachIndexed { i, (addonName, meta) ->
                     if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                     val enabled = meta.rowKey !in stremioDisabledKeys
+                    val toggleStremio: () -> Unit = {
+                        val updated = if (enabled) stremioDisabledKeys + meta.rowKey else stremioDisabledKeys - meta.rowKey
+                        stremioDisabledKeys = updated
+                        scope.launch { sl.settings.setStremioDisabledCatalogs(updated) }
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(if (stremioDragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.Transparent)
                             .onGloballyPositioned { if (stremioItemH == 0f) stremioItemH = it.size.height.toFloat() }
-                            .clickable {
-                                val updated = if (enabled) stremioDisabledKeys + meta.rowKey else stremioDisabledKeys - meta.rowKey
-                                stremioDisabledKeys = updated
-                                scope.launch { sl.settings.setStremioDisabledCatalogs(updated) }
-                            }
-                            .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                            .padding(end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(meta.catalogName,
-                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                                color = MaterialTheme.colorScheme.onSurface)
-                            Text("$addonName • ${if (enabled) "Visible" else "Hidden"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = toggleStremio)
+                                .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(meta.catalogName,
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                    color = MaterialTheme.colorScheme.onSurface)
+                                Text("$addonName • ${if (enabled) "Visible" else "Hidden"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = enabled, onCheckedChange = null,
+                                colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
                         }
-                        Switch(checked = enabled, onCheckedChange = null,
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
-                                checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
                         Spacer(Modifier.width(6.dp))
                         Icon(Icons.Default.Reorder, "Drag to reorder",
                             tint = if (stremioDragIdx == i) MaterialTheme.colorScheme.primary
@@ -3706,29 +3719,37 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
             SettingsGroup {
                 csPinnedOrdered.forEachIndexed { i, pinned ->
                     if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                    val toggleCs: () -> Unit = {
+                        val plugin = installedPlugins.firstOrNull { it.internalName == pinned.pluginInternalName }
+                        if (plugin != null) toggleCsSection(plugin, pinned.sectionName, false)
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(if (csDragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.Transparent)
                             .onGloballyPositioned { if (csItemH == 0f) csItemH = it.size.height.toFloat() }
-                            .clickable {
-                                val plugin = installedPlugins.firstOrNull { it.internalName == pinned.pluginInternalName }
-                                if (plugin != null) toggleCsSection(plugin, pinned.sectionName, false)
-                            }
-                            .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                            .padding(end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(pinned.sectionName,
-                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                                color = MaterialTheme.colorScheme.onSurface)
-                            Text("${pinned.pluginDisplayName} • Visible",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = toggleCs)
+                                .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(pinned.sectionName,
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                    color = MaterialTheme.colorScheme.onSurface)
+                                Text("${pinned.pluginDisplayName} • Visible",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = true, onCheckedChange = null,
+                                colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
                         }
-                        Switch(checked = true, onCheckedChange = null,
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
-                                checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
                         Spacer(Modifier.width(6.dp))
                         Icon(Icons.Default.Reorder, "Drag to reorder",
                             tint = if (csDragIdx == i) MaterialTheme.colorScheme.primary
