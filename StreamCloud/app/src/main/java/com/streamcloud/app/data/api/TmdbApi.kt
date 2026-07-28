@@ -185,6 +185,24 @@ data class TmdbListResponse(
     @SerialName("total_pages") val totalPages: Int = 1,
 )
 
+@Serializable
+data class TmdbUserListResponse(
+    val items: List<TmdbMovie> = emptyList(),
+)
+
+@Serializable
+data class TmdbCollectionPartsResponse(
+    val id: Long = 0,
+    val name: String = "",
+    val parts: List<TmdbMovie> = emptyList(),
+)
+
+@Serializable
+data class TmdbPersonCreditsResponse(
+    val cast: List<TmdbMovie> = emptyList(),
+    val crew: List<TmdbMovie> = emptyList(),
+)
+
 // ─── Video ────────────────────────────────────────────────────────────────────
 
 @Serializable
@@ -298,6 +316,8 @@ interface TmdbApi {
         @Query("with_companies") withCompanies: String? = null,
         @Query("with_genres") withGenres: String? = null,
         @Query("with_keywords") withKeywords: String? = null,
+        @Query("with_people") withPeople: String? = null,
+        @Query("primary_release_year") primaryReleaseYear: Int? = null,
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("page") page: Int = 1,
     ): TmdbListResponse
@@ -347,6 +367,35 @@ interface TmdbApi {
         @retrofit2.http.Path("seasonNumber") seasonNumber: Int,
         @Query("api_key") apiKey: String,
     ): TmdbSeasonDetail
+
+    // ── Collections / Lists / Person ──────────────────────────────────────────
+
+    @GET("3/list/{id}")
+    suspend fun listItems(
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+    ): TmdbUserListResponse
+
+    @GET("3/collection/{id}")
+    suspend fun collectionParts(
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+    ): TmdbCollectionPartsResponse
+
+    @GET("3/person/{id}/movie_credits")
+    suspend fun personMovieCredits(
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+    ): TmdbPersonCreditsResponse
+
+    @GET("3/discover/tv")
+    suspend fun discoverTv(
+        @Query("api_key") apiKey: String,
+        @Query("with_networks") withNetworks: String? = null,
+        @Query("with_genres") withGenres: String? = null,
+        @Query("sort_by") sortBy: String = "popularity.desc",
+        @Query("page") page: Int = 1,
+    ): TmdbListResponse
 
     // ── Find ──────────────────────────────────────────────────────────────────
 

@@ -77,6 +77,7 @@ data class PinnedCollectionRow(
     val collectionId: Long,
     val collectionName: String,
     val folders: List<CollectionFolderEntity>,
+    val viewMode: String = "rows",
 )
 
 data class MoviesState(
@@ -189,7 +190,7 @@ class MoviesViewModel(
                 ) { pinned, allFolders ->
                     val byCollection = allFolders.groupBy { it.collectionId }
                     pinned.map { col ->
-                        PinnedCollectionRow(col.id, col.name, byCollection[col.id] ?: emptyList())
+                        PinnedCollectionRow(col.id, col.name, byCollection[col.id] ?: emptyList(), col.viewMode)
                     }
                 }.collectLatest { rows ->
                     _state.update { it.copy(pinnedCollections = rows) }
