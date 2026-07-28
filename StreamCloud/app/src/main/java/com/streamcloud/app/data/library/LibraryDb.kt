@@ -207,6 +207,7 @@ data class UserCollectionEntity(
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "source_addon_id", defaultValue = "") val sourceAddonId: String = "",
+    @ColumnInfo(name = "view_mode", defaultValue = "rows") val viewMode: String = "rows",
 )
 
 @Entity(tableName = "collection_folders")
@@ -219,6 +220,7 @@ data class CollectionFolderEntity(
     @ColumnInfo(name = "linked_category_id") val linkedCategoryId: String = "",
     @ColumnInfo(name = "provider_type", defaultValue = "tmdb") val providerType: String = "tmdb",
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    @ColumnInfo(name = "hide_title", defaultValue = "0") val hideTitle: Boolean = false,
 )
 
 @Dao
@@ -413,7 +415,7 @@ interface FollowedArtistDao {
         WatchedMovieEntity::class,
         MovieDownloadEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -592,11 +594,18 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE collection_folders ADD COLUMN hide_title INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE user_collections ADD COLUMN view_mode TEXT NOT NULL DEFAULT 'rows'")
+            }
+        }
+
         @Volatile private var INSTANCE: LibraryDb? = null
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).addMigrations(MIGRATION_13_14).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_13_14, MIGRATION_14_15).fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
 }
