@@ -69,6 +69,7 @@ fun StreamPickerOverlay(
     installedAddons: List<InstalledStremioAddon>,
     installedNuvio: List<InstalledNuvioProvider>,
     installedCsPlugins: List<InstalledPlugin>,
+    autoPlayBest: Boolean = false,
     onBack: () -> Unit,
     onPlay: (url: String, sources: List<PlayerSource>) -> Unit,
     onDownload: ((source: PlayerSource) -> Unit)? = null,
@@ -196,6 +197,23 @@ fun StreamPickerOverlay(
 
     val allSources = remember(groups) {
         groupOrder.mapNotNull { (key, _) -> groups[key]?.streams }.flatten()
+    }
+
+    // Auto-play: as soon as the first provider finishes loading with streams, pick best quality
+    var hasAutoPlayed by remember { mutableStateOf(false) }
+    LaunchedEffect(groups) {
+        if (!autoPlayBest || hasAutoPlayed) return@LaunchedEffect
+        val anyGroupReady = groups.values.any { !it.isLoading && it.streams.isNotEmpty() }
+        if (!anyGroupReady) return@LaunchedEffect
+        val best = allSources
+            .filter { !it.isMagnet }
+            .maxByOrNull { pickerQualityRank(it.qualityTag) }
+            ?: allSources.firstOrNull { !it.isMagnet }
+            ?: allSources.firstOrNull()
+        if (best != null) {
+            hasAutoPlayed = true
+            onPlay(best.url, allSources)
+        }
     }
 
     val addonTabs = remember(groups) {
@@ -678,6 +696,17 @@ private fun pickerIsDirectStream(url: String): Boolean {
     if (ext != null && ext in directExts) return true
     val isLocalhost = url.startsWith("http://127.") || url.startsWith("http://localhost")
     return isLocalhost
+}
+
+private fun pickerQualityRank(q: String?): Int = when (q) {
+    "4K"    -> 50
+    "1440p" -> 40
+    "1080p" -> 30
+    "720p"  -> 20
+    "HD"    -> 20
+    "480p"  -> 10
+    "360p"  ->  5
+    else    -> 15  // unknown quality: better than 480p, probably HD
 }
 
 private fun pickerNormaliseQuality(q: String?): String? {
