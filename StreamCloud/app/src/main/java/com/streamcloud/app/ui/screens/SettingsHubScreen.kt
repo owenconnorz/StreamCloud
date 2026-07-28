@@ -269,6 +269,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var gestureVolume          by remember { mutableStateOf(true) }
     var gestureBrightness      by remember { mutableStateOf(true) }
     var resumePlayback         by remember { mutableStateOf(true) }
+    var autoplayBestStream     by remember { mutableStateOf(false) }
     var showSeekDialog         by remember { mutableStateOf(false) }
     var showDefaultSpeedDialog by remember { mutableStateOf(false) }
     var showAudioLangDialog    by remember { mutableStateOf(false) }
@@ -357,6 +358,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         gestureVolume         = sl.settings.gestureVolumeEnabled.first()
         gestureBrightness     = sl.settings.gestureBrightnessEnabled.first()
         resumePlayback        = sl.settings.resumePlayback.first()
+        autoplayBestStream    = sl.settings.autoplayBestStream.first()
     }
 
 
@@ -662,6 +664,14 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                         subtitle = "Continue with the next song / episode automatically",
                         checked = autoplay,
                         onChange = { autoplay = it; scope.launch { sl.settings.setAutoplayNext(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Bolt, tint = ColourPlayer,
+                        title = "Auto-play best stream",
+                        subtitle = "Skip the source picker — instantly play the highest quality stream found",
+                        checked = autoplayBestStream,
+                        onChange = { autoplayBestStream = it; scope.launch { sl.settings.setAutoplayBestStream(it) } },
                     )
                     SettingDivider()
                     SettingToggle(
