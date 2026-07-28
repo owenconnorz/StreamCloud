@@ -121,6 +121,7 @@ fun MovieDetailScreen(
     val sl = remember { ServiceLocator.get(context) }
     val scope = rememberCoroutineScope()
     val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
+    val autoplayBestStream by sl.settings.autoplayBestStream.collectAsState(initial = false)
 
     var movie by remember { mutableStateOf<TmdbMovie?>(null) }
     var videos by remember { mutableStateOf<List<TmdbVideo>>(emptyList()) }
@@ -1071,6 +1072,7 @@ fun MovieDetailScreen(
             movie = movie, mediaType = mediaType, tmdbId = movieId, imdbId = imdbId,
             season = pickerSeason, episode = pickerEpisode, episodeTitle = pickerEpTitle,
             installedAddons = installedAddons, installedNuvio = installedNuvio, installedCsPlugins = installedCsPlugins,
+            autoPlayBest = autoplayBestStream,
             onBack = { showStreamPicker = false },
             onPlay = { url, sources ->
                 showStreamPicker = false
