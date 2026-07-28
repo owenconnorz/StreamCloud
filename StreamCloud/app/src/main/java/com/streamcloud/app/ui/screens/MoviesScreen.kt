@@ -86,6 +86,7 @@ fun MoviesScreen(
     onViewAllCsSection: (pluginInternalName: String, sectionName: String, pluginDisplayName: String) -> Unit =
         { _, _, _ -> },
     onOpenCollectionFolder: (Long) -> Unit = {},
+    onOpenCollectionTabbed: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
@@ -185,7 +186,14 @@ fun MoviesScreen(
                 }
                 state.pinnedCollections.forEach { pinnedRow ->
                     item(key = "pinned_t_${pinnedRow.collectionId}") {
-                        SectionTitle(pinnedRow.collectionName)
+                        if (pinnedRow.viewMode == "tabbed_grid") {
+                            SectionTitleWithViewAll(
+                                title = pinnedRow.collectionName,
+                                onViewAll = { onOpenCollectionTabbed(pinnedRow.collectionId) },
+                            )
+                        } else {
+                            SectionTitle(pinnedRow.collectionName)
+                        }
                     }
                     if (pinnedRow.folders.isNotEmpty()) {
                         item(key = "pinned_${pinnedRow.collectionId}") {
@@ -230,8 +238,13 @@ fun MoviesScreen(
                                                     else -> {
                                                         val catId = folder.linkedCategoryId.trim()
                                                         if (catId.isNotBlank()) {
-                                                            val cat = HomeCollections.byId(catId)
-                                                            onOpenCatalog("tmdb:$catId", folder.name, cat?.subtitle.orEmpty())
+                                                            if (catId.contains(":")) {
+                                                                // Custom TMDB source — load in folder detail screen
+                                                                onOpenCollectionFolder(folder.id)
+                                                            } else {
+                                                                val cat = HomeCollections.byId(catId)
+                                                                onOpenCatalog("tmdb:$catId", folder.name, cat?.subtitle.orEmpty())
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -1152,22 +1165,24 @@ private fun CollectionFolderTile(folder: CollectionFolderEntity, onClick: () -> 
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f))),
+        if (!folder.hideTitle) {
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f))),
+                )
             )
-        )
-        Text(
-            folder.name,
-            style = MaterialTheme.typography.labelLarge,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-        )
+            Text(
+                folder.name,
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
     }
 }
 
