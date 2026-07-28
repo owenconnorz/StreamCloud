@@ -123,6 +123,7 @@ object SettingsKeys {
     val GESTURE_VOLUME_ENABLED     = booleanPreferencesKey("gesture_volume_enabled")
     val GESTURE_BRIGHTNESS_ENABLED = booleanPreferencesKey("gesture_brightness_enabled")
     val RESUME_PLAYBACK            = booleanPreferencesKey("resume_playback")
+    val AUTOPLAY_BEST_STREAM       = booleanPreferencesKey("autoplay_best_stream")
 
     // Trakt
     val TRAKT_USERNAME  = stringPreferencesKey("trakt_username")
@@ -519,6 +520,7 @@ class SettingsRepository(private val context: Context) {
     val gestureVolumeEnabled: Flow<Boolean>    = context.dataStore.data.map { it[SettingsKeys.GESTURE_VOLUME_ENABLED]     ?: true }
     val gestureBrightnessEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.GESTURE_BRIGHTNESS_ENABLED] ?: true }
     val resumePlayback: Flow<Boolean>          = context.dataStore.data.map { it[SettingsKeys.RESUME_PLAYBACK]            ?: true }
+    val autoplayBestStream: Flow<Boolean>      = context.dataStore.data.map { it[SettingsKeys.AUTOPLAY_BEST_STREAM]       ?: false }
 
     suspend fun setSeekIncrementSeconds(s: String)       = context.dataStore.edit { it[SettingsKeys.SEEK_INCREMENT_SECONDS]     = s }
     suspend fun setDefaultPlaybackSpeed(s: String)       = context.dataStore.edit { it[SettingsKeys.DEFAULT_PLAYBACK_SPEED]     = s }
@@ -529,6 +531,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setGestureVolumeEnabled(b: Boolean)      = context.dataStore.edit { it[SettingsKeys.GESTURE_VOLUME_ENABLED]     = b }
     suspend fun setGestureBrightnessEnabled(b: Boolean)  = context.dataStore.edit { it[SettingsKeys.GESTURE_BRIGHTNESS_ENABLED] = b }
     suspend fun setResumePlayback(b: Boolean)            = context.dataStore.edit { it[SettingsKeys.RESUME_PLAYBACK]            = b }
+    suspend fun setAutoplayBestStream(b: Boolean)        = context.dataStore.edit { it[SettingsKeys.AUTOPLAY_BEST_STREAM]       = b }
 
     // ── Trakt ───────────────────────────────────────────────────────────────
     val traktUsername: Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_USERNAME] ?: "" }
