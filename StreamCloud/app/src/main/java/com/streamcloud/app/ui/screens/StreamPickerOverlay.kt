@@ -199,20 +199,22 @@ fun StreamPickerOverlay(
         groupOrder.mapNotNull { (key, _) -> groups[key]?.streams }.flatten()
     }
 
-    // Auto-play: as soon as the first provider finishes loading with streams, pick best quality
+    // Auto-play: read from SnapshotStateMap during composition so Compose tracks the read
+    // and recomposes when any group finishes. LaunchedEffect key is a plain Boolean that
+    // transitions false→true exactly once, triggering the coroutine at the right moment.
+    val hasAnyStreamReady = groups.values.any { !it.isLoading && it.streams.isNotEmpty() }
     var hasAutoPlayed by remember { mutableStateOf(false) }
-    LaunchedEffect(groups) {
-        if (!autoPlayBest || hasAutoPlayed) return@LaunchedEffect
-        val anyGroupReady = groups.values.any { !it.isLoading && it.streams.isNotEmpty() }
-        if (!anyGroupReady) return@LaunchedEffect
-        val best = allSources
+    LaunchedEffect(hasAnyStreamReady) {
+        if (!autoPlayBest || hasAutoPlayed || !hasAnyStreamReady) return@LaunchedEffect
+        val liveAll = groups.values.flatMap { it.streams }
+        val best = liveAll
             .filter { !it.isMagnet }
             .maxByOrNull { pickerQualityRank(it.qualityTag) }
-            ?: allSources.firstOrNull { !it.isMagnet }
-            ?: allSources.firstOrNull()
+            ?: liveAll.firstOrNull { !it.isMagnet }
+            ?: liveAll.firstOrNull()
         if (best != null) {
             hasAutoPlayed = true
-            onPlay(best.url, allSources)
+            onPlay(best.url, liveAll)
         }
     }
 
