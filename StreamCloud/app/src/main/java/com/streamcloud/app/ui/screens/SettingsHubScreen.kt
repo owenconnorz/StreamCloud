@@ -1391,6 +1391,8 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                 title = "Listen Together",
                 onBack = { currentPage = null },
             ) {
+                ListenTogetherPage()
+                Spacer(Modifier.height(16.dp))
                 SettingsGroup {
                     SettingNav(
                         icon = Icons.Default.Group, tint = ColourSonos,
