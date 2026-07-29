@@ -1021,6 +1021,9 @@ fun StreamCloudApp() {
 
                     val sources by com.streamcloud.app.player.MoviePlayerSession.sourcesFlow.collectAsState()
                     val nuvioScanning by com.streamcloud.app.player.MoviePlayerSession.nuvioScanningFlow.collectAsState()
+                    val sourceErrors by com.streamcloud.app.player.MoviePlayerSession.sourceErrorsFlow.collectAsState()
+                    val addonSubtitles by com.streamcloud.app.player.MoviePlayerSession.addonSubtitlesFlow.collectAsState()
+                    val bingeEpisodes by com.streamcloud.app.player.MoviePlayerSession.bingeEpisodesFlow.collectAsState()
                     var currentUrl by remember(initial) { mutableStateOf(initial) }
                     var currentId by remember(initial) {
                         mutableStateOf(sources.firstOrNull { it.url == initial }?.id)
@@ -1049,6 +1052,35 @@ fun StreamCloudApp() {
                         },
                         progressKey = com.streamcloud.app.player.MoviePlayerSession.progressKey,
                         onBack = { nav.popBackStack() },
+                        // ── Series / binge ────────────────────────────────────
+                        seasonNumber      = com.streamcloud.app.player.MoviePlayerSession.seasonNumber,
+                        episodeNumber     = com.streamcloud.app.player.MoviePlayerSession.episodeNumber,
+                        episodeTitle      = com.streamcloud.app.player.MoviePlayerSession.episodeTitle,
+                        bingeEpisodes     = bingeEpisodes,
+                        currentBingeIndex = com.streamcloud.app.player.MoviePlayerSession.currentBingeIndex,
+                        onPlayBingeEpisode = { ep ->
+                            val pk = ep.progressKey ?: com.streamcloud.app.player.WatchProgressKey(
+                                tmdbId = ep.tmdbId, title = ep.title,
+                                posterUrl = ep.posterUrl, mediaType = "tv",
+                            )
+                            val newIdx = bingeEpisodes.indexOf(ep)
+                            com.streamcloud.app.player.MoviePlayerSession.set(
+                                newSources        = emptyList(),
+                                progressKey       = pk,
+                                tmdbId            = ep.tmdbId,
+                                mediaType         = "tv",
+                                seasonNumber      = ep.seasonNumber,
+                                episodeNumber     = ep.episodeNumber,
+                                episodeTitle      = ep.episodeTitle,
+                                bingeEpisodes     = bingeEpisodes,
+                                currentBingeIndex = newIdx,
+                            )
+                            nav.navigate("player/${URLEncoder.encode("about:blank", "UTF-8")}/${URLEncoder.encode(ep.title, "UTF-8")}")
+                        },
+                        // ── Addon subtitles ───────────────────────────────────
+                        addonSubtitles = addonSubtitles,
+                        // ── Per-provider errors ───────────────────────────────
+                        sourceErrors   = sourceErrors,
                         onRefresh = {
                             refreshScope.launch {
                                 val tmdbId = com.streamcloud.app.player.MoviePlayerSession.tmdbId
