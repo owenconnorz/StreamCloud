@@ -11,6 +11,35 @@ data class PlayerSource(
     val qualityTag: String? = null,
     val isMagnet: Boolean = false,
     val headers: Map<String, String> = emptyMap(),
+    // ── New fields ────────────────────────────────────────────────────────
+    val fileSizeBytes: Long? = null,
+    val debridHost: String? = null,
+    val skipIntervals: List<SkipInterval> = emptyList(),
+) {
+    companion object {
+        private val KNOWN_DEBRID_HOSTS = setOf(
+            "real-debrid.com", "realdebrid.com", "rd.", "alldebrid.com",
+            "debrid-link.fr", "premiumize.me", "put.io", "offcloud.com",
+        )
+
+        fun detectDebridHost(url: String): String? {
+            val lower = url.lowercase()
+            return KNOWN_DEBRID_HOSTS.firstOrNull { lower.contains(it) }
+        }
+
+        fun formatFileSize(bytes: Long): String = when {
+            bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+            bytes >= 1_048_576L     -> "%.0f MB".format(bytes / 1_048_576.0)
+            bytes >= 1_024L         -> "%.0f KB".format(bytes / 1_024.0)
+            else                    -> "$bytes B"
+        }
+    }
+}
+
+data class SkipInterval(
+    val startMs: Long,
+    val endMs: Long,
+    val type: String = "intro", // "intro" | "outro" | "recap" | "credits"
 )
 
 // Shared conversion — used from MovieDetailScreen, StremioDetailScreen, and
@@ -27,6 +56,7 @@ fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): PlayerSource {
         qualityTag = normaliseNuvioQuality(quality),
         isMagnet = url.startsWith("magnet:"),
         headers = headers ?: emptyMap(),
+        debridHost = PlayerSource.detectDebridHost(url),
     )
 }
 

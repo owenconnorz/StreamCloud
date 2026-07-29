@@ -219,7 +219,7 @@ fun NativePlayerScreen(
 
     fun applySubtitleStyle(pv: PlayerView?, style: SubtitleStyleState) {
         val sv = pv?.subtitleView ?: return
-        sv.setUserDefaultStyle(false)
+        sv.setUserDefaultStyle()
         val alpha = (style.opacityFraction * 255).toInt().coerceIn(0, 255)
         val fgColor = (style.colorArgb and 0x00FFFFFF) or (alpha shl 24)
         sv.setStyle(
