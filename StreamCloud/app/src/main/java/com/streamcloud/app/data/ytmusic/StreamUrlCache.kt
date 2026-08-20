@@ -14,6 +14,11 @@ object StreamUrlCache {
         val expiryMs: Long,
         /** Innertube client that minted this URL, used to avoid it after a CDN rejection. */
         val clientLabel: String? = null,
+        /**
+         * Web/PoToken streams need the browser session that created them. Anonymous app-client
+         * streams must be requested without browser-session headers.
+         */
+        val requiresWebSessionHeaders: Boolean = false,
     )
 
     private const val FALLBACK_UA =
@@ -44,8 +49,15 @@ object StreamUrlCache {
         userAgent: String,
         expiryMs: Long,
         clientLabel: String? = null,
+        requiresWebSessionHeaders: Boolean = false,
     ) {
-        cache[videoId] = Entry(url, userAgent, expiryMs, clientLabel)
+        cache[videoId] = Entry(
+            url = url,
+            userAgent = userAgent,
+            expiryMs = expiryMs,
+            clientLabel = clientLabel,
+            requiresWebSessionHeaders = requiresWebSessionHeaders,
+        )
     }
 
     /**
