@@ -1,0 +1,2 @@
+- [Git push workflow](git-push.md) — always fetch+reset to FETCH_HEAD before pushing; merge conflicts on rebase can get stuck if untracked files exist.
+- [Repo layout](repo-layout.md) — Android source lives under StreamCloud/app/src/…; push to owenconnorz/StreamCloud main; token in GITHUB_PERSONAL_ACCESS_TOKEN secret.
