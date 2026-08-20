@@ -12,6 +12,8 @@ object StreamUrlCache {
 
         val userAgent: String,
         val expiryMs: Long,
+        /** Innertube client that minted this URL, used to avoid it after a CDN rejection. */
+        val clientLabel: String? = null,
     )
 
     private const val FALLBACK_UA =
@@ -36,9 +38,22 @@ object StreamUrlCache {
     fun get(videoId: String): String? = getEntry(videoId)?.url
 
 
-    fun put(videoId: String, url: String, userAgent: String, expiryMs: Long) {
-        cache[videoId] = Entry(url, userAgent, expiryMs)
+    fun put(
+        videoId: String,
+        url: String,
+        userAgent: String,
+        expiryMs: Long,
+        clientLabel: String? = null,
+    ) {
+        cache[videoId] = Entry(url, userAgent, expiryMs, clientLabel)
     }
+
+    /**
+     * Removes and returns the cached stream. A signed Googlevideo URL can be rejected before its
+     * advertised expiry when YouTube changes its client/PoToken requirements, so callers must be
+     * able to discard it immediately rather than retrying it for hours.
+     */
+    fun remove(videoId: String): Entry? = cache.remove(videoId)
 
 
     fun ttlSeconds(videoId: String): Long? {
