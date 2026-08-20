@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Search
@@ -974,15 +975,57 @@ fun StreamCloudApp() {
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
                     val ctx = LocalContext.current
                     val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(ctx))
-                    var resolved by remember { mutableStateOf<String?>(null) }
-                    LaunchedEffect(id) { resolved = vm.resolveStreamUrl(id, embed) }
+                    val playerScope = rememberCoroutineScope()
+                    var resolved by remember(id, embed) {
+                        mutableStateOf<com.streamcloud.app.ui.viewmodel.EpornerPlaybackStream?>(null)
+                    }
+                    var resolveError by remember(id, embed) { mutableStateOf<String?>(null) }
+                    var resolveAttempt by remember(id, embed) { mutableStateOf(0) }
+                    LaunchedEffect(id, embed, resolveAttempt) {
+                        resolved = null
+                        resolveError = null
+                        runCatching { vm.resolveEpornerPlayback(id, embed) }
+                            .onSuccess { resolved = it }
+                            .onFailure {
+                                resolveError = it.message
+                                    ?.takeIf(String::isNotBlank)
+                                    ?: "Eporner could not prepare this video."
+                            }
+                    }
                     if (resolved != null) {
                         NativePlayerScreen(
-                            streamUrl = resolved!!,
+                            streamUrl = resolved!!.url,
                             title = title,
-                            headers = mapOf("Referer" to "https://www.eporner.com/"),
+                            headers = resolved!!.headers,
                             onBack = { nav.popBackStack() },
                         )
+                    } else if (resolveError != null) {
+                        Column(
+                            Modifier.fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background)
+                                .padding(24.dp),
+                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text(
+                                "This Eporner video could not be prepared.",
+                                style = MaterialTheme.typography.titleMedium,
+                                textAlign = TextAlign.Center,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                resolveError!!,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Spacer(Modifier.height(20.dp))
+                            androidx.compose.material3.Button(
+                                onClick = { resolveAttempt++ },
+                            ) { Text("Try again") }
+                            androidx.compose.material3.TextButton(
+                                onClick = { nav.popBackStack() },
+                            ) { Text("Go back") }
+                        }
                     } else {
                         Box(
                             Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
