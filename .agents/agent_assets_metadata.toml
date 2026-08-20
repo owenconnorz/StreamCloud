@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "kuX0fZ4lXXIO-TJROWCkh"
+uri = "file://StreamCloud/build/ci-artifacts/StreamCloud-debug-1504.apk"
+type = "unspecified"
+title = "StreamCloud Debug APK (build 1504)"
+description = "Debug APK from the successful Android CI build, ready for device testing."
+
+[[outputs]]
+id = "dt2Ol1OraO6zMAxmEcuil"
+uri = "file://StreamCloud/build/ci-artifacts/StreamCloud-release-1504.apk"
+type = "unspecified"
+title = "StreamCloud Release APK (build 1504)"
+description = "Release APK produced by the successful Android CI build."

@@ -1,0 +1,1 @@
+- [Extractor toolchain compatibility](youtube-extractor-compatibility.md) — Keep maintained extractors within the Android SDK and Kotlin metadata baseline used by the app.
