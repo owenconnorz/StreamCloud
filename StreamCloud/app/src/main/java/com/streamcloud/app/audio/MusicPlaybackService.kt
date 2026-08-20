@@ -15,10 +15,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -97,6 +99,13 @@ class MusicPlaybackService : MediaLibraryService() {
 
     @Volatile private var ytMusicCookieForStream: String = ""
     @Volatile private var isCurrentLiked: Boolean = false
+    /**
+     * A GVS URL can be invalidated by YouTube even though its `expire=` value is hours away.
+     * Retrying that exact cached URL just produces repeated 403s. Track one automatic refresh per
+     * song and remember the rejecting Innertube client so the resolver selects the next client.
+     */
+    private val youtube403RetriedVideoIds = ConcurrentHashMap.newKeySet<String>()
+    private val rejectedYouTubeClientByVideoId = ConcurrentHashMap<String, String>()
 
 
 
@@ -127,6 +136,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 playWhenReady = false
                 addListener(object : androidx.media3.common.Player.Listener {
                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        if (retryWithFreshYoutubeStream(error)) return
                         AppLogger.e(TAG, "ExoPlayer error code=${error.errorCode} msg=${error.message}", error.cause)
                     }
                     override fun onPlaybackStateChanged(state: Int) {
@@ -140,6 +150,13 @@ class MusicPlaybackService : MediaLibraryService() {
                         AppLogger.i(TAG, "playback state → $label")
                     }
                     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                        mediaItem?.let { item ->
+                            youtubeVideoId(item.mediaId)?.let { videoId ->
+                                // A newly started track gets its own one-shot 403 recovery budget.
+                                youtube403RetriedVideoIds.remove(videoId)
+                                rejectedYouTubeClientByVideoId.remove(videoId)
+                            }
+                        }
                         refreshLikedState()
                         if (xfCrossfading) {
                             // Primary advanced to the next track while xfPlayer was fading in.
@@ -511,7 +528,11 @@ class MusicPlaybackService : MediaLibraryService() {
     private fun resolveStreamUrl(videoId: String, watchUrl: String): Pair<String, String> {
         val now = System.currentTimeMillis()
 
-        StreamUrlCache.getEntry(videoId)?.let { entry ->
+        val rejectedClient = rejectedYouTubeClientByVideoId[videoId]
+        StreamUrlCache.getEntry(videoId)?.takeIf { entry ->
+            // Never resurrect the exact client that just returned a CDN 403.
+            rejectedClient == null || entry.clientLabel != rejectedClient
+        }?.let { entry ->
             val ttl = StreamUrlCache.ttlSeconds(videoId) ?: 0
             Log.d(TAG, "StreamUrlCache hit for $videoId (ttl=${ttl}s)")
             return Pair(entry.url, entry.userAgent)
@@ -522,13 +543,19 @@ class MusicPlaybackService : MediaLibraryService() {
         // URLs that never need n-parameter descrambling — fast and reliable.
         // NewPipe is kept only as a last resort for edge cases where all Innertube clients fail.
         val innertubeResult = runBlocking(Dispatchers.IO) {
-            runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId) }
+            runCatching {
+                YtPlayerUtils.resolveAudioFormatInfo(
+                    videoId = videoId,
+                    excludedClientLabels = rejectedClient?.let(::setOf).orEmpty(),
+                )
+            }
         }
         val info = innertubeResult.getOrNull()
         if (info != null) {
             val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
-            StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs)
-            AppLogger.i(TAG, "Innertube resolved $videoId itag=${info.itag} (cached ${(expiryMs - now) / 1000}s)")
+            StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs, info.clientLabel)
+            rejectedYouTubeClientByVideoId.remove(videoId)
+            AppLogger.i(TAG, "Innertube resolved $videoId via ${info.clientLabel} itag=${info.itag} (cached ${(expiryMs - now) / 1000}s)")
             return Pair(info.url, info.userAgent)
         }
         AppLogger.w(TAG, "Innertube failed for $videoId: ${innertubeResult.exceptionOrNull()?.message}")
@@ -542,7 +569,7 @@ class MusicPlaybackService : MediaLibraryService() {
         }
         val npUrl = npResult.getOrNull()
         if (npUrl != null) {
-            StreamUrlCache.put(videoId, npUrl, npUserAgent, now + 3_600_000L)
+            StreamUrlCache.put(videoId, npUrl, npUserAgent, now + 3_600_000L, "NEWPIPE")
             AppLogger.i(TAG, "NewPipe fallback resolved $videoId (cached 1h)")
             return Pair(npUrl, npUserAgent)
         }
@@ -1120,6 +1147,58 @@ class MusicPlaybackService : MediaLibraryService() {
                     .build(),
             )
             .build()
+
+    /**
+     * A YouTube CDN URL is signed for the Innertube client that minted it. Google can reject the
+     * URL with 403 before `expire=` when that client is gated or its session token is invalidated.
+     * Refresh once with the next compatible client rather than allowing ExoPlayer to keep using
+     * the invalid cached URL.
+     */
+    private fun retryWithFreshYoutubeStream(error: androidx.media3.common.PlaybackException): Boolean {
+        if (!isYoutubeCdn403(error)) return false
+
+        val videoId = youtubeVideoId(exoPlayer.currentMediaItem?.mediaId) ?: return false
+        if (!youtube403RetriedVideoIds.add(videoId)) {
+            AppLogger.w(TAG, "YouTube CDN 403 for $videoId after automatic refresh; not retrying again")
+            return false
+        }
+
+        val rejected = StreamUrlCache.remove(videoId)
+        rejected?.clientLabel?.takeIf { it.isNotBlank() }?.let { client ->
+            rejectedYouTubeClientByVideoId[videoId] = client
+        }
+        val resumePosition = exoPlayer.currentPosition.coerceAtLeast(0L)
+        AppLogger.w(
+            TAG,
+            "YouTube CDN 403 for $videoId; discarded ${rejected?.clientLabel ?: "uncached"} URL and resolving a fresh stream",
+        )
+
+        // ResolvingDataSource invokes resolveStreamUrl() on prepare. It sees the removed cache
+        // entry and the rejected-client marker, so it chooses the next Innertube client.
+        exoPlayer.prepare()
+        if (resumePosition > 0L) exoPlayer.seekTo(resumePosition)
+        exoPlayer.playWhenReady = true
+        return true
+    }
+
+    private fun isYoutubeCdn403(error: androidx.media3.common.PlaybackException): Boolean {
+        var cause: Throwable? = error.cause
+        while (cause != null) {
+            if (cause is HttpDataSource.InvalidResponseCodeException && cause.responseCode == 403) {
+                return true
+            }
+            cause = cause.cause
+        }
+        return false
+    }
+
+    private fun youtubeVideoId(mediaId: String?): String? {
+        val raw = mediaId.orEmpty()
+        if (!raw.contains("youtube.com/watch")) return null
+        return raw.substringAfter("v=", missingDelimiterValue = "")
+            .substringBefore('&')
+            .takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+    }
 
     private fun attachUri(item: MediaItem): MediaItem {
         if (item.localConfiguration?.uri != null) return item
