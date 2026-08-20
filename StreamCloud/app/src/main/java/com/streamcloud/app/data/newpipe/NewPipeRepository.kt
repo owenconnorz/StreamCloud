@@ -1,19 +1,28 @@
 package com.streamcloud.app.data.newpipe
 
+import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.util.hqYtThumb
 import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
+import dev.maxrave.pipepipe.extractor.NewPipe as PipePipe
+import dev.maxrave.pipepipe.extractor.ServiceList as PipePipeServiceList
+import dev.maxrave.pipepipe.extractor.stream.StreamInfo as PipePipeStreamInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import org.schabi.newpipe.extractor.NewPipe
-import org.schabi.newpipe.extractor.ServiceList
+import okhttp3.Dns
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.schabi.newpipe.extractor.NewPipe as BravePipe
+import org.schabi.newpipe.extractor.ServiceList as BravePipeServiceList
 import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.kiosk.KioskInfo
 import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.search.SearchInfo
-import org.schabi.newpipe.extractor.stream.StreamInfo
+import org.schabi.newpipe.extractor.stream.StreamInfo as BravePipeStreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import java.net.Inet4Address
+import java.util.concurrent.TimeUnit
 
 data class YtTrack(
     val title: String,
@@ -49,6 +58,43 @@ data class MusicSearchSections(
 )
 
 object NewPipeRepository {
+    private const val TAG = "YouTubeExtractor"
+
+    /**
+     * A stream URL is only useful if it works from the same IPv4 network profile used by the
+     * Media3 data source. This prevents passing an already-rejected Googlevideo URL to ExoPlayer.
+     */
+    private val streamHealthClient by lazy {
+        OkHttpClient.Builder()
+            .dns(object : Dns {
+                override fun lookup(hostname: String) =
+                    Dns.SYSTEM.lookup(hostname)
+                        .filterIsInstance<Inet4Address>()
+                        .ifEmpty { Dns.SYSTEM.lookup(hostname) }
+            })
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val pipePipeInitLock = Any()
+
+    data class ExtractedAudioStream(
+        val url: String,
+        val resolverLabel: String,
+        /**
+         * Extractor URLs intentionally use the anonymous Android playback profile. This prevents
+         * MusicPlaybackService from attaching a browser cookie/session to a URL minted by a
+         * separate extractor, while preserving the same profile in validation and Media3.
+         */
+        val userAgent: String = PipePipeDownloader.PLAYBACK_USER_AGENT,
+    )
+
+    private data class AudioCandidate(
+        val url: String,
+        val container: String?,
+        val averageBitrate: Int,
+    )
 
     // ── Suggestions ───────────────────────────────────────────────────────────────
     // YouTube Music InnerTube suggestions → NewPipe fallback
@@ -58,7 +104,7 @@ object NewPipeRepository {
         val ytm = runCatching { YtMusicSearchRepository.suggestions(query) }.getOrDefault(emptyList())
         if (ytm.isNotEmpty()) return@withContext ytm
         runCatching {
-            ServiceList.YouTube.suggestionExtractor.suggestionList(query)
+            BravePipeServiceList.YouTube.suggestionExtractor.suggestionList(query)
         }.getOrDefault(emptyList())
     }
 
@@ -94,7 +140,7 @@ object NewPipeRepository {
 
     private suspend fun searchTracksNewPipe(query: String, filter: String, isVideo: Boolean): List<YtTrack> =
         withContext(Dispatchers.IO) {
-            val service = ServiceList.YouTube
+            val service = BravePipeServiceList.YouTube
             val info = SearchInfo.getInfo(
                 service,
                 service.searchQHFactory.fromQuery(query, listOf(filter), ""),
@@ -104,7 +150,7 @@ object NewPipeRepository {
 
     private suspend fun searchAlbumsNewPipe(query: String): List<YtAlbum> =
         withContext(Dispatchers.IO) {
-            val service = ServiceList.YouTube
+            val service = BravePipeServiceList.YouTube
             val info = SearchInfo.getInfo(
                 service,
                 service.searchQHFactory.fromQuery(query, listOf("music_albums"), ""),
@@ -114,7 +160,7 @@ object NewPipeRepository {
 
     private suspend fun searchArtistsNewPipe(query: String): List<YtArtist> =
         withContext(Dispatchers.IO) {
-            val service = ServiceList.YouTube
+            val service = BravePipeServiceList.YouTube
             val info = SearchInfo.getInfo(
                 service,
                 service.searchQHFactory.fromQuery(query, listOf("music_artists"), ""),
@@ -160,7 +206,7 @@ object NewPipeRepository {
         }
 
         // Fallback: NewPipe ChannelInfo + parallel tab loading + search fallbacks
-        val service = ServiceList.YouTube
+            val service = BravePipeServiceList.YouTube
         val info = runCatching {
             org.schabi.newpipe.extractor.channel.ChannelInfo.getInfo(service, channelUrl)
         }.getOrNull() ?: return@withContext null
@@ -271,7 +317,7 @@ object NewPipeRepository {
     // ── Home feed ─────────────────────────────────────────────────────────────────
 
     suspend fun homeFeed(): List<YtTrack> = withContext(Dispatchers.IO) {
-        val service = ServiceList.YouTube
+            val service = BravePipeServiceList.YouTube
         val kiosks = service.kioskList
         val kioskUrl = kiosks.getListLinkHandlerFactoryByType("Trending").fromId("Trending")
         val kiosk = kiosks.getExtractorByUrl(kioskUrl.url, null)
@@ -282,40 +328,152 @@ object NewPipeRepository {
 
     // ── Playback ──────────────────────────────────────────────────────────────────
 
-    suspend fun resolveAudioStream(url: String): String = withContext(Dispatchers.IO) {
-        try {
-            extractAudioOnce(url)
+    /**
+     * Resolves a playable audio URL through two independently maintained parsers. PipePipe is
+     * preferred for music pages; BravePipe is intentionally retained as a separate fallback
+     * because its signature and throttling handling can succeed when PipePipe cannot.
+     */
+    suspend fun resolveVerifiedAudioStream(url: String): ExtractedAudioStream? =
+        withContext(Dispatchers.IO) {
+            resolveWithPipePipe(url) ?: resolveWithBravePipe(url)
+        }
+
+    /** Maintains the legacy URL-only call surface for downloads, Sonos, and older call sites. */
+    suspend fun resolveAudioStream(url: String): String =
+        resolveVerifiedAudioStream(url)?.url
+            ?: error("No verified YouTube audio stream was available for this track.")
+
+    private fun resolveWithPipePipe(watchUrl: String): ExtractedAudioStream? = runCatching {
+        synchronized(pipePipeInitLock) {
+            PipePipeDownloader.instance.ytMusicCookie = NewPipeDownloader.instance.ytMusicCookie
+            PipePipe.init(PipePipeDownloader.instance)
+        }
+        val info = PipePipeStreamInfo.getInfo(
+            PipePipeServiceList.YouTube,
+            musicWatchUrl(watchUrl),
+        )
+        selectVerifiedCandidate(
+            "PIPEPIPE",
+            info.audioStreams.orEmpty().mapNotNull { stream ->
+                stream.content?.takeIf { it.isNotBlank() }?.let { streamUrl ->
+                    AudioCandidate(
+                        url = streamUrl,
+                        container = stream.format?.suffix,
+                        averageBitrate = stream.averageBitrate,
+                    )
+                }
+            },
+        )
+    }.onFailure { error ->
+        AppLogger.w(TAG, "PipePipe extraction failed: ${error.message}")
+    }.getOrNull()
+
+    private fun resolveWithBravePipe(watchUrl: String): ExtractedAudioStream? {
+        fun extract(): ExtractedAudioStream? {
+            val info = BravePipeStreamInfo.getInfo(
+                BravePipe.getService(0),
+                browserWatchUrl(watchUrl),
+            )
+            return selectVerifiedCandidate(
+                "BRAVEPIPE",
+                info.audioStreams.orEmpty().mapNotNull { stream ->
+                    stream.content?.takeIf { it.isNotBlank() }?.let { streamUrl ->
+                        AudioCandidate(
+                            url = streamUrl,
+                            container = stream.format?.suffix,
+                            averageBitrate = stream.averageBitrate,
+                        )
+                    }
+                },
+            )
+        }
+
+        return try {
+            extract()
         } catch (first: Exception) {
-            val msg = (first.message ?: "").lowercase()
-            val isStale = "page" in msg && "reload" in msg ||
-                    "could not parse" in msg ||
-                    "signature" in msg ||
-                    "decipher" in msg ||
-                    "nsig" in msg
-            if (!isStale) throw first
-            try {
-                NewPipe.init(
+            if (!isRecoverableExtractorFailure(first)) {
+                AppLogger.w(TAG, "BravePipe extraction failed: ${first.message}")
+                return null
+            }
+            AppLogger.w(TAG, "BravePipe parser was stale; reinitializing once")
+            runCatching {
+                BravePipe.init(
                     NewPipeDownloader.instance,
                     org.schabi.newpipe.extractor.localization.Localization.DEFAULT,
                     org.schabi.newpipe.extractor.localization.ContentCountry.DEFAULT,
                 )
-            } catch (_: Throwable) { }
-            extractAudioOnce(url)
+            }
+            runCatching { extract() }
+                .onFailure { AppLogger.w(TAG, "BravePipe retry failed: ${it.message}") }
+                .getOrNull()
         }
     }
 
-    private fun extractAudioOnce(url: String): String {
-        val info = StreamInfo.getInfo(NewPipe.getService(0), url)
-        if (info.audioStreams.isNullOrEmpty()) {
-            error("YouTube returned no audio streams for this track. (PoToken/age-gate or region block)")
+    private fun selectVerifiedCandidate(
+        resolverLabel: String,
+        candidates: List<AudioCandidate>,
+    ): ExtractedAudioStream? {
+        if (candidates.isEmpty()) {
+            AppLogger.w(TAG, "$resolverLabel returned no audio candidates")
+            return null
         }
-        val m4a = info.audioStreams.filter { it.format?.suffix?.equals("m4a", true) == true }
-        val pool = if (m4a.isNotEmpty()) m4a else info.audioStreams
-        val best = pool.maxByOrNull { it.averageBitrate }
-            ?: error("Could not pick an audio stream from ${info.audioStreams.size} candidates.")
-        return best.content?.takeIf { it.isNotBlank() }
-            ?: error("Selected audio stream had a blank URL. Try another track.")
+        val ranked = candidates
+            .distinctBy { it.url }
+            .sortedWith(
+                compareByDescending<AudioCandidate> { it.container.equals("m4a", ignoreCase = true) }
+                    .thenByDescending { it.averageBitrate },
+            )
+        for (candidate in ranked) {
+            if (validateStreamUrl(candidate.url)) {
+                AppLogger.i(
+                    TAG,
+                    "$resolverLabel selected ${candidate.container ?: "unknown"} " +
+                        "${candidate.averageBitrate / 1000}kbps after range validation",
+                )
+                return ExtractedAudioStream(candidate.url, resolverLabel)
+            }
+        }
+        AppLogger.w(TAG, "$resolverLabel returned ${ranked.size} audio URLs, but none passed validation")
+        return null
     }
+
+    /**
+     * Googlevideo can reject HEAD while accepting a normal Media3 range request. Validate with the
+     * request shape the player will actually use instead of treating a syntactically valid URL as
+     * playable.
+     */
+    private fun validateStreamUrl(url: String): Boolean = runCatching {
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .header("User-Agent", PipePipeDownloader.PLAYBACK_USER_AGENT)
+            .header("Range", "bytes=0-1023")
+            .header("Accept-Encoding", "identity")
+            .build()
+        streamHealthClient.newCall(request).execute().use { response ->
+            response.code in 200..299
+        }
+    }.getOrDefault(false)
+
+    private fun isRecoverableExtractorFailure(error: Exception): Boolean {
+        val message = error.message.orEmpty().lowercase()
+        return ("page" in message && "reload" in message) ||
+            "could not parse" in message ||
+            "signature" in message ||
+            "decipher" in message ||
+            "nsig" in message
+    }
+
+    private fun musicWatchUrl(rawUrl: String): String =
+        youtubeVideoId(rawUrl)?.let { "https://music.youtube.com/watch?v=$it" } ?: rawUrl
+
+    private fun browserWatchUrl(rawUrl: String): String =
+        youtubeVideoId(rawUrl)?.let { "https://www.youtube.com/watch?v=$it" } ?: rawUrl
+
+    private fun youtubeVideoId(rawUrl: String): String? =
+        rawUrl.substringAfter("v=", "")
+            .substringBefore('&')
+            .takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
 

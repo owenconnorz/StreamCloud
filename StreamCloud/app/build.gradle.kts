@@ -128,7 +128,13 @@ configurations.all {
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21")
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.21")
         force("org.jetbrains.kotlin:kotlin-stdlib-common:2.0.21")
+        // PipePipe and BravePipe ship different nanojson revisions. Use the newer common
+        // revision so both extractors can run in the same APK.
+        force("com.github.TeamNewPipe:nanojson:c7a6c1c08d16b6d5ecded34758e6415e07be2166")
     }
+    // PipePipe brings protobuf-java while BravePipe uses protobuf-javalite. Keeping both produces
+    // duplicate DEX classes; the lightweight Android variant is sufficient for both extractors.
+    exclude(group = "com.google.protobuf", module = "protobuf-java")
 }
 
 dependencies {
@@ -163,8 +169,11 @@ dependencies {
     // Networking (Retrofit + OkHttp + official Kotlinx serialization converter)
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    // PipePipe and the maintained reference client both use OkHttp 5.4. Pin it explicitly so
+    // Media3, Retrofit, and the extractors share one tested runtime instead of Gradle selecting
+    // a transitive major version implicitly.
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:5.4.0")
 
     // Coil image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
@@ -195,15 +204,20 @@ dependencies {
     // can stream from directly — no Java-level piece-gating needed.
     // (libtorrent4j + nanohttpd replaced; see com.streamcloud.app.torrent.*)
 
-    // NewPipe Extractor (YouTube music/videos without API keys)
-    // We exclude its transitive Rhino artifacts; we already pull mainline
-    // `org.mozilla:rhino` ourselves below for Nuvio JS providers, and
-    // duplicated Rhino jars trigger D8's "Duplicate class" failure.
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.0") {
+    // Maintained YouTube extractors. PipePipe is the preferred music resolver; BravePipe keeps an
+    // independent parser/decipher fallback when a PipePipe stream URL is rejected by the CDN.
+    // Both share the NewPipe package API, so BravePipe replaces the older upstream dependency.
+    implementation("com.github.maxrave-dev:PipePipeExtractor:208e43b184") {
         exclude(group = "org.mozilla", module = "rhino")
         exclude(group = "org.mozilla", module = "rhino-engine")
         exclude(group = "org.mozilla", module = "rhino-runtime")
     }
+    implementation("com.github.maxrave-dev:BravePipeExtractor:fa5d4a8b4c") {
+        // BravePipe uses Rhino to decipher current YouTube player JavaScript. Do not replace this
+        // with the app's unrelated QuickJS integration: their Java APIs are not interchangeable.
+    }
+    implementation("org.mozilla:rhino:1.8.1")
+    implementation("org.mozilla:rhino-engine:1.8.1")
     implementation("org.jsoup:jsoup:1.17.2")
 
     // WorkManager (download queue)

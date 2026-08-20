@@ -106,6 +106,12 @@ class MusicPlaybackService : MediaLibraryService() {
      */
     private val youtube403RetriedVideoIds = ConcurrentHashMap.newKeySet<String>()
     private val rejectedYouTubeClientByVideoId = ConcurrentHashMap<String, String>()
+    /**
+     * A 403 means an Innertube URL was accepted by the player API but rejected by the CDN. On the
+     * automatic recovery path, use an independent maintained extractor before trying more URLs from
+     * the same client family.
+     */
+    private val preferMaintainedExtractorVideoIds = ConcurrentHashMap.newKeySet<String>()
 
     private data class ResolvedStream(
         val url: String,
@@ -161,6 +167,7 @@ class MusicPlaybackService : MediaLibraryService() {
                                 // A newly started track gets its own one-shot 403 recovery budget.
                                 youtube403RetriedVideoIds.remove(videoId)
                                 rejectedYouTubeClientByVideoId.remove(videoId)
+                                preferMaintainedExtractorVideoIds.remove(videoId)
                             }
                         }
                         refreshLikedState()
@@ -420,12 +427,18 @@ class MusicPlaybackService : MediaLibraryService() {
                 val cookie = ytMusicCookieForStream
                 val host = req.url.host
                 val builder = req.newBuilder()
-                val useWebSessionHeaders =
-                    req.header(STREAM_WEB_SESSION_HEADER) == STREAM_WEB_SESSION_VALUE ||
-                        // OkHttp retains User-Agent over googlevideo redirect hops but the
-                        // internal marker below is deliberately removed before the first request.
-                        // Browser UAs therefore keep the same header profile on redirects.
-                        req.header("User-Agent").orEmpty().startsWith("Mozilla/")
+                val streamSessionMarker = req.header(STREAM_WEB_SESSION_HEADER)
+                val useWebSessionHeaders = when (streamSessionMarker) {
+                    // The resolving data source explicitly marks every music stream. This must win
+                    // over its user agent: a maintained extractor can resolve via a web page but
+                    // deliberately play anonymously, and adding a logged-in browser session to
+                    // that URL causes the CDN 403 this fallback is designed to avoid.
+                    STREAM_WEB_SESSION_VALUE -> true
+                    "0" -> false
+                    // Redirects no longer carry the internal marker because it is stripped before
+                    // the first network request. Only genuine browser streams use the web profile.
+                    else -> req.header("User-Agent").orEmpty().startsWith("Mozilla/")
+                }
 
                 val hasPot = req.url.queryParameter("pot") != null
                 // This header tells the in-app interceptor which profile to apply. It must never
@@ -542,6 +555,7 @@ class MusicPlaybackService : MediaLibraryService() {
         val now = System.currentTimeMillis()
 
         val rejectedClient = rejectedYouTubeClientByVideoId[videoId]
+        val preferMaintainedExtractor = videoId in preferMaintainedExtractorVideoIds
         StreamUrlCache.getEntry(videoId)?.takeIf { entry ->
             // Never resurrect the exact client that just returned a CDN 403.
             rejectedClient == null || entry.clientLabel != rejectedClient
@@ -555,10 +569,20 @@ class MusicPlaybackService : MediaLibraryService() {
             )
         }
 
+        if (preferMaintainedExtractor) {
+            resolveMaintainedExtractorStream(videoId, now)?.let { stream ->
+                rejectedYouTubeClientByVideoId.remove(videoId)
+                preferMaintainedExtractorVideoIds.remove(videoId)
+                return stream
+            }
+            AppLogger.w(TAG, "Maintained extractor recovery failed for $videoId; trying Innertube fallback")
+        }
+
         // Innertube is the primary resolver (matches Metrolist's YTPlayerUtils.playerResponseForPlayback).
         // Our client chain now includes ANDROID_VR_1_43 / ANDROID_VR_1_61 which return plain CDN
         // URLs that never need n-parameter descrambling — fast and reliable.
-        // NewPipe is kept only as a last resort for edge cases where all Innertube clients fail.
+        // The maintained extractor chain remains a last resort for normal playback, but is
+        // deliberately preferred after a CDN 403 above.
         val innertubeResult = runBlocking(Dispatchers.IO) {
             runCatching {
                 YtPlayerUtils.resolveAudioFormatInfo(
@@ -588,33 +612,35 @@ class MusicPlaybackService : MediaLibraryService() {
         }
         AppLogger.w(TAG, "Innertube failed for $videoId: ${innertubeResult.exceptionOrNull()?.message}")
 
-        // NewPipe last resort — fetches a watch page to descramble stream URLs; slower but
-        // can succeed for edge cases where all Innertube clients are blocked.
-        val npUserAgent = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip"
-        val ytWatchUrl = "https://www.youtube.com/watch?v=$videoId"
-        val npResult = runBlocking(Dispatchers.IO) {
-            runCatching { NewPipeRepository.resolveAudioStream(ytWatchUrl) }
-        }
-        val npUrl = npResult.getOrNull()
-        if (npUrl != null) {
-            StreamUrlCache.put(
-                videoId = videoId,
-                url = npUrl,
-                userAgent = npUserAgent,
-                expiryMs = now + 3_600_000L,
-                clientLabel = "NEWPIPE",
-            )
-            AppLogger.i(TAG, "NewPipe fallback resolved $videoId (cached 1h)")
-            return ResolvedStream(
-                url = npUrl,
-                userAgent = npUserAgent,
-                requiresWebSessionHeaders = false,
-            )
-        }
+        resolveMaintainedExtractorStream(videoId, now)?.let { return it }
 
-        val err = "Innertube and NewPipe both failed to resolve stream for $videoId"
+        val err = "Innertube, PipePipe, and BravePipe all failed to resolve stream for $videoId"
         AppLogger.e(TAG, err, innertubeResult.exceptionOrNull())
         error(err)
+    }
+
+    private fun resolveMaintainedExtractorStream(videoId: String, now: Long): ResolvedStream? {
+        val watchUrl = "https://www.youtube.com/watch?v=$videoId"
+        val extracted = runBlocking(Dispatchers.IO) {
+            runCatching { NewPipeRepository.resolveVerifiedAudioStream(watchUrl) }
+        }.getOrElse { error ->
+            AppLogger.w(TAG, "Maintained extractor failed for $videoId: ${error.message}")
+            return null
+        } ?: return null
+
+        StreamUrlCache.put(
+            videoId = videoId,
+            url = extracted.url,
+            userAgent = extracted.userAgent,
+            expiryMs = now + 3_600_000L,
+            clientLabel = extracted.resolverLabel,
+        )
+        AppLogger.i(TAG, "${extracted.resolverLabel} fallback resolved $videoId after range validation")
+        return ResolvedStream(
+            url = extracted.url,
+            userAgent = extracted.userAgent,
+            requiresWebSessionHeaders = false,
+        )
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
@@ -1205,14 +1231,17 @@ class MusicPlaybackService : MediaLibraryService() {
         rejected?.clientLabel?.takeIf { it.isNotBlank() }?.let { client ->
             rejectedYouTubeClientByVideoId[videoId] = client
         }
+        preferMaintainedExtractorVideoIds.add(videoId)
         val resumePosition = exoPlayer.currentPosition.coerceAtLeast(0L)
         AppLogger.w(
             TAG,
-            "YouTube CDN 403 for $videoId; discarded ${rejected?.clientLabel ?: "uncached"} URL and resolving a fresh stream",
+            "YouTube CDN 403 for $videoId; discarded ${rejected?.clientLabel ?: "uncached"} URL " +
+                "and trying the independent extractor chain",
         )
 
         // ResolvingDataSource invokes resolveStreamUrl() on prepare. It sees the removed cache
-        // entry and the rejected-client marker, so it chooses the next Innertube client.
+        // entry and the extractor-recovery marker, so it does not spend its one retry on another
+        // URL from the client family that just failed.
         exoPlayer.prepare()
         if (resumePosition > 0L) exoPlayer.seekTo(resumePosition)
         exoPlayer.playWhenReady = true
