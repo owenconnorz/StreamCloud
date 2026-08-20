@@ -1,1 +1,2 @@
 - [Extractor toolchain compatibility](youtube-extractor-compatibility.md) — Keep maintained extractors within the Android SDK and Kotlin metadata baseline used by the app.
+- [Android KAPT source isolation](android-kapt-source-isolation.md) — Isolate new provider resolver models when KAPT duplicates existing model classes during CI.
