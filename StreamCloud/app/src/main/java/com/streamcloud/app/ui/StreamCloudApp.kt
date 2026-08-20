@@ -973,17 +973,15 @@ fun StreamCloudApp() {
                     val id    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8")
                     val embed = URLDecoder.decode(entry.arguments!!.getString("embed")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    val ctx = LocalContext.current
-                    val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(ctx))
                     var resolved by remember(id, embed) {
-                        mutableStateOf<com.streamcloud.app.ui.viewmodel.EpornerResolvedPlayback?>(null)
+                        mutableStateOf<com.streamcloud.app.data.api.EpornerResolvedPlayback?>(null)
                     }
                     var resolveError by remember(id, embed) { mutableStateOf<String?>(null) }
                     var resolveAttempt by remember(id, embed) { mutableStateOf(0) }
                     LaunchedEffect(id, embed, resolveAttempt) {
                         resolved = null
                         resolveError = null
-                        runCatching { vm.resolveEpornerPlayback(id, embed) }
+                        runCatching { com.streamcloud.app.data.api.EpornerPlaybackResolver.resolve(id, embed) }
                             .onSuccess { resolved = it }
                             .onFailure {
                                 resolveError = it.message
