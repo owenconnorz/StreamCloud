@@ -98,6 +98,8 @@ android {
             excludes += "META-INF/DEPENDENCIES"
             excludes += "META-INF/LICENSE*"
             excludes += "META-INF/NOTICE*"
+            // jackson-core and PipePipe's fastdoubleparser both package this text resource.
+            excludes += "META-INF/thirdparty-LICENSE"
         }
         jniLibs {
             useLegacyPackaging = true
