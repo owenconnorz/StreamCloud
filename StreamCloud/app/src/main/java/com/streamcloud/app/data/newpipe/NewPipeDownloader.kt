@@ -30,7 +30,7 @@ class NewPipeDownloader private constructor() : Downloader() {
 
         val cookie = ytMusicCookie
         val targetHost = request.url().toHttpUrlOrNull()?.host.orEmpty()
-        if (cookie.isNotBlank() && targetHost.endsWith("youtube.com")) {
+        if (cookie.isNotBlank() && isYouTubeHost(targetHost)) {
             builder.header("Cookie", cookie)
         }
         val body = request.dataToSend()?.toRequestBody()
@@ -51,6 +51,9 @@ class NewPipeDownloader private constructor() : Downloader() {
             )
         }
     }
+
+    private fun isYouTubeHost(host: String): Boolean =
+        host == "youtube.com" || host.endsWith(".youtube.com")
 
     companion object {
         val instance: NewPipeDownloader by lazy { NewPipeDownloader() }

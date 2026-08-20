@@ -23,6 +23,8 @@
 # --- NewPipe Extractor ---
 -keep class org.schabi.newpipe.extractor.** { *; }
 -dontwarn org.schabi.newpipe.extractor.**
+-keep class dev.maxrave.pipepipe.extractor.** { *; }
+-dontwarn dev.maxrave.pipepipe.extractor.**
 -keep class com.grack.nanojson.** { *; }
 -dontwarn com.grack.nanojson.**
 
