@@ -436,6 +436,11 @@ object YtPlayerUtils {
         val url: String,
         val userAgent: String,
         val clientLabel: String,
+        /**
+         * Web/PoToken stream URLs are tied to a browser session; anonymous app-client URLs are
+         * not and must not be mixed with browser cookies.
+         */
+        val requiresWebSessionHeaders: Boolean,
         val itag: Int,
         val mimeType: String,
         val bitrate: Long,
@@ -578,7 +583,11 @@ object YtPlayerUtils {
                         if (skipHeadValidation) {
                             AppLogger.i(TAG, "[${client.label}] $videoId — skipping HEAD validation (auth client), passing to ExoPlayer")
                         }
-                        return@withContext result.info.copy(url = candidateUrl)
+                        return@withContext result.info.copy(
+                            url = candidateUrl,
+                            requiresWebSessionHeaders =
+                                client.useWebAuth || client.useWebPoTokens || client.requiresAuth,
+                        )
                     } else {
                         AppLogger.w(TAG, "[${client.label}] $videoId — URL failed HEAD validation (403), trying next client")
                     }
@@ -790,6 +799,7 @@ object YtPlayerUtils {
                     url              = url,
                     userAgent        = client.userAgent,
                     clientLabel      = client.label,
+                    requiresWebSessionHeaders = false,
                     itag             = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
                     mimeType         = best["mimeType"]?.jsonPrimitive?.content.orEmpty(),
                     bitrate          = best["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,

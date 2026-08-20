@@ -107,6 +107,12 @@ class MusicPlaybackService : MediaLibraryService() {
     private val youtube403RetriedVideoIds = ConcurrentHashMap.newKeySet<String>()
     private val rejectedYouTubeClientByVideoId = ConcurrentHashMap<String, String>()
 
+    private data class ResolvedStream(
+        val url: String,
+        val userAgent: String,
+        val requiresWebSessionHeaders: Boolean,
+    )
+
 
 
 
@@ -414,10 +420,19 @@ class MusicPlaybackService : MediaLibraryService() {
                 val cookie = ytMusicCookieForStream
                 val host = req.url.host
                 val builder = req.newBuilder()
+                val useWebSessionHeaders =
+                    req.header(STREAM_WEB_SESSION_HEADER) == STREAM_WEB_SESSION_VALUE ||
+                        // OkHttp retains User-Agent over googlevideo redirect hops but the
+                        // internal marker below is deliberately removed before the first request.
+                        // Browser UAs therefore keep the same header profile on redirects.
+                        req.header("User-Agent").orEmpty().startsWith("Mozilla/")
 
                 val hasPot = req.url.queryParameter("pot") != null
+                // This header tells the in-app interceptor which profile to apply. It must never
+                // reach YouTube's CDN as an actual HTTP header.
+                builder.removeHeader(STREAM_WEB_SESSION_HEADER)
 
-                if (cookie.isNotBlank()) {
+                if (cookie.isNotBlank() && useWebSessionHeaders) {
                     when {
                         // music.youtube.com API requests — always send cookie + browser headers.
                         host.endsWith("music.youtube.com") -> {
@@ -425,17 +440,10 @@ class MusicPlaybackService : MediaLibraryService() {
                                    .header("Origin", "https://music.youtube.com")
                                    .header("Referer", "https://music.youtube.com/")
                         }
-                        // googlevideo.com CDN — send Cookie for ALL requests, not just pot= ones.
-                        //
-                        // Previously we checked `pot != null`, but CDN redirects (alr=yes) produce
-                        // a redirect-target URL that no longer contains pot=, so the old condition
-                        // silently dropped Cookie on the final hop — causing a 403.
-                        //
-                        // Sending Cookie to unauthenticated (ANDROID_VR/TESTSUITE) CDN URLs is
-                        // harmless: the CDN ignores extra cookies for anonymous-signed URLs.
-                        //
-                        // Additionally, WEB_REMIX is a browser web client.  Chrome always sends
-                        // Sec-Fetch-* headers; YouTube CDN may validate them for web-client URLs.
+                        // Googlevideo.com URLs created by WEB_REMIX/TVHTML5 are tied to the
+                        // browser session that generated their PoToken. Anonymous app-client
+                        // URLs deliberately skip this block: mixing a browser cookie/visitor
+                        // session with an ANDROID_VR or TESTSUITE URL can cause a CDN 403.
                         host.contains("googlevideo.com") -> {
                             builder.header("Cookie", cookie)
                                    .header("Origin", "https://music.youtube.com")
@@ -449,11 +457,11 @@ class MusicPlaybackService : MediaLibraryService() {
                     }
                 }
 
-                // X-Goog-Visitor-Id ties the CDN request to the visitor session that the
-                // PoToken was generated for — without it the CDN cannot correlate pot= to a
-                // valid session and returns 403.
+                // X-Goog-Visitor-Id is meaningful only for the same web/PoToken session that
+                // created the URL. Sending it to anonymous Android-client streams can conflict
+                // with their signed client context.
                 val vd = YtPlayerUtils.cachedVisitorData
-                if (vd != null) {
+                if (useWebSessionHeaders && vd != null) {
                     builder.header("X-Goog-Visitor-Id", vd)
                 }
 
@@ -464,7 +472,8 @@ class MusicPlaybackService : MediaLibraryService() {
                 // the ExoPlayer error alone.
                 if (response.code == 403 && host.contains("googlevideo.com")) {
                     val body = response.peekBody(400).string().take(300)
-                    AppLogger.e(TAG, "CDN 403 body: $body")
+                    val sessionProfile = if (useWebSessionHeaders) "web" else "anonymous"
+                    AppLogger.e(TAG, "CDN 403 ($sessionProfile client) body: $body")
                     AppLogger.e(TAG, "CDN 403 url: ${req.url.toString().take(120)}")
                 }
 
@@ -510,22 +519,26 @@ class MusicPlaybackService : MediaLibraryService() {
             // HTTP fallback, causing ExoPlayer to receive an HTML page when it seeks to an
             // uncached range (e.g. the moov atom at the end of a mp4 stream).
             val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
-            val (streamUrl, userAgent) = resolveStreamUrl(videoId, watchUrl)
+            val stream = resolveStreamUrl(videoId, watchUrl)
 
 
 
 
             dataSpec.buildUpon()
-                .setUri(streamUrl.toUri())
+                .setUri(stream.url.toUri())
                 .setHttpRequestHeaders(
-                    dataSpec.httpRequestHeaders + mapOf("User-Agent" to userAgent)
+                    dataSpec.httpRequestHeaders + mapOf(
+                        "User-Agent" to stream.userAgent,
+                        STREAM_WEB_SESSION_HEADER to
+                            if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
+                    )
                 )
                 .build()
         }
     }
 
 
-    private fun resolveStreamUrl(videoId: String, watchUrl: String): Pair<String, String> {
+    private fun resolveStreamUrl(videoId: String, watchUrl: String): ResolvedStream {
         val now = System.currentTimeMillis()
 
         val rejectedClient = rejectedYouTubeClientByVideoId[videoId]
@@ -535,7 +548,11 @@ class MusicPlaybackService : MediaLibraryService() {
         }?.let { entry ->
             val ttl = StreamUrlCache.ttlSeconds(videoId) ?: 0
             Log.d(TAG, "StreamUrlCache hit for $videoId (ttl=${ttl}s)")
-            return Pair(entry.url, entry.userAgent)
+            return ResolvedStream(
+                url = entry.url,
+                userAgent = entry.userAgent,
+                requiresWebSessionHeaders = entry.requiresWebSessionHeaders,
+            )
         }
 
         // Innertube is the primary resolver (matches Metrolist's YTPlayerUtils.playerResponseForPlayback).
@@ -553,10 +570,21 @@ class MusicPlaybackService : MediaLibraryService() {
         val info = innertubeResult.getOrNull()
         if (info != null) {
             val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
-            StreamUrlCache.put(videoId, info.url, info.userAgent, expiryMs, info.clientLabel)
+            StreamUrlCache.put(
+                videoId = videoId,
+                url = info.url,
+                userAgent = info.userAgent,
+                expiryMs = expiryMs,
+                clientLabel = info.clientLabel,
+                requiresWebSessionHeaders = info.requiresWebSessionHeaders,
+            )
             rejectedYouTubeClientByVideoId.remove(videoId)
             AppLogger.i(TAG, "Innertube resolved $videoId via ${info.clientLabel} itag=${info.itag} (cached ${(expiryMs - now) / 1000}s)")
-            return Pair(info.url, info.userAgent)
+            return ResolvedStream(
+                url = info.url,
+                userAgent = info.userAgent,
+                requiresWebSessionHeaders = info.requiresWebSessionHeaders,
+            )
         }
         AppLogger.w(TAG, "Innertube failed for $videoId: ${innertubeResult.exceptionOrNull()?.message}")
 
@@ -569,9 +597,19 @@ class MusicPlaybackService : MediaLibraryService() {
         }
         val npUrl = npResult.getOrNull()
         if (npUrl != null) {
-            StreamUrlCache.put(videoId, npUrl, npUserAgent, now + 3_600_000L, "NEWPIPE")
+            StreamUrlCache.put(
+                videoId = videoId,
+                url = npUrl,
+                userAgent = npUserAgent,
+                expiryMs = now + 3_600_000L,
+                clientLabel = "NEWPIPE",
+            )
             AppLogger.i(TAG, "NewPipe fallback resolved $videoId (cached 1h)")
-            return Pair(npUrl, npUserAgent)
+            return ResolvedStream(
+                url = npUrl,
+                userAgent = npUserAgent,
+                requiresWebSessionHeaders = false,
+            )
         }
 
         val err = "Innertube and NewPipe both failed to resolve stream for $videoId"
@@ -1208,6 +1246,8 @@ class MusicPlaybackService : MediaLibraryService() {
 
     companion object {
         private const val TAG    = "MusicPlaybackService"
+        private const val STREAM_WEB_SESSION_HEADER = "X-StreamCloud-Web-Session"
+        private const val STREAM_WEB_SESSION_VALUE = "1"
         const val ROOT_ID        = "streamcloud_root"
         const val HOME_ID        = "streamcloud_home"
         const val LIBRARY_ID     = "streamcloud_library"
