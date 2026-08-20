@@ -9,6 +9,8 @@ import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerApi
 import com.streamcloud.app.data.api.EpornerCategory
+import com.streamcloud.app.data.api.bestPlayableSource
+import com.streamcloud.app.data.api.parseEpornerEmbedConfig
 import com.streamcloud.app.data.api.RedditAdultRepository
 import com.streamcloud.app.data.api.RedtubeRepository
 import com.streamcloud.app.data.api.RedditAuthRequiredException
@@ -17,6 +19,7 @@ import com.streamcloud.app.data.api.RedGifsRepository
 import com.streamcloud.app.data.library.AdultHistoryEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.network.Net
+import com.streamcloud.app.data.network.BrowserHeaders
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,6 +62,11 @@ data class AdultState(
 )
 
 private val SORT_ORDERS = listOf("most-popular", "newest", "top-rated", "most-viewed", "longest")
+
+data class EpornerPlaybackStream(
+    val url: String,
+    val headers: Map<String, String>,
+)
 
 class AdultViewModel(
     private val settings: SettingsRepository,
@@ -428,7 +436,7 @@ class AdultViewModel(
             )
         }
 
-    suspend fun resolveStreamUrl(videoId: String, fallbackEmbed: String): String {
+    suspend fun resolveEpornerPlayback(videoId: String, fallbackEmbed: String): EpornerPlaybackStream {
         val normalizedEmbed = when {
             fallbackEmbed.startsWith("//") -> "https:$fallbackEmbed"
             fallbackEmbed.startsWith("/")  -> "https://www.eporner.com$fallbackEmbed"
@@ -436,24 +444,54 @@ class AdultViewModel(
         }
         if (videoId.startsWith("direct://")) {
             val direct = videoId.removePrefix("direct://")
-            return direct.ifBlank { normalizedEmbed }
+            return EpornerPlaybackStream(
+                url = direct.ifBlank { normalizedEmbed },
+                headers = emptyMap(),
+            )
         }
         _state.update { it.copy(resolvingId = videoId, error = null) }
         return try {
-            val resp = eporner.details(id = videoId)
-            resp.videos.firstOrNull()?.bestMp4() ?: normalizedEmbed
+            require(normalizedEmbed.startsWith("https://")) {
+                "Eporner did not provide a valid playback page."
+            }
+            val config = parseEpornerEmbedConfig(eporner.embedPage(normalizedEmbed).string())
+                ?: error("Eporner did not provide a playable video configuration.")
+            val source = eporner.playbackSources(
+                videoId = config.videoId,
+                hash = config.encodedHash,
+            ).bestPlayableSource()
+                ?: error("Eporner has no stream available for this video.")
+            val url = source.src?.takeIf { it.isNotBlank() }
+                ?: error("Eporner returned an empty stream URL.")
+            EpornerPlaybackStream(
+                url = url,
+                headers = EPORNER_PLAYBACK_HEADERS,
+            )
         } catch (e: Exception) {
-            _state.update { it.copy(error = "Stream resolve failed: ${e.message}") }
-            normalizedEmbed
+            _state.update { it.copy(error = "Eporner stream unavailable: ${e.message}") }
+            throw e
         } finally {
             _state.update { it.copy(resolvingId = null) }
         }
     }
 
+    suspend fun resolveStreamUrl(videoId: String, fallbackEmbed: String): String =
+        runCatching { resolveEpornerPlayback(videoId, fallbackEmbed).url }
+            .getOrDefault("")
+
     private fun formatViews(n: Long): String = when {
         n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
         n >= 1_000     -> "%.1fK".format(n / 1_000.0)
         else           -> n.toString()
+    }
+
+    private companion object {
+        val EPORNER_PLAYBACK_HEADERS = mapOf(
+            "User-Agent" to BrowserHeaders.USER_AGENT,
+            "Referer" to "https://www.eporner.com/",
+            "Origin" to "https://www.eporner.com",
+            "Accept" to "*/*",
+        )
     }
 
     /** Switch to a different RedGifs tag and reload the feed. */
