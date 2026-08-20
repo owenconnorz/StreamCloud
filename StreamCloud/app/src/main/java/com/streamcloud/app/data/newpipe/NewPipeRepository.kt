@@ -21,6 +21,7 @@ import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo as BravePipeStreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.services.youtube.search.filter.YoutubeFilters
 import java.net.Inet4Address
 import java.util.concurrent.TimeUnit
 
@@ -115,13 +116,21 @@ object NewPipeRepository {
     suspend fun searchSongs(query: String): List<YtTrack> = withContext(Dispatchers.IO) {
         val ytm = runCatching { YtMusicSearchRepository.songs(query) }.getOrDefault(emptyList())
         if (ytm.isNotEmpty()) return@withContext ytm
-        searchTracksNewPipe(query, "music_songs", isVideo = false)
+        searchTracksNewPipe(
+            query,
+            YoutubeFilters.ID_CF_MAIN_YOUTUBE_MUSIC_SONGS,
+            isVideo = false,
+        )
     }
 
     suspend fun searchVideos(query: String): List<YtTrack> = withContext(Dispatchers.IO) {
         val ytm = runCatching { YtMusicSearchRepository.videos(query) }.getOrDefault(emptyList())
         if (ytm.isNotEmpty()) return@withContext ytm
-        searchTracksNewPipe(query, "music_videos", isVideo = true)
+        searchTracksNewPipe(
+            query,
+            YoutubeFilters.ID_CF_MAIN_YOUTUBE_MUSIC_VIDEOS,
+            isVideo = true,
+        )
     }
 
     suspend fun searchAlbums(query: String): List<YtAlbum> = withContext(Dispatchers.IO) {
@@ -138,12 +147,20 @@ object NewPipeRepository {
 
     // ── Fallback NewPipe search ───────────────────────────────────────────────────
 
-    private suspend fun searchTracksNewPipe(query: String, filter: String, isVideo: Boolean): List<YtTrack> =
+    private suspend fun searchTracksNewPipe(
+        query: String,
+        contentFilterId: Int,
+        isVideo: Boolean,
+    ): List<YtTrack> =
         withContext(Dispatchers.IO) {
             val service = BravePipeServiceList.YouTube
             val info = SearchInfo.getInfo(
                 service,
-                service.searchQHFactory.fromQuery(query, listOf(filter), ""),
+                service.searchQHFactory.fromQuery(
+                    query,
+                    listOf(service.searchQHFactory.getFilterItem(contentFilterId)),
+                    emptyList(),
+                ),
             )
             info.relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull { it.toTrack(isVideo) }
         }
@@ -153,7 +170,15 @@ object NewPipeRepository {
             val service = BravePipeServiceList.YouTube
             val info = SearchInfo.getInfo(
                 service,
-                service.searchQHFactory.fromQuery(query, listOf("music_albums"), ""),
+                service.searchQHFactory.fromQuery(
+                    query,
+                    listOf(
+                        service.searchQHFactory.getFilterItem(
+                            YoutubeFilters.ID_CF_MAIN_YOUTUBE_MUSIC_ALBUMS,
+                        ),
+                    ),
+                    emptyList(),
+                ),
             )
             info.relatedItems.filterIsInstance<PlaylistInfoItem>().mapNotNull { it.toAlbum() }
         }
@@ -163,7 +188,15 @@ object NewPipeRepository {
             val service = BravePipeServiceList.YouTube
             val info = SearchInfo.getInfo(
                 service,
-                service.searchQHFactory.fromQuery(query, listOf("music_artists"), ""),
+                service.searchQHFactory.fromQuery(
+                    query,
+                    listOf(
+                        service.searchQHFactory.getFilterItem(
+                            YoutubeFilters.ID_CF_MAIN_YOUTUBE_MUSIC_ARTISTS,
+                        ),
+                    ),
+                    emptyList(),
+                ),
             )
             info.relatedItems.filterIsInstance<ChannelInfoItem>().mapNotNull { item ->
                 val url = item.url ?: return@mapNotNull null
