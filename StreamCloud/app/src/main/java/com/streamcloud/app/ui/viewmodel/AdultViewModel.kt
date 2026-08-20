@@ -63,7 +63,7 @@ data class AdultState(
 
 private val SORT_ORDERS = listOf("most-popular", "newest", "top-rated", "most-viewed", "longest")
 
-data class EpornerPlaybackStream(
+data class EpornerResolvedPlayback(
     val url: String,
     val headers: Map<String, String>,
 )
@@ -436,7 +436,7 @@ class AdultViewModel(
             )
         }
 
-    suspend fun resolveEpornerPlayback(videoId: String, fallbackEmbed: String): EpornerPlaybackStream {
+    suspend fun resolveEpornerPlayback(videoId: String, fallbackEmbed: String): EpornerResolvedPlayback {
         val normalizedEmbed = when {
             fallbackEmbed.startsWith("//") -> "https:$fallbackEmbed"
             fallbackEmbed.startsWith("/")  -> "https://www.eporner.com$fallbackEmbed"
@@ -444,7 +444,7 @@ class AdultViewModel(
         }
         if (videoId.startsWith("direct://")) {
             val direct = videoId.removePrefix("direct://")
-            return EpornerPlaybackStream(
+            return EpornerResolvedPlayback(
                 url = direct.ifBlank { normalizedEmbed },
                 headers = emptyMap(),
             )
@@ -463,7 +463,7 @@ class AdultViewModel(
                 ?: error("Eporner has no stream available for this video.")
             val url = source.src?.takeIf { it.isNotBlank() }
                 ?: error("Eporner returned an empty stream URL.")
-            EpornerPlaybackStream(
+            EpornerResolvedPlayback(
                 url = url,
                 headers = EPORNER_PLAYBACK_HEADERS,
             )
