@@ -128,6 +128,12 @@ configurations.all {
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21")
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.21")
         force("org.jetbrains.kotlin:kotlin-stdlib-common:2.0.21")
+        // OkHttp 5.4's Android artifact requires compileSdk 36. PipePipe only uses stable
+        // OkHttp 5 request/response APIs, so keep all consumers on 5.3.2 until the project
+        // upgrades its Android Gradle Plugin and compileSdk together.
+        force("com.squareup.okhttp3:okhttp:5.3.2")
+        force("com.squareup.okhttp3:okhttp-android:5.3.2")
+        force("com.squareup.okhttp3:logging-interceptor:5.3.2")
         // PipePipe and BravePipe ship different nanojson revisions. Use the newer common
         // revision so both extractors can run in the same APK.
         force("com.github.TeamNewPipe:nanojson:c7a6c1c08d16b6d5ecded34758e6415e07be2166")
@@ -169,11 +175,9 @@ dependencies {
     // Networking (Retrofit + OkHttp + official Kotlinx serialization converter)
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0")
-    // PipePipe and the maintained reference client both use OkHttp 5.4. Pin it explicitly so
-    // Media3, Retrofit, and the extractors share one tested runtime instead of Gradle selecting
-    // a transitive major version implicitly.
-    implementation("com.squareup.okhttp3:okhttp:5.4.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:5.4.0")
+    // Keep every network consumer on the explicit, compileSdk-34-compatible OkHttp 5 runtime.
+    implementation("com.squareup.okhttp3:okhttp:5.3.2")
+    implementation("com.squareup.okhttp3:logging-interceptor:5.3.2")
 
     // Coil image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
