@@ -140,6 +140,8 @@ fun NativePlayerScreen(
     val failedSourceUrls = remember(streamUrl, restartKey) { mutableStateOf<Set<String>>(emptySet()) }
     val autoSwitchIdx    = remember(streamUrl, restartKey) { mutableStateOf(-1) }
     var autoSwitchBanner by remember { mutableStateOf<String?>(null) }
+    var playbackError by remember(streamUrl, restartKey) { mutableStateOf<String?>(null) }
+    var playbackAttempt by remember(streamUrl, restartKey) { mutableStateOf(0) }
     val activeAutoSource = if (autoSwitchIdx.value >= 0) sources.getOrNull(autoSwitchIdx.value) else null
     val effectiveUrl     = activeAutoSource?.url ?: streamUrl
     val effectiveHeaders = activeAutoSource?.headers?.takeIf { it.isNotEmpty() } ?: headers
@@ -239,15 +241,18 @@ fun NativePlayerScreen(
 
     LaunchedEffect(subtitleStyle) { applySubtitleStyle(playerViewRef.value, subtitleStyle) }
 
-    LaunchedEffect(resolvedUrl, needsWebView, restartKey) {
+    LaunchedEffect(resolvedUrl, needsWebView, restartKey, playbackAttempt) {
         player.value?.release()
         player.value = null
+        playbackError = null
         if (needsWebView) return@LaunchedEffect
         val url = resolvedUrl ?: return@LaunchedEffect
+        val playerUserAgent = effectiveHeaders["User-Agent"] ?: "StreamCloud/1.0 (ExoPlayer)"
+        val requestHeaders = effectiveHeaders - "User-Agent"
         val httpFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setUserAgent("StreamCloud/1.0 (ExoPlayer)")
-            .also { f -> if (effectiveHeaders.isNotEmpty()) f.setDefaultRequestProperties(effectiveHeaders) }
+            .setUserAgent(playerUserAgent)
+            .also { f -> if (requestHeaders.isNotEmpty()) f.setDefaultRequestProperties(requestHeaders) }
         val dsFactory: DataSource.Factory = DefaultDataSource.Factory(context, httpFactory)
         val mediaItem = MediaItem.fromUri(url)
         val source: MediaSource = when {
@@ -354,13 +359,19 @@ fun NativePlayerScreen(
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
             override fun onPlaybackStateChanged(state: Int) { durationMs = ex.duration.coerceAtLeast(0L) }
             override fun onPlayerError(error: PlaybackException) {
-                if (sources.size <= 1) return
+                if (sources.size <= 1) {
+                    playbackError = "This stream could not be played. It may have expired or been rejected by the provider."
+                    return
+                }
                 val failedUrl = activeAutoSource?.url ?: streamUrl
                 failedSourceUrls.value = failedSourceUrls.value + failedUrl
                 val failed = failedSourceUrls.value
                 val nextIdx = sources.indexOfFirst { it.url !in failed }
                 if (nextIdx >= 0) { autoSwitchBanner = "Source failed · trying ${sources[nextIdx].label}…"; autoSwitchIdx.value = nextIdx }
-                else autoSwitchBanner = "All sources failed"
+                else {
+                    autoSwitchBanner = "All sources failed"
+                    playbackError = "All available sources failed. Try refreshing the streams."
+                }
             }
         }
         ex.addListener(listener)
@@ -605,6 +616,39 @@ fun NativePlayerScreen(
                 .clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.72f))
                 .padding(horizontal = 18.dp, vertical = 8.dp)) {
                 Text(banner, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+
+        playbackError?.let { message ->
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xEE191919),
+                tonalElevation = 6.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        "Playback failed",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        message,
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    Button(onClick = { playbackAttempt++ }) {
+                        Text("Try again")
+                    }
+                }
             }
         }
 
