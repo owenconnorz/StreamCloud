@@ -435,6 +435,7 @@ object YtPlayerUtils {
     data class AudioFormatInfo(
         val url: String,
         val userAgent: String,
+        val clientLabel: String,
         val itag: Int,
         val mimeType: String,
         val bitrate: Long,
@@ -456,11 +457,16 @@ object YtPlayerUtils {
         preferItag: Int? = null,
         preferHighQuality: Boolean = true,
         sonosSafe: Boolean = false,
+        excludedClientLabels: Set<String> = emptySet(),
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
         ensureVisitorData()
         val isLoggedIn = ytMusicCookie.isNotBlank()
 
-        for (client in CLIENTS) {
+        for (client in CLIENTS.sortedBy { playbackClientPriority(it.label) }) {
+            if (client.label in excludedClientLabels) {
+                AppLogger.i(TAG, "[${client.label}] skipped — previous stream URL was rejected by the CDN")
+                continue
+            }
             if (client.requiresAuth && !isLoggedIn) {
                 Log.d(TAG, "[${client.label}] skipped — requires auth")
                 continue
@@ -597,6 +603,26 @@ object YtPlayerUtils {
 
     suspend fun resolveAudioStream(videoId: String, sonosSafe: Boolean = false): String? =
         resolveAudioFormatInfo(videoId, sonosSafe = sonosSafe)?.url
+
+    private fun playbackClientPriority(label: String): Int = when (label) {
+        // Android VR is the current reliable no-PoToken family. Legacy TESTSUITE is retained
+        // only as a final fallback because YouTube now commonly 403s its CDN URLs.
+        "ANDROID_VR_1_61"         -> 0
+        "ANDROID_VR_NO_AUTH"      -> 1
+        "ANDROID_VR_MUSIC"        -> 2
+        "WEB_REMIX"               -> 3
+        "TVHTML5"                 -> 4
+        "TVHTML5_SIMPLY_EMBEDDED" -> 5
+        "ANDROID_VR_1_43"         -> 6
+        "ANDROID_CREATOR"         -> 7
+        "MOBILE"                  -> 8
+        "IPADOS"                  -> 9
+        "IOS"                     -> 10
+        "WEB"                     -> 11
+        "WEB_CREATOR"             -> 12
+        "ANDROID_TESTSUITE"       -> 99
+        else                       -> 50
+    }
 
     // ── Music video detection + stream resolution ─────────────────────────────────────────────
 
@@ -763,6 +789,7 @@ object YtPlayerUtils {
                 AudioFormatInfo(
                     url              = url,
                     userAgent        = client.userAgent,
+                    clientLabel      = client.label,
                     itag             = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
                     mimeType         = best["mimeType"]?.jsonPrimitive?.content.orEmpty(),
                     bitrate          = best["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
