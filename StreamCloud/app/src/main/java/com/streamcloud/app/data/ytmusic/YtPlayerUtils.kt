@@ -614,22 +614,23 @@ object YtPlayerUtils {
         resolveAudioFormatInfo(videoId, sonosSafe = sonosSafe)?.url
 
     private fun playbackClientPriority(label: String): Int = when (label) {
-        // Android VR is the current reliable no-PoToken family. Legacy TESTSUITE is retained
-        // only as a final fallback because YouTube now commonly 403s its CDN URLs.
-        "ANDROID_VR_1_61"         -> 0
-        "ANDROID_VR_NO_AUTH"      -> 1
-        "ANDROID_VR_MUSIC"        -> 2
-        "WEB_REMIX"               -> 3
-        "TVHTML5"                 -> 4
-        "TVHTML5_SIMPLY_EMBEDDED" -> 5
-        "ANDROID_VR_1_43"         -> 6
-        "ANDROID_CREATOR"         -> 7
-        "MOBILE"                  -> 8
-        "IPADOS"                  -> 9
-        "IOS"                     -> 10
-        "WEB"                     -> 11
-        "WEB_CREATOR"             -> 12
-        "ANDROID_TESTSUITE"       -> 99
+        // TESTSUITE is currently the only client in this chain whose URLs consistently bypass
+        // YouTube's n/PoToken CDN checks. VR clients can still unlock Music-exclusive tracks,
+        // so they remain the next fallback rather than being selected for every track first.
+        "ANDROID_TESTSUITE"       -> 0
+        "ANDROID_VR_MUSIC"        -> 1
+        "ANDROID_VR_1_61"         -> 2
+        "ANDROID_VR_NO_AUTH"      -> 3
+        "ANDROID_VR_1_43"         -> 4
+        "WEB_REMIX"               -> 5
+        "TVHTML5"                 -> 6
+        "TVHTML5_SIMPLY_EMBEDDED" -> 7
+        "ANDROID_CREATOR"         -> 8
+        "MOBILE"                  -> 9
+        "IPADOS"                  -> 10
+        "IOS"                     -> 11
+        "WEB"                     -> 12
+        "WEB_CREATOR"             -> 13
         else                       -> 50
     }
 
