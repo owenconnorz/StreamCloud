@@ -800,7 +800,7 @@ fun NowPlayingShell(
 
     if (showSonos) {
         SonosDevicePickerSheet(
-            videoId = videoId,
+            videoId = trackVideoId,
             title = title,
             watchUrl = sonosCastWatchUrl,
             onDismiss = { showSonos = false },
