@@ -222,6 +222,17 @@ fun YtPlaylistScreen(
         }
     }
 
+    // A playlist opens before its first row can be tapped. Resolve the visible queue during that
+    // interval so starting a track normally consumes a warmed stream rather than beginning a
+    // resolver waterfall after the tap.
+    LaunchedEffect(tracks) {
+        tracks?.let { songs ->
+            com.streamcloud.app.data.ytmusic.YtMusicStreamResolver.prime(
+                songs.map(YtmSong::videoId),
+            )
+        }
+    }
+
     fun playSongHandoff(list: List<YtmSong>, index: Int) {
         if (list.getOrNull(index) == null) return
         scope.launch {

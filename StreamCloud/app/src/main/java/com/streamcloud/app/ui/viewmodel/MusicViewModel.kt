@@ -84,6 +84,16 @@ class MusicViewModel(context: Context) : ViewModel() {
     private val settings = com.streamcloud.app.data.ServiceLocator.get(context).settings
     private var sleepJob: Job? = null
 
+    private fun primeTracks(tracks: Iterable<YtTrack>) {
+        com.streamcloud.app.data.ytmusic.YtMusicStreamResolver.prime(
+            tracks
+                .asSequence()
+                .map(YtTrack::videoId)
+                .filter(String::isNotBlank)
+                .toList(),
+        )
+    }
+
     init {
         loadHomeFeed()
         loadYtHome()
@@ -133,6 +143,7 @@ class MusicViewModel(context: Context) : ViewModel() {
             try {
                 val feed = NewPipeRepository.homeFeed()
                 _state.update { it.copy(homeFeed = feed, homeLoading = false) }
+                primeTracks(feed)
             } catch (e: Exception) {
                 Log.e("MusicViewModel", "loadHomeFeed failed: ${e.message}", e)
                 _state.update { it.copy(homeLoading = false) }
@@ -228,6 +239,10 @@ class MusicViewModel(context: Context) : ViewModel() {
                         }
                     }
                 }
+                // Search rows are immediately tappable. Start their stream resolution as soon as
+                // results render so a user tap consumes a warm cache entry instead of starting a
+                // player-client request from scratch.
+                primeTracks(_state.value.tracks)
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = "Search failed: ${e.message}") }
             }
@@ -306,13 +321,15 @@ class MusicViewModel(context: Context) : ViewModel() {
         }
     }
 
-    private fun YtTrack.toYtmSong(): com.streamcloud.app.data.ytmusic.YtmSong {
-        val videoId = url
+    private fun YtTrack.videoId(): String =
+        url
             .substringAfter("v=", missingDelimiterValue = "")
             .substringBefore("&")
             .ifBlank { url.substringAfterLast("/") }
+
+    private fun YtTrack.toYtmSong(): com.streamcloud.app.data.ytmusic.YtmSong {
         return com.streamcloud.app.data.ytmusic.YtmSong(
-            videoId = videoId,
+            videoId = videoId(),
             title = title,
             artist = uploader,
             album = null,
