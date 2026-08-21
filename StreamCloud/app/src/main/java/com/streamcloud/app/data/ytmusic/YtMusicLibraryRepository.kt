@@ -269,24 +269,19 @@ object YtMusicLibraryRepository {
     ): List<YtmSong> =
         withContext(Dispatchers.IO) {
             val client = InnerTubeClient(cookie)
-            // MPREb_ = YouTube Music album browse ID → use as-is (no VL prefix)
-            // VL…   = already a playlist browse ID → keep as-is
-            // everything else (PL…, OLAK5uy_…, etc.) → prepend VL
-            val browseId = when {
-                playlistId.startsWith("VL") -> playlistId
-                playlistId.startsWith("MPREb_") -> playlistId
-                else -> "VL$playlistId"
-            }
+            val browseId = playlistId.toMusicBrowseId()
             val first = client.browse(browseId) ?: return@withContext emptyList()
 
             // Extract album cover from page header as thumbnail fallback.
             // Album pages (MPREb_, OLAK5uy_) never include per-track thumbnails.
             // externalThumb (passed from the artist-page card) is used as the final fallback.
-            val headerRenderer = first.findFirst("musicDetailHeaderRenderer")?.jsonObject
-                ?: first.findFirst("musicImmersiveHeaderRenderer")?.jsonObject
-            val albumCover: String? =
-                headerRenderer?.get("thumbnail").bestThumbnail()
-                    ?: externalThumb
+            val headerRenderer = listOf(
+                first.findFirst("musicDetailHeaderRenderer"),
+                first.findFirst("musicImmersiveHeaderRenderer"),
+                first.findFirst("musicEditablePlaylistDetailHeaderRenderer"),
+                first.findFirst("musicResponsiveHeaderRenderer"),
+            ).firstNotNullOfOrNull { it as? JsonObject }
+            val albumCover: String? = headerRenderer.bestThumbnail() ?: externalThumb
 
             // Extract album artist from the header subtitle — the artist run is the one
             // that carries a navigation endpoint (browseEndpoint to their channel).

@@ -1,5 +1,7 @@
 package com.streamcloud.app.data.ytmusic
 
+import java.util.concurrent.ConcurrentHashMap
+
 data class YtmPlaylist(
 
     val id: String,
@@ -31,6 +33,23 @@ data class YtmSong(
     val durationSeconds: Long?,
     val isVideo: Boolean = false,
 )
+
+/**
+ * Preserves a home-card cover while navigating to its playlist screen.
+ *
+ * A card thumbnail is a URL and can be altered by route encoding/decoding. Keeping this
+ * process-local handoff keyed by the exact browse ID makes the detail screen independent of
+ * navigation argument parsing. The route thumbnail remains as a process-death fallback.
+ */
+object YtPlaylistArtworkHandoff {
+    private val artwork = ConcurrentHashMap<String, String>()
+
+    fun remember(playlistId: String, thumbnail: String?) {
+        thumbnail?.takeIf { it.isNotBlank() }?.let { artwork[playlistId] = it }
+    }
+
+    fun get(playlistId: String): String? = artwork[playlistId]
+}
 
 data class YtMusicLibrary(
     val likedSongs: List<YtmSong> = emptyList(),

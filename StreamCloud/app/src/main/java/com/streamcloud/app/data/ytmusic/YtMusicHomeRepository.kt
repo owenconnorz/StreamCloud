@@ -141,12 +141,19 @@ object YtMusicHomeRepository {
         val thumb = renderer["thumbnailRenderer"].bestThumbnail()
             ?: renderer.bestThumbnailAnywhere()
 
-        // ID: search title element first, then fall back to searching the whole renderer
-        // (auto-generated mixes and shows often put the ID in overlays or nav endpoints)
-        val browseId = (titleEl.findFirst("browseId") ?: renderer.findFirst("browseId")) as? JsonPrimitive
-        val playlistId = (titleEl.findFirst("playlistId") ?: renderer.findFirst("playlistId")) as? JsonPrimitive
-        val videoId = (titleEl.findFirst("videoId") ?: renderer.findFirst("videoId")) as? JsonPrimitive
-        val id = (browseId ?: playlistId ?: videoId)?.contentOrNull ?: return null
+        // Prefer the title's own navigation endpoint. A card can also include endpoints for its
+        // artist, overflow menu, or overlay; a generic recursive browseId lookup can select one
+        // of those and send every home category to the wrong page.
+        val browseId = titleEl.musicBrowseId()
+            ?: renderer["navigationEndpoint"].musicBrowseId()
+            ?: renderer["playNavigationEndpoint"].musicBrowseId()
+        val playlistId = titleEl.musicPlaylistId()
+            ?: renderer["navigationEndpoint"].musicPlaylistId()
+            ?: renderer["playNavigationEndpoint"].musicPlaylistId()
+        val videoId = titleEl.musicVideoId()
+            ?: renderer["navigationEndpoint"].musicVideoId()
+            ?: renderer["playNavigationEndpoint"].musicVideoId()
+        val id = browseId ?: playlistId?.toMusicBrowseId() ?: videoId ?: return null
 
         val isAlbum = subtitle?.contains("Album", ignoreCase = true) == true ||
             subtitle?.contains("Single", ignoreCase = true) == true
