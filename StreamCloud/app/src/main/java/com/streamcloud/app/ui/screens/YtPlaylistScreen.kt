@@ -331,8 +331,15 @@ fun YtPlaylistScreen(
                         .padding(padding)
                         .verticalScrollbar(
                             state = listState,
-                            width = 5.dp,
-                            dragGestureWidth = 56.dp,
+                            width = 8.dp,
+                            dragGestureWidth = 24.dp,
+                            minThumbHeight = 72.dp,
+                            fixedThumbHeight = 72.dp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                            activeColor = MaterialTheme.colorScheme.secondary,
+                            alwaysVisible = true,
+                            minItemCountForScroll = 15,
+                            headerItems = if (searchActive) 0 else 1,
                         ),
                 ) {
                 // Hide the hero when search is active so results start immediately

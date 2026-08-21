@@ -27,15 +27,24 @@ fun Modifier.verticalScrollbar(
     width: Dp = 3.dp,
     dragGestureWidth: Dp = 48.dp,
     minThumbHeight: Dp = 48.dp,
+    fixedThumbHeight: Dp? = null,
     color: Color = Color.White.copy(alpha = 0.35f),
+    activeColor: Color = color,
     fadeOutDelayMs: Int = 800,
+    alwaysVisible: Boolean = false,
+    minItemCountForScroll: Int = 1,
+    headerItems: Int = 0,
 ): Modifier = composed {
     val scope = rememberCoroutineScope()
     var isDragging by remember { mutableStateOf(false) }
 
     val isScrolling = state.isScrollInProgress
+    val layoutInfo = state.layoutInfo
+    val contentItemCount = (layoutInfo.totalItemsCount - headerItems).coerceAtLeast(0)
+    val hasScrollableContent = contentItemCount > minItemCountForScroll &&
+        contentItemCount > layoutInfo.visibleItemsInfo.size
     val alpha by animateFloatAsState(
-        targetValue = if (isScrolling || isDragging) 1f else 0f,
+        targetValue = if (hasScrollableContent && (alwaysVisible || isScrolling || isDragging)) 1f else 0f,
         animationSpec = tween(
             durationMillis = if (isScrolling || isDragging) 150 else fadeOutDelayMs,
         ),
@@ -48,15 +57,22 @@ fun Modifier.verticalScrollbar(
                 awaitPointerEventScope {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     if (size.width - down.position.x > dragGestureWidth.toPx()) return@awaitPointerEventScope
+                    val info = state.layoutInfo
+                    val contentItems = (info.totalItemsCount - headerItems).coerceAtLeast(0)
+                    if (contentItems <= minItemCountForScroll ||
+                        contentItems <= info.visibleItemsInfo.size
+                    ) return@awaitPointerEventScope
                     isDragging = true
                     down.consume()
                     drag(down.id) { change ->
                         val fraction = (change.position.y / size.height.toFloat()).coerceIn(0f, 1f)
                         val totalItems = state.layoutInfo.totalItemsCount
-                        if (totalItems > 0) {
+                        val scrollableItems = (totalItems - headerItems).coerceAtLeast(0)
+                        if (scrollableItems > 0) {
                             scope.launch {
                                 state.scrollToItem(
-                                    (fraction * totalItems).toInt().coerceIn(0, totalItems - 1)
+                                    (headerItems + (fraction * (scrollableItems - 1)).toInt())
+                                        .coerceIn(headerItems, totalItems - 1)
                                 )
                             }
                         }
@@ -72,7 +88,8 @@ fun Modifier.verticalScrollbar(
 
             val info = state.layoutInfo
             val totalItems = info.totalItemsCount
-            if (totalItems == 0) return@drawWithContent
+            val contentItems = (totalItems - headerItems).coerceAtLeast(0)
+            if (contentItems <= minItemCountForScroll) return@drawWithContent
 
             val visibleItems = info.visibleItemsInfo
             if (visibleItems.isEmpty()) return@drawWithContent
@@ -81,13 +98,15 @@ fun Modifier.verticalScrollbar(
             val firstItem = visibleItems.first()
 
             val avgItemHeight = visibleItems.sumOf { it.size } / visibleItems.size.toFloat()
-            val estimatedTotalHeight = (avgItemHeight * totalItems)
+            val estimatedTotalHeight = (avgItemHeight * contentItems)
                 .coerceAtLeast(viewportHeight.toFloat())
 
-            val thumbHeightPx = ((viewportHeight / estimatedTotalHeight) * viewportHeight)
+            val calculatedThumbHeightPx = ((viewportHeight / estimatedTotalHeight) * viewportHeight)
                 .coerceAtLeast(minThumbHeight.toPx())
+            val thumbHeightPx = (fixedThumbHeight?.toPx() ?: calculatedThumbHeightPx)
+                .coerceAtMost(viewportHeight.toFloat())
 
-            val scrolledPast = (firstItem.index * avgItemHeight) - firstItem.offset
+            val scrolledPast = ((firstItem.index - headerItems).coerceAtLeast(0) * avgItemHeight) - firstItem.offset
             val maxScroll = estimatedTotalHeight - viewportHeight
             val scrollFraction = if (maxScroll > 0) (scrolledPast / maxScroll).coerceIn(0f, 1f) else 0f
 
@@ -95,7 +114,9 @@ fun Modifier.verticalScrollbar(
             val barWidth = width.toPx()
 
             drawRoundRect(
-                color = color.copy(alpha = color.alpha * alpha),
+                color = (if (isDragging) activeColor else color).copy(
+                    alpha = (if (isDragging) activeColor else color).alpha * alpha
+                ),
                 topLeft = Offset(size.width - barWidth - 2.dp.toPx(), thumbTop),
                 size = Size(barWidth, thumbHeightPx),
                 cornerRadius = CornerRadius(barWidth / 2, barWidth / 2),
