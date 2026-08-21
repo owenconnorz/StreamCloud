@@ -103,6 +103,8 @@ object SettingsKeys {
 
     val MUSIC_SEARCH_HISTORY  = stringPreferencesKey("music_search_history")
     val MOVIE_SEARCH_HISTORY  = stringPreferencesKey("movie_search_history")
+    val DJ_NARRATION_ENABLED  = booleanPreferencesKey("dj_narration_enabled")
+    val DJ_VOICE_PRESET       = stringPreferencesKey("dj_voice_preset")
 
     // Movies / video
     val MOVIES_THEME          = stringPreferencesKey("movies_theme")
@@ -325,6 +327,19 @@ class SettingsRepository(private val context: Context) {
             ?.filter { it.isNotBlank() }
             ?: emptyList()
     }
+
+    val djNarrationEnabled: Flow<Boolean> = context.dataStore.data.map {
+        it[SettingsKeys.DJ_NARRATION_ENABLED] ?: true
+    }
+    val djVoicePreset: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.DJ_VOICE_PRESET] ?: "BrightHost"
+    }
+
+    suspend fun setDjNarrationEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[SettingsKeys.DJ_NARRATION_ENABLED] = enabled }
+
+    suspend fun setDjVoicePreset(preset: String) =
+        context.dataStore.edit { it[SettingsKeys.DJ_VOICE_PRESET] = preset }
 
     suspend fun addMusicSearchHistory(query: String) {
         val trimmed = query.trim()
