@@ -61,6 +61,39 @@ object SonosRepository {
 
     private const val STREAM_PREPARATION_TIMEOUT_MS = 35_000L
 
+    private data class PreparedSonosStream(
+        val url: String?,
+        val mimeType: String,
+        val userAgent: String,
+    )
+
+    private suspend fun prepareSonosStream(
+        videoId: String,
+        watchUrl: String,
+    ): PreparedSonosStream {
+        val formatInfo = if (videoId.isNotBlank()) {
+            runCatching {
+                YtPlayerUtils.resolveAudioFormatInfo(videoId, sonosSafe = true)
+            }.getOrNull()
+        } else {
+            null
+        }
+        val extractorStream = if (formatInfo?.url == null) {
+            runCatching {
+                NewPipeRepository.resolveVerifiedAudioStream(watchUrl)
+            }.getOrNull()
+        } else {
+            null
+        }
+        return PreparedSonosStream(
+            url = formatInfo?.url ?: extractorStream?.url,
+            mimeType = formatInfo?.mimeType?.substringBefore(";")?.trim() ?: "audio/mp4",
+            userAgent = formatInfo?.userAgent
+                ?: extractorStream?.userAgent
+                ?: SonosProxyServer.DEFAULT_UPSTREAM_USER_AGENT,
+        )
+    }
+
     // ── Position polling ──────────────────────────────────────────────────────
 
     private fun startPositionPolling(device: SonosDevice) {
@@ -160,22 +193,9 @@ object SonosRepository {
                 // Lazy resolution during Sonos's synchronous URI probe causes the SOAP call
                 // to time-out (even at 30 s) and Sonos reports "stream rejected."
                 val preparedStream = withTimeoutOrNull(STREAM_PREPARATION_TIMEOUT_MS) {
-                    val formatInfo = withContext(Dispatchers.IO) {
-                        if (videoId.isNotBlank()) {
-                            runCatching {
-                                YtPlayerUtils.resolveAudioFormatInfo(videoId, sonosSafe = true)
-                            }.getOrNull()
-                        } else {
-                            null
-                        }
-                    }
-                    val resolvedUrl = formatInfo?.url
-                        ?: withContext(Dispatchers.IO) {
-                            runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
-                        }
-                    formatInfo to resolvedUrl
+                    prepareSonosStream(videoId, watchUrl)
                 }
-                val prepared = preparedStream?.takeIf { it.second != null }
+                val prepared = preparedStream?.takeIf { it.url != null }
                 if (prepared == null) {
                     _castState.update {
                         CastState.Error(
@@ -184,12 +204,9 @@ object SonosRepository {
                     }
                     return@launch
                 }
-                val formatInfo = prepared.first
-                val resolvedUrl = requireNotNull(prepared.second)
-                // Normalise MIME type to bare type (strip codec params) so DIDL/HEAD agree.
-                val mimeType = formatInfo?.mimeType
-                    ?.substringBefore(";")?.trim()
-                    ?: "audio/mp4"
+                val resolvedUrl = requireNotNull(prepared.url)
+                val mimeType = prepared.mimeType
+                val userAgent = prepared.userAgent
 
                 // IMPORTANT: call start() BEFORE setTrack().
                 // start() internally calls stop() which clears currentTrack — if setTrack() ran
@@ -203,6 +220,7 @@ object SonosRepository {
                         watchUrl    = watchUrl,
                         resolvedUrl = resolvedUrl,
                         mimeType    = mimeType,
+                        userAgent   = userAgent,
                     ),
                 )
                 val resolvedTag = if (resolvedUrl != null) "pre-resolved" else "lazy"
@@ -298,16 +316,17 @@ object SonosRepository {
 
             // Use resolveAudioFormatInfo (same as connect()) so we also get the mimeType,
             // which the proxy needs for correct Content-Type in HEAD responses.
-            val formatInfo = withContext(Dispatchers.IO) {
-                if (videoId.isNotBlank())
-                    runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId, sonosSafe = true) }.getOrNull()
-                else null
+            val preparedStream = withTimeoutOrNull(STREAM_PREPARATION_TIMEOUT_MS) {
+                prepareSonosStream(videoId, watchUrl)
             }
-            val resolvedUrl: String? = formatInfo?.url
-                ?: withContext(Dispatchers.IO) {
-                    runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
-                }
-            val mimeType = formatInfo?.mimeType?.substringBefore(";")?.trim() ?: "audio/mp4"
+            val prepared = preparedStream?.takeIf { it.url != null }
+            if (prepared == null) {
+                Log.w(TAG, "updateTrack could not prepare a stream for $videoId")
+                return@launch
+            }
+            val resolvedUrl = requireNotNull(prepared.url)
+            val mimeType = prepared.mimeType
+            val userAgent = prepared.userAgent
 
             // start() calls stop() internally which clears currentTrack — must call
             // start() FIRST, then setTrack(), so Sonos's HEAD probe after setUri finds
@@ -320,6 +339,7 @@ object SonosRepository {
                     watchUrl    = watchUrl,
                     resolvedUrl = resolvedUrl,
                     mimeType    = mimeType,
+                    userAgent   = userAgent,
                 ),
             )
 
