@@ -21,9 +21,11 @@ import com.streamcloud.app.data.stremio.StremioRepository
 import com.lagradost.cloudstream3.SearchResponse
 import com.streamcloud.app.data.plugins.PinnedCsSection
 import com.streamcloud.app.data.plugins.PluginRuntime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -121,6 +123,7 @@ class MoviesViewModel(
     val state: StateFlow<MoviesState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+    private var searchRequestId = 0L
 
     // Separate hero-banner caches so TMDB and Stremio items can update independently
     @Volatile private var tmdbHeroItems: List<HeroBannerItem> = emptyList()
@@ -387,8 +390,9 @@ class MoviesViewModel(
         }
     }
 
-    fun search(query: String) {
+    fun search(query: String, forceRefresh: Boolean = false) {
         searchJob?.cancel()
+        val requestId = ++searchRequestId
         if (query.isBlank()) {
             _state.update {
                 it.copy(
@@ -400,40 +404,66 @@ class MoviesViewModel(
             }
             return
         }
+        // A submitted search must replace every live type-ahead section. In particular,
+        // CloudStream results are appended as plugins finish, so leaving old items here would
+        // produce duplicate cards after the keyboard Search action forces a fresh request.
+        _state.update {
+            it.copy(
+                searchResults = emptyList(),
+                tvSearchResults = emptyList(),
+                csSearchResults = emptyList(),
+                stremioSearchResults = emptyList(),
+                moviesLoading = true,
+                seriesLoading = true,
+                csLoading = true,
+                stremioLoading = true,
+                error = null,
+            )
+        }
         searchJob = viewModelScope.launch {
             delay(120)
+            if (requestId != searchRequestId) return@launch
             val q = query.trim()
 
             // Check cache first — serve instantly if available
-            val cached = tmdbCache[q.lowercase()]
+            val cached = if (forceRefresh) null else tmdbCache[q.lowercase()]
             if (cached != null) {
-                _state.update {
-                    it.copy(
-                        searchResults = cached.first,
-                        tvSearchResults = cached.second,
-                        moviesLoading = false,
-                        seriesLoading = false,
-                    )
+                if (requestId == searchRequestId) {
+                    _state.update {
+                        it.copy(
+                            searchResults = cached.first,
+                            tvSearchResults = cached.second,
+                            moviesLoading = false,
+                            seriesLoading = false,
+                        )
+                    }
                 }
-            } else {
-                _state.update { it.copy(moviesLoading = true, seriesLoading = true) }
             }
-            _state.update { it.copy(csLoading = true, stremioLoading = true, error = null) }
 
             // ── TMDB movies (only if not cached) ──────────────────────────
             if (cached == null) {
                 launch {
-                    val movies = runCatching {
+                    val movies = try {
                         sl.tmdb.search(sl.tmdbApiKey, q).results
-                    }.getOrDefault(emptyList())
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                    if (requestId != searchRequestId) return@launch
                     tmdbCache[q.lowercase()] = Pair(movies, tmdbCache[q.lowercase()]?.second ?: emptyList())
                     _state.update { it.copy(searchResults = movies, moviesLoading = false) }
                 }
                 // ── TMDB series ───────────────────────────────────────────
                 launch {
-                    val tv = runCatching {
+                    val tv = try {
                         sl.tmdb.searchTv(sl.tmdbApiKey, q).results
-                    }.getOrDefault(emptyList())
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                    if (requestId != searchRequestId) return@launch
                     val existing = tmdbCache[q.lowercase()]?.first ?: emptyList()
                     tmdbCache[q.lowercase()] = Pair(existing, tv)
                     _state.update { it.copy(tvSearchResults = tv, seriesLoading = false) }
@@ -443,39 +473,46 @@ class MoviesViewModel(
             // ── CloudStream (per-plugin, streams results as each plugin finishes) ──
             launch {
                 val plugins = pluginRepo.installed.first()
+                if (requestId != searchRequestId) return@launch
                 if (plugins.isEmpty()) {
                     _state.update { it.copy(csLoading = false) }
                     return@launch
                 }
-                plugins.forEach { plugin ->
-                    launch {
-                        val results = runCatching {
+                val results = coroutineScope {
+                    plugins.map { plugin ->
+                        async {
+                            try {
                             PluginRuntime.search(appContext, plugin.filePath, q)
                                 .map { CsSearchResult(plugin.name, plugin.internalName, plugin.filePath, it) }
-                        }.getOrDefault(emptyList())
-                        if (results.isNotEmpty()) {
-                            _state.update { s ->
-                                s.copy(csSearchResults = s.csSearchResults + results)
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Exception) {
+                                emptyList()
                             }
                         }
-                    }
+                    }.awaitAll().flatten()
                 }
-                // All plugin launches are child coroutines; mark done after they finish
-                // (we don't await here — each plugin updates state independently)
-                _state.update { it.copy(csLoading = false) }
+                if (requestId != searchRequestId) return@launch
+                _state.update { it.copy(csSearchResults = results, csLoading = false) }
             }
 
             // ── Stremio ───────────────────────────────────────────────────
             launch {
                 val addons = stremioRepo.addons.first()
+                if (requestId != searchRequestId) return@launch
                 if (addons.isEmpty()) {
                     _state.update { it.copy(stremioLoading = false) }
                     return@launch
                 }
-                val results = runCatching {
+                val results = try {
                     stremioRepo.searchAllAddons(addons, q)
                         .map { (addon, meta) -> StremioSearchResult(addon.name, addon.id, meta) }
-                }.getOrDefault(emptyList())
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                if (requestId != searchRequestId) return@launch
                 _state.update { it.copy(stremioSearchResults = results, stremioLoading = false) }
             }
         }

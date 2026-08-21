@@ -24,6 +24,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -53,6 +54,7 @@ fun MovieSearchScreen(
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
@@ -94,7 +96,16 @@ fun MovieSearchScreen(
                         },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
-                            onSearch = { vm.saveToHistory(query) },
+                            onSearch = {
+                                val submittedQuery = query.trim()
+                                if (submittedQuery.length >= 2) {
+                                    // Re-run every provider (TMDB, installed addons, and Stremio)
+                                    // when the keyboard Search button is pressed.
+                                    vm.search(submittedQuery, forceRefresh = true)
+                                    vm.saveToHistory(submittedQuery)
+                                }
+                                focusManager.clearFocus()
+                            },
                         ),
                         shape = RoundedCornerShape(28.dp),
                         colors = TextFieldDefaults.colors(

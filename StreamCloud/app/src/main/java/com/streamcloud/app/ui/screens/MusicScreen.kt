@@ -495,18 +495,18 @@ private fun MusicHeader(
             modifier = Modifier.weight(1f),
         )
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MusicHeaderAction(
-                icon = Icons.Default.History,
-                contentDescription = "Recently played",
-                onClick = onHistoryClick,
-            )
             MusicHeaderAction(
                 icon = Icons.Default.Search,
                 contentDescription = "Search music",
                 onClick = onSearchClick,
+            )
+            MusicHeaderAction(
+                icon = Icons.Default.History,
+                contentDescription = "Recently played",
+                onClick = onHistoryClick,
             )
             MusicHeaderAction(
                 icon = Icons.Default.TrendingUp,
@@ -525,7 +525,7 @@ private fun MusicHeaderAction(
 ) {
     Box(
         modifier = Modifier
-            .size(36.dp)
+            .size(44.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
@@ -535,7 +535,7 @@ private fun MusicHeaderAction(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(23.dp),
         )
     }
 }
