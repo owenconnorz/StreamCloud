@@ -3,6 +3,7 @@ package com.streamcloud.app.data.ytmusic
 import android.content.Context
 import android.util.Log
 import com.streamcloud.app.data.AppLogger
+import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.potoken.PoTokenGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -753,6 +754,23 @@ object YtPlayerUtils {
             } catch (e: Exception) {
                 AppLogger.w(TAG, "resolveVideoStream $videoId via ${client.label} — ${e.message}")
             }
+        }
+
+        val extractorStream = runCatching {
+            NewPipeRepository.resolveVerifiedVideoStream("https://www.youtube.com/watch?v=$videoId")
+        }.onFailure { error ->
+            AppLogger.w(TAG, "resolveVideoStream $videoId — extractor fallback failed: ${error.message}")
+        }.getOrNull()
+        if (extractorStream != null) {
+            AppLogger.i(
+                TAG,
+                "resolveVideoStream $videoId via ${extractorStream.resolverLabel} extractor fallback",
+            )
+            return@withContext VideoStreamResult(
+                isMusicVideo = true,
+                url = extractorStream.url,
+                userAgent = extractorStream.userAgent,
+            )
         }
 
         VideoStreamResult(isMusicVideo = foundVisualTrack, url = null)

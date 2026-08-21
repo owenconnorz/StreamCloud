@@ -91,10 +91,22 @@ object NewPipeRepository {
         val userAgent: String = PipePipeDownloader.PLAYBACK_USER_AGENT,
     )
 
+    data class ExtractedVideoStream(
+        val url: String,
+        val resolverLabel: String,
+        val userAgent: String = PipePipeDownloader.PLAYBACK_USER_AGENT,
+    )
+
     private data class AudioCandidate(
         val url: String,
         val container: String?,
         val averageBitrate: Int,
+    )
+
+    private data class VideoCandidate(
+        val url: String,
+        val container: String?,
+        val height: Int,
     )
 
     // ── Suggestions ───────────────────────────────────────────────────────────────
@@ -371,6 +383,16 @@ object NewPipeRepository {
             resolveWithPipePipe(url) ?: resolveWithBravePipe(url)
         }
 
+    /**
+     * Resolves a visual MP4 stream through the same maintained extractors used for audio. A
+     * video-only DASH track is sufficient because Now Playing keeps this player muted and synced
+     * to the primary audio player.
+     */
+    suspend fun resolveVerifiedVideoStream(url: String): ExtractedVideoStream? =
+        withContext(Dispatchers.IO) {
+            resolveVideoWithPipePipe(url) ?: resolveVideoWithBravePipe(url)
+        }
+
     /** Maintains the legacy URL-only call surface for downloads, Sonos, and older call sites. */
     suspend fun resolveAudioStream(url: String): String =
         resolveVerifiedAudioStream(url)?.url
@@ -442,6 +464,78 @@ object NewPipeRepository {
         }
     }
 
+    private fun resolveVideoWithPipePipe(watchUrl: String): ExtractedVideoStream? = runCatching {
+        synchronized(pipePipeInitLock) {
+            PipePipeDownloader.instance.ytMusicCookie = NewPipeDownloader.instance.ytMusicCookie
+            PipePipe.init(PipePipeDownloader.instance)
+        }
+        val info = PipePipeStreamInfo.getInfo(
+            PipePipeServiceList.YouTube,
+            musicWatchUrl(watchUrl),
+        )
+        selectVerifiedVideoCandidate(
+            "PIPEPIPE",
+            (info.videoStreams.orEmpty() + info.videoOnlyStreams.orEmpty()).mapNotNull { stream ->
+                stream.content?.takeIf { it.isNotBlank() }?.let { streamUrl ->
+                    VideoCandidate(
+                        url = streamUrl,
+                        container = stream.format?.suffix,
+                        height = stream.resolution
+                            ?.substringBefore('p')
+                            ?.toIntOrNull()
+                            ?: 0,
+                    )
+                }
+            },
+        )
+    }.onFailure { error ->
+        AppLogger.w(TAG, "PipePipe video extraction failed: ${error.message}")
+    }.getOrNull()
+
+    private fun resolveVideoWithBravePipe(watchUrl: String): ExtractedVideoStream? {
+        fun extract(): ExtractedVideoStream? {
+            val info = BravePipeStreamInfo.getInfo(
+                BravePipe.getService(0),
+                browserWatchUrl(watchUrl),
+            )
+            return selectVerifiedVideoCandidate(
+                "BRAVEPIPE",
+                (info.videoStreams.orEmpty() + info.videoOnlyStreams.orEmpty()).mapNotNull { stream ->
+                    stream.content?.takeIf { it.isNotBlank() }?.let { streamUrl ->
+                        VideoCandidate(
+                            url = streamUrl,
+                            container = stream.format?.suffix,
+                            height = stream.resolution
+                                ?.substringBefore('p')
+                                ?.toIntOrNull()
+                                ?: 0,
+                        )
+                    }
+                },
+            )
+        }
+
+        return try {
+            extract()
+        } catch (first: Exception) {
+            if (!isRecoverableExtractorFailure(first)) {
+                AppLogger.w(TAG, "BravePipe video extraction failed: ${first.message}")
+                return null
+            }
+            AppLogger.w(TAG, "BravePipe video parser was stale; reinitializing once")
+            runCatching {
+                BravePipe.init(
+                    NewPipeDownloader.instance,
+                    org.schabi.newpipe.extractor.localization.Localization.DEFAULT,
+                    org.schabi.newpipe.extractor.localization.ContentCountry.DEFAULT,
+                )
+            }
+            runCatching { extract() }
+                .onFailure { AppLogger.w(TAG, "BravePipe video retry failed: ${it.message}") }
+                .getOrNull()
+        }
+    }
+
     private fun selectVerifiedCandidate(
         resolverLabel: String,
         candidates: List<AudioCandidate>,
@@ -467,6 +561,39 @@ object NewPipeRepository {
             }
         }
         AppLogger.w(TAG, "$resolverLabel returned ${ranked.size} audio URLs, but none passed validation")
+        return null
+    }
+
+    private fun selectVerifiedVideoCandidate(
+        resolverLabel: String,
+        candidates: List<VideoCandidate>,
+    ): ExtractedVideoStream? {
+        if (candidates.isEmpty()) {
+            AppLogger.w(TAG, "$resolverLabel returned no video candidates")
+            return null
+        }
+        val mp4 = candidates.filter { it.container.equals("mp4", ignoreCase = true) }
+        val compatible = mp4.ifEmpty { candidates }
+        val compact = compatible.filter { it.height in 1..720 }
+        val ranked = (compact.ifEmpty { compatible })
+            .distinctBy { it.url }
+            .sortedWith(
+                compareByDescending<VideoCandidate> { it.container.equals("mp4", ignoreCase = true) }
+                    .thenByDescending { it.height.coerceAtMost(720) }
+                    .thenBy { it.height },
+            )
+        for (candidate in ranked) {
+            if (validateStreamUrl(candidate.url)) {
+                AppLogger.i(
+                    TAG,
+                    "$resolverLabel selected ${candidate.container ?: "unknown"} " +
+                        "${candidate.height.takeIf { it > 0 }?.let { "${it}p" } ?: "video"} " +
+                        "after range validation",
+                )
+                return ExtractedVideoStream(candidate.url, resolverLabel)
+            }
+        }
+        AppLogger.w(TAG, "$resolverLabel returned ${ranked.size} video URLs, but none passed validation")
         return null
     }
 
