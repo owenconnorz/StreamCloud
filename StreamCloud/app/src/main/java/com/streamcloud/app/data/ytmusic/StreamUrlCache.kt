@@ -1,11 +1,18 @@
 package com.streamcloud.app.data.ytmusic
 
-import android.util.Log
+import android.content.Context
+import android.content.SharedPreferences
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 object StreamUrlCache {
 
-    private const val TAG = "StreamUrlCache"
+    private const val PREFERENCES_NAME = "yt_music_stream_urls"
+    private const val URL_KEY = "url"
+    private const val USER_AGENT_KEY = "userAgent"
+    private const val EXPIRY_KEY = "expiryMs"
+    private const val CLIENT_LABEL_KEY = "clientLabel"
+    private const val WEB_SESSION_HEADERS_KEY = "requiresWebSessionHeaders"
 
     data class Entry(
         val url: String,
@@ -21,22 +28,50 @@ object StreamUrlCache {
         val requiresWebSessionHeaders: Boolean = false,
     )
 
-    private const val FALLBACK_UA =
-        "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip"
-
-
     private val cache = ConcurrentHashMap<String, Entry>()
+    @Volatile
+    private var preferences: SharedPreferences? = null
+
+    /**
+     * Keeps valid signed URLs across a player-service or application restart. The URL remains
+     * bounded by YouTube's own expiry, and a CDN rejection removes it immediately via [remove].
+     */
+    @Synchronized
+    fun initialize(context: Context) {
+        if (preferences != null) return
+        val prefs = context.applicationContext
+            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        preferences = prefs
+        val expiredOrInvalidKeys = prefs.all
+            .filterValues { value ->
+                val expiryMs = (value as? String)
+                    ?.let(::decode)
+                    ?.expiryMs
+                    ?: Long.MIN_VALUE
+                expiryMs <= System.currentTimeMillis()
+            }
+            .keys
+        if (expiredOrInvalidKeys.isNotEmpty()) {
+            prefs.edit().apply {
+                expiredOrInvalidKeys.forEach { key -> remove(key) }
+            }.apply()
+        }
+    }
 
 
 
 
     fun getEntry(videoId: String): Entry? {
-        val entry = cache[videoId] ?: return null
-        return if (System.currentTimeMillis() < entry.expiryMs) entry
-        else {
-            cache.remove(videoId)
-            null
-        }
+        val entry = cache[videoId]
+            ?: preferences?.getString(videoId, null)
+                ?.let(::decode)
+                ?.also { cache[videoId] = it }
+            ?: return null
+        return entry.takeIf { System.currentTimeMillis() < it.expiryMs }
+            ?: run {
+                discard(videoId)
+                null
+            }
     }
 
 
@@ -51,13 +86,19 @@ object StreamUrlCache {
         clientLabel: String? = null,
         requiresWebSessionHeaders: Boolean = false,
     ) {
-        cache[videoId] = Entry(
+        val entry = Entry(
             url = url,
             userAgent = userAgent,
             expiryMs = expiryMs,
             clientLabel = clientLabel,
             requiresWebSessionHeaders = requiresWebSessionHeaders,
         )
+        cache[videoId] = entry
+        if (expiryMs > System.currentTimeMillis()) {
+            preferences?.edit()
+                ?.putString(videoId, encode(entry))
+                ?.apply()
+        }
     }
 
     /**
@@ -65,16 +106,44 @@ object StreamUrlCache {
      * advertised expiry when YouTube changes its client/PoToken requirements, so callers must be
      * able to discard it immediately rather than retrying it for hours.
      */
-    fun remove(videoId: String): Entry? = cache.remove(videoId)
+    fun remove(videoId: String): Entry? {
+        val entry = cache.remove(videoId)
+            ?: preferences?.getString(videoId, null)?.let(::decode)
+        preferences?.edit()?.remove(videoId)?.apply()
+        return entry
+    }
 
 
     fun ttlSeconds(videoId: String): Long? {
-        val entry = cache[videoId] ?: return null
+        val entry = getEntry(videoId) ?: return null
         val remaining = (entry.expiryMs - System.currentTimeMillis()) / 1_000L
         return if (remaining > 0) remaining else null
     }
 
+    private fun discard(videoId: String) {
+        cache.remove(videoId)
+        preferences?.edit()?.remove(videoId)?.apply()
+    }
 
+    private fun encode(entry: Entry): String = JSONObject()
+        .put(URL_KEY, entry.url)
+        .put(USER_AGENT_KEY, entry.userAgent)
+        .put(EXPIRY_KEY, entry.expiryMs)
+        .put(CLIENT_LABEL_KEY, entry.clientLabel)
+        .put(WEB_SESSION_HEADERS_KEY, entry.requiresWebSessionHeaders)
+        .toString()
 
+    private fun decode(value: String): Entry? = runCatching {
+        JSONObject(value).let { json ->
+            Entry(
+                url = json.getString(URL_KEY),
+                userAgent = json.getString(USER_AGENT_KEY),
+                expiryMs = json.getLong(EXPIRY_KEY),
+                clientLabel = json.optString(CLIENT_LABEL_KEY)
+                    .takeUnless { it.isBlank() || it == "null" },
+                requiresWebSessionHeaders = json.optBoolean(WEB_SESSION_HEADERS_KEY),
+            )
+        }
+    }.getOrNull()
 
 }
