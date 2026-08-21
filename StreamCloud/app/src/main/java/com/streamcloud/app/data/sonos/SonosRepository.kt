@@ -65,6 +65,7 @@ object SonosRepository {
         val url: String?,
         val mimeType: String,
         val userAgent: String,
+        val contentLength: Long?,
     )
 
     private suspend fun prepareSonosStream(
@@ -78,7 +79,11 @@ object SonosRepository {
         } else {
             null
         }
-        val extractorStream = if (formatInfo?.url == null) {
+        // Browser/PoToken URLs depend on session headers that a separate Sonos speaker cannot
+        // send. Prefer the independent extractor in that case rather than advertising a URL that
+        // will fail after the speaker has accepted the cast request.
+        val sonosFormat = formatInfo?.takeUnless { it.requiresWebSessionHeaders }
+        val extractorStream = if (sonosFormat?.url == null) {
             runCatching {
                 NewPipeRepository.resolveVerifiedAudioStream(watchUrl)
             }.getOrNull()
@@ -86,11 +91,12 @@ object SonosRepository {
             null
         }
         return PreparedSonosStream(
-            url = formatInfo?.url ?: extractorStream?.url,
-            mimeType = formatInfo?.mimeType?.substringBefore(";")?.trim() ?: "audio/mp4",
-            userAgent = formatInfo?.userAgent
+            url = sonosFormat?.url ?: extractorStream?.url,
+            mimeType = sonosFormat?.mimeType?.substringBefore(";")?.trim() ?: "audio/mp4",
+            userAgent = sonosFormat?.userAgent
                 ?: extractorStream?.userAgent
                 ?: SonosProxyServer.DEFAULT_UPSTREAM_USER_AGENT,
+            contentLength = sonosFormat?.contentLength,
         )
     }
 
@@ -102,6 +108,14 @@ object SonosRepository {
             var tick = 0
             while (true) {
                 delay(1_000)
+                SonosProxyServer.consumeUpstreamFailure()?.let { failure ->
+                    Log.w(TAG, "Sonos proxy stopped serving audio: $failure")
+                    _isSonosPlaying.value = false
+                    _castState.update { CastState.Error("Sonos playback stopped: $failure") }
+                    SonosProxyServer.stop()
+                    runCatching { SonosController.stop(device) }
+                    break
+                }
                 // GetPositionInfo every second for smooth progress bar
                 runCatching { SonosController.getPositionInfo(device) }.getOrNull()?.let { (pos, dur) ->
                     _sonosPositionMs.value = pos
@@ -204,27 +218,36 @@ object SonosRepository {
                     }
                     return@launch
                 }
-                val resolvedUrl = requireNotNull(prepared.url)
-                val mimeType = prepared.mimeType
-                val userAgent = prepared.userAgent
+                val preflight = SonosProxyServer.preflight(
+                    SonosProxyServer.TrackInfo(
+                        videoId = videoId,
+                        title = title,
+                        watchUrl = watchUrl,
+                        resolvedUrl = requireNotNull(prepared.url),
+                        mimeType = prepared.mimeType,
+                        userAgent = prepared.userAgent,
+                        contentLength = prepared.contentLength,
+                    ),
+                )
+                val verifiedTrack = (preflight as? SonosProxyServer.TrackPreflight.Ready)?.track
+                if (verifiedTrack == null) {
+                    val reason = (preflight as? SonosProxyServer.TrackPreflight.Failed)?.message
+                        ?: "The audio source could not be verified."
+                    _castState.update { CastState.Error("Sonos cannot play this track: $reason") }
+                    return@launch
+                }
 
                 // IMPORTANT: call start() BEFORE setTrack().
                 // start() internally calls stop() which clears currentTrack — if setTrack() ran
                 // first, that track reference would be immediately nulled out by stop(), and
                 // Sonos's first HEAD probe would hit a null currentTrack and get a 503.
                 val proxyUrl = SonosProxyServer.start(localIp)
-                SonosProxyServer.setTrack(
-                    SonosProxyServer.TrackInfo(
-                        videoId     = videoId,
-                        title       = title,
-                        watchUrl    = watchUrl,
-                        resolvedUrl = resolvedUrl,
-                        mimeType    = mimeType,
-                        userAgent   = userAgent,
-                    ),
+                SonosProxyServer.setTrack(verifiedTrack)
+                Log.d(
+                    TAG,
+                    "Proxy URL: $proxyUrl  resolved=verified mime=${verifiedTrack.mimeType} " +
+                        "length=${verifiedTrack.contentLength}",
                 )
-                val resolvedTag = if (resolvedUrl != null) "pre-resolved" else "lazy"
-                Log.d(TAG, "Proxy URL: $proxyUrl  resolve=$resolvedTag  mime=$mimeType")
 
                 // Retry up to 2 times: some Sonos firmware takes a moment after Stop()
                 // to become ready for a new SetAVTransportURI command.
@@ -234,7 +257,12 @@ object SonosRepository {
                     if (attempt > 0) delay(2_000L)
                     SonosController.stop(device)
 
-                    val uriError = SonosController.setUri(device, proxyUrl, title, mimeType)
+                    val uriError = SonosController.setUri(
+                        device,
+                        proxyUrl,
+                        title,
+                        verifiedTrack.mimeType,
+                    )
                     if (uriError != null) {
                         failReason = uriError
                         Log.w(TAG, "attempt $attempt: setUri failed — $uriError")
@@ -322,38 +350,50 @@ object SonosRepository {
             val prepared = preparedStream?.takeIf { it.url != null }
             if (prepared == null) {
                 Log.w(TAG, "updateTrack could not prepare a stream for $videoId")
+                _castState.update {
+                    CastState.Error(
+                        "Sonos cannot play this track: unable to prepare a playable audio stream.",
+                    )
+                }
                 return@launch
             }
-            val resolvedUrl = requireNotNull(prepared.url)
-            val mimeType = prepared.mimeType
-            val userAgent = prepared.userAgent
+            val preflight = SonosProxyServer.preflight(
+                SonosProxyServer.TrackInfo(
+                    videoId = videoId,
+                    title = title,
+                    watchUrl = watchUrl,
+                    resolvedUrl = requireNotNull(prepared.url),
+                    mimeType = prepared.mimeType,
+                    userAgent = prepared.userAgent,
+                    contentLength = prepared.contentLength,
+                ),
+            )
+            val verifiedTrack = (preflight as? SonosProxyServer.TrackPreflight.Ready)?.track
+            if (verifiedTrack == null) {
+                val reason = (preflight as? SonosProxyServer.TrackPreflight.Failed)?.message
+                    ?: "The audio source could not be verified."
+                Log.w(TAG, "updateTrack preflight failed: $reason")
+                _castState.update { CastState.Error("Sonos cannot play this track: $reason") }
+                return@launch
+            }
 
             // start() calls stop() internally which clears currentTrack — must call
             // start() FIRST, then setTrack(), so Sonos's HEAD probe after setUri finds
             // the track rather than getting a 503 No Track Set response.
             val proxyUrl = SonosProxyServer.start(localIp)
-            SonosProxyServer.setTrack(
-                SonosProxyServer.TrackInfo(
-                    videoId     = videoId,
-                    title       = title,
-                    watchUrl    = watchUrl,
-                    resolvedUrl = resolvedUrl,
-                    mimeType    = mimeType,
-                    userAgent   = userAgent,
-                ),
-            )
+            SonosProxyServer.setTrack(verifiedTrack)
 
             // Stop Sonos before SetAVTransportURI — some firmware versions reject the
             // command while the transport is in PLAYING state, which causes a silent
             // failure and leaves the player stuck at 0:00 with nothing loading.
             SonosController.stop(device)
 
-            var uriError = SonosController.setUri(device, proxyUrl, title, mimeType)
+            var uriError = SonosController.setUri(device, proxyUrl, title, verifiedTrack.mimeType)
             if (uriError != null) {
                 Log.w(TAG, "updateTrack setUri failed ($uriError), retrying after 1.5 s")
                 delay(1_500L)
                 SonosController.stop(device)
-                uriError = SonosController.setUri(device, proxyUrl, title, mimeType)
+                uriError = SonosController.setUri(device, proxyUrl, title, verifiedTrack.mimeType)
             }
 
             if (uriError == null) {

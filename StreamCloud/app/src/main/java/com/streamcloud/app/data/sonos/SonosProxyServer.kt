@@ -34,10 +34,20 @@ object SonosProxyServer {
         val resolvedUrl: String? = null,
         val mimeType: String = "audio/mp4",
         val userAgent: String = DEFAULT_UPSTREAM_USER_AGENT,
+        /** The complete stream size confirmed by the upstream CDN. */
+        val contentLength: Long? = null,
+        /** Whether the verified source honored a byte-range probe. */
+        val supportsRanges: Boolean = false,
     )
+
+    sealed interface TrackPreflight {
+        data class Ready(val track: TrackInfo) : TrackPreflight
+        data class Failed(val message: String) : TrackPreflight
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val currentTrack = AtomicReference<TrackInfo?>(null)
+    private val latestUpstreamFailure = AtomicReference<String?>(null)
     private var serverSocket: ServerSocket? = null
     private var acceptJob: Job? = null
 
@@ -63,9 +73,17 @@ object SonosProxyServer {
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
+    private val probeHttp = http.newBuilder()
+        .callTimeout(20, TimeUnit.SECONDS)
+        .build()
+
     fun setTrack(info: TrackInfo) {
         currentTrack.set(info)
+        latestUpstreamFailure.set(null)
     }
+
+    /** Returns and clears the latest upstream error observed while Sonos was fetching audio. */
+    fun consumeUpstreamFailure(): String? = latestUpstreamFailure.getAndSet(null)
 
     fun start(localIp: String): String {
         stop()
@@ -87,6 +105,7 @@ object SonosProxyServer {
         serverSocket = null
         port = 0
         currentTrack.set(null)
+        latestUpstreamFailure.set(null)
     }
 
     private suspend fun acceptLoop(ss: ServerSocket) {
@@ -103,6 +122,89 @@ object SonosProxyServer {
                 runCatching { YtPlayerUtils.resolveAudioStream(track.videoId, sonosSafe = true) }.getOrNull()
             else null)
                 ?: runCatching { NewPipeRepository.resolveAudioStream(track.watchUrl) }.getOrNull()
+        }
+    }
+
+    /**
+     * Confirm that the URL can provide real audio bytes from this phone before Sonos receives the
+     * local proxy URI.  A synthetic successful HEAD response lets Sonos accept a track that will
+     * fail as soon as it requests the first byte, leaving its UI at 0:00 with no useful error.
+     */
+    fun preflight(track: TrackInfo): TrackPreflight {
+        val streamUrl = resolveStreamUrl(track)
+            ?: return TrackPreflight.Failed("No playable audio URL was available.")
+
+        return try {
+            val request = Request.Builder()
+                .url(streamUrl)
+                .header("User-Agent", track.userAgent)
+                .header("Accept", "*/*")
+                .header("Range", "bytes=0-1")
+                .build()
+
+            probeHttp.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return TrackPreflight.Failed(
+                        "The audio source rejected the stream (HTTP ${response.code}).",
+                    )
+                }
+
+                // Reading a byte proves this was not merely a successful header response.
+                val firstByte = response.body?.byteStream()?.use { it.read() } ?: -1
+                if (firstByte < 0) {
+                    return TrackPreflight.Failed("The audio source returned an empty stream.")
+                }
+
+                val contentType = response.header("Content-Type")
+                    ?.substringBefore(";")
+                    ?.trim()
+                    ?.takeIf { it.startsWith("audio/") }
+                    ?: return TrackPreflight.Failed(
+                        "The audio source returned an unsupported content type.",
+                    )
+                if (contentType !in SONOS_AUDIO_MIME_TYPES) {
+                    return TrackPreflight.Failed(
+                        "This song is served as $contentType, which this Sonos proxy cannot play.",
+                    )
+                }
+
+                // A 206 response's Content-Length is only the selected two-byte probe. Its
+                // Content-Range carries the actual total; if it is absent, use trusted resolver
+                // metadata rather than incorrectly publishing "2" as the whole song.
+                val contentLength = fullLengthFromProbe(
+                    statusCode = response.code,
+                    contentRange = response.header("Content-Range"),
+                    contentLength = response.header("Content-Length"),
+                    declaredLength = track.contentLength ?: contentLengthFromUrl(streamUrl),
+                )
+                    ?: return TrackPreflight.Failed(
+                        "The audio source did not provide the track length required by Sonos.",
+                    )
+                if (contentLength <= 0L) {
+                    return TrackPreflight.Failed("The audio source returned an invalid track length.")
+                }
+
+                Log.d(
+                    TAG,
+                    "Preflight ready for ${track.videoId}: type=$contentType length=$contentLength",
+                )
+                TrackPreflight.Ready(
+                    track.copy(
+                        resolvedUrl = streamUrl,
+                        mimeType = contentType,
+                        contentLength = contentLength,
+                        supportsRanges = supportsByteRanges(
+                            statusCode = response.code,
+                            contentRange = response.header("Content-Range"),
+                        ),
+                    ),
+                )
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "Preflight failed for ${track.videoId}: ${error.message}")
+            TrackPreflight.Failed(
+                "Could not fetch audio from the source (${error.javaClass.simpleName}).",
+            )
         }
     }
 
@@ -144,18 +246,18 @@ object SonosProxyServer {
             }
 
             if (method == "HEAD") {
-                val headMime = track.mimeType.ifBlank { "audio/mp4" }
-                // Extract content length from the pre-resolved CDN URL's clen= parameter.
-                // Sonos firmware (especially S1) requires Content-Length in HEAD responses
-                // to accept the URI — without it, some versions return UPnP error 402.
-                val clenStr = track.resolvedUrl
-                    ?.let { Regex("[?&]clen=([0-9]+)").find(it)?.groupValues?.get(1) }
-                    ?: "104857600"  // 100 MB fallback for streams with no declared length
+                val contentLength = track.contentLength
+                if (contentLength == null || contentLength <= 0L) {
+                    Log.w(TAG, "Rejected HEAD before a verified stream was available")
+                    client.getOutputStream()
+                        .write("HTTP/1.1 503 Stream Not Ready\r\nConnection: close\r\n\r\n".toByteArray())
+                    return
+                }
                 client.getOutputStream().write(
                     ("HTTP/1.1 200 OK\r\n" +
-                    "Content-Type: $headMime\r\n" +
-                    "Content-Length: $clenStr\r\n" +
-                    "Accept-Ranges: bytes\r\n" +
+                    "Content-Type: ${track.mimeType}\r\n" +
+                    "Content-Length: $contentLength\r\n" +
+                    (if (track.supportsRanges) "Accept-Ranges: bytes\r\n" else "") +
                     "Connection: close\r\n" +
                     "\r\n").toByteArray(),
                 )
@@ -168,6 +270,7 @@ object SonosProxyServer {
             val streamUrl = resolveStreamUrl(track)
             if (streamUrl == null) {
                 Log.w(TAG, "Could not resolve stream for ${track.videoId}")
+                reportUpstreamFailure("The audio source could not resolve a playable stream.")
                 client.getOutputStream()
                     .write("HTTP/1.1 502 Stream Resolve Failed\r\nConnection: close\r\n\r\n".toByteArray())
                 return
@@ -186,9 +289,20 @@ object SonosProxyServer {
                 reqBuilder.header("Range", rangeHeader)
             }
 
-            http.newCall(reqBuilder.build()).execute().use { resp ->
+            val upstreamResponse = try {
+                http.newCall(reqBuilder.build()).execute()
+            } catch (error: Exception) {
+                val message = "The audio source connection failed (${error.javaClass.simpleName})."
+                reportUpstreamFailure(message)
+                client.getOutputStream()
+                    .write("HTTP/1.1 502 Upstream Connection Failed\r\nConnection: close\r\n\r\n".toByteArray())
+                return
+            }
+
+            upstreamResponse.use { resp ->
                 if (!resp.isSuccessful) {
                     Log.w(TAG, "CDN error HTTP ${resp.code} for ${track.videoId}")
+                    reportUpstreamFailure("The audio source rejected playback (HTTP ${resp.code}).")
                     client.getOutputStream()
                         .write("HTTP/1.1 ${resp.code} Upstream Error\r\nConnection: close\r\n\r\n".toByteArray())
                     return
@@ -205,16 +319,38 @@ object SonosProxyServer {
                 sb.append("Content-Type: $contentType\r\n")
                 if (contentLength != null) sb.append("Content-Length: $contentLength\r\n")
                 if (contentRange  != null) sb.append("Content-Range: $contentRange\r\n")
-                sb.append("Accept-Ranges: bytes\r\n")
+                if (track.supportsRanges) sb.append("Accept-Ranges: bytes\r\n")
                 sb.append("Connection: close\r\n")
                 sb.append("\r\n")
                 out.write(sb.toString().toByteArray())
 
-                resp.body?.byteStream()?.use { input ->
+                val input = resp.body?.byteStream()
+                if (input == null) {
+                    reportUpstreamFailure("The audio source returned no audio body.")
+                    return
+                }
+                input.use {
                     val buf = ByteArray(32 * 1024)
                     var n: Int
-                    while (input.read(buf).also { n = it } >= 0) {
-                        out.write(buf, 0, n)
+                    while (true) {
+                        n = try {
+                            input.read(buf)
+                        } catch (error: Exception) {
+                            reportUpstreamFailure(
+                                "Audio delivery stopped while reading the source " +
+                                    "(${error.javaClass.simpleName}).",
+                            )
+                            return
+                        }
+                        if (n < 0) break
+                        try {
+                            out.write(buf, 0, n)
+                        } catch (error: Exception) {
+                            // The speaker may close a completed/abandoned request; this is not an
+                            // upstream stream failure and should not make the cast UI show an error.
+                            Log.d(TAG, "Sonos client closed stream: ${error.message}")
+                            return
+                        }
                     }
                 }
                 out.flush()
@@ -225,4 +361,53 @@ object SonosProxyServer {
             runCatching { client.close() }
         }
     }
+
+    private fun reportUpstreamFailure(message: String) {
+        latestUpstreamFailure.set(message)
+        Log.w(TAG, message)
+    }
+
+    private val SONOS_AUDIO_MIME_TYPES = setOf(
+        "audio/aac",
+        "audio/aacp",
+        "audio/flac",
+        "audio/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/x-wav",
+    )
+
+    private fun contentLengthFromUrl(url: String): Long? =
+        Regex("[?&]clen=([0-9]+)")
+            .find(url)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
 }
+
+/**
+ * For a ranged response, Content-Length is only the size of the selected range. Sonos needs the
+ * full stream size, which is the final number in Content-Range.
+ */
+internal fun upstreamContentLength(contentRange: String?, contentLength: String?): Long? =
+    contentRange
+        ?.substringAfterLast("/", missingDelimiterValue = "")
+        ?.trim()
+        ?.toLongOrNull()
+        ?.takeIf { it > 0L }
+        ?: contentLength?.trim()?.toLongOrNull()?.takeIf { it > 0L }
+
+internal fun fullLengthFromProbe(
+    statusCode: Int,
+    contentRange: String?,
+    contentLength: String?,
+    declaredLength: Long?,
+): Long? = upstreamContentLength(
+    contentRange = contentRange,
+    // A 206 Content-Length only describes the small probe range, never the full stream.
+    contentLength = contentLength?.takeIf { statusCode != 206 },
+) ?: declaredLength?.takeIf { it > 0L }
+
+internal fun supportsByteRanges(statusCode: Int, contentRange: String?): Boolean =
+    statusCode == 206 && contentRange?.startsWith("bytes ", ignoreCase = true) == true
