@@ -43,6 +43,7 @@ import com.streamcloud.app.data.ytmusic.YtMusicHomeFeed
 import com.streamcloud.app.data.ytmusic.YtMusicHomeRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+import com.streamcloud.app.data.ytmusic.YtMusicStreamResolver
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.data.ytmusic.YtPlayback
@@ -585,29 +586,24 @@ class MusicPlaybackService : MediaLibraryService() {
         // deliberately preferred after a CDN 403 above.
         val innertubeResult = runBlocking(Dispatchers.IO) {
             runCatching {
-                YtPlayerUtils.resolveAudioFormatInfo(
+                YtMusicStreamResolver.resolveInnertube(
                     videoId = videoId,
                     excludedClientLabels = rejectedClient?.let(::setOf).orEmpty(),
                 )
             }
         }
-        val info = innertubeResult.getOrNull()
-        if (info != null) {
-            val expiryMs = now + (info.expiresInSeconds - 300).coerceAtLeast(60) * 1_000L
-            StreamUrlCache.put(
-                videoId = videoId,
-                url = info.url,
-                userAgent = info.userAgent,
-                expiryMs = expiryMs,
-                clientLabel = info.clientLabel,
-                requiresWebSessionHeaders = info.requiresWebSessionHeaders,
-            )
+        val entry = innertubeResult.getOrNull()
+        if (entry != null) {
             rejectedYouTubeClientByVideoId.remove(videoId)
-            AppLogger.i(TAG, "Innertube resolved $videoId via ${info.clientLabel} itag=${info.itag} (cached ${(expiryMs - now) / 1000}s)")
+            AppLogger.i(
+                TAG,
+                "Innertube resolved $videoId via ${entry.clientLabel} " +
+                    "(cached ${(entry.expiryMs - now) / 1000}s)",
+            )
             return ResolvedStream(
-                url = info.url,
-                userAgent = info.userAgent,
-                requiresWebSessionHeaders = info.requiresWebSessionHeaders,
+                url = entry.url,
+                userAgent = entry.userAgent,
+                requiresWebSessionHeaders = entry.requiresWebSessionHeaders,
             )
         }
         AppLogger.w(TAG, "Innertube failed for $videoId: ${innertubeResult.exceptionOrNull()?.message}")
