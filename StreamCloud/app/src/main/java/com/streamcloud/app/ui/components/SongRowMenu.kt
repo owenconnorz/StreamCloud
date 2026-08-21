@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -301,7 +302,22 @@ fun SongRowMenu(
                     }
                 }
 
-                if (downloaded) {
+                if (!downloaded) {
+                    MenuActionRow(
+                        icon = Icons.Default.Download,
+                        title = "Download",
+                        subtitle = "Save for offline playback",
+                    ) {
+                        open = false
+                        runCatching {
+                            YtPlayback.downloadSong(context, song)
+                        }.onSuccess {
+                            Toast.makeText(context, "Download queued", Toast.LENGTH_SHORT).show()
+                        }.onFailure {
+                            Toast.makeText(context, "Couldn't start download", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
                     MenuActionRow(
                         icon = Icons.Default.Delete,
                         title = "Remove download",
