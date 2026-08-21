@@ -113,6 +113,7 @@ class MusicPlaybackService : MediaLibraryService() {
      * the same client family.
      */
     private val preferMaintainedExtractorVideoIds = ConcurrentHashMap.newKeySet<String>()
+    private val carSearchResults = ConcurrentHashMap<String, List<MediaItem>>()
 
     private data class ResolvedStream(
         val url: String,
@@ -790,8 +791,24 @@ class MusicPlaybackService : MediaLibraryService() {
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
-        ): ListenableFuture<MutableList<MediaItem>> =
-            Futures.immediateFuture(mediaItems.map(::attachUri).toMutableList())
+        ): ListenableFuture<MutableList<MediaItem>> {
+            val voiceQuery = mediaItems
+                .singleOrNull()
+                ?.let(::requestedSearchQuery)
+                ?: return Futures.immediateFuture(mediaItems.map(::attachUri).toMutableList())
+            val future = SettableFuture.create<MutableList<MediaItem>>()
+            ioScope.launch {
+                val matches = searchCarMusic(voiceQuery)
+                if (matches.isEmpty()) {
+                    AppLogger.w(TAG, "Android Auto voice search returned no songs for \"$voiceQuery\"")
+                    future.set(mutableListOf())
+                } else {
+                    AppLogger.i(TAG, "Android Auto voice search matched \"$voiceQuery\" to ${matches.first().mediaMetadata.title}")
+                    future.set(mutableListOf(matches.first()))
+                }
+            }
+            return future
+        }
 
 
         override fun onSearch(
@@ -802,24 +819,8 @@ class MusicPlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<Void>> {
             val fut = SettableFuture.create<LibraryResult<Void>>()
             ioScope.launch {
-                runCatching { NewPipeRepository.searchSongs(query) }
-                    .onSuccess { tracks ->
-                        val items = ImmutableList.copyOf(
-                            tracks.map { t ->
-                                val videoId = t.url.substringAfter("v=").substringBefore("&")
-                                ytmSong(
-                                    videoId = videoId,
-                                    title = t.title,
-                                    artist = t.uploader,
-                                    album = null,
-                                    thumbnail = t.thumbnail,
-                                    watchUrl = t.url,
-                                    isMusicVideo = t.isVideo,
-                                )
-                            },
-                        )
-                        session.notifySearchResultChanged(browser, query, items.size, params)
-                    }
+                val items = searchCarMusic(query)
+                session.notifySearchResultChanged(browser, query, items.size, params)
                 fut.set(LibraryResult.ofVoid())
             }
             return fut
@@ -835,12 +836,10 @@ class MusicPlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             val fut = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             ioScope.launch {
-                val results = runCatching { NewPipeRepository.searchSongs(query) }.getOrElse { emptyList() }
+                val allItems = searchCarMusic(query)
                 val items = ImmutableList.copyOf(
-                    results.map { t ->
-                        val videoId = t.url.substringAfter("v=").substringBefore("&")
-                        ytmSong(videoId, t.title, t.uploader, null, t.thumbnail, t.url, t.isVideo)
-                    },
+                    if (pageSize <= 0) allItems
+                    else allItems.drop(page * pageSize).take(pageSize),
                 )
                 fut.set(LibraryResult.ofItemList(items, params))
             }
@@ -1261,6 +1260,49 @@ class MusicPlaybackService : MediaLibraryService() {
         return raw.substringAfter("v=", missingDelimiterValue = "")
             .substringBefore('&')
             .takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+    }
+
+    private fun requestedSearchQuery(item: MediaItem): String? =
+        item.requestMetadata.searchQuery
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?: item.mediaMetadata.title
+                ?.toString()
+                ?.trim()
+                ?.takeIf {
+                    it.isNotBlank() &&
+                        item.mediaId.isBlank() &&
+                        item.localConfiguration?.uri == null
+                }
+
+    /**
+     * Android Auto calls onSearch and onGetSearchResult as separate requests, while voice play
+     * arrives through onAddMediaItems with RequestMetadata.searchQuery. Keep the result briefly
+     * in-process so every route returns the exact same playable media item without duplicate
+     * YouTube searches.
+     */
+    private suspend fun searchCarMusic(query: String): List<MediaItem> {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isBlank()) return emptyList()
+        carSearchResults[normalizedQuery]?.let { return it }
+        val tracks = runCatching { NewPipeRepository.searchSongs(normalizedQuery) }
+            .onFailure { AppLogger.w(TAG, "Android Auto search failed for \"$normalizedQuery\": ${it.message}") }
+            .getOrDefault(emptyList())
+        val items = tracks.map { track ->
+            val videoId = track.url.substringAfter("v=").substringBefore("&")
+            ytmSong(
+                videoId = videoId,
+                title = track.title,
+                artist = track.uploader,
+                album = null,
+                thumbnail = track.thumbnail,
+                watchUrl = track.url,
+                isMusicVideo = track.isVideo,
+            )
+        }
+        if (carSearchResults.size >= 24) carSearchResults.clear()
+        carSearchResults[normalizedQuery] = items
+        return items
     }
 
     private fun attachUri(item: MediaItem): MediaItem {
