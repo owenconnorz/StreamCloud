@@ -101,12 +101,14 @@ fun YtPlaylistScreen(
 
     val downloadProgress = remember(okhttpProgress, exoDownloads) {
         val merged = okhttpProgress.toMutableMap()
-        exoDownloads.forEach { (url, dl) ->
-            if (!merged.containsKey(url)) {
+        exoDownloads.forEach { (downloadId, dl) ->
+            val videoId = com.streamcloud.app.data.downloads.YtMusicDownloadUtil
+                .videoIdFromDownloadId(downloadId)
+            if (!merged.containsKey(videoId)) {
                 when (dl.state) {
                     androidx.media3.exoplayer.offline.Download.STATE_QUEUED,
                     androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING ->
-                        merged[url] = dl.percentDownloaded.coerceIn(0f, 100f) / 100f
+                        merged[videoId] = dl.percentDownloaded.coerceIn(0f, 100f) / 100f
                     else -> Unit
                 }
             }
@@ -372,7 +374,7 @@ fun YtPlaylistScreen(
                 ) { index, s ->
                     PlaylistTrackRow(
                         song = s,
-                        downloadFraction = downloadProgress[YtPlayback.watchUrl(s.videoId)],
+                        downloadFraction = downloadProgress[s.videoId],
                         onClick = { playSongHandoff(list, list.indexOf(s).takeIf { it >= 0 } ?: index) },
                     )
                 }
@@ -715,7 +717,7 @@ private fun PlaylistTrackRow(
     LaunchedEffect(song.videoId) {
         val url = YtPlayback.watchUrl(song.videoId)
         com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads.collect { dlMap ->
-            val state = dlMap[url]?.state
+            val state = dlMap[song.videoId]?.state ?: dlMap[url]?.state
             downloaded = (state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED)
                 || com.streamcloud.app.data.downloads.MusicDownloader.isDownloaded(context, url)
         }
