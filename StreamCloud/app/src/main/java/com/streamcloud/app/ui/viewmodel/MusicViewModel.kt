@@ -261,7 +261,7 @@ class MusicViewModel(context: Context) : ViewModel() {
                 if (cached != null && queue.size == 1) {
                     onResolved(cached)
                 } else {
-                    val songs = queue.map(YtTrack::toYtmSong)
+                    val songs = queue.map { it.toYtmSong() }
                     if (songs.size == 1) {
                         com.streamcloud.app.data.ytmusic.YtPlayback.playSong(
                             appContext, songs.single(), withAutoRadio = false,
