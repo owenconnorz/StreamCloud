@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- PlatformScheduler needs RECEIVE_BOOT_COMPLETED to reschedule after reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Self-update via GitHub Releases (sideloaded APK install) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Equalizer / Bass-boost (Metrolist parity) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Read device Google accounts to display profile photo in nav bar (Metrolist parity) -->
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <!-- Sonos discovery: SSDP multicast requires a WifiManager multicast lock -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".StreamCloudApplication"
+        android:allowBackup="true"
+        android:extractNativeLibs="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/Theme.StreamCloud"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.StreamCloud.Splash">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.screens.PluginSettingsActivity"
+            android:exported="false"
+            android:label="Plugin Settings"
+            android:theme="@style/Theme.StreamCloud.AppCompat"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
+        <activity
+            android:name=".ui.account.YtMusicLoginActivity"
+            android:exported="false"
+            android:label="YouTube Music Sign-In"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
+        <activity
+            android:name=".ui.account.SpotifyLoginActivity"
+            android:exported="false"
+            android:label="Spotify Sign-In"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
+        <activity
+            android:name=".ui.account.DiscordLoginActivity"
+            android:exported="false"
+            android:label="Discord Sign-In"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode" />
+
+        <service
+            android:name=".audio.MusicPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <!-- Media3 download service — handles background music downloads that survive
+             process death. Downloads are stored in downloadCache (filesDir/download)
+             as a permanent SimpleCache, mirroring Metrolist's ExoDownloadService. -->
+        <service
+            android:name=".data.downloads.MusicExoDownloadService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- Video playback foreground service — keeps the process alive at
+             "foreground" priority while a movie/episode is streaming so Android's
+             process killer cannot terminate it mid-playback. -->
+        <service
+            android:name=".player.VideoPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Android Auto / Automotive OS — declares this app as a media
+             provider so AA's launcher shows it. The actual content tree is
+             served by MusicPlaybackService.LibraryCallback. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="com.google.android.gms.car.notification.SmallIcon"
+            android:resource="@mipmap/ic_launcher" />
+
+        <!-- Google Cast (Chromecast). The SDK auto-registers MediaRouter
+             discovery + session callbacks once `CastContext.getSharedInstance`
+             is called the first time. Default Media Receiver = no developer
+             console / app id needed. -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.streamcloud.app.cast.CastOptionsProviderImpl" />
+
+        <!-- Home-screen music widget -->
+        <receiver
+            android:name=".widget.MusicWidgetProvider"
+            android:exported="true"
+            android:label="StreamCloud Music">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_music_info" />
+        </receiver>
+
+    </application>
+</manifest>
