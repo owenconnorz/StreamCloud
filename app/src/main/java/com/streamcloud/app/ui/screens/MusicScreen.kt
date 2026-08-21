@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -493,27 +494,49 @@ private fun MusicHeader(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onHistoryClick) {
-            Icon(
-                Icons.Default.History,
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MusicHeaderAction(
+                icon = Icons.Default.History,
                 contentDescription = "Recently played",
-                tint = MaterialTheme.colorScheme.onBackground,
+                onClick = onHistoryClick,
             )
-        }
-        IconButton(onClick = onSearchClick) {
-            Icon(
-                Icons.Default.Search,
+            MusicHeaderAction(
+                icon = Icons.Default.Search,
                 contentDescription = "Search music",
-                tint = MaterialTheme.colorScheme.onBackground,
+                onClick = onSearchClick,
             )
-        }
-        IconButton(onClick = onTrendingClick) {
-            Icon(
-                Icons.Default.TrendingUp,
+            MusicHeaderAction(
+                icon = Icons.Default.TrendingUp,
                 contentDescription = "Trending",
-                tint = MaterialTheme.colorScheme.onBackground,
+                onClick = onTrendingClick,
             )
         }
+    }
+}
+
+@Composable
+private fun MusicHeaderAction(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
