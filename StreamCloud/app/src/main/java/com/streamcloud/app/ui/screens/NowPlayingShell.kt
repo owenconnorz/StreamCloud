@@ -110,9 +110,34 @@ fun NowPlayingShell(
     var artist by remember { mutableStateOf(controller.mediaMetadata.artist?.toString().orEmpty()) }
     var artwork by remember { mutableStateOf(controller.mediaMetadata.artworkUri?.toString()) }
     var mediaId by remember { mutableStateOf(controller.currentMediaItem?.mediaId) }
+    var selectedMusicVideo by remember {
+        mutableStateOf(
+            controller.currentMediaItem?.mediaMetadata?.extras
+                ?.getBoolean(com.streamcloud.app.data.ytmusic.YtPlayback.EXTRA_IS_MUSIC_VIDEO, false)
+                ?: false,
+        )
+    }
+    var explicitMusicVideoId by remember {
+        mutableStateOf(
+            controller.currentMediaItem?.mediaMetadata?.extras
+                ?.getString(com.streamcloud.app.data.ytmusic.YtPlayback.EXTRA_VIDEO_ID)
+                .orEmpty(),
+        )
+    }
     var isPlaying by remember { mutableStateOf(controller.isPlaying) }
     var shuffleOn by remember { mutableStateOf(controller.shuffleModeEnabled) }
     var repeatMode by remember { mutableStateOf(controller.repeatMode) }
+
+    fun updateSelectedMusicVideo(item: MediaItem?) {
+        val extras = item?.mediaMetadata?.extras
+        selectedMusicVideo = extras?.getBoolean(
+            com.streamcloud.app.data.ytmusic.YtPlayback.EXTRA_IS_MUSIC_VIDEO,
+            false,
+        ) ?: false
+        explicitMusicVideoId = extras
+            ?.getString(com.streamcloud.app.data.ytmusic.YtPlayback.EXTRA_VIDEO_ID)
+            .orEmpty()
+    }
 
     DisposableEffect(controller) {
         val listener = object : Player.Listener {
@@ -121,11 +146,13 @@ fun NowPlayingShell(
                 artist = md.artist?.toString().orEmpty()
                 artwork = md.artworkUri?.toString()
                 mediaId = controller.currentMediaItem?.mediaId
+                updateSelectedMusicVideo(controller.currentMediaItem)
             }
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onShuffleModeEnabledChanged(enabled: Boolean) { shuffleOn = enabled }
             override fun onRepeatModeChanged(mode: Int) { repeatMode = mode }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                updateSelectedMusicVideo(mediaItem)
                 // When casting, tell Sonos to load and play the newly-selected track.
                 val cstate = SonosRepository.castState.value
                 if (cstate is SonosRepository.CastState.Casting && mediaItem != null) {
@@ -216,15 +243,12 @@ fun NowPlayingShell(
 
 
 
-    val videoId = remember(mediaId) {
-        val mid = mediaId ?: return@remember ""
-        if (mid.startsWith("http")) {
-
-            mid.substringAfter("v=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: ""
-        } else {
-
-            mid
-        }
+    val videoId = remember(mediaId, explicitMusicVideoId) {
+        selectedMusicVideoId(
+            isMusicVideo = true,
+            explicitVideoId = explicitMusicVideoId,
+            mediaId = mediaId,
+        )
     }
     val sonosCastWatchUrl = remember(mediaId, videoId) {
         when {
@@ -244,7 +268,7 @@ fun NowPlayingShell(
     var videoStreamUrl  by remember(mediaId) { mutableStateOf<String?>(null) }
     var showVideoPlayer by remember(mediaId) { mutableStateOf(false) }
 
-    LaunchedEffect(videoId) {
+    LaunchedEffect(videoId, selectedMusicVideo) {
         isMusicVideo   = null
         videoStreamUrl = null
         showVideoPlayer = false
@@ -252,6 +276,10 @@ fun NowPlayingShell(
         val result = withContext(Dispatchers.IO) { YtPlayerUtils.resolveVideoStream(videoId) }
         isMusicVideo   = result.isMusicVideo
         videoStreamUrl = result.url
+        // A result chosen from the Music Videos feed is an explicit request to watch it. Keep
+        // ordinary song playback on artwork, while still offering its play badge when a visual
+        // stream exists.
+        showVideoPlayer = selectedMusicVideo && result.isMusicVideo && result.url != null
     }
 
 

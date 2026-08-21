@@ -657,19 +657,20 @@ object YtPlayerUtils {
     // ── Music video detection + stream resolution ─────────────────────────────────────────────
 
     data class VideoStreamResult(
-        /** True only when the YouTube video has real muxed video tracks (not audio-only ATV). */
+        /** True when the YouTube item exposes a playable visual track, not just audio. */
         val isMusicVideo: Boolean,
-        /** Best muxed mp4 URL (720p preferred, 360p fallback), or null if unresolvable. */
+        /** Best MP4 visual URL (720p preferred), or null if unresolvable. */
         val url: String?,
     )
 
     /**
      * Determines whether [videoId] is a proper music video and, if so, resolves the best
-     * muxed mp4 stream URL (video + audio in one file, suitable for a muted video preview).
+     * MP4 visual stream. A muxed stream is preferred, but a video-only adaptive MP4 works too:
+     * the visual player is muted and stays synced to the primary audio player.
      *
-     * Detection heuristic: audio-only tracks (MUSIC_VIDEO_TYPE_ATV) have no entries in
-     * `streamingData.formats[]`; real music videos always include at least one muxed
-     * `video/mp4` format there (itag 22 = 720p, itag 18 = 360p).
+     * Detection heuristic: audio-only tracks expose no `video/mp4` format. Modern YouTube
+     * responses commonly place visual tracks only in `adaptiveFormats[]`, so treating an empty
+     * muxed list as audio-only hides valid music videos.
      *
      * Uses ANDROID_TESTSUITE — no auth, no PoToken, plain CDN URLs, no 'n' enforcement.
      */
@@ -683,22 +684,34 @@ object YtPlayerUtils {
             val streamingData = root["streamingData"]?.jsonObject
                 ?: return@withContext VideoStreamResult(isMusicVideo = false, url = null)
 
-            // Muxed formats only exist for actual music videos.
-            // Pure audio tracks (ATV) have nothing in `formats[]` — only `adaptiveFormats[]`.
             val muxedFormats = streamingData["formats"]?.jsonArray
                 ?.mapNotNull { it as? JsonObject }
                 ?.filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("video/mp4") }
                 ?: emptyList()
+            val adaptiveVideoFormats = streamingData["adaptiveFormats"]?.jsonArray
+                ?.mapNotNull { it as? JsonObject }
+                ?.filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("video/mp4") }
+                ?: emptyList()
 
-            if (muxedFormats.isEmpty()) {
-                AppLogger.i(TAG, "resolveVideoStream $videoId — no muxed formats, audio-only track")
+            if (muxedFormats.isEmpty() && adaptiveVideoFormats.isEmpty()) {
+                AppLogger.i(TAG, "resolveVideoStream $videoId — no visual MP4 formats, audio-only track")
                 return@withContext VideoStreamResult(isMusicVideo = false, url = null)
             }
 
-            // Prefer 720p (22) → 360p (18) → first available muxed mp4
+            // Prefer a compact muxed stream. If YouTube only exposes DASH video, use the best
+            // video-only MP4 at or below 720p; the muted visual player does not need its audio.
             val best = muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 22 }
                 ?: muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 18 }
-                ?: muxedFormats.first()
+                ?: muxedFormats.firstOrNull()
+                ?: adaptiveVideoFormats
+                    .filter {
+                        it["height"]?.jsonPrimitive?.content?.toIntOrNull()
+                            ?.let { height -> height <= 720 }
+                            ?: false
+                    }
+                    .maxByOrNull { it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0 }
+                ?: adaptiveVideoFormats
+                    .minByOrNull { it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: Int.MAX_VALUE }
 
             val rawUrl = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                 ?: run {
@@ -711,7 +724,8 @@ object YtPlayerUtils {
 
             val cpn = generateCpn()
             val itag = best["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-            AppLogger.i(TAG, "resolveVideoStream $videoId — itag=$itag music video ok")
+            val visualSource = if (best in muxedFormats) "muxed" else "adaptive-video"
+            AppLogger.i(TAG, "resolveVideoStream $videoId — itag=$itag $visualSource music video ok")
             VideoStreamResult(isMusicVideo = true, url = "$rawUrl&cpn=$cpn")
         } catch (e: Exception) {
             AppLogger.w(TAG, "resolveVideoStream $videoId — ${e.message}")
