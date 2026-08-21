@@ -58,6 +58,9 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
             Localization.DEFAULT,
             ContentCountry.DEFAULT,
         )
+        // Playback prefetch can run before MusicPlaybackService starts. Give it the same app
+        // context the service uses so web-client fallback and PoToken resolution are available.
+        com.streamcloud.app.data.ytmusic.YtPlayerUtils.appContext = applicationContext
 
         runCatching { com.lagradost.cloudstream3.installPrefs(this) }
             .onFailure { Log.e("StreamCloud", "installPrefs failed", it) }
@@ -85,6 +88,7 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
             ServiceLocator.get(this@StreamCloudApplication).settings.ytMusicCookie
                 .collectLatest { cookie ->
                     com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = cookie
+                    com.streamcloud.app.data.ytmusic.YtPlayerUtils.ytMusicCookie = cookie
                 }
         }
 
