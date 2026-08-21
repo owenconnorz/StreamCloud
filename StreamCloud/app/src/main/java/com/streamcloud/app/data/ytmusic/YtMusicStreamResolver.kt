@@ -74,8 +74,8 @@ object YtMusicStreamResolver {
         val ids = boundedPrefetchVideoIds(videoIds, limit)
         if (ids.isEmpty()) return
 
-        prefetchScope.launch {
-            ids.forEach { videoId ->
+        ids.forEach { videoId ->
+            prefetchScope.launch {
                 runCatching { resolveInnertube(videoId) }
                     .onFailure { error ->
                         AppLogger.w(TAG, "Prefetch failed for $videoId: ${error.message}")

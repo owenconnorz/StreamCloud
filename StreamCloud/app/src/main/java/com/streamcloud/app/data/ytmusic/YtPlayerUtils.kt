@@ -464,8 +464,8 @@ object YtPlayerUtils {
         sonosSafe: Boolean = false,
         excludedClientLabels: Set<String> = emptySet(),
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
-        ensureVisitorData()
         val isLoggedIn = ytMusicCookie.isNotBlank()
+        var visitorDataPreparedForWebFallback = false
 
         for (client in CLIENTS.sortedBy { playbackClientPriority(it.label) }) {
             if (client.label in excludedClientLabels) {
@@ -475,6 +475,15 @@ object YtPlayerUtils {
             if (client.requiresAuth && !isLoggedIn) {
                 Log.d(TAG, "[${client.label}] skipped — requires auth")
                 continue
+            }
+
+            // Fast anonymous clients do not require visitor data. Fetching it before every
+            // resolve can add the visitor_id request plus its browse fallback (up to 23 seconds)
+            // to a normal song start, even when ANDROID_TESTSUITE succeeds immediately. Only
+            // prepare it when a PoToken-backed web fallback is actually reached.
+            if (client.useWebPoTokens && !visitorDataPreparedForWebFallback) {
+                ensureVisitorData()
+                visitorDataPreparedForWebFallback = true
             }
 
             // Generate PoToken for web clients that require it (WEB_REMIX, TVHTML5).
