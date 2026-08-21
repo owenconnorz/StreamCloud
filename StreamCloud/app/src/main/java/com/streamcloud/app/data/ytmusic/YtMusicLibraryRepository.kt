@@ -566,10 +566,15 @@ object YtMusicLibraryRepository {
 
 
 
-        val videoId = (item["playlistItemData"] as? JsonObject)
+        val playlistItemData = item["playlistItemData"] as? JsonObject
+        val videoId = playlistItemData
             ?.get("videoId")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
             ?: titleText?.firstNavigationVideoId()
             ?: return null
+        val playlistSetVideoId = listOf("playlistSetVideoId", "setVideoId")
+            .firstNotNullOfOrNull { key ->
+                playlistItemData?.get(key)?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+            }
 
 
         val subtitleRuns = flexColumns.getOrNull(1)?.jsonObject
@@ -600,6 +605,7 @@ object YtMusicLibraryRepository {
             album = album,
             thumbnail = thumb,
             durationSeconds = duration,
+            playlistSetVideoId = playlistSetVideoId,
         )
     }
 

@@ -32,6 +32,12 @@ data class YtmSong(
     val thumbnail: String?,
     val durationSeconds: Long?,
     val isVideo: Boolean = false,
+    /**
+     * Identifies this occurrence within an editable YouTube Music playlist.
+     * A song can appear multiple times, so the video ID alone is not always sufficient to remove
+     * the intended playlist entry.
+     */
+    val playlistSetVideoId: String? = null,
 )
 
 /**

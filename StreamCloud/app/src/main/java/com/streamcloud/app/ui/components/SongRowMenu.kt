@@ -300,9 +300,7 @@ fun SongRowMenu(
                         open = false
                         onRemoveFromPlaylist()
                     }
-                }
-
-                if (!downloaded) {
+                } else if (!downloaded) {
                     MenuActionRow(
                         icon = Icons.Default.Download,
                         title = "Download",
