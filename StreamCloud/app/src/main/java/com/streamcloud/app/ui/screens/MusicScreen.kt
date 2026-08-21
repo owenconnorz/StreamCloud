@@ -13,6 +13,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
@@ -53,6 +54,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import android.net.Uri
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.newpipe.YtTrack
+import com.streamcloud.app.audio.DjNarrator
+import com.streamcloud.app.audio.DjVoicePreset
+import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.ui.viewmodel.DjSession
+import com.streamcloud.app.ui.viewmodel.DjViewModel
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.launch
 
@@ -75,7 +81,22 @@ fun MusicScreen(
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
     var showHistory by remember { mutableStateOf(false) }
+    var showDj by remember { mutableStateOf(false) }
+    var djRequest by remember { mutableStateOf("") }
+    var djStarting by remember { mutableStateOf(false) }
     val dlScope = rememberCoroutineScope()
+    val settings = remember(context) { ServiceLocator.get(context).settings }
+    val djViewModel: DjViewModel = viewModel(factory = DjViewModel.factory(context))
+    val djState by djViewModel.state.collectAsState()
+    val djNarrationEnabled by settings.djNarrationEnabled.collectAsState(initial = true)
+    val djVoicePresetName by settings.djVoicePreset.collectAsState(initial = DjVoicePreset.BrightHost.name)
+    val djVoicePreset = remember(djVoicePresetName) {
+        DjVoicePreset.entries.firstOrNull { it.name == djVoicePresetName } ?: DjVoicePreset.BrightHost
+    }
+    val djNarrator = remember(context) { DjNarrator(context.applicationContext) }
+    DisposableEffect(djNarrator) {
+        onDispose { djNarrator.close() }
+    }
 
 
 
@@ -137,6 +158,30 @@ fun MusicScreen(
         }
     }
 
+    fun startDjMix(session: DjSession) {
+        if (djStarting) return
+        val firstTrack = session.tracks.firstOrNull() ?: return
+        djStarting = true
+        val startPlayback = {
+            if (djStarting) {
+                djStarting = false
+                playFromQueue(firstTrack, session.tracks, 0)
+                showDj = false
+            }
+        }
+        if (djNarrationEnabled) {
+            val willSpeak = djNarrator.speak(session.narration, djVoicePreset, startPlayback)
+            if (willSpeak) {
+                // A DJ introduction should occur before, rather than over, the selected music.
+                player?.pause()
+            } else {
+                startPlayback()
+            }
+        } else {
+            startPlayback()
+        }
+    }
+
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
     LaunchedEffect(state.ytHomeLoading, state.homeLoading) {
@@ -165,6 +210,7 @@ fun MusicScreen(
                     onHistoryClick = { showHistory = true },
                     onSearchClick = onSearchClick,
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
+                    onDjClick = { showDj = true },
                 )
             }
 
@@ -438,6 +484,32 @@ fun MusicScreen(
                 onDismiss = { showHistory = false },
             )
         }
+        if (showDj) {
+            DjSheet(
+                request = djRequest,
+                onRequestChange = { djRequest = it },
+                voicePreset = djVoicePreset,
+                onVoicePresetChange = { preset ->
+                    dlScope.launch { settings.setDjVoicePreset(preset.name) }
+                },
+                narrationEnabled = djNarrationEnabled,
+                onNarrationEnabledChange = { enabled ->
+                    dlScope.launch { settings.setDjNarrationEnabled(enabled) }
+                },
+                state = djState,
+                startingMix = djStarting,
+                onBuildMix = { djViewModel.buildMix(djRequest) },
+                onPlayMix = ::startDjMix,
+                onDismiss = {
+                    if (djStarting) {
+                        djStarting = false
+                        djNarrator.cancel()
+                    }
+                    showDj = false
+                    djViewModel.clearSession()
+                },
+            )
+        }
     }
 }
 
@@ -479,6 +551,7 @@ private fun MusicHeader(
     onHistoryClick: () -> Unit,
     onSearchClick: () -> Unit = {},
     onTrendingClick: () -> Unit = {},
+    onDjClick: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
@@ -502,6 +575,11 @@ private fun MusicHeader(
                 icon = Icons.Default.Search,
                 contentDescription = "Search music",
                 onClick = onSearchClick,
+            )
+            MusicHeaderAction(
+                icon = Icons.Default.AutoAwesome,
+                contentDescription = "Open StreamCloud DJ",
+                onClick = onDjClick,
             )
             MusicHeaderAction(
                 icon = Icons.Default.History,
