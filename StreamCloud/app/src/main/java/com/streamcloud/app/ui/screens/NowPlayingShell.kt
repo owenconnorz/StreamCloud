@@ -292,14 +292,23 @@ fun NowPlayingShell(
     }
 
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie) {
+    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, selectedMusicVideo) {
         canvasUrl = null
-        if (!canvasEnabled || title.isBlank() || videoId.isBlank() || spotifyCookie.isBlank()) return@LaunchedEffect
+        if (
+            !canvasEnabled ||
+            selectedMusicVideo ||
+            title.isBlank() ||
+            videoId.isBlank() ||
+            spotifyCookie.isBlank()
+        ) return@LaunchedEffect
         canvasUrl = runCatching {
             SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
         }.getOrNull()
     }
-    val activeCanvas = if (canvasEnabled) canvasUrl else null
+    // Spotify Canvas must never win over an explicitly selected YouTube music video. The two
+    // surfaces are mutually exclusive; suppress Canvas while the video stream is resolving too
+    // so the screen cannot briefly show the wrong Spotify visual first.
+    val activeCanvas = if (canvasEnabled && !selectedMusicVideo && !showVideoPlayer) canvasUrl else null
 
     // When canvas is playing its background is always dark; use white text.
     // Without canvas the gradient bg varies, so derive from the dominant artwork colour.
