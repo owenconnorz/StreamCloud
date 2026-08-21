@@ -64,7 +64,7 @@ private val SUGGESTIONS = listOf(
 @Composable
 fun MusicScreen(
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
-    onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
+    onOpenPlaylist: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
     onProfileClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     onSearchWithQuery: (String) -> Unit = {},
@@ -254,7 +254,7 @@ fun MusicScreen(
                                 ) {
                                     items(section.items) { pl ->
                                         YtHomePlaylistCard(pl) {
-                                            onOpenPlaylist(pl.id, pl.title)
+                                            onOpenPlaylist(pl.id, pl.title, pl.thumbnail)
                                         }
                                     }
                                 }
@@ -381,7 +381,7 @@ fun MusicScreen(
                                 title = album.title,
                                 subtitle = album.artist,
                                 isCircle = false,
-                                onClick = { onOpenPlaylist(id, album.title) },
+                                onClick = { onOpenPlaylist(id, album.title, album.thumbnail) },
                             )
                         }
                     }

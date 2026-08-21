@@ -116,13 +116,16 @@ fun YtPlaylistScreen(
     }
 
     val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
+    val navigationThumb = remember(playlistId, initialThumb) {
+        com.streamcloud.app.data.ytmusic.YtPlaylistArtworkHandoff.get(playlistId) ?: initialThumb
+    }
     val customThumbUri = remember(playlistThumbsJson, playlistId, initialThumb) {
-        // User-saved custom thumb takes priority, then the album thumbnail passed from the artist page
+        // User-saved custom thumb takes priority, then the selected home-card artwork.
         val saved = run {
             val regex = Regex("\"${Regex.escape(playlistId)}\"\\s*:\\s*\"([^\"]+)\"")
             regex.find(playlistThumbsJson)?.groupValues?.getOrNull(1)
         }
-        saved ?: initialThumb
+        saved ?: navigationThumb
     }
     val hasCustomThumb = remember(playlistThumbsJson, playlistId) {
         Regex("\"${Regex.escape(playlistId)}\"\\s*:\\s*\"([^\"]+)\"")
@@ -341,12 +344,15 @@ fun YtPlaylistScreen(
                             headerItems = if (searchActive) 0 else 1,
                         ),
                 ) {
+                val fallbackCover = customThumbUri
+                    ?: list.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+
                 // Hide the hero when search is active so results start immediately
                 if (!searchActive) {
                     item {
                         PlaylistHero(
                             title = title,
-                            coverArt = customThumbUri ?: list.firstOrNull()?.thumbnail,
+                            coverArt = fallbackCover,
                             trackCount = list.size,
                             onPlay = { playSongHandoff(list, 0) },
                             onShuffle = {
@@ -378,9 +384,16 @@ fun YtPlaylistScreen(
                     filteredList,
                     key = { _, indexedSong -> "pt_${indexedSong.index}_${indexedSong.value.videoId}" },
                 ) { _, indexedSong ->
+                    val song = indexedSong.value.let {
+                        if (it.thumbnail.isNullOrBlank() && !fallbackCover.isNullOrBlank()) {
+                            it.copy(thumbnail = fallbackCover)
+                        } else {
+                            it
+                        }
+                    }
                     PlaylistTrackRow(
-                        song = indexedSong.value,
-                        downloadFraction = downloadProgress[indexedSong.value.videoId],
+                        song = song,
+                        downloadFraction = downloadProgress[song.videoId],
                         onClick = { playSongHandoff(list, indexedSong.index) },
                     )
                 }
