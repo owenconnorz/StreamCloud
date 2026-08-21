@@ -395,6 +395,52 @@ fun YtPlaylistScreen(
                         song = song,
                         downloadFraction = downloadProgress[song.videoId],
                         onClick = { playSongHandoff(list, indexedSong.index) },
+                        onRemoveFromPlaylist = {
+                            val originalIndex = indexedSong.index
+                            scope.launch {
+                                val removed = withContext(Dispatchers.IO) {
+                                    YtMusicPlaylistRepository.removeVideoFromPlaylist(
+                                        cookie = cookie,
+                                        playlistId = playlistId,
+                                        videoId = song.videoId,
+                                        playlistSetVideoId = song.playlistSetVideoId,
+                                    )
+                                }
+                                if (!removed) {
+                                    snackbarHostState.showSnackbar("Couldn't remove song from playlist")
+                                    return@launch
+                                }
+
+                                // Clear both the Media3 download and legacy local-file download.
+                                YtPlayback.removeDownload(context, song)
+                                withContext(Dispatchers.IO) {
+                                    com.streamcloud.app.data.downloads.MusicDownloader.delete(
+                                        context,
+                                        YtPlayback.watchUrl(song.videoId),
+                                    )
+                                }
+
+                                val updated = list.toMutableList().apply {
+                                    if (originalIndex in indices) removeAt(originalIndex)
+                                }
+                                tracks = updated
+                                withContext(Dispatchers.IO) {
+                                    com.streamcloud.app.data.ytmusic.PlaylistCache.write(
+                                        context,
+                                        playlistId,
+                                        updated,
+                                    )
+                                    com.streamcloud.app.data.ytmusic.LibraryCache.updatePlaylistCount(
+                                        context,
+                                        playlistId,
+                                        updated.size,
+                                    )
+                                }
+                                snackbarHostState.showSnackbar(
+                                    "Removed from playlist and deleted download",
+                                )
+                            }
+                        },
                     )
                 }
                 item { Spacer(Modifier.height(80.dp)) }
@@ -720,6 +766,7 @@ private fun PlaylistTrackRow(
     song: YtmSong,
     downloadFraction: Float?,
     onClick: () -> Unit,
+    onRemoveFromPlaylist: () -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -827,7 +874,11 @@ private fun PlaylistTrackRow(
                 )
             }
         } else {
-            com.streamcloud.app.ui.components.SongRowMenu(song = song, onPlay = onClick)
+            com.streamcloud.app.ui.components.SongRowMenu(
+                song = song,
+                onPlay = onClick,
+                onRemoveFromPlaylist = onRemoveFromPlaylist,
+            )
         }
     }
 }

@@ -54,6 +54,40 @@ object YtMusicPlaylistRepository {
         ok
     }
 
+    /**
+     * Removes one song occurrence from an editable YouTube Music playlist.
+     *
+     * [playlistSetVideoId] distinguishes duplicate occurrences of the same video in a playlist.
+     */
+    suspend fun removeVideoFromPlaylist(
+        cookie: String,
+        playlistId: String,
+        videoId: String,
+        playlistSetVideoId: String? = null,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (cookie.isBlank() || playlistId.isBlank() || videoId.isBlank()) {
+            return@withContext false
+        }
+        val body = buildJsonObject {
+            putContext()
+            put("playlistId", playlistId.removePrefix("VL"))
+            put("actions", buildJsonArray {
+                add(buildJsonObject {
+                    put("action", "ACTION_REMOVE_VIDEO")
+                    put("removedVideoId", videoId)
+                    playlistSetVideoId?.takeIf { it.isNotBlank() }?.let {
+                        put("setVideoId", it)
+                    }
+                })
+            })
+        }
+        val resp = postInnerTube(cookie, "browse/edit_playlist", body) ?: return@withContext false
+        val status = (resp["status"] as? JsonPrimitive)?.contentOrNull
+        val ok = status == "STATUS_SUCCEEDED"
+        if (!ok) Log.w(TAG, "removeVideoFromPlaylist status=$status resp=${resp.toString().take(160)}")
+        ok
+    }
+
 
     /**
      * Uploads [imageBytes] to YouTube Music's playlist image upload endpoint (resumable, 2-step),
