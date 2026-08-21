@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.newpipe.NewPipeRepository
+import com.streamcloud.app.data.ytmusic.StreamUrlCache
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import com.streamcloud.app.data.ytmusic.YtMusicStreamResolver
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
@@ -103,6 +105,14 @@ object YtMusicDownloadUtil {
                 }
                 chain.proceed(builder.build())
             }
+            .build()
+    }
+
+    private val downloadProbeHttpClient: OkHttpClient by lazy {
+        downloadHttpClient.newBuilder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
             .build()
     }
 
@@ -246,29 +256,71 @@ object YtMusicDownloadUtil {
 
     private fun resolveDownloadStream(videoId: String, watchUrl: String): DownloadStream =
         runBlocking(Dispatchers.IO) {
-            val resolvedEntry = if (videoId.isNotBlank()) {
-                runCatching { YtMusicStreamResolver.resolveInnertube(videoId) }
-                    .onFailure { error ->
+            // A signed CDN URL can be valid when playback cached it yet no longer be readable
+            // when Media3 starts the offline transfer. Probe one byte with the same client/session
+            // headers before giving the URL to DownloadManager; otherwise its retry loop remains
+            // "Downloading" at 0% while repeatedly opening the same rejected stream.
+            val rejectedClients = mutableSetOf<String>()
+            repeat(MAX_INNERTUBE_STREAM_ATTEMPTS) {
+                val resolvedEntry = if (videoId.isNotBlank()) {
+                    runCatching {
+                        YtMusicStreamResolver.resolveInnertube(videoId, rejectedClients)
+                    }.onFailure { error ->
                         AppLogger.w(TAG, "Shared stream resolver failed for $videoId: ${error.message}")
+                    }.getOrNull()
+                } else null
+
+                if (resolvedEntry != null) {
+                    val stream = DownloadStream(
+                        url = resolvedEntry.url,
+                        userAgent = resolvedEntry.userAgent,
+                        requiresWebSessionHeaders = resolvedEntry.requiresWebSessionHeaders,
+                    )
+                    if (canReadDownloadStream(stream)) {
+                        return@runBlocking stream
                     }
-                    .getOrNull()
-            } else null
-            if (resolvedEntry != null) {
-                return@runBlocking DownloadStream(
-                    url = resolvedEntry.url,
-                    userAgent = resolvedEntry.userAgent,
-                    requiresWebSessionHeaders = resolvedEntry.requiresWebSessionHeaders,
-                )
+
+                    AppLogger.w(
+                        TAG,
+                        "CDN probe rejected ${resolvedEntry.clientLabel ?: "unknown"} for $videoId; trying fallback",
+                    )
+                    StreamUrlCache.remove(videoId)
+                    resolvedEntry.clientLabel?.let(rejectedClients::add)
+                }
             }
 
-            // Preserve the downloader fallback when Innertube is unavailable. Unlike the old
-            // primary path, it is reached only after the same resolver playback uses.
-            DownloadStream(
+            // Preserve the maintained extractor fallback. It is reached after an Innertube URL
+            // has failed a real byte-read probe, not only when player-response resolution fails.
+            val fallbackStream = DownloadStream(
                 url = NewPipeRepository.resolveAudioStream(watchUrl),
                 userAgent = FALLBACK_STREAM_USER_AGENT,
                 requiresWebSessionHeaders = false,
             )
+            if (!canReadDownloadStream(fallbackStream)) {
+                AppLogger.w(TAG, "Extractor fallback probe failed for $videoId; Media3 will retry it")
+            }
+            fallbackStream
         }
+
+    private fun canReadDownloadStream(stream: DownloadStream): Boolean =
+        runCatching {
+            val request = Request.Builder()
+                .url(stream.url)
+                .header("Range", "bytes=0-1")
+                .header("User-Agent", stream.userAgent)
+                .header(
+                    STREAM_WEB_SESSION_HEADER,
+                    if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
+                )
+                .build()
+            downloadProbeHttpClient.newCall(request).execute().use { response ->
+                response.isSuccessful && (response.body?.byteStream()?.read() ?: -1) >= 0
+            }
+        }.onFailure { error ->
+            AppLogger.w(TAG, "CDN probe failed: ${error.message}")
+        }.getOrDefault(false)
+
+    private const val MAX_INNERTUBE_STREAM_ATTEMPTS = 2
 
 
     private fun syncRoomLocalPath(context: Context, download: Download) {
