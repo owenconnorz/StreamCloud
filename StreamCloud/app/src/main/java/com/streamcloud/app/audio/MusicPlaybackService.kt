@@ -163,6 +163,27 @@ class MusicPlaybackService : MediaLibraryService() {
                         }
                         AppLogger.i(TAG, "playback state → $label")
                     }
+                    override fun onIsPlayingChanged(playing: Boolean) {
+                        // The cast flow pauses the primary session player before replacing a
+                        // Sonos URI. A secondary crossfade player is not session-owned, so it
+                        // must be stopped explicitly or the upcoming song can leak from the phone.
+                        if (!playing && !playWhenReady) {
+                            val crossfade = xfPlayer
+                            xfPlayer = null
+                            crossfade?.stop()
+                            crossfade?.release()
+                            val handoff = xfHandoffXfPlayer
+                            xfHandoffXfPlayer = null
+                            if (handoff !== crossfade) {
+                                handoff?.stop()
+                                handoff?.release()
+                            }
+                            xfCrossfading = false
+                            xfHandoffPending = false
+                            xfNextMediaItem = null
+                            exoPlayer.volume = 1f
+                        }
+                    }
                     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                         mediaItem?.let { item ->
                             youtubeVideoId(item.mediaId)?.let { videoId ->
