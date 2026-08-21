@@ -777,10 +777,13 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(thumb.orEmpty(), "UTF-8")
                             nav.navigate("artist/$u?thumb=$t")
                         },
-                        onOpenPlaylist = { id, title ->
+                        onOpenPlaylist = { id, title, thumbnail ->
+                            com.streamcloud.app.data.ytmusic.YtPlaylistArtworkHandoff
+                                .remember(id, thumbnail)
                             val i = URLEncoder.encode(id, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
-                            nav.navigate("yt-playlist/$i/$t")
+                            val th = URLEncoder.encode(thumbnail.orEmpty(), "UTF-8")
+                            nav.navigate("yt-playlist/$i/$t?thumb=$th")
                         },
                         onSearchClick = { nav.navigate("music-search") },
                         onSearchWithQuery = { q -> nav.navigate("music-search?q=${java.net.URLEncoder.encode(q, "UTF-8")}") },
