@@ -712,6 +712,7 @@ object YtPlayerUtils {
                     .maxByOrNull { it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0 }
                 ?: adaptiveVideoFormats
                     .minByOrNull { it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: Int.MAX_VALUE }
+                ?: return@withContext VideoStreamResult(isMusicVideo = false, url = null)
 
             val rawUrl = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                 ?: run {
