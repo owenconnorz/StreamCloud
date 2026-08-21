@@ -1,7 +1,6 @@
 package com.streamcloud.app.data.downloads
 
 import android.content.Context
-import android.net.ConnectivityManager
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
@@ -11,34 +10,32 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
-import com.streamcloud.app.data.SettingsRepository
-import com.streamcloud.app.data.library.FormatEntity
+import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
+import com.streamcloud.app.data.ytmusic.YtMusicStreamResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
 @OptIn(UnstableApi::class)
 object YtMusicDownloadUtil {
-
-    private const val MAX_PARALLEL_DOWNLOADS = 5
-
-
-    private val urlCache = ConcurrentHashMap<String, Pair<String, Long>>()
+    private const val TAG = "YtMusicDownloadUtil"
+    private const val STREAM_WEB_SESSION_HEADER = "X-StreamCloud-Web-Session"
+    private const val STREAM_WEB_SESSION_VALUE = "1"
+    private const val FALLBACK_STREAM_USER_AGENT =
+        "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -46,12 +43,65 @@ object YtMusicDownloadUtil {
 
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
 
+    private data class DownloadStream(
+        val url: String,
+        val userAgent: String,
+        val requiresWebSessionHeaders: Boolean,
+    )
 
     private val downloadHttpClient: OkHttpClient by lazy {
+        // The player response binds Googlevideo URLs to the source IP that requested them.
+        // Keeping downloads on IPv4 matches the playback transport and avoids CDN 403s caused
+        // by Android/OkHttp switching the actual media request to IPv6.
+        val ipv4OnlyDns = object : okhttp3.Dns {
+            override fun lookup(hostname: String): List<java.net.InetAddress> =
+                okhttp3.Dns.SYSTEM.lookup(hostname)
+                    .filter { it is java.net.Inet4Address }
+                    .ifEmpty { okhttp3.Dns.SYSTEM.lookup(hostname) }
+        }
+
         OkHttpClient.Builder()
             .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
+            .dns(ipv4OnlyDns)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .addNetworkInterceptor { chain ->
+                val request = chain.request()
+                val useWebSessionHeaders =
+                    request.header(STREAM_WEB_SESSION_HEADER) == STREAM_WEB_SESSION_VALUE
+                val host = request.url.host
+                val builder = request.newBuilder()
+                    .removeHeader(STREAM_WEB_SESSION_HEADER)
+
+                // WEB_REMIX/PoToken URLs are bound to the browser session that minted them.
+                // Android-client and maintained-extractor URLs must deliberately stay anonymous.
+                val cookie = YtPlayerUtils.ytMusicCookie
+                if (cookie.isNotBlank() && useWebSessionHeaders) {
+                    when {
+                        host.endsWith("music.youtube.com") -> {
+                            builder.header("Cookie", cookie)
+                                .header("Origin", "https://music.youtube.com")
+                                .header("Referer", "https://music.youtube.com/")
+                        }
+                        host.contains("googlevideo.com") -> {
+                            builder.header("Cookie", cookie)
+                                .header("Origin", "https://music.youtube.com")
+                                .header("Referer", "https://music.youtube.com/")
+                            if (request.url.queryParameter("pot") != null) {
+                                builder.header("Sec-Fetch-Dest", "audio")
+                                    .header("Sec-Fetch-Mode", "cors")
+                                    .header("Sec-Fetch-Site", "cross-site")
+                            }
+                        }
+                    }
+                }
+                if (useWebSessionHeaders) {
+                    YtPlayerUtils.cachedVisitorData?.let {
+                        builder.header("X-Goog-Visitor-Id", it)
+                    }
+                }
+                chain.proceed(builder.build())
+            }
             .build()
     }
 
@@ -62,10 +112,6 @@ object YtMusicDownloadUtil {
         val ctx = context.applicationContext
         val downloadCache = DownloadCaches.downloadCache(ctx)
         val playerCache  = DownloadCaches.playerCache(ctx)
-        val connectivityManager =
-            ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val settings = SettingsRepository(ctx)
-
         // Use playerCache (not downloadCache) in the upstream chain.
         // DownloadManager already writes directly to downloadCache; having downloadCache
         // in the factory too causes simultaneous read/write lock contention that
@@ -76,10 +122,7 @@ object YtMusicDownloadUtil {
                 .setCache(playerCache)
                 .setUpstreamDataSourceFactory(
                     OkHttpDataSource.Factory(downloadHttpClient)
-                        .setUserAgent(
-                            "com.google.android.apps.youtube.music/7.27.52 " +
-                                "(Linux; U; Android 11) gzip",
-                        ),
+                        .setUserAgent(FALLBACK_STREAM_USER_AGENT),
                 ),
         ) { dataSpec ->
             val watchUrl = dataSpec.uri.toString()
@@ -102,71 +145,18 @@ object YtMusicDownloadUtil {
 
 
 
-            urlCache[cacheKey]?.let { (cachedUrl, expiry) ->
-                if (System.currentTimeMillis() < expiry) {
-                    return@Factory dataSpec.withUri(cachedUrl.toUri())
-                }
-                urlCache.remove(cacheKey)
-            }
-
-
             val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
-
-            val (streamUrl, ttlMs) = runBlocking {
-                if (videoId.isNotBlank()) {
-                    val dao      = LibraryDb.get(ctx).formats()
-                    val stored   = dao.byVideoId(videoId)
-                    val qualPref = settings.audioQuality.first()
-                    val isMetered = connectivityManager.isActiveNetworkMetered
-                    val preferHigh = when (qualPref) {
-                        "high"  -> true
-                        "low"   -> false
-                        else    -> !isMetered
-                    }
-
-                    val info = YtPlayerUtils.resolveAudioFormatInfo(
-                        videoId          = videoId,
-                        preferItag       = stored?.itag,
-                        preferHighQuality = preferHigh,
-                    )
-
-                    if (info != null) {
-
-                        val codecsRaw = info.mimeType.substringAfter("codecs=", "")
-                            .removeSurrounding("\"")
-                        dao.upsert(
-                            FormatEntity(
-                                videoId       = videoId,
-                                itag          = info.itag,
-                                mimeType      = info.mimeType.split(";")[0],
-                                codecs        = codecsRaw,
-                                bitrate       = info.bitrate,
-                                sampleRate    = info.sampleRate,
-                                contentLength = info.contentLength ?: 0L,
-                                loudnessDb    = info.loudnessDb,
-                            ),
-                        )
-
-                        // &range=0-N signals a one-shot download to YouTube's CDN;
-                        // without it the CDN throttles to streaming speed (~100 KB/s).
-                        // Use actual contentLength when available; fall back to 50 MB
-                        // which safely covers any audio track at any quality.
-                        val rangeEnd = if (info.contentLength != null && info.contentLength > 0)
-                            info.contentLength else 50_000_000L
-                        val downloadUrl = "${info.url}&range=0-$rangeEnd"
-                        Pair(downloadUrl, info.expiresInSeconds * 1_000L)
-                    } else {
-
-                        Pair(NewPipeRepository.resolveAudioStream(watchUrl), 3L * 60 * 60 * 1000)
-                    }
-                } else {
-                    Pair(NewPipeRepository.resolveAudioStream(watchUrl), 3L * 60 * 60 * 1000)
-                }
-            }
-
-
-            urlCache[cacheKey] = streamUrl to (System.currentTimeMillis() + ttlMs)
-            dataSpec.withUri(streamUrl.toUri())
+            val stream = resolveDownloadStream(videoId, watchUrl)
+            dataSpec.buildUpon()
+                .setUri(stream.url.toUri())
+                .setHttpRequestHeaders(
+                    dataSpec.httpRequestHeaders + mapOf(
+                        "User-Agent" to stream.userAgent,
+                        STREAM_WEB_SESSION_HEADER to
+                            if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
+                    ),
+                )
+                .build()
         }
 
         val manager = DownloadManager(
@@ -200,7 +190,6 @@ object YtMusicDownloadUtil {
                     downloads.update { map ->
                         map.toMutableMap().apply { remove(download.request.id) }
                     }
-                    urlCache.remove(download.request.id)
                     clearRoomLocalPath(ctx, download.request.id)
                 }
             })
@@ -215,6 +204,32 @@ object YtMusicDownloadUtil {
 
         return manager.also { _downloadManager = it }
     }
+
+    private fun resolveDownloadStream(videoId: String, watchUrl: String): DownloadStream =
+        runBlocking(Dispatchers.IO) {
+            val resolvedEntry = if (videoId.isNotBlank()) {
+                runCatching { YtMusicStreamResolver.resolveInnertube(videoId) }
+                    .onFailure { error ->
+                        AppLogger.w(TAG, "Shared stream resolver failed for $videoId: ${error.message}")
+                    }
+                    .getOrNull()
+            } else null
+            if (resolvedEntry != null) {
+                return@runBlocking DownloadStream(
+                    url = resolvedEntry.url,
+                    userAgent = resolvedEntry.userAgent,
+                    requiresWebSessionHeaders = resolvedEntry.requiresWebSessionHeaders,
+                )
+            }
+
+            // Preserve the downloader fallback when Innertube is unavailable. Unlike the old
+            // primary path, it is reached only after the same resolver playback uses.
+            DownloadStream(
+                url = NewPipeRepository.resolveAudioStream(watchUrl),
+                userAgent = FALLBACK_STREAM_USER_AGENT,
+                requiresWebSessionHeaders = false,
+            )
+        }
 
 
     private fun syncRoomLocalPath(context: Context, download: Download) {
