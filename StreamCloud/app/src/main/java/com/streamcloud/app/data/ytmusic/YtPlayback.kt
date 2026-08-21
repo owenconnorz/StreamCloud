@@ -17,6 +17,7 @@ import com.streamcloud.app.data.library.TrackEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -97,6 +98,9 @@ object YtPlayback {
     private fun startAutoRadio(context: Context, seed: YtmSong) {
         backgroundScope.launch {
             runCatching {
+                // Leave the first stream's resolver and initial CDN read alone. Auto-radio is
+                // speculative queue work and used to compete with a fresh song tap immediately.
+                delay(AUTO_RADIO_DELAY_MS)
                 val related = EndlessPlayback.relatedSongs(context, seed.videoId)
                 if (related.isEmpty()) return@runCatching
                 primeStreams(related)
@@ -115,6 +119,8 @@ object YtPlayback {
             }
         }
     }
+
+    private const val AUTO_RADIO_DELAY_MS = 2_000L
 
 
     fun startRadioFromCurrent(context: Context, mediaIdUrl: String) {

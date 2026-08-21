@@ -574,9 +574,14 @@ object YtPlayerUtils {
 
                     AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=$nDescrambled")
 
-                    // Validate with a HEAD request before committing to this URL.
+                    // Validate fallback candidates with a HEAD request before committing to a URL.
                     //
-                    // SKIP for authenticated web clients (WEB, WEB_CREATOR, WEB_REMIX):
+                    // The primary Android test client is deliberately handed straight to
+                    // ExoPlayer. Its first range read is the real health check and avoids adding
+                    // a second CDN round trip before every ordinary song start. A real CDN 403
+                    // still triggers the service's bounded independent-extractor recovery.
+                    //
+                    // Also SKIP for authenticated web clients (WEB, WEB_CREATOR, WEB_REMIX):
                     // These clients generate session-signed CDN URLs.  The URL is perfectly
                     // valid for ExoPlayer (which sends proper User-Agent + Range headers) but
                     // our bare unauthenticated HEAD probe often 403s because the CDN rejects
@@ -584,13 +589,17 @@ object YtPlayerUtils {
                     // Skipping HEAD validation for these clients lets ExoPlayer attempt the
                     // URL directly — if it genuinely fails, ExoPlayer reports the error anyway.
                     //
-                    // KEEP for unauthenticated clients (ANDROID_VR, ANDROID_TESTSUITE, etc.)
+                    // KEEP for unauthenticated fallback clients (ANDROID_VR, etc.)
                     // where the CDN URL should be freely accessible and HEAD validation
                     // filters out bad URLs early without bothering ExoPlayer.
-                    val skipHeadValidation = client.useWebAuth || client.requiresAuth
+                    val skipHeadValidation = client.label == PRIMARY_FAST_START_CLIENT ||
+                        client.useWebAuth || client.requiresAuth
                     if (skipHeadValidation || validateStreamUrl(candidateUrl, client.userAgent)) {
                         if (skipHeadValidation) {
-                            AppLogger.i(TAG, "[${client.label}] $videoId — skipping HEAD validation (auth client), passing to ExoPlayer")
+                            AppLogger.i(
+                                TAG,
+                                "[${client.label}] $videoId — skipping HEAD validation, passing to ExoPlayer",
+                            )
                         }
                         return@withContext result.info.copy(
                             url = candidateUrl,
@@ -642,6 +651,8 @@ object YtPlayerUtils {
         "WEB_CREATOR"             -> 13
         else                       -> 50
     }
+
+    private const val PRIMARY_FAST_START_CLIENT = "ANDROID_TESTSUITE"
 
     // ── Music video detection + stream resolution ─────────────────────────────────────────────
 
