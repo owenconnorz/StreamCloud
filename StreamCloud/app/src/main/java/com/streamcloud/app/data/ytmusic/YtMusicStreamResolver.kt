@@ -85,6 +85,6 @@ object YtMusicStreamResolver {
     }
 
     private const val DEFAULT_PREFETCH_COUNT = 3
-    private const val EXPIRY_SAFETY_SECONDS = 300
-    private const val MINIMUM_CACHE_SECONDS = 60
+    private const val EXPIRY_SAFETY_SECONDS = 300L
+    private const val MINIMUM_CACHE_SECONDS = 60L
 }
