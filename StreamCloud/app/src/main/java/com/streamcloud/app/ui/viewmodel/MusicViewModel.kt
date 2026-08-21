@@ -113,6 +113,17 @@ class MusicViewModel(context: Context) : ViewModel() {
                 .settings.ytMusicCookie.first()
             val feed = YtMusicHomeRepository.load(cookie)
             _state.update { it.copy(ytHome = feed, ytHomeLoading = false) }
+            // Resolve the first visible songs while the user browses, not after the tap.
+            // The resolver shares its cache with the playback service, so this turns common
+            // home-feed starts into a cache hit without delaying the screen render.
+            com.streamcloud.app.data.ytmusic.YtMusicStreamResolver.prime(
+                feed.sections
+                    .asSequence()
+                    .filterIsInstance<com.streamcloud.app.data.ytmusic.HomeSection.SongRail>()
+                    .flatMap { it.items.asSequence() }
+                    .map { it.videoId }
+                    .toList(),
+            )
         }
     }
 
