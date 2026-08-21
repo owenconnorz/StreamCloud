@@ -158,6 +158,9 @@ fun NowPlayingShell(
                 // When casting, tell Sonos to load and play the newly-selected track.
                 val cstate = SonosRepository.castState.value
                 if (cstate is SonosRepository.CastState.Casting && mediaItem != null) {
+                    // The queue is still driven by Media3, but its audio must never take back
+                    // the phone speaker while Sonos resolves the replacement stream.
+                    controller.pause()
                     val mid = mediaItem.mediaId
                     val vid = if (mid.startsWith("http"))
                         mid.substringAfter("v=", "").substringBefore("&")
@@ -236,12 +239,23 @@ fun NowPlayingShell(
     val isCasting = castState is SonosRepository.CastState.Casting
 
     val sonosIsPlaying  by SonosRepository.isSonosPlaying.collectAsState()
+    val sonosTrackUpdating by SonosRepository.isSonosTrackUpdating.collectAsState()
     val sonosPosMs      by SonosRepository.sonosPositionMs.collectAsState()
     val sonosDurMs      by SonosRepository.sonosDurationMs.collectAsState()
 
     val displayIsPlaying  = if (isCasting) sonosIsPlaying  else isPlaying
     val displayPositionMs = if (isCasting) sonosPosMs      else positionMs
     val displayDurationMs = if (isCasting) sonosDurMs      else durationMs
+
+    fun skipToNext() {
+        if (isCasting) controller.pause()
+        controller.seekToNextMediaItem()
+    }
+
+    fun skipToPrevious() {
+        if (isCasting) controller.pause()
+        controller.seekToPreviousMediaItem()
+    }
 
 
 
@@ -485,13 +499,13 @@ fun NowPlayingShell(
                                     when {
                                         totalX < -threshold -> {
                                             artworkSwipeX.animateTo(-widthPx, tween(220))
-                                            controller.seekToNextMediaItem()
+                                            skipToNext()
                                             artworkSwipeX.snapTo(widthPx)
                                             artworkSwipeX.animateTo(0f, tween(300))
                                         }
                                         totalX > threshold -> {
                                             artworkSwipeX.animateTo(widthPx, tween(220))
-                                            controller.seekToPreviousMediaItem()
+                                            skipToPrevious()
                                             artworkSwipeX.snapTo(-widthPx)
                                             artworkSwipeX.animateTo(0f, tween(300))
                                         }
@@ -751,13 +765,13 @@ fun NowPlayingShell(
                     ) {
                         DarkCapsule(
                             icon = Icons.Default.SkipPrevious, contentDescription = "Previous",
-                            onClick = { controller.seekToPreviousMediaItem() },
+                            onClick = { skipToPrevious() },
                         )
                         PlayPill(
                             playing = displayIsPlaying,
                             onClick = {
                                 if (isCasting) {
-                                    if (sonosIsPlaying) SonosRepository.pause()
+                                    if (sonosTrackUpdating || sonosIsPlaying) SonosRepository.pause()
                                     else SonosRepository.resume()
                                 } else {
                                     if (isPlaying) controller.pause() else controller.play()
@@ -767,7 +781,7 @@ fun NowPlayingShell(
                         )
                         DarkCapsule(
                             icon = Icons.Default.SkipNext, contentDescription = "Next",
-                            onClick = { controller.seekToNextMediaItem() },
+                            onClick = { skipToNext() },
                         )
                     }
 
