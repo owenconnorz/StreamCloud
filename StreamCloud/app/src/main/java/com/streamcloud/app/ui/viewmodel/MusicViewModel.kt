@@ -88,7 +88,7 @@ class MusicViewModel(context: Context) : ViewModel() {
         com.streamcloud.app.data.ytmusic.YtMusicStreamResolver.prime(
             tracks
                 .asSequence()
-                .map(YtTrack::videoId)
+                .map { it.videoId() }
                 .filter(String::isNotBlank)
                 .toList(),
         )
