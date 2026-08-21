@@ -469,6 +469,7 @@ private fun SongResultRow(
             album           = null,
             thumbnail       = track.thumbnail,
             durationSeconds = null,
+            isVideo         = track.isVideo,
         )
     }
     Row(
