@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -277,14 +279,18 @@ fun NowPlayingShell(
                else if (animDominant.luminance() > 0.5f) Color(0xFF111111)
                else Color.White
 
-    // Controls visibility — auto-hides after 3.5 s, tap screen to reveal
+    // Controls visibility — auto-hides after 3.5 s, tap screen to reveal.
     var controlsVisible by remember { mutableStateOf(true) }
+    var controlsPinned by remember { mutableStateOf(false) }
     var hideKey by remember { mutableStateOf(0) }
-    // Auto-hide only when a canvas video is actually playing
-    LaunchedEffect(hideKey, activeCanvas) {
-        if (activeCanvas == null) { controlsVisible = true; return@LaunchedEffect }
+    // Auto-hide only when a canvas video is actually playing and controls are not pinned.
+    LaunchedEffect(hideKey, activeCanvas, controlsPinned) {
+        if (activeCanvas == null || controlsPinned) {
+            controlsVisible = true
+            return@LaunchedEffect
+        }
         delay(3_500L)
-        controlsVisible = false
+        if (!controlsPinned) controlsVisible = false
     }
 
     Box(
@@ -335,7 +341,7 @@ fun NowPlayingShell(
                     .pointerInput(Unit) {
                         detectTapGestures {
                             controlsVisible = true
-                            hideKey++
+                            if (!controlsPinned) hideKey++
                         }
                     }
             )
@@ -502,7 +508,27 @@ fun NowPlayingShell(
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    Spacer(Modifier.size(40.dp))
+                    if (activeCanvas != null) {
+                        NpIconButton(
+                            onClick = {
+                                controlsPinned = !controlsPinned
+                                controlsVisible = true
+                                hideKey++
+                            },
+                            tint = onBg,
+                        ) {
+                            Icon(
+                                if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
+                                contentDescription = if (controlsPinned) {
+                                    "Unpin controls"
+                                } else {
+                                    "Pin controls"
+                                },
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.size(40.dp))
+                    }
                 }
 
                 // ── Bottom controls ──
