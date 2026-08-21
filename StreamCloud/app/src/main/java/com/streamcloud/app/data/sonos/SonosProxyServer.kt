@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicReference
 object SonosProxyServer {
 
     private const val TAG = "SonosProxy"
+    const val DEFAULT_UPSTREAM_USER_AGENT =
+        "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip"
 
     data class TrackInfo(
         val videoId: String,
@@ -31,6 +33,7 @@ object SonosProxyServer {
         val watchUrl: String,
         val resolvedUrl: String? = null,
         val mimeType: String = "audio/mp4",
+        val userAgent: String = DEFAULT_UPSTREAM_USER_AGENT,
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -174,7 +177,10 @@ object SonosProxyServer {
 
             val reqBuilder = Request.Builder()
                 .url(streamUrl)
-                .header("User-Agent", "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip")
+                // CDN signatures are tied to the client that minted the URL. Reusing a generic
+                // YouTube Music identity here makes otherwise valid PipePipe/InnerTube streams
+                // fail only after Sonos has accepted the local proxy URI.
+                .header("User-Agent", track.userAgent)
                 .header("Accept", "*/*")
             if (rangeHeader != null) {
                 reqBuilder.header("Range", rangeHeader)
