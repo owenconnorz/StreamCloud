@@ -18,6 +18,25 @@ class NowPlayingShellMusicVideoSelectionTest {
     }
 
     @Test
+    fun trackIdsRemainAvailableWithoutEnablingTheMusicVideoPlayer() {
+        assertEquals(
+            "abc123def45",
+            mediaVideoId(
+                explicitVideoId = "",
+                mediaId = "https://music.youtube.com/watch?v=abc123def45",
+            ),
+        )
+        assertEquals(
+            "",
+            selectedMusicVideoId(
+                isMusicVideo = false,
+                explicitVideoId = "",
+                mediaId = "https://music.youtube.com/watch?v=abc123def45",
+            ),
+        )
+    }
+
+    @Test
     fun musicVideoSelectionsPreferExplicitMetadata() {
         assertEquals(
             "abc123def45",
