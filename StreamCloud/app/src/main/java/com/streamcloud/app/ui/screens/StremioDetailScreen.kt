@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -146,7 +146,11 @@ fun StremioDetailScreen(
                     )
                 }
             }
-            items(streams, key = { "s_${it.url ?: it.infoHash ?: it.title.orEmpty()}" }) { s ->
+            // Addons can return duplicate stream URLs (for example, the same HLS endpoint
+            // with different labels/metadata). The content fields are not a unique identity.
+            itemsIndexed(streams, key = { index, s ->
+                "s_${index}_${s.url ?: s.infoHash ?: s.title.orEmpty()}"
+            }) { _, s ->
                 StreamRow(s) {
                     val streamUrl = buildStreamUrl(s) ?: return@StreamRow
                     onPlay(streamUrl, meta?.name ?: initialTitle)
