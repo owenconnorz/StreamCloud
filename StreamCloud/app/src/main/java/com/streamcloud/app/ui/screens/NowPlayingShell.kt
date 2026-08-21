@@ -245,17 +245,26 @@ fun NowPlayingShell(
 
 
 
-    val videoId = remember(mediaId, explicitMusicVideoId) {
-        selectedMusicVideoId(
-            isMusicVideo = true,
+    // A track ID is useful for Canvas and casting, but visual playback must only use a music
+    // video explicitly selected from a music-video surface. Most songs also have a YouTube
+    // video stream, so treating any track ID as a music video opens the player everywhere.
+    val trackVideoId = remember(mediaId, explicitMusicVideoId) {
+        mediaVideoId(
             explicitVideoId = explicitMusicVideoId,
             mediaId = mediaId,
         )
     }
-    val sonosCastWatchUrl = remember(mediaId, videoId) {
+    val selectedVideoId = remember(mediaId, explicitMusicVideoId, selectedMusicVideo) {
+        selectedMusicVideoId(
+            isMusicVideo = selectedMusicVideo,
+            explicitVideoId = explicitMusicVideoId,
+            mediaId = mediaId,
+        )
+    }
+    val sonosCastWatchUrl = remember(mediaId, trackVideoId) {
         when {
             mediaId?.startsWith("http") == true -> mediaId.orEmpty()
-            videoId.isNotBlank() -> "https://music.youtube.com/watch?v=$videoId"
+            trackVideoId.isNotBlank() -> "https://music.youtube.com/watch?v=$trackVideoId"
             else -> ""
         }
     }
@@ -271,13 +280,15 @@ fun NowPlayingShell(
     var videoStreamUserAgent by remember(mediaId) { mutableStateOf<String?>(null) }
     var showVideoPlayer by remember(mediaId) { mutableStateOf(false) }
 
-    LaunchedEffect(videoId, selectedMusicVideo) {
+    LaunchedEffect(selectedVideoId, selectedMusicVideo) {
         isMusicVideo   = null
         videoStreamUrl = null
         videoStreamUserAgent = null
         showVideoPlayer = false
-        if (videoId.isBlank()) return@LaunchedEffect
-        val result = withContext(Dispatchers.IO) { YtPlayerUtils.resolveVideoStream(videoId) }
+        if (selectedVideoId.isBlank()) return@LaunchedEffect
+        val result = withContext(Dispatchers.IO) {
+            YtPlayerUtils.resolveVideoStream(selectedVideoId)
+        }
         isMusicVideo   = result.isMusicVideo
         videoStreamUrl = result.url
         videoStreamUserAgent = result.userAgent
@@ -303,11 +314,11 @@ fun NowPlayingShell(
             selectedMusicVideo ||
             isMusicVideo == true ||
             title.isBlank() ||
-            videoId.isBlank() ||
+            trackVideoId.isBlank() ||
             spotifyCookie.isBlank()
         ) return@LaunchedEffect
         canvasUrl = runCatching {
-            SpotifyCanvasRepository.getCanvasUrl(videoId, title, artist)
+            SpotifyCanvasRepository.getCanvasUrl(trackVideoId, title, artist)
         }.getOrNull()
     }
     // Spotify Canvas must never win over an explicitly selected YouTube music video. The two

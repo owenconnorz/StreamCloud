@@ -6,6 +6,13 @@ internal fun selectedMusicVideoId(
     mediaId: String?,
 ): String {
     if (!isMusicVideo) return ""
+    return mediaVideoId(explicitVideoId, mediaId)
+}
+
+internal fun mediaVideoId(
+    explicitVideoId: String,
+    mediaId: String?,
+): String {
     if (explicitVideoId.isNotBlank()) return explicitVideoId
     val mid = mediaId ?: return ""
     return if (mid.startsWith("http")) {
