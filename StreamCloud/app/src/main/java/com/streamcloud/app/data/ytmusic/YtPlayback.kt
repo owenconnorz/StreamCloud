@@ -194,14 +194,15 @@ object YtPlayback {
 
 
     fun downloadSong(context: Context, song: YtmSong) {
-        val url = watchUrl(song.videoId)
+        val watchUrl = watchUrl(song.videoId)
+        val downloadId = YtMusicDownloadUtil.downloadId(song.videoId)
         backgroundScope.launch {
             val dao = LibraryDb.get(context).tracks()
-            val existing = runCatching { dao.byUrl(url) }.getOrNull()
+            val existing = runCatching { dao.byUrl(watchUrl) }.getOrNull()
             if (existing == null) {
                 dao.upsert(
                     TrackEntity(
-                        url = url,
+                        url = watchUrl,
                         title = song.title,
                         artist = song.artist,
                         durationSec = song.durationSeconds ?: 0L,
@@ -210,9 +211,11 @@ object YtPlayback {
                 )
             }
         }
-        val request = DownloadRequest.Builder(url, url.toUri())
+        // Keep the offline request keyed by the immutable video ID, matching OpenTune and
+        // avoiding URL-shaped cache keys that can fail to resolve after a refresh.
+        val request = DownloadRequest.Builder(downloadId, downloadId.toUri())
             .setData(song.title.toByteArray(Charsets.UTF_8))
-            .setCustomCacheKey(url)
+            .setCustomCacheKey(downloadId)
             .build()
         DownloadService.sendAddDownload(
             context,
@@ -227,6 +230,13 @@ object YtPlayback {
         DownloadService.sendRemoveDownload(
             context,
             MusicExoDownloadService::class.java,
+            YtMusicDownloadUtil.downloadId(song.videoId),
+            false,
+        )
+        // Remove a pre-migration request if one remains in the old URL-keyed cache.
+        DownloadService.sendRemoveDownload(
+            context,
+            MusicExoDownloadService::class.java,
             watchUrl(song.videoId),
             false,
         )
@@ -235,7 +245,7 @@ object YtPlayback {
 
     fun isDownloaded(context: Context, song: YtmSong): Boolean {
         val url = watchUrl(song.videoId)
-        if (YtMusicDownloadUtil.isDownloaded(url)) return true
+        if (YtMusicDownloadUtil.isDownloaded(song.videoId)) return true
         val legacyFile = com.streamcloud.app.data.downloads.MusicDownloader.isDownloaded(context, url)
         return legacyFile
     }
