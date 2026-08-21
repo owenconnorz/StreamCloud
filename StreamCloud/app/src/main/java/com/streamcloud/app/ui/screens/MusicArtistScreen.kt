@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,7 +48,7 @@ fun MusicArtistScreen(
     onFollow: ((name: String, thumbnail: String?, subscriberLabel: String?) -> Unit)? = null,
     onUnfollow: (() -> Unit)? = null,
     onBack: () -> Unit,
-    onPlay: (YtTrack) -> Unit,
+    onPlay: (tracks: List<YtTrack>, startIndex: Int) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
     onShowMore: (sectionType: String) -> Unit = {},
@@ -126,7 +127,7 @@ private fun ArtistPageContent(
     background: Color,
     isFollowed: Boolean = false,
     onFollowToggle: (() -> Unit)? = null,
-    onPlay: (YtTrack) -> Unit,
+    onPlay: (tracks: List<YtTrack>, startIndex: Int) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
     onShowMore: (sectionType: String) -> Unit,
@@ -186,7 +187,7 @@ private fun ArtistPageContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(
-                    onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
+                    onClick = { if (page.topTracks.isNotEmpty()) onPlay(page.topTracks, 0) },
                     shape = RoundedCornerShape(50),
                     colors = ButtonDefaults.buttonColors(containerColor = primary),
                     modifier = Modifier.weight(1f).height(44.dp),
@@ -209,12 +210,12 @@ private fun ArtistPageContent(
                     }
                 }
                 IconButton(
-                    onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
+                    onClick = { if (page.topTracks.isNotEmpty()) onPlay(page.topTracks, 0) },
                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
                         .background(surfaceVariant),
                 ) { Icon(Icons.Default.Shuffle, null, tint = onSurface, modifier = Modifier.size(20.dp)) }
                 IconButton(
-                    onClick = { page.topTracks.firstOrNull()?.let(onPlay) },
+                    onClick = { if (page.topTracks.isNotEmpty()) onPlay(page.topTracks, 0) },
                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(50))
                         .background(surfaceVariant),
                 ) { Icon(Icons.Default.PlayArrow, null, tint = onSurface, modifier = Modifier.size(22.dp)) }
@@ -224,8 +225,15 @@ private fun ArtistPageContent(
         // Popular tracks
         if (page.topTracks.isNotEmpty()) {
             item { SectionHeader("Popular", onViewAll = { onShowMore("popular") }) }
-            items(page.topTracks.take(5), key = { "pop_${it.url}" }) { tr ->
-                TrackRow(track = tr, onPlay = { onPlay(tr) }, onArtistClick = onArtistClick)
+            itemsIndexed(
+                page.topTracks.take(5),
+                key = { index, track -> "pop_${index}_${track.url}" },
+            ) { index, tr ->
+                TrackRow(
+                    track = tr,
+                    onPlay = { onPlay(page.topTracks, index) },
+                    onArtistClick = onArtistClick,
+                )
             }
         }
 
@@ -258,8 +266,14 @@ private fun ArtistPageContent(
             item { SectionHeader("Videos", onViewAll = { onShowMore("videos") }) }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(page.videos, key = { "vid_${it.url}" }) { vid ->
-                        VideoCard(track = vid, onClick = { onPlay(vid) })
+                    itemsIndexed(
+                        page.videos,
+                        key = { index, track -> "vid_${index}_${track.url}" },
+                    ) { index, vid ->
+                        VideoCard(
+                            track = vid,
+                            onClick = { onPlay(page.videos, index) },
+                        )
                     }
                 }
             }

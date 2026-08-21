@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -299,10 +300,16 @@ fun MusicSearchScreen(
                         )
                     }
                     val songList = if (showAllSongs) sections.songs else sections.songs.take(4)
-                    items(songList, key = { "song_${it.url}" }) { track ->
+                    itemsIndexed(
+                        songList,
+                        key = { index, track -> "song_${index}_${track.url}" },
+                    ) { index, track ->
                         SongResultRow(
                             track         = track,
-                            onClick       = { vm.play(track); submitSearch(query) },
+                            onClick       = {
+                                vm.play(sections.songs, index)
+                                submitSearch(query)
+                            },
                             onViewArtist  = { name ->
                                 onArtistClick(
                                     "https://music.youtube.com/search?q=${Uri.encode(name)}",

@@ -67,7 +67,6 @@ fun YtPlaylistScreen(
     title: String,
     initialThumb: String? = null,
     onBack: () -> Unit,
-    onPlay: (YtmSong) -> Unit = {},
 ) {
     val context = LocalContext.current
     val sl = remember(context) { ServiceLocator.get(context) }
@@ -221,8 +220,7 @@ fun YtPlaylistScreen(
     }
 
     fun playSongHandoff(list: List<YtmSong>, index: Int) {
-        val s = list.getOrNull(index) ?: return
-        onPlay(s)
+        if (list.getOrNull(index) == null) return
         scope.launch {
             runCatching { YtPlayback.playPlaylist(context, list, index) }
         }
@@ -317,11 +315,12 @@ fun YtPlaylistScreen(
             list != null -> {
                 // Apply search filter — empty query shows the full list
                 val query = searchQuery.trim().lowercase()
-                val filteredList = if (query.isBlank()) list
-                    else list.filter { s ->
+                val filteredList = list.withIndex().filter { indexedSong ->
+                    val s = indexedSong.value
+                    query.isBlank() ||
                         s.title.lowercase().contains(query) ||
                             s.artist.lowercase().contains(query)
-                    }
+                }
 
                 val listState = rememberLazyListState()
                 LazyColumn(
@@ -377,12 +376,12 @@ fun YtPlaylistScreen(
                 }
                 itemsIndexed(
                     filteredList,
-                    key = { idx, s -> "pt_${s.videoId}_$idx" },
-                ) { index, s ->
+                    key = { _, indexedSong -> "pt_${indexedSong.index}_${indexedSong.value.videoId}" },
+                ) { _, indexedSong ->
                     PlaylistTrackRow(
-                        song = s,
-                        downloadFraction = downloadProgress[s.videoId],
-                        onClick = { playSongHandoff(list, list.indexOf(s).takeIf { it >= 0 } ?: index) },
+                        song = indexedSong.value,
+                        downloadFraction = downloadProgress[indexedSong.value.videoId],
+                        onClick = { playSongHandoff(list, indexedSong.index) },
                     )
                 }
                 item { Spacer(Modifier.height(80.dp)) }
