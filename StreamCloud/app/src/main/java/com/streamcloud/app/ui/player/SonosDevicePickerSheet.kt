@@ -128,7 +128,15 @@ fun SonosDevicePickerSheet(
                 }
 
                 is SonosRepository.CastState.Connecting ->
-                    SheetStatus("Connecting…", showSpinner = true)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        SheetStatus("Connecting…", showSpinner = true)
+                        OutlinedButton(
+                            onClick = { SonosRepository.cancelConnection(context) },
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Text("Cancel", color = Color.White)
+                        }
+                    }
 
                 is SonosRepository.CastState.Casting -> {
                     val vol by SonosRepository.sonosVolume.collectAsState()

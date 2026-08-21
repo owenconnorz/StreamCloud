@@ -5,6 +5,7 @@ import android.util.Log
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 object SonosRepository {
 
@@ -55,6 +57,9 @@ object SonosRepository {
     private var activeDevice: SonosDevice? = null
     private var appContext: Context? = null
     private var pollingJob: kotlinx.coroutines.Job? = null
+    private var connectionJob: kotlinx.coroutines.Job? = null
+
+    private const val STREAM_PREPARATION_TIMEOUT_MS = 35_000L
 
     // ── Position polling ──────────────────────────────────────────────────────
 
@@ -127,8 +132,9 @@ object SonosRepository {
         watchUrl: String,
         displayName: String = device.name,
     ) {
+        connectionJob?.cancel()
         _castState.update { CastState.Connecting }
-        scope.launch {
+        connectionJob = scope.launch {
             try {
                 val localIp = SonosDiscovery.localIp(context)
                 if (localIp == null) {
@@ -136,18 +142,50 @@ object SonosRepository {
                     return@launch
                 }
 
+                // Check the selected speaker before resolving a remote stream. This makes a
+                // stale discovery result fail promptly instead of displaying Connecting while
+                // extractor calls run for tens of seconds.
+                val reachable = SonosController.getState(device) != null
+                if (!reachable) {
+                    _castState.update {
+                        CastState.Error(
+                            "Cannot reach ${device.name} (${device.host}). " +
+                                "Make sure both devices are on the same WiFi network.",
+                        )
+                    }
+                    return@launch
+                }
+
                 // Pre-resolve the audio URL + MIME type before starting the proxy.
                 // Lazy resolution during Sonos's synchronous URI probe causes the SOAP call
                 // to time-out (even at 30 s) and Sonos reports "stream rejected."
-                val formatInfo = withContext(Dispatchers.IO) {
-                    if (videoId.isNotBlank())
-                        runCatching { YtPlayerUtils.resolveAudioFormatInfo(videoId, sonosSafe = true) }.getOrNull()
-                    else null
-                }
-                val resolvedUrl: String? = formatInfo?.url
-                    ?: withContext(Dispatchers.IO) {
-                        runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+                val preparedStream = withTimeoutOrNull(STREAM_PREPARATION_TIMEOUT_MS) {
+                    val formatInfo = withContext(Dispatchers.IO) {
+                        if (videoId.isNotBlank()) {
+                            runCatching {
+                                YtPlayerUtils.resolveAudioFormatInfo(videoId, sonosSafe = true)
+                            }.getOrNull()
+                        } else {
+                            null
+                        }
                     }
+                    val resolvedUrl = formatInfo?.url
+                        ?: withContext(Dispatchers.IO) {
+                            runCatching { NewPipeRepository.resolveAudioStream(watchUrl) }.getOrNull()
+                        }
+                    formatInfo to resolvedUrl
+                }
+                val prepared = preparedStream?.takeIf { it.second != null }
+                if (prepared == null) {
+                    _castState.update {
+                        CastState.Error(
+                            "Unable to prepare this stream for Sonos. Check your connection and try again.",
+                        )
+                    }
+                    return@launch
+                }
+                val formatInfo = prepared.first
+                val resolvedUrl = requireNotNull(prepared.second)
                 // Normalise MIME type to bare type (strip codec params) so DIDL/HEAD agree.
                 val mimeType = formatInfo?.mimeType
                     ?.substringBefore(";")?.trim()
@@ -169,18 +207,6 @@ object SonosRepository {
                 )
                 val resolvedTag = if (resolvedUrl != null) "pre-resolved" else "lazy"
                 Log.d(TAG, "Proxy URL: $proxyUrl  resolve=$resolvedTag  mime=$mimeType")
-
-                // Pre-flight: verify Sonos is reachable before attempting transport commands.
-                // GetTransportInfo uses the same host:port as SetAVTransportURI — if it returns
-                // null the device is unreachable (wrong IP, AP isolation, device offline).
-                val reachable = SonosController.getState(device) != null
-                if (!reachable) {
-                    SonosProxyServer.stop()
-                    _castState.update {
-                        CastState.Error("Cannot reach ${device.name} (${device.host}). Make sure both devices are on the same WiFi network.")
-                    }
-                    return@launch
-                }
 
                 // Retry up to 2 times: some Sonos firmware takes a moment after Stop()
                 // to become ready for a new SetAVTransportURI command.
@@ -229,12 +255,23 @@ object SonosRepository {
                         CastState.Error("Sonos stream failed: $failReason")
                     }
                 }
+            } catch (e: CancellationException) {
+                SonosProxyServer.stop()
+                throw e
             } catch (e: Exception) {
                 SonosProxyServer.stop()
                 Log.w(TAG, "connect failed", e)
                 _castState.update { CastState.Error(e.message ?: "Connection failed") }
             }
         }
+    }
+
+    fun cancelConnection(context: Context) {
+        connectionJob?.cancel()
+        connectionJob = null
+        SonosProxyServer.stop()
+        _castState.update { CastState.Idle }
+        startDiscovery(context)
     }
 
     fun pause() {

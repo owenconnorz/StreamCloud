@@ -279,22 +279,33 @@ fun NowPlayingShell(
     var videoStreamUrl  by remember(mediaId) { mutableStateOf<String?>(null) }
     var videoStreamUserAgent by remember(mediaId) { mutableStateOf<String?>(null) }
     var showVideoPlayer by remember(mediaId) { mutableStateOf(false) }
+    // Ordinary songs may expose a YouTube video stream too. Canvas stays as their default
+    // surface until the listener explicitly chooses to watch the video.
+    var manualVideoRequested by remember(mediaId) { mutableStateOf(false) }
 
-    LaunchedEffect(selectedVideoId, selectedMusicVideo) {
+    LaunchedEffect(
+        selectedVideoId,
+        trackVideoId,
+        selectedMusicVideo,
+        manualVideoRequested,
+    ) {
         isMusicVideo   = null
         videoStreamUrl = null
         videoStreamUserAgent = null
         showVideoPlayer = false
-        if (selectedVideoId.isBlank()) return@LaunchedEffect
+        val videoIdToResolve = when {
+            selectedMusicVideo -> selectedVideoId
+            manualVideoRequested -> trackVideoId
+            else -> ""
+        }
+        if (videoIdToResolve.isBlank()) return@LaunchedEffect
         val result = withContext(Dispatchers.IO) {
-            YtPlayerUtils.resolveVideoStream(selectedVideoId)
+            YtPlayerUtils.resolveVideoStream(videoIdToResolve)
         }
         isMusicVideo   = result.isMusicVideo
         videoStreamUrl = result.url
         videoStreamUserAgent = result.userAgent
-        // The resolved visual stream is authoritative. Source-screen flags are useful while it
-        // loads, but a real music video must open its player regardless of how it was queued.
-        showVideoPlayer = result.isMusicVideo && result.url != null
+        showVideoPlayer = result.url != null
     }
 
 
@@ -307,12 +318,11 @@ fun NowPlayingShell(
     }
 
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, selectedMusicVideo, isMusicVideo) {
+    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, selectedMusicVideo) {
         canvasUrl = null
         if (
             !canvasEnabled ||
             selectedMusicVideo ||
-            isMusicVideo == true ||
             title.isBlank() ||
             trackVideoId.isBlank() ||
             spotifyCookie.isBlank()
@@ -321,13 +331,11 @@ fun NowPlayingShell(
             SpotifyCanvasRepository.getCanvasUrl(trackVideoId, title, artist)
         }.getOrNull()
     }
-    // Spotify Canvas must never win over an explicitly selected YouTube music video. The two
-    // surfaces are mutually exclusive; suppress Canvas while the video stream is resolving too
-    // so the screen cannot briefly show the wrong Spotify visual first.
+    // An explicit music-video selection or manually opened video wins over Canvas. A visual
+    // format on an ordinary song alone does not, because that would turn every song into video.
     val activeCanvas = if (
         canvasEnabled &&
         !selectedMusicVideo &&
-        isMusicVideo != true &&
         !showVideoPlayer
     ) canvasUrl else null
 
@@ -439,7 +447,10 @@ fun NowPlayingShell(
                             contentAlignment = Alignment.TopEnd,
                         ) {
                             IconButton(
-                                onClick = { showVideoPlayer = false },
+                                onClick = {
+                                    showVideoPlayer = false
+                                    if (!selectedMusicVideo) manualVideoRequested = false
+                                },
                                 modifier = Modifier
                                     .padding(6.dp)
                                     .background(Color.Black.copy(alpha = 0.45f), CircleShape),
@@ -568,6 +579,23 @@ fun NowPlayingShell(
                     }
                     Spacer(Modifier.weight(1f))
                     if (activeCanvas != null) {
+                        NpIconButton(
+                            onClick = {
+                                manualVideoRequested = !manualVideoRequested
+                                controlsVisible = true
+                                hideKey++
+                            },
+                            tint = onBg,
+                        ) {
+                            Icon(
+                                Icons.Default.PlayCircle,
+                                contentDescription = if (manualVideoRequested) {
+                                    "Return to Canvas"
+                                } else {
+                                    "Watch video"
+                                },
+                            )
+                        }
                         NpIconButton(
                             onClick = {
                                 controlsPinned = !controlsPinned
