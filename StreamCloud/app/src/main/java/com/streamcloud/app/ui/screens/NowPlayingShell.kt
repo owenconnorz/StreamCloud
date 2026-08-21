@@ -67,7 +67,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import android.graphics.SurfaceTexture
 import android.view.TextureView
 import android.view.ViewGroup
@@ -266,20 +268,22 @@ fun NowPlayingShell(
     // null = still checking, false = audio-only track, true = has a real music video
     var isMusicVideo    by remember(mediaId) { mutableStateOf<Boolean?>(null) }
     var videoStreamUrl  by remember(mediaId) { mutableStateOf<String?>(null) }
+    var videoStreamUserAgent by remember(mediaId) { mutableStateOf<String?>(null) }
     var showVideoPlayer by remember(mediaId) { mutableStateOf(false) }
 
     LaunchedEffect(videoId, selectedMusicVideo) {
         isMusicVideo   = null
         videoStreamUrl = null
+        videoStreamUserAgent = null
         showVideoPlayer = false
         if (videoId.isBlank()) return@LaunchedEffect
         val result = withContext(Dispatchers.IO) { YtPlayerUtils.resolveVideoStream(videoId) }
         isMusicVideo   = result.isMusicVideo
         videoStreamUrl = result.url
-        // A result chosen from the Music Videos feed is an explicit request to watch it. Keep
-        // ordinary song playback on artwork, while still offering its play badge when a visual
-        // stream exists.
-        showVideoPlayer = selectedMusicVideo && result.isMusicVideo && result.url != null
+        videoStreamUserAgent = result.userAgent
+        // The resolved visual stream is authoritative. Source-screen flags are useful while it
+        // loads, but a real music video must open its player regardless of how it was queued.
+        showVideoPlayer = result.isMusicVideo && result.url != null
     }
 
 
@@ -292,11 +296,12 @@ fun NowPlayingShell(
     }
 
     var canvasUrl by remember(mediaId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, selectedMusicVideo) {
+    LaunchedEffect(mediaId, title, artist, canvasEnabled, spotifyCookie, selectedMusicVideo, isMusicVideo) {
         canvasUrl = null
         if (
             !canvasEnabled ||
             selectedMusicVideo ||
+            isMusicVideo == true ||
             title.isBlank() ||
             videoId.isBlank() ||
             spotifyCookie.isBlank()
@@ -308,7 +313,12 @@ fun NowPlayingShell(
     // Spotify Canvas must never win over an explicitly selected YouTube music video. The two
     // surfaces are mutually exclusive; suppress Canvas while the video stream is resolving too
     // so the screen cannot briefly show the wrong Spotify visual first.
-    val activeCanvas = if (canvasEnabled && !selectedMusicVideo && !showVideoPlayer) canvasUrl else null
+    val activeCanvas = if (
+        canvasEnabled &&
+        !selectedMusicVideo &&
+        isMusicVideo != true &&
+        !showVideoPlayer
+    ) canvasUrl else null
 
     // When canvas is playing its background is always dark; use white text.
     // Without canvas the gradient bg varies, so derive from the dominant artwork colour.
@@ -406,6 +416,7 @@ fun NowPlayingShell(
                         ) {
                             MusicVideoPlayer(
                                 url = videoStreamUrl!!,
+                                userAgent = videoStreamUserAgent,
                                 startPositionMs = controller.currentPosition,
                                 controllerPositionMs = displayPositionMs,
                                 isPlaying = isPlaying,
@@ -1058,6 +1069,7 @@ private fun formatTime(ms: Long): String {
 @Composable
 private fun MusicVideoPlayer(
     url: String,
+    userAgent: String?,
     startPositionMs: Long,
     controllerPositionMs: Long,
     isPlaying: Boolean,
@@ -1065,8 +1077,12 @@ private fun MusicVideoPlayer(
 ) {
     val context = LocalContext.current
 
-    val player = remember(url) {
-        ExoPlayer.Builder(context).build().apply {
+    val player = remember(url, userAgent) {
+        val dataSourceFactory = DefaultHttpDataSource.Factory().setUserAgent(userAgent.orEmpty())
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .build()
+            .apply {
             volume = 0f   // muted — audio comes from MusicPlaybackService
             repeatMode = Player.REPEAT_MODE_OFF
         }
