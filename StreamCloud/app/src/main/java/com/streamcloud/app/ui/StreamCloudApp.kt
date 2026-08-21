@@ -1,3 +1,706 @@
+package com.streamcloud.app.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Search
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Theaters
+import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import androidx.compose.ui.graphics.Brush
+import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.player.NativePlayerScreen
+import com.streamcloud.app.ui.screens.AdultScreen
+import com.streamcloud.app.ui.screens.LibraryScreen
+import com.streamcloud.app.ui.screens.MovieDetailScreen
+import com.streamcloud.app.ui.screens.MovieSearchScreen
+import com.streamcloud.app.ui.screens.MoviesScreen
+import com.streamcloud.app.ui.screens.MusicScreen
+import com.streamcloud.app.ui.screens.MusicSearchScreen
+import com.streamcloud.app.ui.screens.PluginPickerScreen
+import com.streamcloud.app.ui.screens.PluginsScreen
+import com.streamcloud.app.ui.screens.SettingsHubScreen
+import com.streamcloud.app.ui.screens.ProfilePickerScreen
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.viewmodel.AdultViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import android.os.Build
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.media3.common.util.UnstableApi
+import com.streamcloud.app.data.util.GoogleAccountHelper
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import com.streamcloud.app.ui.theme.AlbumArtThemeBus
+import com.streamcloud.app.ui.theme.AllMoviesThemes
+import com.streamcloud.app.ui.theme.TvOverscanPadding
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import androidx.compose.ui.text.style.TextOverflow
+import com.streamcloud.app.ui.theme.tvFocusBorder
+import java.net.URLDecoder
+import java.net.URLEncoder
+
+private sealed class Tab(val route: String, val label: String, val icon: ImageVector) {
+    data object Movies   : Tab("movies",   "Movies",   Icons.Filled.Theaters)
+    data object Music    : Tab("music",    "Music",    Icons.Filled.MusicNote)
+    data object Library  : Tab("library",  "Library",  Icons.Filled.Bookmarks)
+    data object Adult    : Tab("adult",    "Adult",    Icons.Filled.Whatshot)
+    data object Settings : Tab("settings", "Settings", Icons.Filled.Settings)
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun StreamCloudApp() {
+    val nav = rememberNavController()
+    val backStack by nav.currentBackStackEntryAsState()
+    val currentRoute = backStack?.destination?.route
+    val isMediaRoute = currentRoute != null && (
+        currentRoute == Tab.Movies.route ||
+        currentRoute.startsWith("cloudstream") ||
+        currentRoute.startsWith("cs-detail/") ||
+        currentRoute.startsWith("cs-section/") ||
+        currentRoute.startsWith("movie/") ||
+        currentRoute.startsWith("tv/") ||
+        currentRoute.startsWith("player/")
+    )
+
+    val context = LocalContext.current
+    val sl = remember { ServiceLocator.get(context) }
+    val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
+    val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
+
+
+
+    LaunchedEffect(Unit) {
+        runCatching { com.streamcloud.app.audio.PlaybackBus.ensureAttached(context) }
+
+
+        runCatching { com.streamcloud.app.ui.theme.AlbumArtThemeBus.attach(context) }
+    }
+
+    val tabs = remember(nsfwEnabled, navOrderCsv) {
+
+
+
+        val pool: Map<String, Tab> = buildMap {
+            put(Tab.Movies.route, Tab.Movies)
+            put(Tab.Music.route, Tab.Music)
+            put(Tab.Library.route, Tab.Library)
+            if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
+        }
+
+
+
+        val requestedOrder = navOrderCsv
+            ?.takeIf { it.isNotBlank() }
+            ?.split(",")
+            ?.mapNotNull { pool[it.trim()] }
+            ?.distinct()
+            .orEmpty()
+        val seen = requestedOrder.map { it.route }.toSet()
+        val middle = requestedOrder + pool.values.filter { it.route !in seen }
+
+
+        middle + Tab.Settings
+    }
+
+    // Resolve the correct start destination ONCE — before the NavHost is created.
+    // We read the saved order directly from DataStore (one fast suspend call) so the
+    // NavHost is created with the right startDestination from the very first frame it
+    // appears, rather than always opening on Movies.
+    var resolvedStartRoute by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        val csv  = sl.settings.navTabOrderCsv.first()
+        val nsfw = sl.settings.nsfwEnabled.first()
+
+        val validRoutes = buildSet<String> {
+            add(Tab.Movies.route)
+            add(Tab.Music.route)
+            add(Tab.Library.route)
+            if (nsfw) add(Tab.Adult.route)
+        }
+
+        resolvedStartRoute = if (!csv.isNullOrBlank()) {
+            csv.split(",")
+                .map { it.trim() }
+                .firstOrNull { it in validRoutes }
+                ?: Tab.Movies.route
+        } else {
+            Tab.Movies.route
+        }
+    }
+
+    val navLiquidGlass by sl.settings.navLiquidGlass.collectAsState(initial = false)
+    val hazeState = remember { HazeState() }
+
+    // Dynamic album-art theme — distinct colour per UI layer (Metrolist-style)
+    val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
+    val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
+    val showNavLabels by sl.settings.navLabels.collectAsState(initial = true)
+
+    // Movie theme colour for the nav pill — used when on any movie-related route
+    val moviesThemeNameForPill by sl.settings.moviesTheme.collectAsState(initial = "violet")
+    val movieNavPillColor = remember(moviesThemeNameForPill) {
+        AllMoviesThemes.find { it.id == moviesThemeNameForPill }?.container ?: Color(0xFF3E2070)
+    }
+    val isMoviesRoute = remember(currentRoute) {
+        val r = currentRoute ?: return@remember false
+        r == Tab.Movies.route ||
+        r == "movie-search" ||
+        r == "collections" ||
+        r.startsWith("movie/") ||
+        r.startsWith("tv/") ||
+        r.startsWith("cs-detail/") ||
+        r.startsWith("cs-section/") ||
+        r.startsWith("catalog/") ||
+        r.startsWith("stremio-detail/") ||
+        r.startsWith("cloudstream") ||
+        r.startsWith("collection-folder/") ||
+        r.startsWith("collection-tabbed/")
+    }
+
+    val navPillColor by animateColorAsState(
+        targetValue = when {
+            isMoviesRoute    -> movieNavPillColor
+            dynamicMiniTheme -> navPillBgColor
+            else             -> Color(0xFF1C1C1E)
+        },
+        animationSpec = tween(600),
+        label = "navPillBg",
+    )
+
+    // Scroll-driven nav expand/collapse — expands when scrolling up, collapses on scroll down
+    var navExpanded by remember { mutableStateOf(true) }
+    val navScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                when {
+                    available.y < -8f -> navExpanded = false
+                    available.y >  8f -> navExpanded = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
+    // Always expand when navigating to a new top-level tab
+    LaunchedEffect(currentRoute) { navExpanded = true }
+
+    // Swipeable tabs (all tabs except Settings)
+    val swipeableTabs = remember(tabs) { tabs.filter { it.route != Tab.Settings.route } }
+
+    // Animated pill size — shrinks when user scrolls down
+    val navPillVPad by animateDpAsState(
+        targetValue = if (navExpanded) 6.dp else 2.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "navPillVPad",
+    )
+    val navOuterBottomPad by animateDpAsState(
+        targetValue = if (navExpanded) 12.dp else 6.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "navOuterBottomPad",
+    )
+
+    // Show miniplayer on all non-media routes (including music home)
+    val showMiniPlayer = currentRoute != null && !isMediaRoute
+
+    // Profile picker — show on launch when profiles exist; also triggered from Settings
+    var showProfilePicker by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (sl.profiles.currentProfiles().isNotEmpty()) showProfilePicker = true
+    }
+
+    Box(Modifier.fillMaxSize()) {
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        contentWindowInsets = WindowInsets(0),
+        bottomBar = {},
+    ) { padding ->
+        val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
+        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+        val showRail = useRail &&
+            (currentRoute == null || tabs.any { it.route == currentRoute })
+        val firstRailFocus = remember { FocusRequester() }
+        LaunchedEffect(showRail) {
+            // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
+            // On TV, it is attached to the hamburger button — see focusRequester() below.
+            if (showRail && !isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
+        }
+        // TV popup nav state — auto-close on route change
+        var tvNavOpen by remember { mutableStateOf(false) }
+        LaunchedEffect(currentRoute) { tvNavOpen = false }
+        // Restore focus to the hamburger whenever the TV nav panel closes so that
+        // D-pad navigation continues to work in the content area.
+        LaunchedEffect(tvNavOpen) {
+            if (!tvNavOpen && isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
+        }
+        // Intercept the back button to close the TV nav panel instead of exiting the app.
+        BackHandler(enabled = isTv && tvNavOpen) { tvNavOpen = false }
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            if (showRail && !isTv) {
+                NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxHeight(),
+                ) {
+                    Spacer(Modifier.height(16.dp))
+                    tabs.forEachIndexed { idx, tab ->
+                        val selected = currentRoute == tab.route
+                        NavigationRailItem(
+                            selected = selected,
+                            onClick = { navigateToTab(nav, tab.route) },
+                            modifier = if (idx == 0) Modifier.focusRequester(firstRailFocus) else Modifier,
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label, style = MaterialTheme.typography.labelLarge) },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                            ),
+                        )
+                    }
+                }
+            }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .hazeSource(hazeState)
+                    .nestedScroll(navScrollConnection)
+                    .pointerInput(swipeableTabs, currentRoute) {
+                        // Only activate on main tab screens (not sub-screens / settings)
+                        if (currentRoute == null ||
+                            swipeableTabs.none { it.route == currentRoute }) return@pointerInput
+
+                        val edgePx = 52.dp.toPx()
+
+                        awaitEachGesture {
+                            // Wait for first finger down — don't require it to be unconsumed
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val startX = down.position.x
+                            val startY = down.position.y
+
+                            // Only fire from the left or right edge strip
+                            if (startX > edgePx && startX < size.width - edgePx) return@awaitEachGesture
+
+                            var endX = startX
+                            var endY = startY
+
+                            // Track pointer at Final pass so children handle their gestures first
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Final)
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                endX = change.position.x
+                                endY = change.position.y
+                                if (!change.pressed) break
+                            }
+
+                            val dx = endX - startX
+                            val dy = endY - startY
+
+                            // Must be sufficiently horizontal (2:1 ratio) and at least 72dp
+                            if (kotlin.math.abs(dx) < kotlin.math.abs(dy) * 2f) return@awaitEachGesture
+                            if (kotlin.math.abs(dx) < 72.dp.toPx()) return@awaitEachGesture
+
+                            val idx = swipeableTabs.indexOfFirst { it.route == currentRoute }
+                            if (idx < 0) return@awaitEachGesture
+
+                            val target = swipeableTabs.getOrNull(
+                                if (dx > 0) idx - 1 else idx + 1
+                            ) ?: return@awaitEachGesture
+
+                            navigateToTab(nav, target.route)
+                        }
+                    }
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f).fillMaxSize()) {
+                        val startRoute = resolvedStartRoute
+                        if (startRoute != null) NavHost(
+                navController = nav,
+                startDestination = startRoute,
+            ) {
+                composable(Tab.Movies.route) {
+                    MoviesScreen(
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
+                        onOpenCloudStreamPlugin = { internalName ->
+                            val n = URLEncoder.encode(internalName, "UTF-8")
+                            nav.navigate("cloudstream/$n")
+                        },
+                        onSearchClick = { nav.navigate("movie-search") },
+                        onPluginsClick = { nav.navigate("plugin-picker") },
+                        onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
+                        onOpenCollections = { nav.navigate("collections") },
+                        onOpenCatalog = { src, t, sub ->
+                            val s = URLEncoder.encode(src, "UTF-8")
+                            val tt = URLEncoder.encode(t, "UTF-8")
+                            val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
+                            nav.navigate("catalog/$s/$tt/$ss")
+                        },
+                        onOpenStremio = { addonId, type, metaId, ttl, poster ->
+                            val a = URLEncoder.encode(addonId, "UTF-8")
+                            val ty = URLEncoder.encode(type, "UTF-8")
+                            val m = URLEncoder.encode(metaId, "UTF-8")
+                            val tt = URLEncoder.encode(ttl, "UTF-8")
+                            val p = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
+                        },
+                        onOpenCsItem = { plugin, itemUrl, itemName, poster ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val u = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                        onViewAllCsSection = { plugin, section, displayName ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val s = URLEncoder.encode(section, "UTF-8")
+                            val d = URLEncoder.encode(displayName, "UTF-8")
+                            nav.navigate("cs-section/$p/$s/$d")
+                        },
+                        onOpenCollectionFolder = { folderId ->
+                            nav.navigate("collection-folder/$folderId")
+                        },
+                        onOpenCollectionTabbed = { collectionId ->
+                            nav.navigate("collection-tabbed/$collectionId")
+                        },
+                    )
+                }
+                composable(
+                    "collection-folder/{folderId}",
+                    arguments = listOf(navArgument("folderId") { type = NavType.LongType }),
+                ) { entry ->
+                    val folderId = entry.arguments!!.getLong("folderId")
+                    com.streamcloud.app.ui.screens.CollectionFolderPageScreen(
+                        folderId = folderId,
+                        onBack = { nav.popBackStack() },
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
+                        onOpenCsItem = { plugin, itemUrl, itemName, poster ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val u = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                        onViewAllCsSection = { plugin, section, displayName ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val s = URLEncoder.encode(section, "UTF-8")
+                            val d = URLEncoder.encode(displayName, "UTF-8")
+                            nav.navigate("cs-section/$p/$s/$d")
+                        },
+                        onOpenCatalog = { src, t, sub ->
+                            val s = URLEncoder.encode(src, "UTF-8")
+                            val tt = URLEncoder.encode(t, "UTF-8")
+                            val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
+                            nav.navigate("catalog/$s/$tt/$ss")
+                        },
+                        onOpenStremio = { addonId, type, metaId, ttl, poster ->
+                            val a = URLEncoder.encode(addonId, "UTF-8")
+                            val ty = URLEncoder.encode(type, "UTF-8")
+                            val m = URLEncoder.encode(metaId, "UTF-8")
+                            val tt = URLEncoder.encode(ttl, "UTF-8")
+                            val p = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
+                        },
+                    )
+                }
+                composable(
+                    "collection-tabbed/{collectionId}",
+                    arguments = listOf(navArgument("collectionId") { type = NavType.LongType }),
+                ) { entry ->
+                    val collectionId = entry.arguments!!.getLong("collectionId")
+                    com.streamcloud.app.ui.screens.CollectionTabbedScreen(
+                        collectionId = collectionId,
+                        onBack = { nav.popBackStack() },
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
+                        onOpenCsItem = { plugin, itemUrl, itemName, poster ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val u = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                        onViewAllCsSection = { plugin, section, displayName ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val s = URLEncoder.encode(section, "UTF-8")
+                            val d = URLEncoder.encode(displayName, "UTF-8")
+                            nav.navigate("cs-section/$p/$s/$d")
+                        },
+                        onOpenCatalog = { src, t, sub ->
+                            val s = URLEncoder.encode(src, "UTF-8")
+                            val tt = URLEncoder.encode(t, "UTF-8")
+                            val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
+                            nav.navigate("catalog/$s/$tt/$ss")
+                        },
+                        onOpenStremio = { addonId, type, metaId, ttl, poster ->
+                            val a = URLEncoder.encode(addonId, "UTF-8")
+                            val ty = URLEncoder.encode(type, "UTF-8")
+                            val m = URLEncoder.encode(metaId, "UTF-8")
+                            val tt = URLEncoder.encode(ttl, "UTF-8")
+                            val p = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
+                        },
+                    )
+                }
+                composable("collections") {
+                    val ctx = LocalContext.current
+                    val pluginRepo = remember { com.streamcloud.app.data.plugins.PluginRepository(ctx.applicationContext) }
+                    val stremioRepo = remember { com.streamcloud.app.data.stremio.StremioRepository(ctx.applicationContext) }
+                    val installedPlugins by pluginRepo.installed.collectAsState(initial = emptyList())
+                    val installedAddons by stremioRepo.addons.collectAsState(initial = emptyList())
+                    com.streamcloud.app.ui.screens.CollectionsScreen(
+                        onBack = { nav.popBackStack() },
+                        installedCsPlugins = installedPlugins,
+                        installedStremioAddons = installedAddons,
+                        onOpenCatalog = { src, t, sub ->
+                            val s = URLEncoder.encode(src, "UTF-8")
+                            val tt = URLEncoder.encode(t, "UTF-8")
+                            val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
+                            nav.navigate("catalog/$s/$tt/$ss")
+                        },
+                    )
+                }
+                composable(
+                    "catalog/{src}/{title}/{subtitle}",
+                    arguments = listOf(
+                        navArgument("src") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                        navArgument("subtitle") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val src = URLDecoder.decode(entry.arguments!!.getString("src")!!, "UTF-8")
+                    val t = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    val sub = URLDecoder.decode(entry.arguments!!.getString("subtitle")!!, "UTF-8")
+                    com.streamcloud.app.ui.screens.CatalogPageScreen(
+                        source = src,
+                        title = t,
+                        subtitle = sub.trim(),
+                        onBack = { nav.popBackStack() },
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
+                        onOpenStremio = { addonId, type, metaId, ttl, poster ->
+                            val a = URLEncoder.encode(addonId, "UTF-8")
+                            val ty = URLEncoder.encode(type, "UTF-8")
+                            val m = URLEncoder.encode(metaId, "UTF-8")
+                            val tt = URLEncoder.encode(ttl, "UTF-8")
+                            val p = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
+                        },
+                    )
+                }
+                composable(
+                    "cloudstream/{name}",
+                    arguments = listOf(navArgument("name") { type = NavType.StringType }),
+                ) { entry ->
+                    val name = URLDecoder.decode(entry.arguments!!.getString("name")!!, "UTF-8")
+                    com.streamcloud.app.ui.screens.CloudStreamPluginScreen(
+                        internalName = name,
+                        onBack = { nav.popBackStack() },
+                        onOpenItem = { plugin, itemUrl, itemName, poster ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val u = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                    )
+                }
+                composable(
+                    "cloudstream-movie/{name}/{title}",
+                    arguments = listOf(
+                        navArgument("name")  { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val name  = URLDecoder.decode(entry.arguments!!.getString("name")!!,  "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    com.streamcloud.app.ui.screens.CloudStreamPluginScreen(
+                        internalName = name,
+                        initialSearch = title,
+                        onBack = { nav.popBackStack() },
+                        onOpenItem = { plugin, itemUrl, itemName, poster ->
+                            val p  = URLEncoder.encode(plugin,  "UTF-8")
+                            val u  = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n  = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$p/$u/$n/$po")
+                        },
+                    )
+                }
+                composable(
+                    "cs-section/{plugin}/{section}/{display}",
+                    arguments = listOf(
+                        navArgument("plugin")  { type = NavType.StringType },
+                        navArgument("section") { type = NavType.StringType },
+                        navArgument("display") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val plugin  = URLDecoder.decode(entry.arguments!!.getString("plugin")!!,  "UTF-8")
+                    val section = URLDecoder.decode(entry.arguments!!.getString("section")!!, "UTF-8")
+                    val display = URLDecoder.decode(entry.arguments!!.getString("display")!!, "UTF-8")
+                    com.streamcloud.app.ui.screens.CsSectionListScreen(
+                        pluginInternalName = plugin,
+                        sectionName = section,
+                        pluginDisplayName = display,
+                        onBack = { nav.popBackStack() },
+                        onOpenItem = { p, u, n, po ->
+                            val ep = URLEncoder.encode(p, "UTF-8")
+                            val eu = URLEncoder.encode(u, "UTF-8")
+                            val en = URLEncoder.encode(n, "UTF-8")
+                            val epo = URLEncoder.encode(po.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("cs-detail/$ep/$eu/$en/$epo")
+                        },
+                    )
+                }
+                composable(
+                    "cs-detail/{plugin}/{url}/{name}/{poster}",
+                    arguments = listOf(
+                        navArgument("plugin") { type = NavType.StringType },
+                        navArgument("url") { type = NavType.StringType },
+                        navArgument("name") { type = NavType.StringType },
+                        navArgument("poster") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val plugin = URLDecoder.decode(entry.arguments!!.getString("plugin")!!, "UTF-8")
+                    val itemUrl = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val itemName = URLDecoder.decode(entry.arguments!!.getString("name")!!, "UTF-8")
+                    val poster = URLDecoder.decode(entry.arguments!!.getString("poster")!!, "UTF-8").trim()
+                    com.streamcloud.app.ui.screens.CloudStreamDetailScreen(
+                        pluginInternalName = plugin,
+                        url = itemUrl,
+                        initialTitle = itemName,
+                        initialPoster = poster.takeIf { it.isNotBlank() },
+                        onBack = { nav.popBackStack() },
+                        onPlay = { initialUrl, title, sources, progressKey ->
+                            com.streamcloud.app.player.MoviePlayerSession.set(
+                                sources, progressKey,
+                                tmdbId = progressKey.tmdbId,
+                                mediaType = progressKey.mediaType,
+                            )
+                            val u = URLEncoder.encode(initialUrl, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/movie/$u/$t")
+                        },
+                    )
+                }
+                composable(
+                    "movie/{id}",
+                    arguments = listOf(navArgument("id") { type = NavType.LongType })
+                ) {
+                    MovieDetailScreen(
+                        movieId = it.arguments!!.getLong("id"),
+                        mediaType = "movie",
+                        onBack = { nav.popBackStack() },
+                        onPlay = { initialUrl, title, sources, progressKey ->
+                            com.streamcloud.app.player.MoviePlayerSession.set(
+                                sources, progressKey,
+                                tmdbId = progressKey.tmdbId,
+                                mediaType = progressKey.mediaType,
+                            )
+                            val u = URLEncoder.encode(initialUrl, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/movie/$u/$t")
+                        },
+                        onOpenCsPluginForMovie = { name, title ->
+                            val n = URLEncoder.encode(name,  "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("cloudstream-movie/$n/$t")
+                        },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
                     )
@@ -74,10 +777,13 @@
                             val t = URLEncoder.encode(thumb.orEmpty(), "UTF-8")
                             nav.navigate("artist/$u?thumb=$t")
                         },
-                        onOpenPlaylist = { id, title ->
+                        onOpenPlaylist = { id, title, thumbnail ->
+                            com.streamcloud.app.data.ytmusic.YtPlaylistArtworkHandoff
+                                .remember(id, thumbnail)
                             val i = URLEncoder.encode(id, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
-                            nav.navigate("yt-playlist/$i/$t")
+                            val th = URLEncoder.encode(thumbnail.orEmpty(), "UTF-8")
+                            nav.navigate("yt-playlist/$i/$t?thumb=$th")
                         },
                         onSearchClick = { nav.navigate("music-search") },
                         onSearchWithQuery = { q -> nav.navigate("music-search?q=${java.net.URLEncoder.encode(q, "UTF-8")}") },

@@ -238,6 +238,49 @@ internal fun JsonElement?.runsText(): String? {
         .takeIf { it.isNotBlank() }
 }
 
+/**
+ * Reads a navigation ID from an actual YouTube Music navigation endpoint rather than taking the
+ * first matching key from an arbitrary renderer subtree. Home cards often contain artist and menu
+ * endpoints as well as their own endpoint, so a raw recursive browseId lookup can open the wrong
+ * category.
+ */
+internal fun JsonElement?.musicNavigationId(
+    endpointKey: String,
+    idKey: String,
+): String? {
+    this ?: return null
+    var result: String? = null
+    walk { element ->
+        if (result != null) return@walk
+        val obj = element as? JsonObject ?: return@walk
+        val endpoint = (obj["navigationEndpoint"] as? JsonObject) ?: obj
+        result = (endpoint[endpointKey] as? JsonObject)
+            ?.get(idKey)
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+    }
+    return result
+}
+
+internal fun JsonElement?.musicBrowseId(): String? =
+    musicNavigationId(endpointKey = "browseEndpoint", idKey = "browseId")
+
+internal fun JsonElement?.musicPlaylistId(): String? =
+    musicNavigationId(endpointKey = "watchPlaylistEndpoint", idKey = "playlistId")
+
+internal fun JsonElement?.musicVideoId(): String? =
+    musicNavigationId(endpointKey = "watchEndpoint", idKey = "videoId")
+
+/** Converts a playlist ID into the browse ID accepted by YouTube Music's browse endpoint. */
+internal fun String.toMusicBrowseId(): String {
+    val id = trim()
+    return when {
+        id.startsWith("VL") || id.startsWith("MPREb_") || id.startsWith("FEmusic_") -> id
+        else -> "VL$id"
+    }
+}
+
 internal fun JsonElement?.bestThumbnail(): String? {
     if (this !is JsonObject) return null
 

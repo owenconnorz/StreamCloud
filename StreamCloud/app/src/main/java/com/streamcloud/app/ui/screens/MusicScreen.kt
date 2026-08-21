@@ -1,3 +1,169 @@
+package com.streamcloud.app.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.*
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import android.net.Uri
+import coil.compose.AsyncImage
+import com.streamcloud.app.data.newpipe.YtTrack
+import com.streamcloud.app.ui.viewmodel.MusicViewModel
+import kotlinx.coroutines.launch
+
+private val SUGGESTIONS = listOf(
+    "Top hits 2026", "Lo-fi beats", "Chill", "Workout",
+    "Throwback", "K-pop", "Hip hop", "Jazz", "EDM", "Acoustic"
+)
+
+@OptIn(ExperimentalMaterial3Api::class, androidx.media3.common.util.UnstableApi::class)
+@Composable
+fun MusicScreen(
+    onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
+    onOpenPlaylist: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
+    onProfileClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
+    onSearchWithQuery: (String) -> Unit = {},
+) {
+    val context = LocalContext.current
+    val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
+    val state by vm.state.collectAsState()
+    var query by remember { mutableStateOf("") }
+    var showHistory by remember { mutableStateOf(false) }
+    val dlScope = rememberCoroutineScope()
+
+
+
+    var player by remember { mutableStateOf<androidx.media3.common.Player?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var playerError by remember { mutableStateOf<String?>(null) }
+    var activeQueueSignature by remember { mutableStateOf<List<String>?>(null) }
+    var activeQueueIndex by remember { mutableIntStateOf(-1) }
+
+    LaunchedEffect(Unit) {
+        try {
+            val controller = com.streamcloud.app.audio.MusicController.get(context.applicationContext)
+            controller.addListener(object : Player.Listener {
+                override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    val msg = "Audio playback failed (${error.errorCodeName}): ${error.message}"
+                    com.streamcloud.app.data.AppLogger.e("MusicPlayback", msg, error.cause)
+                    playerError = msg
+                }
+                override fun onRepeatModeChanged(repeatMode: Int) { vm.setRepeatMode(repeatMode) }
+                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                    vm.setShuffle(shuffleModeEnabled)
+                }
+            })
+
+            vm.setRepeatMode(controller.repeatMode)
+            vm.setShuffle(controller.shuffleModeEnabled)
+            player = controller
+            isPlaying = controller.isPlaying
+        } catch (e: Exception) {
+            playerError = "Couldn't connect to media service: ${e.message}"
+        }
+    }
+
+
+
+    val nowPlaying = state.nowPlayingTrack
+        ?: state.tracks.firstOrNull { it.url == state.nowPlayingUrl }
+        ?: state.homeFeed.firstOrNull { it.url == state.nowPlayingUrl }
+
+    fun playFromQueue(track: YtTrack, source: List<YtTrack>, startIndex: Int) {
+        val queue = source.ifEmpty { listOf(track) }
+        val queueStartIndex = if (source.isEmpty()) 0 else startIndex.coerceIn(queue.indices)
+        val queueSignature = queue.map(YtTrack::url)
+        val isCurrentQueueItem = state.nowPlayingUrl == track.url &&
+            activeQueueSignature == queueSignature &&
+            activeQueueIndex == queueStartIndex
+
+        if (isCurrentQueueItem && (player?.isPlaying == true)) {
+            player?.pause()
+        } else if (isCurrentQueueItem) {
+            player?.play()
+        } else {
+            activeQueueSignature = queueSignature
+            activeQueueIndex = queueStartIndex
+            vm.play(queue, queueStartIndex) { audioUrl ->
+                player?.let { playTrack(it, track, audioUrl) }
+            }
+        }
+    }
+
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
+    LaunchedEffect(state.ytHomeLoading, state.homeLoading) {
+        if (!state.ytHomeLoading && !state.homeLoading) isRefreshing = false
+    }
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            isRefreshing = true
+            vm.loadYtHome()
+            vm.loadHomeFeed()
+        },
+        state = pullRefreshState,
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = if (nowPlaying != null) 180.dp else 80.dp),
+        ) {
+            item {
+                MusicHeader(
+                    onProfileClick = onProfileClick,
+                    onHistoryClick = { showHistory = true },
+                    onSearchClick = onSearchClick,
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                 )
             }
@@ -89,7 +255,7 @@
                                 ) {
                                     items(section.items) { pl ->
                                         YtHomePlaylistCard(pl) {
-                                            onOpenPlaylist(pl.id, pl.title)
+                                            onOpenPlaylist(pl.id, pl.title, pl.thumbnail)
                                         }
                                     }
                                 }
@@ -216,7 +382,7 @@
                                 title = album.title,
                                 subtitle = album.artist,
                                 isCircle = false,
-                                onClick = { onOpenPlaylist(id, album.title) },
+                                onClick = { onOpenPlaylist(id, album.title, album.thumbnail) },
                             )
                         }
                     }
@@ -328,27 +494,49 @@ private fun MusicHeader(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onHistoryClick) {
-            Icon(
-                Icons.Default.History,
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MusicHeaderAction(
+                icon = Icons.Default.History,
                 contentDescription = "Recently played",
-                tint = MaterialTheme.colorScheme.onBackground,
+                onClick = onHistoryClick,
             )
-        }
-        IconButton(onClick = onSearchClick) {
-            Icon(
-                Icons.Default.Search,
+            MusicHeaderAction(
+                icon = Icons.Default.Search,
                 contentDescription = "Search music",
-                tint = MaterialTheme.colorScheme.onBackground,
+                onClick = onSearchClick,
             )
-        }
-        IconButton(onClick = onTrendingClick) {
-            Icon(
-                Icons.Default.TrendingUp,
+            MusicHeaderAction(
+                icon = Icons.Default.TrendingUp,
                 contentDescription = "Trending",
-                tint = MaterialTheme.colorScheme.onBackground,
+                onClick = onTrendingClick,
             )
         }
+    }
+}
+
+@Composable
+private fun MusicHeaderAction(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
