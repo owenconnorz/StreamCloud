@@ -1,3 +1,721 @@
+@file:OptIn(
+    androidx.media3.common.util.UnstableApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
+package com.streamcloud.app.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.streamcloud.app.ui.util.verticalScrollbar
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import com.streamcloud.app.ui.theme.AlbumArtThemeBus
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import android.content.Intent
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.core.content.FileProvider
+import java.io.File
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Share
+import com.streamcloud.app.data.downloads.MovieDownloader
+import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.MovieDownloadEntity
+import com.streamcloud.app.data.library.TrackEntity
+import com.streamcloud.app.data.library.WatchlistEntity
+import com.streamcloud.app.data.ytmusic.YtMusicLibrary
+import com.streamcloud.app.data.ytmusic.YtmLibraryArtist
+import com.streamcloud.app.data.ytmusic.YtmPlaylist
+import com.streamcloud.app.data.ytmusic.YtmSong
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
+
+private enum class LibTab(val label: String) {
+    Playlists("Playlists"),
+    Songs("Songs"),
+    Albums("Albums"),
+    Artists("Artists"),
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LibraryScreen(
+    onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
+    onOpenArtist: (channelUrl: String) -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    onMovieClick: (Long) -> Unit = {},
+    onPlayLocalFile: (filePath: String, title: String, tmdbId: Long, mediaType: String) -> Unit = { _, _, _, _ -> },
+    onTvClick: (Long) -> Unit = {},
+    onCsClick: (plugin: String, url: String, title: String, poster: String?) -> Unit = { _, _, _, _ -> },
+) {
+    val context = LocalContext.current
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val gridColumns = if (isTv) 4 else 2
+    val dao = remember { LibraryDb.get(context).tracks() }
+    val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
+    val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
+    val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
+    val playlistThumbs = remember(playlistThumbsJson) {
+        playlistThumbsJson
+            .removePrefix("{").removeSuffix("}")
+            .split(",").filter { it.isNotBlank() }
+            .mapNotNull {
+                val parts = it.split(":", limit = 2)
+                if (parts.size != 2) null
+                else parts[0].trim().trim('"') to parts[1].trim().trim('"')
+            }.toMap()
+    }
+    val scope = rememberCoroutineScope()
+    fun playTrackQueue(tracks: List<TrackEntity>, startIndex: Int) {
+        if (startIndex !in tracks.indices) return
+        scope.launch {
+            runCatching {
+                com.streamcloud.app.data.ytmusic.YtPlayback.playPlaylist(
+                    context,
+                    tracks.map(TrackEntity::toYtmSong),
+                    startIndex,
+                )
+            }
+        }
+    }
+    var menuEntry by remember { mutableStateOf<MovieDownloadEntity?>(null) }
+
+
+
+    var ytLibrary by remember { mutableStateOf(com.streamcloud.app.data.ytmusic.YtMusicLibrary()) }
+    var ytLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(ytCookie) {
+        if (ytCookie.isBlank()) {
+            ytLibrary = com.streamcloud.app.data.ytmusic.YtMusicLibrary(
+                failureReason = "Not signed in.",
+            )
+            return@LaunchedEffect
+        }
+
+
+        val cached = withContext(Dispatchers.IO) {
+            com.streamcloud.app.data.ytmusic.LibraryCache.read(context)
+        }
+        if (cached != null) {
+            ytLibrary = cached
+        } else {
+            ytLoading = true
+        }
+
+
+        val fresh = com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository.sync(ytCookie)
+        ytLoading = false
+
+        val freshHasContent = fresh.playlists.isNotEmpty() || fresh.albums.isNotEmpty() ||
+            fresh.likedSongs.isNotEmpty() || fresh.artists.isNotEmpty()
+        val cachedHasContent = cached != null &&
+            (cached.playlists.isNotEmpty() || cached.albums.isNotEmpty())
+
+        if (fresh.failureReason == null && freshHasContent) {
+            ytLibrary = fresh
+            withContext(Dispatchers.IO) {
+                com.streamcloud.app.data.ytmusic.LibraryCache.write(context, fresh)
+            }
+        } else if (fresh.failureReason == null && !freshHasContent && cachedHasContent) {
+            // Sync succeeded but returned nothing — likely a transient API hiccup.
+            // Keep the cached version on screen rather than blanking everything out.
+            // (ytLibrary is already showing cached from above, so no reassignment needed.)
+        } else {
+            ytLibrary = fresh
+            // If the sync returned an auth error, clear the stale empty cache so the
+            // next successful sign-in will be able to populate it fresh.
+            if (fresh.failureReason != null) {
+                withContext(Dispatchers.IO) {
+                    com.streamcloud.app.data.ytmusic.LibraryCache.clear(context)
+                }
+            }
+        }
+    }
+
+    val combined by remember(dao) {
+        combine(dao.liked(), dao.recent(), dao.downloaded(), dao.mostPlayed()) { l, r, d, mp ->
+            arrayOf(l, r, d, mp)
+        }
+    }.collectAsState(initial = arrayOf<List<TrackEntity>>(emptyList(), emptyList(), emptyList(), emptyList()))
+
+    val liked = combined[0]; val recent = combined[1]; val downloaded = combined[2]; val mostPlayed = combined[3]
+
+    var tab by remember { mutableStateOf(LibTab.Playlists) }
+    var openTile by remember { mutableStateOf<String?>(null) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var sectionMode by remember { mutableStateOf("Music") }
+    val watchlistItems by LibraryDb.get(context).watchlist().all().collectAsState(initial = emptyList())
+    val downloadedMovies by LibraryDb.get(context).movieDownloads().all().collectAsState(initial = emptyList())
+    var movieSubTab by remember { mutableStateOf("Watchlist") }
+
+    val localPlaylists by remember(context) {
+        LibraryDb.get(context).localPlaylists().allPlaylists()
+    }.collectAsState(initial = emptyList())
+
+    if (showCreatePlaylistDialog) {
+        CreateLocalPlaylistDialog(
+            onDismiss = { showCreatePlaylistDialog = false },
+            onCreate = { name ->
+                showCreatePlaylistDialog = false
+                scope.launch {
+                    LibraryDb.get(context).localPlaylists().createPlaylist(
+                        com.streamcloud.app.data.library.LocalPlaylistEntity(name = name),
+                    )
+                }
+            },
+        )
+    }
+
+    val bgTintColorRaw by AlbumArtThemeBus.bgTint.collectAsState()
+    val bgTintColor by animateColorAsState(bgTintColorRaw, animationSpec = tween(700), label = "libBgTint")
+    val vibrantRaw by AlbumArtThemeBus.vibrant.collectAsState()
+    val animVibrant by animateColorAsState(vibrantRaw, animationSpec = tween(700), label = "libVibrant")
+    Column(Modifier.fillMaxSize().background(bgTintColor)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(start = 20.dp, top = 8.dp, end = 14.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Library",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                listOf("Music" to Icons.Default.MusicNote, "Movies" to Icons.Default.Movie).forEach { (label, icon) ->
+                    val selected = sectionMode == label
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable { sectionMode = label },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            icon, label,
+                            tint = if (selected) MaterialTheme.colorScheme.onPrimary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        if (sectionMode == "Movies") {
+            // ── Sub-tab: Watchlist / Downloaded ───────────────────────────────
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf("Watchlist", "Downloaded").forEach { label ->
+                    val selected = movieSubTab == label
+                    FilterChip(
+                        selected = selected,
+                        onClick = { movieSubTab = label },
+                        label = { Text(label, style = MaterialTheme.typography.bodyMedium) },
+                        leadingIcon = if (label == "Downloaded") {
+                            { Icon(Icons.Default.DownloadDone, null, modifier = Modifier.size(16.dp)) }
+                        } else null,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+
+            if (movieSubTab == "Downloaded") {
+                if (downloadedMovies.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.DownloadDone, null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                modifier = Modifier.size(64.dp))
+                            Spacer(Modifier.height(14.dp))
+                            Text("No downloaded movies",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(4.dp))
+                            Text("Tap the ··· menu on a movie to download it",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(if (isTv) 5 else 3),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(downloadedMovies, key = { "dl_${it.tmdbId}" }) { entry ->
+                            Column(
+                                Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (entry.status == "done" && !entry.filePath.isNullOrBlank()) {
+                                                onPlayLocalFile(entry.filePath, entry.title, entry.tmdbId, entry.mediaType)
+                                            } else {
+                                                when (entry.mediaType) {
+                                                    "tv" -> onTvClick(entry.tmdbId)
+                                                    else -> onMovieClick(entry.tmdbId)
+                                                }
+                                            }
+                                        },
+                                        onLongClick = { menuEntry = entry },
+                                    )
+                            ) {
+                                Box {
+                                    AsyncImage(
+                                        model = entry.posterUrl,
+                                        contentDescription = entry.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(2f / 3f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    )
+                                    if (entry.status == "downloading") {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .fillMaxWidth()
+                                                .background(Color.Black.copy(alpha = 0.55f))
+                                                .padding(4.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            LinearProgressIndicator(
+                                                progress = { entry.progress },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    } else if (entry.status == "done") {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(4.dp)
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(Icons.Default.DownloadDone, null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    entry.title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                if (watchlistItems.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Movie, null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                modifier = Modifier.size(64.dp))
+                            Spacer(Modifier.height(14.dp))
+                            Text("No saved movies yet",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(4.dp))
+                            Text("Bookmark a movie or show to see it here",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(if (isTv) 5 else 3),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(watchlistItems, key = { "wl_${it.tmdbId}" }) { entry ->
+                            Column(
+                                Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        when (entry.mediaType) {
+                                            "tv" -> onTvClick(entry.tmdbId)
+                                            "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
+                                            else -> onMovieClick(entry.tmdbId)
+                                        }
+                                    }
+                            ) {
+                                AsyncImage(
+                                    model = entry.posterUrl,
+                                    contentDescription = entry.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(2f / 3f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    entry.title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            LibTab.values().forEach { t ->
+                LibFilterChip(
+                    label = t.label,
+                    selected = tab == t,
+                    accentColor = animVibrant,
+                    onClick = { tab = t },
+                )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+
+
+        LibrarySubHeader(
+            tab = tab,
+            localTileCount = 3,
+            ytLibrary = ytLibrary,
+            ytLoading = ytLoading,
+            onRefresh = {
+                scope.launch {
+                    ytLoading = true
+                    ytLibrary = com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository.sync(ytCookie)
+                    ytLoading = false
+                }
+            },
+        )
+
+        if (openTile != null) {
+            val tileName = when (openTile) {
+                "downloaded" -> "Downloaded"
+                "top50" -> "My top 50"
+                "cached" -> "Cached"
+                else -> openTile.orEmpty()
+            }
+            val list = when (openTile) {
+                "liked" -> liked
+                "downloaded" -> downloaded
+                "top50" -> mostPlayed
+                "cached" -> recent
+                else -> emptyList()
+            }
+            val openTileListState = rememberLazyListState()
+            LazyColumn(
+                state = openTileListState,
+                modifier = Modifier.fillMaxSize().verticalScrollbar(openTileListState),
+            ) {
+                item {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to animVibrant.copy(alpha = 0.40f),
+                                    1f to Color.Transparent,
+                                )
+                            )
+                            .padding(bottom = 20.dp),
+                    ) {
+                        Column {
+                            BackButton(label = tileName) { openTile = null }
+                            Text(
+                                "${list.size} songs",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                modifier = Modifier.padding(start = 52.dp),
+                            )
+                        }
+                    }
+                }
+                itemsIndexed(
+                    list,
+                    key = { index, entry -> "library_${index}_${entry.url}" },
+                ) { index, e ->
+                    LibTrackRow(
+                        e,
+                        accentColor = animVibrant,
+                        onClick = { playTrackQueue(list, index) },
+                    )
+                }
+            }
+        } else {
+
+
+
+            Box(Modifier.fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(gridColumns),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 16.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 16.dp),
+            ) {
+                when (tab) {
+                    LibTab.Playlists -> {
+                        item { LocalSystemTile("Downloaded", Icons.Default.DownloadDone,
+                            downloaded.size, downloaded.mapNotNull { it.thumbnail }) { openTile = "downloaded" } }
+                        item { LocalSystemTile("My top 50", Icons.Default.TrendingUp,
+                            mostPlayed.size, mostPlayed.mapNotNull { it.thumbnail }) { openTile = "top50" } }
+                        item { LocalSystemTile("Cached", Icons.Default.History,
+                            recent.size, recent.mapNotNull { it.thumbnail }) { openTile = "cached" } }
+                        items(localPlaylists, key = { "lp_${it.id}" }) { pl ->
+                            LocalPlaylistGridTile(
+                                name = pl.name,
+                                customThumb = playlistThumbs[pl.id.toString()],
+                                onDelete = {
+                                    scope.launch {
+                                        val dao = LibraryDb.get(context).localPlaylists()
+                                        dao.clearPlaylistTracks(pl.id)
+                                        dao.deletePlaylist(pl.id)
+                                    }
+                                },
+                            )
+                        }
+                        if (ytLibrary.failureReason != null && !ytLoading) {
+                            item(span = { GridItemSpan(gridColumns) }) {
+                                EmptyStateRow(
+                                    message = ytLibrary.failureReason!!,
+                                    notSignedIn = ytCookie.isBlank(),
+                                )
+                            }
+                        }
+                        items(ytLibrary.playlists, key = { "yp_${it.id}" }) { pl ->
+                            YtPlaylistTile(pl, customThumb = playlistThumbs[pl.id]) { onOpenPlaylist(pl.id, pl.title) }
+                        }
+                    }
+                    LibTab.Albums -> {
+                        if (ytLibrary.albums.isEmpty() && !ytLoading) {
+                            item(span = { GridItemSpan(gridColumns) }) {
+                                EmptyStateRow(
+                                    "No albums in your YouTube Music library.",
+                                    ytCookie.isBlank(),
+                                )
+                            }
+                        }
+                        items(ytLibrary.albums, key = { "ya_${it.id}" }) { alb ->
+                            YtPlaylistTile(alb) { onOpenPlaylist(alb.id, alb.title) }
+                        }
+                    }
+                    LibTab.Artists -> {
+                        if (ytLibrary.artists.isEmpty() && !ytLoading) {
+                            item(span = { GridItemSpan(gridColumns) }) {
+                                EmptyStateRow(
+                                    "You haven't subscribed to any artists.",
+                                    ytCookie.isBlank(),
+                                )
+                            }
+                        }
+                        items(ytLibrary.artists, key = { "yar_${it.channelId}" }) { ar ->
+                            YtArtistTile(ar) {
+                                onOpenArtist("https://music.youtube.com/channel/${ar.channelId}")
+                            }
+                        }
+                    }
+                    LibTab.Songs -> {
+
+                        if (ytLibrary.likedSongs.isEmpty() && liked.isEmpty()) {
+                            item(span = { GridItemSpan(gridColumns) }) {
+                                EmptyStateRow(
+                                    "Like a song to see it here.",
+                                    ytCookie.isBlank(),
+                                )
+                            }
+                        }
+                        itemsIndexed(
+                            ytLibrary.likedSongs,
+                            span = { _, _ -> GridItemSpan(gridColumns) },
+                        ) { index, s ->
+                            YtSongRow(s) {
+                                scope.launch {
+                                    runCatching {
+                                        com.streamcloud.app.data.ytmusic.YtPlayback.playPlaylist(
+                                            context,
+                                            ytLibrary.likedSongs,
+                                            index,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        itemsIndexed(
+                            liked,
+                            span = { _, _ -> GridItemSpan(gridColumns) },
+                        ) { index, e ->
+                            LibTrackRow(e, onClick = { playTrackQueue(liked, index) })
+                        }
+                    }
+                }
+            }
+            if (tab == LibTab.Playlists) {
+                FloatingActionButton(
+                    onClick = { showCreatePlaylistDialog = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = 88.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New playlist")
+                }
+            }
+            }
+        }
+        } // end Music else
+    }
+
+    // ── Download options bottom sheet ─────────────────────────────────────────
+    if (menuEntry != null) {
+        val dlEntry = menuEntry!!
+        ModalBottomSheet(
+            onDismissRequest = { menuEntry = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                AsyncImage(
+                    model = dlEntry.posterUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(width = 52.dp, height = 74.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        dlEntry.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (dlEntry.mediaType == "tv") "TV Show" else "Movie",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            HorizontalDivider()
+            if (!dlEntry.filePath.isNullOrBlank()) {
+                val samsungInstalled = remember {
+                    try { context.packageManager.getPackageInfo("com.sec.android.app.myfiles", 0); true }
+                    catch (_: Exception) { false }
+                }
+                if (samsungInstalled) {
+                    DlMenuItem(
+                        icon = Icons.Default.FolderOpen,
+                        title = "Open in Samsung My Files",
+                        subtitle = "Browse the StreamCloud folder",
+                        onClick = {
+                            menuEntry = null
+                            openInSamsungMyFiles(context, dlEntry.filePath)
+                        },
+                    )
+                }
                 DlMenuItem(
                     icon = Icons.Default.Share,
                     title = "Open with...",
