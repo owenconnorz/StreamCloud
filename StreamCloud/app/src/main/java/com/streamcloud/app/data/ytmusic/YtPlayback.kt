@@ -53,6 +53,9 @@ object YtPlayback {
             .build()
     }
 
+    private fun primeStreams(songs: Iterable<YtmSong>) {
+        YtMusicStreamResolver.prime(songs.map(YtmSong::videoId))
+    }
 
     private fun upsertTrack(context: Context, song: YtmSong, bumpPlayCount: Boolean) {
         val url = watchUrl(song.videoId)
@@ -76,6 +79,9 @@ object YtPlayback {
 
 
     suspend fun playSong(context: Context, song: YtmSong, withAutoRadio: Boolean = true) {
+        // Overlap stream resolution with the MediaController/service connection. The service
+        // consumes the same cache entry, so ExoPlayer does not repeat the player API request.
+        primeStreams(listOf(song))
         val item = buildMediaItem(song)
         upsertTrack(context, song, bumpPlayCount = true)
         withContext(Dispatchers.Main) {
@@ -93,6 +99,7 @@ object YtPlayback {
             runCatching {
                 val related = EndlessPlayback.relatedSongs(context, seed.videoId)
                 if (related.isEmpty()) return@runCatching
+                primeStreams(related)
                 related.forEach { s ->
                     runCatching {
                         val item = buildMediaItem(s)
@@ -129,6 +136,7 @@ object YtPlayback {
 
 
     suspend fun playNext(context: Context, song: YtmSong) {
+        primeStreams(listOf(song))
         val item = buildMediaItem(song)
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
@@ -146,6 +154,7 @@ object YtPlayback {
 
 
     suspend fun addToQueue(context: Context, song: YtmSong) {
+        primeStreams(listOf(song))
         val item = buildMediaItem(song)
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
@@ -163,6 +172,7 @@ object YtPlayback {
     suspend fun playPlaylist(context: Context, songs: List<YtmSong>, startIndex: Int = 0) {
         if (songs.isEmpty()) return
         val safeStart = startIndex.coerceIn(0, songs.lastIndex)
+        primeStreams(songs.subList(safeStart, minOf(songs.size, safeStart + 3)))
 
 
         val allItems = songs.map { buildMediaItem(it) }
