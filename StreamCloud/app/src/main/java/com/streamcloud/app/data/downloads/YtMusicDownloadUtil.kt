@@ -10,6 +10,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
+import androidx.media3.exoplayer.offline.DownloadRequest
 import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.newpipe.NewPipeRepository
@@ -125,11 +126,13 @@ object YtMusicDownloadUtil {
                         .setUserAgent(FALLBACK_STREAM_USER_AGENT),
                 ),
         ) { dataSpec ->
-            val watchUrl = dataSpec.uri.toString()
-            val cacheKey  = dataSpec.key ?: watchUrl
+            // Use the stable video ID, like OpenTune. Old URL-keyed requests remain readable so
+            // users do not lose a queued or completed download after updating the app.
+            val requestId = dataSpec.key ?: dataSpec.uri.toString()
+            val videoId = videoIdFromDownloadId(requestId)
+            val watchUrl = watchUrlForDownloadId(requestId)
 
-
-            if (downloads.value[cacheKey]?.state == Download.STATE_COMPLETED) {
+            if (findDownload(downloads.value, requestId)?.state == Download.STATE_COMPLETED) {
                 return@Factory dataSpec
             }
 
@@ -138,14 +141,10 @@ object YtMusicDownloadUtil {
 
 
             val requestLength = if (dataSpec.length >= 0) dataSpec.length else 1
-            if (playerCache.isCached(cacheKey, dataSpec.position, requestLength)) {
+            if (playerCache.isCached(requestId, dataSpec.position, requestLength)) {
                 return@Factory dataSpec
             }
 
-
-
-
-            val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
             val stream = resolveDownloadStream(videoId, watchUrl)
             dataSpec.buildUpon()
                 .setUri(stream.url.toUri())
@@ -181,6 +180,12 @@ object YtMusicDownloadUtil {
                         map.toMutableMap().apply { set(download.request.id, download) }
                     }
                     syncRoomLocalPath(ctx, download)
+                    if (download.state == Download.STATE_FAILED) {
+                        AppLogger.w(
+                            TAG,
+                            "Download failed for ${download.request.id}: ${finalException?.message}",
+                        )
+                    }
                 }
 
                 override fun onDownloadRemoved(
@@ -190,7 +195,7 @@ object YtMusicDownloadUtil {
                     downloads.update { map ->
                         map.toMutableMap().apply { remove(download.request.id) }
                     }
-                    clearRoomLocalPath(ctx, download.request.id)
+                    clearRoomLocalPath(ctx, watchUrlForDownloadId(download.request.id))
                 }
             })
         }
@@ -201,8 +206,42 @@ object YtMusicDownloadUtil {
             result[cursor.download.request.id] = cursor.download
         }
         downloads.value = result
+        migrateLegacyPendingDownloads(manager, result.values)
 
         return manager.also { _downloadManager = it }
+    }
+
+    /**
+     * Versions before the OpenTune-style ID contract used full watch URLs as DownloadRequest
+     * identifiers. Restart unfinished work under the stable video ID so an old stuck request
+     * cannot keep its UI row permanently queued after an app update.
+     */
+    private fun migrateLegacyPendingDownloads(
+        manager: DownloadManager,
+        existingDownloads: Collection<Download>,
+    ) {
+        existingDownloads
+            .filter { download ->
+                download.request.id.startsWith("http", ignoreCase = true) &&
+                    download.state in setOf(
+                        Download.STATE_QUEUED,
+                        Download.STATE_DOWNLOADING,
+                        Download.STATE_RESTARTING,
+                        Download.STATE_FAILED,
+                    )
+            }
+            .forEach { legacy ->
+                val videoId = videoIdFromDownloadId(legacy.request.id)
+                if (videoId.isBlank() || videoId.startsWith("http", ignoreCase = true)) return@forEach
+                AppLogger.i(TAG, "Migrating legacy download ${legacy.request.id} to $videoId")
+                manager.removeDownload(legacy.request.id)
+                manager.addDownload(
+                    DownloadRequest.Builder(videoId, videoId.toUri())
+                        .setData(legacy.request.data)
+                        .setCustomCacheKey(videoId)
+                        .build(),
+                )
+            }
     }
 
     private fun resolveDownloadStream(videoId: String, watchUrl: String): DownloadStream =
@@ -233,7 +272,7 @@ object YtMusicDownloadUtil {
 
 
     private fun syncRoomLocalPath(context: Context, download: Download) {
-        val watchUrl = download.request.id
+        val watchUrl = watchUrlForDownloadId(download.request.id)
         scope.launch {
             val dao = LibraryDb.get(context).tracks()
             when (download.state) {
@@ -278,11 +317,37 @@ object YtMusicDownloadUtil {
     fun downloadNotificationHelper(context: Context): DownloadNotificationHelper =
         DownloadNotificationHelper(context.applicationContext, MusicExoDownloadService.CHANNEL_ID)
 
-    fun getDownload(watchUrl: String): Flow<Download?> = downloads.map { it[watchUrl] }
+    /** Stable identifier used by new Media3 requests, matching OpenTune's download contract. */
+    fun downloadId(videoId: String): String = videoId.trim()
 
-    fun isDownloaded(watchUrl: String): Boolean =
-        downloads.value[watchUrl]?.state == Download.STATE_COMPLETED
+    fun videoIdFromDownloadId(downloadId: String): String {
+        if (!downloadId.startsWith("http", ignoreCase = true)) return downloadId.trim()
+        return downloadId
+            .substringAfter("v=", missingDelimiterValue = "")
+            .substringBefore("&")
+            .ifBlank { downloadId }
+    }
 
-    fun downloadProgress(watchUrl: String): Float =
-        downloads.value[watchUrl]?.percentDownloaded?.div(100f) ?: 0f
+    fun watchUrlForDownloadId(downloadId: String): String =
+        if (downloadId.startsWith("http", ignoreCase = true)) downloadId
+        else "https://music.youtube.com/watch?v=${videoIdFromDownloadId(downloadId)}"
+
+    private fun findDownload(
+        downloadMap: Map<String, Download>,
+        downloadId: String,
+    ): Download? {
+        val videoId = videoIdFromDownloadId(downloadId)
+        return downloadMap[downloadId]
+            ?: downloadMap[videoId]
+            ?: downloadMap[watchUrlForDownloadId(videoId)]
+    }
+
+    fun getDownload(downloadId: String): Flow<Download?> =
+        downloads.map { findDownload(it, downloadId) }
+
+    fun isDownloaded(downloadId: String): Boolean =
+        findDownload(downloads.value, downloadId)?.state == Download.STATE_COMPLETED
+
+    fun downloadProgress(downloadId: String): Float =
+        findDownload(downloads.value, downloadId)?.percentDownloaded?.div(100f) ?: 0f
 }
