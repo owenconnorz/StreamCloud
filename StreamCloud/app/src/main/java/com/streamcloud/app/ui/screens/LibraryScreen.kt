@@ -191,6 +191,23 @@ fun LibraryScreen(
 
     val liked = combined[0]; val recent = combined[1]; val downloaded = combined[2]; val mostPlayed = combined[3]
 
+    LaunchedEffect(ytLibrary.likedSongs) {
+        com.streamcloud.app.data.ytmusic.YtMusicStreamResolver.prime(
+            ytLibrary.likedSongs.map(YtmSong::videoId),
+        )
+    }
+
+    LaunchedEffect(liked, recent, mostPlayed) {
+        val visibleLibrarySongs = (liked + recent + mostPlayed)
+            .asSequence()
+            .map(TrackEntity::toYtmSong)
+            .filter { it.videoId.length == 11 }
+            .toList()
+        com.streamcloud.app.data.ytmusic.YtMusicStreamResolver.prime(
+            visibleLibrarySongs.map(YtmSong::videoId),
+        )
+    }
+
     var tab by remember { mutableStateOf(LibTab.Playlists) }
     var openTile by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
