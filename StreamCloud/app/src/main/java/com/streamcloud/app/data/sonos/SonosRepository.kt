@@ -108,10 +108,11 @@ object SonosRepository {
             var tick = 0
             while (true) {
                 delay(1_000)
-                SonosProxyServer.consumeUpstreamFailure()?.let { failure ->
-                    Log.w(TAG, "Sonos proxy stopped serving audio: $failure")
+                val upstreamFailure = SonosProxyServer.consumeUpstreamFailure()
+                if (upstreamFailure != null) {
+                    Log.w(TAG, "Sonos proxy stopped serving audio: $upstreamFailure")
                     _isSonosPlaying.value = false
-                    _castState.update { CastState.Error("Sonos playback stopped: $failure") }
+                    _castState.update { CastState.Error("Sonos playback stopped: $upstreamFailure") }
                     SonosProxyServer.stop()
                     runCatching { SonosController.stop(device) }
                     break
