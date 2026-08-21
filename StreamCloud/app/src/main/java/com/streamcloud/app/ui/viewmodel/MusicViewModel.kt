@@ -224,53 +224,66 @@ class MusicViewModel(context: Context) : ViewModel() {
     }
 
     fun play(track: YtTrack, onResolved: (String) -> Unit = {}) {
+        play(listOf(track), 0, onResolved)
+    }
+
+    /**
+     * Starts [tracks] as the active playback queue at [startIndex].
+     *
+     * Keeping the source list here means the player can move both backward and forward from
+     * history, search, artist, home, and library rows instead of replacing the queue with a
+     * single media item.
+     */
+    fun play(
+        tracks: List<YtTrack>,
+        startIndex: Int,
+        onResolved: (String) -> Unit = {},
+    ) {
+        val selected = tracks.getOrNull(startIndex) ?: return
+        val queue = tracks
+        val queueStartIndex = startIndex
+
         viewModelScope.launch {
-            _state.update { it.copy(resolvingUrl = track.url, error = null) }
+            _state.update { it.copy(resolvingUrl = selected.url, error = null) }
             try {
-                val cached = dao.byUrl(track.url)?.localPath?.takeIf {
+                val cached = dao.byUrl(selected.url)?.localPath?.takeIf {
                     java.io.File(it).exists()
                 }
 
                 _state.update {
                     it.copy(
-                        nowPlayingUrl = track.url,
-                        nowPlayingTrack = track,
+                        nowPlayingUrl = selected.url,
+                        nowPlayingTrack = selected,
                         resolvingUrl = null,
                     )
                 }
 
-                if (cached != null) {
+                if (cached != null && queue.size == 1) {
                     onResolved(cached)
                 } else {
-                    val videoId = track.url
-                        .substringAfter("v=", missingDelimiterValue = "")
-                        .substringBefore("&")
-                        .ifBlank { track.url.substringAfterLast("/") }
-                    val song = com.streamcloud.app.data.ytmusic.YtmSong(
-                        videoId = videoId,
-                        title = track.title,
-                        artist = track.uploader,
-                        album = null,
-                        thumbnail = track.thumbnail,
-                        durationSeconds = track.durationSec,
-                        isVideo = track.isVideo,
-                    )
-                    com.streamcloud.app.data.ytmusic.YtPlayback.playSong(
-                        appContext, song, withAutoRadio = false,
-                    )
+                    val songs = queue.map(YtTrack::toYtmSong)
+                    if (songs.size == 1) {
+                        com.streamcloud.app.data.ytmusic.YtPlayback.playSong(
+                            appContext, songs.single(), withAutoRadio = false,
+                        )
+                    } else {
+                        com.streamcloud.app.data.ytmusic.YtPlayback.playPlaylist(
+                            appContext, songs, queueStartIndex,
+                        )
+                    }
                 }
 
                 val ts = System.currentTimeMillis()
                 dao.upsert(
                     TrackEntity(
-                        url = track.url, title = track.title, artist = track.uploader,
-                        durationSec = track.durationSec, thumbnail = track.thumbnail,
+                        url = selected.url, title = selected.title, artist = selected.uploader,
+                        durationSec = selected.durationSec, thumbnail = selected.thumbnail,
                         localPath = cached,
                     )
                 )
-                dao.bumpPlayed(track.url, ts)
-                fetchLyrics(track)
-                refreshLikedFlag(track.url)
+                dao.bumpPlayed(selected.url, ts)
+                fetchLyrics(selected)
+                refreshLikedFlag(selected.url)
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
@@ -280,6 +293,22 @@ class MusicViewModel(context: Context) : ViewModel() {
                 }
             }
         }
+    }
+
+    private fun YtTrack.toYtmSong(): com.streamcloud.app.data.ytmusic.YtmSong {
+        val videoId = url
+            .substringAfter("v=", missingDelimiterValue = "")
+            .substringBefore("&")
+            .ifBlank { url.substringAfterLast("/") }
+        return com.streamcloud.app.data.ytmusic.YtmSong(
+            videoId = videoId,
+            title = title,
+            artist = uploader,
+            album = null,
+            thumbnail = thumbnail,
+            durationSeconds = durationSec,
+            isVideo = isVideo,
+        )
     }
 
     private fun fetchLyrics(track: YtTrack) {

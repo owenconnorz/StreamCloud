@@ -1,144 +1,3 @@
-package com.streamcloud.app.ui.screens
-
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import androidx.compose.runtime.*
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import android.net.Uri
-import coil.compose.AsyncImage
-import com.streamcloud.app.data.newpipe.YtTrack
-import com.streamcloud.app.ui.viewmodel.MusicViewModel
-import kotlinx.coroutines.launch
-
-private val SUGGESTIONS = listOf(
-    "Top hits 2026", "Lo-fi beats", "Chill", "Workout",
-    "Throwback", "K-pop", "Hip hop", "Jazz", "EDM", "Acoustic"
-)
-
-@OptIn(ExperimentalMaterial3Api::class, androidx.media3.common.util.UnstableApi::class)
-@Composable
-fun MusicScreen(
-    onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
-    onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
-    onProfileClick: () -> Unit = {},
-    onSearchClick: () -> Unit = {},
-    onSearchWithQuery: (String) -> Unit = {},
-) {
-    val context = LocalContext.current
-    val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
-    val state by vm.state.collectAsState()
-    var query by remember { mutableStateOf("") }
-    var showHistory by remember { mutableStateOf(false) }
-    val dlScope = rememberCoroutineScope()
-
-
-
-    var player by remember { mutableStateOf<androidx.media3.common.Player?>(null) }
-    var isPlaying by remember { mutableStateOf(false) }
-    var playerError by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(Unit) {
-        try {
-            val controller = com.streamcloud.app.audio.MusicController.get(context.applicationContext)
-            controller.addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    val msg = "Audio playback failed (${error.errorCodeName}): ${error.message}"
-                    com.streamcloud.app.data.AppLogger.e("MusicPlayback", msg, error.cause)
-                    playerError = msg
-                }
-                override fun onRepeatModeChanged(repeatMode: Int) { vm.setRepeatMode(repeatMode) }
-                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-                    vm.setShuffle(shuffleModeEnabled)
-                }
-            })
-
-            vm.setRepeatMode(controller.repeatMode)
-            vm.setShuffle(controller.shuffleModeEnabled)
-            player = controller
-            isPlaying = controller.isPlaying
-        } catch (e: Exception) {
-            playerError = "Couldn't connect to media service: ${e.message}"
-        }
-    }
-
-
-
-    val nowPlaying = state.nowPlayingTrack
-        ?: state.tracks.firstOrNull { it.url == state.nowPlayingUrl }
-        ?: state.homeFeed.firstOrNull { it.url == state.nowPlayingUrl }
-
-    var isRefreshing by remember { mutableStateOf(false) }
-    val pullRefreshState = rememberPullToRefreshState()
-    LaunchedEffect(state.ytHomeLoading, state.homeLoading) {
-        if (!state.ytHomeLoading && !state.homeLoading) isRefreshing = false
-    }
-
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-            isRefreshing = true
-            vm.loadYtHome()
-            vm.loadHomeFeed()
-        },
-        state = pullRefreshState,
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = if (nowPlaying != null) 180.dp else 80.dp),
-        ) {
-            item {
-                MusicHeader(
-                    onProfileClick = onProfileClick,
-                    onHistoryClick = { showHistory = true },
-                    onSearchClick = onSearchClick,
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                 )
             }
@@ -183,16 +42,29 @@ fun MusicScreen(
 
                 if (state.liked.isNotEmpty()) {
                     item { SectionTitle("Liked songs") }
-                    items(state.liked.take(5), key = { "lib_liked_${it.url}" }) { entity ->
+                    itemsIndexed(
+                        state.liked.take(5),
+                        key = { index, entity -> "lib_liked_${index}_${entity.url}" },
+                    ) { index, entity ->
                         LibraryRow(entity, isPlaying = isPlaying && state.nowPlayingUrl == entity.url) {
                             val track = YtTrack(
                                 title = entity.title, uploader = entity.artist,
                                 durationSec = entity.durationSec,
                                 url = entity.url, thumbnail = entity.thumbnail,
                             )
-                            if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                            else if (state.nowPlayingUrl == track.url) player?.play()
-                            else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+                            playFromQueue(
+                                track,
+                                state.liked.map {
+                                    YtTrack(
+                                        title = it.title,
+                                        uploader = it.artist,
+                                        durationSec = it.durationSec,
+                                        url = it.url,
+                                        thumbnail = it.thumbnail,
+                                    )
+                                },
+                                index,
+                            )
                         }
                     }
                 }
@@ -225,8 +97,8 @@ fun MusicScreen(
                         }
                         is com.streamcloud.app.data.ytmusic.HomeSection.SongRail -> {
                             item(key = "yt_srail_title_$idx") { SectionTitle(section.title) }
-                            items(section.items) { s ->
-                                YtHomeSongRow(s)
+                            itemsIndexed(section.items, key = { index, s -> "yt_srail_${index}_${s.videoId}" }) { index, s ->
+                                YtHomeSongRow(s, section.items, index)
                             }
                         }
                     }
@@ -241,30 +113,32 @@ fun MusicScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(state.homeFeed.take(10), key = { "home_${it.url}" }) { track ->
+                            itemsIndexed(
+                                state.homeFeed.take(10),
+                                key = { index, track -> "home_${index}_${track.url}" },
+                            ) { index, track ->
                                 HeroCard(
                                     track = track,
                                     isPlaying = isPlaying && state.nowPlayingUrl == track.url,
                                     onClick = {
-                                        if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                                        else if (state.nowPlayingUrl == track.url) player?.play()
-                                        else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+                                        playFromQueue(track, state.homeFeed, index)
                                     }
                                 )
                             }
                         }
                     }
                     item { SectionTitle("More from YouTube") }
-                    items(state.homeFeed.drop(10), key = { "homerow_${it.url}" }) { track ->
+                    itemsIndexed(
+                        state.homeFeed.drop(10),
+                        key = { index, track -> "homerow_${index}_${track.url}" },
+                    ) { index, track ->
                         SongRow(
                             track = track,
                             nowPlayingUrl = state.nowPlayingUrl,
                             isPlaying = isPlaying && state.nowPlayingUrl == track.url,
                             loading = state.resolvingUrl == track.url,
                             onClick = {
-                                if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                                else if (state.nowPlayingUrl == track.url) player?.play()
-                                else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+                                playFromQueue(track, state.homeFeed, index + 10)
                             }
                         )
                     }
@@ -315,16 +189,17 @@ fun MusicScreen(
                     }
                 }
 
-                items(topSongs, key = { "sr_song_${it.url}" }) { track ->
+                itemsIndexed(
+                    topSongs,
+                    key = { index, track -> "sr_song_${index}_${track.url}" },
+                ) { index, track ->
                     SearchResultRow(
                         thumbnail = track.thumbnail,
                         title = track.title,
                         subtitle = track.uploader,
                         isCircle = false,
                         onClick = {
-                            if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                            else if (state.nowPlayingUrl == track.url) player?.play()
-                            else vm.play(track) { audioUrl -> player?.let { playTrack(it, track, audioUrl) } }
+                            playFromQueue(track, sections.songs, index)
                         },
                     )
                 }
@@ -374,15 +249,25 @@ fun MusicScreen(
                 recent = state.recent,
                 nowPlayingUrl = state.nowPlayingUrl,
                 isPlaying = isPlaying,
-                onPlay = { entity ->
+                onPlay = { entity, index ->
                     val track = YtTrack(
                         title = entity.title, uploader = entity.artist,
                         durationSec = entity.durationSec,
                         url = entity.url, thumbnail = entity.thumbnail,
                     )
-                    if (state.nowPlayingUrl == track.url && (player?.isPlaying == true)) player?.pause()
-                    else if (state.nowPlayingUrl == track.url) player?.play()
-                    else vm.play(track) { audioUrl -> player?.let { p -> playTrack(p, track, audioUrl) } }
+                    playFromQueue(
+                        track,
+                        state.recent.map {
+                            YtTrack(
+                                title = it.title,
+                                uploader = it.artist,
+                                durationSec = it.durationSec,
+                                url = it.url,
+                                thumbnail = it.thumbnail,
+                            )
+                        },
+                        index,
+                    )
                 },
                 onDismiss = { showHistory = false },
             )
@@ -473,7 +358,7 @@ private fun HistorySheet(
     recent: List<com.streamcloud.app.data.library.TrackEntity>,
     nowPlayingUrl: String?,
     isPlaying: Boolean,
-    onPlay: (com.streamcloud.app.data.library.TrackEntity) -> Unit,
+    onPlay: (com.streamcloud.app.data.library.TrackEntity, Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -506,11 +391,14 @@ private fun HistorySheet(
             androidx.compose.foundation.lazy.LazyColumn(
                 contentPadding = PaddingValues(bottom = 40.dp),
             ) {
-                items(recent, key = { "hist_${it.url}" }) { entity ->
+                itemsIndexed(
+                    recent,
+                    key = { index, entity -> "hist_${index}_${entity.url}" },
+                ) { index, entity ->
                     LibraryRow(
                         entity = entity,
                         isPlaying = isPlaying && nowPlayingUrl == entity.url,
-                        onClick = { onPlay(entity) },
+                        onClick = { onPlay(entity, index) },
                     )
                 }
             }
@@ -1026,12 +914,22 @@ private fun YtHomePlaylistCard(
 }
 
 @Composable
-private fun YtHomeSongRow(s: com.streamcloud.app.data.ytmusic.YtmSong) {
+private fun YtHomeSongRow(
+    s: com.streamcloud.app.data.ytmusic.YtmSong,
+    queue: List<com.streamcloud.app.data.ytmusic.YtmSong>,
+    startIndex: Int,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val onPlay = {
         scope.launch {
-            runCatching { com.streamcloud.app.data.ytmusic.YtPlayback.playSong(context, s) }
+            runCatching {
+                com.streamcloud.app.data.ytmusic.YtPlayback.playPlaylist(
+                    context,
+                    queue,
+                    startIndex,
+                )
+            }
         }
         Unit
     }
