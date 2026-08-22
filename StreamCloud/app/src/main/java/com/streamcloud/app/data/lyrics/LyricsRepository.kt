@@ -29,7 +29,6 @@ object LyricsRepository {
         .build()
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-
     /** Strip feat., official video, and other suffixes YouTube Music adds to track names. */
     private fun cleanTitle(title: String): String =
         title
@@ -38,22 +37,42 @@ object LyricsRepository {
             .replace(Regex("""\s*-\s*(official\s+\w+|lyrics?|audio)\s*$""", RegexOption.IGNORE_CASE), "")
             .trim()
 
+    /** Strip YouTube-added suffixes from artist names (e.g. "· Topic", "VEVO"). */
+    private fun cleanArtist(artist: String): String =
+        artist
+            .replace(Regex("""\s*[·•\-]\s*(?:topic|music|official|vevo|records?|entertainment)\s*$""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""VEVO\s*$""", RegexOption.IGNORE_CASE), "")
+            .trim()
+
     suspend fun fetch(track: String, artist: String, durationSec: Long): LrcEntry? =
         withContext(Dispatchers.IO) {
-            val clean = cleanTitle(track)
+            val cleanTrack = cleanTitle(track)
+            val cleanArt  = cleanArtist(artist)
 
-            // 1. Exact match with cleaned title + duration (skip if duration unknown)
+            // 1. Exact endpoint with duration (tight match — best result when available)
             if (durationSec > 0) {
-                val exact = runCatching { fetchExact(clean, artist, durationSec) }.getOrNull()
-                if (exact != null) return@withContext exact
+                runCatching { fetchExact(cleanTrack, cleanArt, durationSec) }.getOrNull()
+                    ?.let { return@withContext it }
             }
 
-            // 2. Search with cleaned title + artist
-            val search = runCatching { fetchSearch(clean, artist) }.getOrNull()
-            if (search != null) return@withContext search
+            // 2. Structured field search: track_name + artist_name params
+            runCatching { fetchByField(cleanTrack, cleanArt) }.getOrNull()
+                ?.let { return@withContext it }
 
-            // 3. Fallback: search with original title + artist (in case cleaning was too aggressive)
-            if (clean != track) {
+            // 3. Free-text search with cleaned values
+            runCatching { fetchSearch(cleanTrack, cleanArt) }.getOrNull()
+                ?.let { return@withContext it }
+
+            // 4. Track-only structured search (no artist — broader match)
+            runCatching { fetchByField(cleanTrack, null) }.getOrNull()
+                ?.let { return@withContext it }
+
+            // 5. Free-text with just track name
+            runCatching { fetchSearch(cleanTrack, "") }.getOrNull()
+                ?.let { return@withContext it }
+
+            // 6. Raw original values as last resort
+            if (cleanTrack != track || cleanArt != artist) {
                 runCatching { fetchSearch(track, artist) }.getOrNull()
             } else null
         }
@@ -69,13 +88,36 @@ object LyricsRepository {
             if (it.code == 404) return null
             if (!it.isSuccessful) error("LRClib HTTP ${it.code}")
             val body = it.body?.string().orEmpty()
-            return json.decodeFromString(LrcEntry.serializer(), body)
+            val entry = json.decodeFromString(LrcEntry.serializer(), body)
+            if (entry.instrumental) return null           // skip instrumentals
+            if (entry.syncedLyrics.isNullOrBlank() && entry.plainLyrics.isNullOrBlank()) return null
+            return entry
+        }
+    }
+
+    /** Structured LRCLIB search using individual track_name / artist_name params. */
+    private fun fetchByField(track: String, artist: String?): LrcEntry? {
+        val sb = StringBuilder("https://lrclib.net/api/search?")
+            .append("track_name=").append(URLEncoder.encode(track, "UTF-8"))
+        if (!artist.isNullOrBlank()) {
+            sb.append("&artist_name=").append(URLEncoder.encode(artist, "UTF-8"))
+        }
+        val resp = http.newCall(Request.Builder().url(sb.toString()).build()).execute()
+        resp.use {
+            if (!it.isSuccessful) return null
+            val body = it.body?.string().orEmpty()
+            val list = json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(LrcEntry.serializer()), body,
+            )
+            return list.firstOrNull { e ->
+                !e.instrumental && (!e.syncedLyrics.isNullOrBlank() || !e.plainLyrics.isNullOrBlank())
+            } ?: list.firstOrNull { e -> !e.instrumental } ?: list.firstOrNull()
         }
     }
 
     private fun fetchSearch(track: String, artist: String): LrcEntry? {
-        val url = "https://lrclib.net/api/search?q=" +
-            URLEncoder.encode("$track $artist", "UTF-8")
+        val q = if (artist.isBlank()) track else "$track $artist"
+        val url = "https://lrclib.net/api/search?q=" + URLEncoder.encode(q, "UTF-8")
         val resp = http.newCall(Request.Builder().url(url).build()).execute()
         resp.use {
             if (!it.isSuccessful) return null
@@ -84,8 +126,8 @@ object LyricsRepository {
                 kotlinx.serialization.builtins.ListSerializer(LrcEntry.serializer()), body,
             )
             return list.firstOrNull { e ->
-                !e.syncedLyrics.isNullOrBlank() || !e.plainLyrics.isNullOrBlank()
-            } ?: list.firstOrNull()
+                !e.instrumental && (!e.syncedLyrics.isNullOrBlank() || !e.plainLyrics.isNullOrBlank())
+            } ?: list.firstOrNull { e -> !e.instrumental } ?: list.firstOrNull()
         }
     }
 
