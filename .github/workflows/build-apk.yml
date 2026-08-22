@@ -11,6 +11,15 @@ on:
     paths:
       - 'StreamCloud/**'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the Release APK to GitHub Releases
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
 
 defaults:
   run:
@@ -100,9 +109,9 @@ jobs:
           mkdir -p artifacts
           cp app/build/outputs/apk/debug/app-debug.apk              "artifacts/StreamCloud-debug-${{ github.run_number }}.apk" || true
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk                "artifacts/StreamCloud-release-${{ github.run_number }}.apk"
+            cp app/build/outputs/apk/release/app-release.apk                "artifacts/StreamCloud-release.apk"
           elif [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
-            cp app/build/outputs/apk/release/app-release-unsigned.apk                "artifacts/StreamCloud-release-UNSIGNED-${{ github.run_number }}.apk"
+            cp app/build/outputs/apk/release/app-release-unsigned.apk          "artifacts/StreamCloud-release.apk"
           fi
           ls -la artifacts/
 
@@ -112,3 +121,20 @@ jobs:
           name: StreamCloud-apks
           path: StreamCloud/artifacts/*.apk
           retention-days: 30
+
+      - name: Publish StreamCloud GitHub Release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release == true }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: V${{ github.run_number }}
+          name: StreamCloud V${{ github.run_number }}
+          body: |
+            StreamCloud V${{ github.run_number }}
+
+            - Nuvio-style Android TV focus navigation and D-pad behavior
+            - Startup update prompt with release notes and in-app APK installation
+            - Compose TV focus build fixes
+
+            Compiled and packaged by GitHub Actions.
+          files: StreamCloud/artifacts/StreamCloud-release.apk
+          fail_on_unmatched_files: true
