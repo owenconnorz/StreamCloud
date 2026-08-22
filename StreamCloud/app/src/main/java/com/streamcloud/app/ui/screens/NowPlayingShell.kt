@@ -1208,7 +1208,13 @@ private fun LyricsCard(
                     val activeIdx = remember(positionMs, parsed) {
                         parsed.indexOfLast { it.first <= positionMs }.coerceAtLeast(0)
                     }
+                    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    androidx.compose.runtime.LaunchedEffect(activeIdx) {
+                        // Scroll so the active line is the 2nd visible item — one previous line stays above for context
+                        listState.animateScrollToItem((activeIdx - 1).coerceAtLeast(0))
+                    }
                     androidx.compose.foundation.lazy.LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {

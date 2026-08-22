@@ -254,11 +254,33 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     }
 }
 
-/** Wrap content with the app's base dark colour scheme, ignoring dynamic album-art colours. */
+/** Static dark colour scheme for Settings and its sub-pages.
+ *  Matches the clean black/blue palette used by CollectionsScreen. */
+private val SettingsColors = darkColorScheme(
+    primary              = Color(0xFF2196F3),
+    onPrimary            = Color.White,
+    primaryContainer     = Color(0xFF1565C0),
+    onPrimaryContainer   = Color.White,
+    secondary            = Color(0xFF6AABA8),
+    onSecondary          = Color.White,
+    background           = Color(0xFF000000),
+    onBackground         = Color.White,
+    surface              = Color(0xFF121212),
+    onSurface            = Color.White,
+    surfaceContainerHigh = Color(0xFF252525),
+    surfaceVariant       = Color(0xFF1E1E1E),
+    onSurfaceVariant     = Color(0xFFAAAAAA),
+    outline              = Color(0xFF333333),
+    outlineVariant       = Color(0xFF262626),
+    error                = Color(0xFFD32F2F),
+    onError              = Color.White,
+)
+
+/** Wrap content with the static dark/blue colour scheme used by Settings and its categories. */
 @Composable
 fun StaticAppTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = AioColors,
+        colorScheme = SettingsColors,
         typography  = AioTypography,
         content     = content,
     )

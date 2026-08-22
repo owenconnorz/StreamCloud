@@ -614,17 +614,19 @@ fun StreamCloudApp() {
                     val stremioRepo = remember { com.streamcloud.app.data.stremio.StremioRepository(ctx.applicationContext) }
                     val installedPlugins by pluginRepo.installed.collectAsState(initial = emptyList())
                     val installedAddons by stremioRepo.addons.collectAsState(initial = emptyList())
-                    com.streamcloud.app.ui.screens.CollectionsScreen(
-                        onBack = { nav.popBackStack() },
-                        installedCsPlugins = installedPlugins,
-                        installedStremioAddons = installedAddons,
-                        onOpenCatalog = { src, t, sub ->
-                            val s = URLEncoder.encode(src, "UTF-8")
-                            val tt = URLEncoder.encode(t, "UTF-8")
-                            val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
-                            nav.navigate("catalog/$s/$tt/$ss")
-                        },
-                    )
+                    com.streamcloud.app.ui.theme.StaticAppTheme {
+                        com.streamcloud.app.ui.screens.CollectionsScreen(
+                            onBack = { nav.popBackStack() },
+                            installedCsPlugins = installedPlugins,
+                            installedStremioAddons = installedAddons,
+                            onOpenCatalog = { src, t, sub ->
+                                val s = URLEncoder.encode(src, "UTF-8")
+                                val tt = URLEncoder.encode(t, "UTF-8")
+                                val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
+                                nav.navigate("catalog/$s/$tt/$ss")
+                            },
+                        )
+                    }
                 }
                 composable(
                     "catalog/{src}/{title}/{subtitle}",
@@ -884,13 +886,15 @@ fun StreamCloudApp() {
                     )
                 }
                 composable("plugin-picker") {
-                    PluginPickerScreen(
-                        onBack = { nav.popBackStack() },
-                        onOpenPlugin = { internalName ->
-                            val n = URLEncoder.encode(internalName, "UTF-8")
-                            nav.navigate("cloudstream/$n")
-                        },
-                    )
+                    com.streamcloud.app.ui.theme.StaticAppTheme {
+                        PluginPickerScreen(
+                            onBack = { nav.popBackStack() },
+                            onOpenPlugin = { internalName ->
+                                val n = URLEncoder.encode(internalName, "UTF-8")
+                                nav.navigate("cloudstream/$n")
+                            },
+                        )
+                    }
                 }
                 composable(
                     "music-search?q={q}",
