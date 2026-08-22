@@ -952,7 +952,7 @@ private fun ContinueWatchingCard(
     else 0f
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier
+        modifier = modifier
             .width(320.dp)
             .tvFocusBorder(RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
@@ -1025,7 +1025,7 @@ private fun MidPoster(
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     Column(
-        modifier
+        modifier = modifier
             .width(width)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
@@ -1064,7 +1064,7 @@ private fun StremioPoster(
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     Column(
-        modifier
+        modifier = modifier
             .width(width)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
