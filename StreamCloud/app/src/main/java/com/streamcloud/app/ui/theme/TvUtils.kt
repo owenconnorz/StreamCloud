@@ -87,6 +87,7 @@ fun Modifier.tvFocusGroup(): Modifier = composed {
 fun Modifier.tvDpadRepeatThrottle(
     horizontalGateMs: Long = TvHorizontalRepeatGateMs,
     verticalGateMs: Long = TvVerticalRepeatGateMs,
+    handleInitialPresses: Boolean = false,
 ): Modifier = composed {
     if (LocalUiFormFactor.current != UiFormFactor.Tv) return@composed this
     val focusManager = LocalFocusManager.current
@@ -94,7 +95,10 @@ fun Modifier.tvDpadRepeatThrottle(
 
     this.onPreviewKeyEvent { event ->
         val native = event.nativeKeyEvent
-        if (native.action != AndroidKeyEvent.ACTION_DOWN || native.repeatCount <= 0) {
+        if (
+            native.action != AndroidKeyEvent.ACTION_DOWN ||
+            (native.repeatCount <= 0 && !handleInitialPresses)
+        ) {
             return@onPreviewKeyEvent false
         }
         val direction = when (native.keyCode) {
@@ -108,7 +112,9 @@ fun Modifier.tvDpadRepeatThrottle(
         val isVertical = direction == FocusDirection.Up || direction == FocusDirection.Down
         val gate = if (isVertical) verticalGateMs else horizontalGateMs
         val now = SystemClock.uptimeMillis()
-        if (now - lastRepeatAt[0] < gate) return@onPreviewKeyEvent true
+        if (native.repeatCount > 0 && now - lastRepeatAt[0] < gate) {
+            return@onPreviewKeyEvent true
+        }
 
         lastRepeatAt[0] = now
         focusManager.moveFocus(direction)
