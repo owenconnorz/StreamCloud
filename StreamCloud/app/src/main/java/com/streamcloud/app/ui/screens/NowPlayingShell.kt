@@ -657,36 +657,8 @@ fun NowPlayingShell(
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    // Video button — visible whenever a video stream is available or canvas is playing
-                    if (activeCanvas != null || videoStreamUrl != null) {
-                        NpIconButton(
-                            onClick = {
-                                if (activeCanvas != null) {
-                                    manualVideoRequested = !manualVideoRequested
-                                } else {
-                                    showVideoPlayer = !showVideoPlayer
-                                }
-                                controlsVisible = true
-                                hideKey++
-                            },
-                            tint = onBg,
-                        ) {
-                            Icon(
-                                Icons.Default.PlayCircle,
-                                contentDescription = if (activeCanvas != null && manualVideoRequested) {
-                                    "Return to Canvas"
-                                } else if (showVideoPlayer) {
-                                    "Hide video"
-                                } else {
-                                    "Watch video"
-                                },
-                            )
-                        }
-                    }
-                    // Spacer to balance layout when neither pin nor video button is shown
-                    if (activeCanvas == null && videoStreamUrl == null) {
-                        Spacer(Modifier.size(40.dp))
-                    }
+                    // Balanced spacer — video/pin buttons live in the permanent overlay, not here
+                    Spacer(Modifier.size(40.dp))
                 }
 
                 // ── Bottom controls (scrollable — scroll down to reveal Lyrics / Artist / Stats) ──
@@ -930,26 +902,48 @@ fun NowPlayingShell(
             }
         }
 
-        // ── Pin button — always visible outside the fade overlay so user can always reach it ──
-        if (activeCanvas != null) {
+        // ── Permanent top-right buttons — never fade with canvas controls ──
+        if (activeCanvas != null || videoStreamUrl != null) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.statusBars),
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(end = 4.dp, top = 4.dp),
                 contentAlignment = Alignment.TopEnd,
             ) {
-                NpIconButton(
-                    onClick = {
-                        controlsPinned = !controlsPinned
-                        controlsVisible = true
-                        hideKey++
-                    },
-                    tint = onBg,
-                ) {
-                    Icon(
-                        if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = if (controlsPinned) "Unpin controls" else "Pin controls",
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Video / canvas toggle
+                    NpIconButton(
+                        onClick = {
+                            if (activeCanvas != null) manualVideoRequested = !manualVideoRequested
+                            else showVideoPlayer = !showVideoPlayer
+                            controlsVisible = true
+                            hideKey++
+                        },
+                        tint = onBg,
+                    ) {
+                        Icon(
+                            Icons.Default.PlayCircle,
+                            contentDescription = if (activeCanvas != null && manualVideoRequested) "Return to Canvas"
+                            else if (showVideoPlayer) "Hide video" else "Watch video",
+                        )
+                    }
+                    // Pin — only relevant when canvas auto-hides controls
+                    if (activeCanvas != null) {
+                        NpIconButton(
+                            onClick = {
+                                controlsPinned = !controlsPinned
+                                controlsVisible = true
+                                hideKey++
+                            },
+                            tint = onBg,
+                        ) {
+                            Icon(
+                                if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
+                                contentDescription = if (controlsPinned) "Unpin controls" else "Pin controls",
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1329,13 +1323,31 @@ private fun YoutubeStatsCard(
     }
     val likeLabel = when {
         likeCount >= 1_000_000 -> "%.1f".format(likeCount / 1_000_000.0)
-            .trimEnd('0').trimEnd('.') + "M like(s)"
+            .trimEnd('0').trimEnd('.') + "M likes"
         likeCount >= 1_000 -> "%.1f".format(likeCount / 1_000.0)
-            .trimEnd('0').trimEnd('.') + "K like(s)"
-        likeCount > 0 -> "$likeCount like(s)"
+            .trimEnd('0').trimEnd('.') + "K likes"
+        likeCount > 0 -> "$likeCount likes"
         else -> null
     }
-    val hasContent = !uploadDate.isNullOrBlank() || viewLabel != null || likeLabel != null || description.isNotBlank()
+    // Format "2025-02-06T02:04:48-08:00" → "6 Feb 2025"
+    val formattedDate = remember(uploadDate) {
+        if (uploadDate.isNullOrBlank()) null
+        else try {
+            val ymd = uploadDate.take(10).split("-")
+            val months = listOf("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+            "${ymd[2].trimStart('0').ifEmpty { "0" }} ${months[ymd[1].toInt() - 1]} ${ymd[0]}"
+        } catch (_: Exception) { uploadDate }
+    }
+    // Strip HTML tags and decode entities from the description
+    val cleanDesc = remember(description) {
+        description
+            .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+            .replace(Regex("<[^>]+>"), "")
+            .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&nbsp;", " ").replace("&quot;", "\"").replace("&#39;", "'")
+            .trim()
+    }
+    val hasContent = formattedDate != null || viewLabel != null || likeLabel != null || cleanDesc.isNotBlank()
     if (!hasContent) return
     Box(
         Modifier
@@ -1345,11 +1357,11 @@ private fun YoutubeStatsCard(
             .padding(16.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (!uploadDate.isNullOrBlank()) {
+            if (formattedDate != null) {
                 Text(
-                    "Published on $uploadDate",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = onTextColor,
+                    formattedDate,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = onTextColor.copy(alpha = 0.7f),
                 )
             }
             if (viewLabel != null) {
@@ -1366,16 +1378,16 @@ private fun YoutubeStatsCard(
                     color = onTextColor.copy(alpha = 0.75f),
                 )
             }
-            if (description.isNotBlank()) {
+            if (cleanDesc.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Description",
+                    "About",
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                     color = onTextColor,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    description.take(600),
+                    cleanDesc.take(600),
                     style = MaterialTheme.typography.bodySmall,
                     color = onTextColor.copy(alpha = 0.75f),
                 )
