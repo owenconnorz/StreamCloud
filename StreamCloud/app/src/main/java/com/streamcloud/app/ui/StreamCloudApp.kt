@@ -332,7 +332,11 @@ fun StreamCloudApp() {
         }
         // TV popup nav state — auto-close on route change
         var tvNavOpen by remember { mutableStateOf(false) }
-        LaunchedEffect(currentRoute) { tvNavOpen = false }
+        var firstMovieFocused by remember { mutableStateOf(false) }
+        LaunchedEffect(currentRoute) {
+            tvNavOpen = false
+            firstMovieFocused = false
+        }
         // The drawer owns focus while visible. The menu launcher deliberately
         // never receives startup focus on TV: content starts focused, and Left
         // opens this panel directly (Nuvio-style).
@@ -368,13 +372,17 @@ fun StreamCloudApp() {
                             else -> false
                         }
                     } else if (
-                        isTv && !tvNavOpen && showRail &&
+                        isTv &&
+                        !tvNavOpen &&
+                        showRail &&
+                        currentRoute == Tab.Movies.route &&
+                        firstMovieFocused &&
                         event.type == KeyEventType.KeyDown &&
                         event.key == Key.DirectionLeft
                     ) {
-                        // Content stays in control at launch. A single Left press
-                        // opens the drawer, rather than first moving to a top-left
-                        // hamburger button.
+                        // Compose first gets to move Left across a row. Only when
+                        // the first movie card itself has focus does the next Left
+                        // press open the Nuvio drawer.
                         tvNavOpen = true
                         true
                     } else if (isTv && event.type == KeyEventType.KeyDown && event.key == Key.Menu) {
@@ -472,6 +480,7 @@ fun StreamCloudApp() {
                     MoviesScreen(
                         initialFocusRequester = firstMovieCardFocus,
                         initialFocusEnabled = !showProfilePicker,
+                        onFirstMovieFocusedChanged = { firstMovieFocused = it },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
                         onOpenCloudStreamPlugin = { internalName ->
