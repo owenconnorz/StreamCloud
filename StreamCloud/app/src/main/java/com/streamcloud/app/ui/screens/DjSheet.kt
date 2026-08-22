@@ -21,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -47,6 +48,7 @@ fun DjSheet(
     onNarrationEnabledChange: (Boolean) -> Unit,
     state: DjUiState,
     startingMix: Boolean,
+    onBuildPersonalizedMix: () -> Unit,
     onBuildMix: () -> Unit,
     onPlayMix: (DjSession) -> Unit,
     onDismiss: () -> Unit,
@@ -65,6 +67,19 @@ fun DjSheet(
                 "Build an original music session from a mood, genre, artist, or activity.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
+            )
+
+            OutlinedButton(
+                onClick = onBuildPersonalizedMix,
+                enabled = !state.loading && !startingMix,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Make a mix for me")
+            }
+            Text(
+                "Uses local likes, listening history, and music searches. Your preferences stay on this device; only song searches find similar tracks.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
             )
 
             OutlinedTextField(
@@ -147,7 +162,18 @@ fun DjSheet(
             }
             state.session?.let { session ->
                 HorizontalDivider()
-                Text("Your ${session.request} mix", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    if (session.isPersonalized) "Your For you mix" else "Your ${session.request} mix",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (session.sourceDescription.isNotBlank()) {
+                    Text(
+                        session.sourceDescription,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 Text(session.narration, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     session.tracks.take(3).joinToString(" • ") { "${it.title} — ${it.uploader}" },

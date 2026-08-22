@@ -498,6 +498,7 @@ fun MusicScreen(
                 },
                 state = djState,
                 startingMix = djStarting,
+                onBuildPersonalizedMix = { djViewModel.buildPersonalizedMix() },
                 onBuildMix = { djViewModel.buildMix(djRequest) },
                 onPlayMix = ::startDjMix,
                 onDismiss = {
