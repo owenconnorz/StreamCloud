@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -107,18 +108,24 @@ fun MusicSearchScreen(
         }
     }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .background(
-                Brush.verticalGradient(
-                    0.00f to animAccent.copy(alpha = 0.28f),
-                    0.35f to animAccent.copy(alpha = 0.08f),
-                    1.00f to Color.Transparent,
-                )
-            ),
-    ) {
+    MusicRecognitionHost(
+        onSearchWithQuery = { recognizedQuery ->
+            query = recognizedQuery
+            submitSearch(recognizedQuery)
+        },
+    ) { onRecognitionClick ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .background(
+                    Brush.verticalGradient(
+                        0.00f to animAccent.copy(alpha = 0.28f),
+                        0.35f to animAccent.copy(alpha = 0.08f),
+                        1.00f to Color.Transparent,
+                    )
+                ),
+        ) {
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -162,13 +169,22 @@ fun MusicSearchScreen(
                             )
                         },
                         trailingIcon = {
-                            when {
-                                state.loading -> CircularProgressIndicator(
-                                    Modifier.size(20.dp), strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                query.isNotEmpty() -> IconButton(onClick = { query = "" }) {
-                                    Icon(Icons.Default.Close, "Clear")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                when {
+                                    state.loading -> CircularProgressIndicator(
+                                        Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    query.isNotEmpty() -> IconButton(onClick = { query = "" }) {
+                                        Icon(Icons.Default.Close, "Clear")
+                                    }
+                                }
+                                IconButton(onClick = onRecognitionClick) {
+                                    Icon(
+                                        Icons.Default.Mic,
+                                        contentDescription = "Recognize music nearby",
+                                    )
                                 }
                             }
                         },
@@ -397,7 +413,8 @@ fun MusicSearchScreen(
             }
         }
     }
-    } // end outer Box
+        } // end outer Box
+    }
 }
 
 // ── Section header with View all ─────────────────────────────────────────────
