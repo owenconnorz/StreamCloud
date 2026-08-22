@@ -165,13 +165,13 @@ fun MoviesScreen(
                 .fillMaxSize()
                 // Keep vertical D-pad movement in focus traversal instead of
                 // letting the parent list scroll independently.
-                .onPreviewKeyEvent { event ->
+                .onPreviewKeyEvent { keyEvent ->
                     if (
                         isTv &&
-                        event.type == KeyEventType.KeyDown &&
-                        event.nativeKeyEvent.repeatCount == 0
+                        keyEvent.type == KeyEventType.KeyDown &&
+                        keyEvent.nativeKeyEvent.repeatCount == 0
                     ) {
-                        when (event.key) {
+                        when (keyEvent.key) {
                             Key.DirectionUp -> {
                                 focusManager.moveFocus(FocusDirection.Up)
                                 true
