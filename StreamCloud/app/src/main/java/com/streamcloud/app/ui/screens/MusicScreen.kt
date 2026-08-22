@@ -1,5 +1,7 @@
 package com.streamcloud.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -33,6 +36,8 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
@@ -49,6 +54,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -56,6 +62,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import android.net.Uri
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.newpipe.YtTrack
+import com.streamcloud.app.data.recognition.MusicRecognitionState
+import com.streamcloud.app.data.recognition.MusicRecognizer
+import com.streamcloud.app.data.recognition.NoMatchException
 import com.streamcloud.app.audio.DjNarrator
 import com.streamcloud.app.audio.DjVoicePreset
 import com.streamcloud.app.data.ServiceLocator
@@ -63,6 +72,7 @@ import com.streamcloud.app.ui.viewmodel.DjSession
 import com.streamcloud.app.ui.viewmodel.DjViewModel
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 
@@ -72,6 +82,11 @@ private val SUGGESTIONS = listOf(
 )
 
 private const val DJ_ANNOUNCEMENT_INTERVAL = 2
+
+private data class PendingDjAnnouncement(
+    val session: DjSession,
+    val announcement: String,
+)
 
 private fun YtTrack.matchesDjMediaId(mediaId: String): Boolean {
     if (url == mediaId) return true
@@ -109,10 +124,15 @@ fun MusicScreen(
     var query by remember { mutableStateOf("") }
     var showHistory by remember { mutableStateOf(false) }
     var showDj by remember { mutableStateOf(false) }
+    var showRecognition by remember { mutableStateOf(false) }
     var djRequest by remember { mutableStateOf("") }
     var djStarting by remember { mutableStateOf(false) }
     var djQuickMixLoading by remember { mutableStateOf(false) }
     val dlScope = rememberCoroutineScope()
+    val recognizer = remember { MusicRecognizer() }
+    var recognitionState by remember { mutableStateOf<MusicRecognitionState>(MusicRecognitionState.Ready) }
+    var recognitionJob by remember { mutableStateOf<Job?>(null) }
+    var recognitionRequestId by remember { mutableIntStateOf(0) }
     val settings = remember(context) { ServiceLocator.get(context).settings }
     val djViewModel: DjViewModel = viewModel(factory = DjViewModel.factory(context))
     val djState by djViewModel.state.collectAsState()
@@ -124,6 +144,12 @@ fun MusicScreen(
     DisposableEffect(djNarrator) {
         onDispose { djNarrator.close() }
     }
+    DisposableEffect(recognizer) {
+        onDispose {
+            recognitionJob?.cancel()
+            recognizer.close()
+        }
+    }
 
 
 
@@ -133,36 +159,130 @@ fun MusicScreen(
     var activeQueueSignature by remember { mutableStateOf<List<String>?>(null) }
     var activeQueueIndex by remember { mutableIntStateOf(-1) }
     var activeDjSession by remember { mutableStateOf<DjSession?>(null) }
+    var djSessionGeneration by remember { mutableIntStateOf(0) }
+    var djQueueInstalled by remember { mutableStateOf(false) }
     var djTracksSinceAnnouncement by remember { mutableIntStateOf(0) }
     var djAnnouncementNumber by remember { mutableIntStateOf(0) }
     var lastDjTrack by remember { mutableStateOf<YtTrack?>(null) }
     var djAnnouncementInProgress by remember { mutableStateOf(false) }
     var djPauseCommandPending by remember { mutableStateOf(false) }
     var djResumeAfterAnnouncement by remember { mutableStateOf(false) }
+    var pendingDjAnnouncement by remember { mutableStateOf<PendingDjAnnouncement?>(null) }
     val currentDjSession = rememberUpdatedState(activeDjSession)
     val currentDjVoicePreset = rememberUpdatedState(djVoicePreset)
 
     fun cancelDjAnnouncement() {
-        if (djAnnouncementInProgress) djNarrator.cancel()
+        // This also cancels an initial introduction. It is safe when nothing is speaking and
+        // prevents a stale TTS completion from replacing playback after the user chooses a track.
+        djNarrator.cancel()
         djAnnouncementInProgress = false
         djPauseCommandPending = false
         djResumeAfterAnnouncement = false
+        pendingDjAnnouncement = null
     }
 
     fun endDjSession() {
         cancelDjAnnouncement()
+        djStarting = false
+        djSessionGeneration += 1
+        djQueueInstalled = false
         activeDjSession = null
         djTracksSinceAnnouncement = 0
         lastDjTrack = null
     }
 
+    fun startRecognition() {
+        recognitionJob?.cancel()
+        val requestId = recognitionRequestId + 1
+        recognitionRequestId = requestId
+        recognitionState = MusicRecognitionState.Listening
+        recognitionJob = dlScope.launch {
+            try {
+                val result = recognizer.recognize()
+                if (requestId == recognitionRequestId && showRecognition) {
+                    recognitionState = MusicRecognitionState.Success(result)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: NoMatchException) {
+                if (requestId == recognitionRequestId && showRecognition) {
+                    recognitionState = MusicRecognitionState.NoMatch()
+                }
+            } catch (error: Exception) {
+                if (requestId == recognitionRequestId && showRecognition) {
+                    recognitionState = MusicRecognitionState.Error(
+                        error.message?.takeIf { it.isNotBlank() }
+                            ?: "Please check your connection and try again.",
+                    )
+                }
+            }
+        }
+    }
+
+    val microphonePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            startRecognition()
+        } else {
+            recognitionState = MusicRecognitionState.PermissionDenied
+        }
+    }
+
+    fun openRecognition() {
+        showRecognition = true
+        if (
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            startRecognition()
+        } else {
+            recognitionState = MusicRecognitionState.Ready
+            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     LaunchedEffect(Unit) {
         try {
             val controller = com.streamcloud.app.audio.MusicController.get(context.applicationContext)
+            fun startPendingDjAnnouncement() {
+                val pending = pendingDjAnnouncement ?: return
+                if (
+                    djAnnouncementInProgress ||
+                    !controller.playWhenReady ||
+                    controller.playbackState != Player.STATE_READY ||
+                    currentDjSession.value != pending.session
+                ) {
+                    return
+                }
+                pendingDjAnnouncement = null
+                val willSpeak = djNarrator.speak(
+                    pending.announcement,
+                    currentDjVoicePreset.value,
+                ) {
+                    val shouldResume = djAnnouncementInProgress &&
+                        djResumeAfterAnnouncement &&
+                        currentDjSession.value == pending.session
+                    djAnnouncementInProgress = false
+                    djPauseCommandPending = false
+                    djResumeAfterAnnouncement = false
+                    if (shouldResume) controller.play()
+                }
+                if (willSpeak) {
+                    djAnnouncementInProgress = true
+                    djResumeAfterAnnouncement = true
+                    djPauseCommandPending = true
+                    // Do not let the transition announcement compete with the song.
+                    controller.pause()
+                }
+            }
             val listener = object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
                     isPlaying = playing
-                    if (!djAnnouncementInProgress) return
+                    if (!djAnnouncementInProgress) {
+                        if (playing) startPendingDjAnnouncement()
+                        return
+                    }
                     if (!playing && djPauseCommandPending) {
                         djPauseCommandPending = false
                     } else {
@@ -172,23 +292,45 @@ fun MusicScreen(
                     }
                 }
 
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_READY) startPendingDjAnnouncement()
+                }
+
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (!playWhenReady && !djAnnouncementInProgress) {
+                        // Do not defer a queued DJ interruption until after a user pause.
+                        pendingDjAnnouncement = null
+                    }
+                }
+
                 override fun onTimelineChanged(
                     timeline: androidx.media3.common.Timeline,
                     reason: Int,
                 ) {
                     val session = currentDjSession.value ?: return
-                    if (controller.mediaItemCount == 0) return
+                    if (reason != Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) return
+                    if (controller.mediaItemCount == 0) {
+                        if (djQueueInstalled) endDjSession()
+                        return
+                    }
                     val isExpectedDjQueue = controller.mediaItemCount == session.tracks.size &&
                         (0 until controller.mediaItemCount).all { index ->
-                            session.tracks.any {
-                                it.matchesDjMediaId(controller.getMediaItemAt(index).mediaId)
-                            }
+                            session.tracks[index].matchesDjMediaId(
+                                controller.getMediaItemAt(index).mediaId,
+                            )
                         }
-                    if (!isExpectedDjQueue) endDjSession()
+                    if (isExpectedDjQueue) {
+                        // Starting a mix is asynchronous. Ignore the outgoing queue until the
+                        // controller has actually accepted the DJ media items.
+                        djQueueInstalled = true
+                    } else if (djQueueInstalled) {
+                        endDjSession()
+                    }
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     val session = currentDjSession.value ?: return
+                    if (!djQueueInstalled) return
                     val currentTrack = mediaItem?.mediaId
                         ?.let { mediaId -> session.tracks.firstOrNull { it.matchesDjMediaId(mediaId) } }
                         ?: run {
@@ -209,38 +351,23 @@ fun MusicScreen(
                     if (
                         djTracksSinceAnnouncement < DJ_ANNOUNCEMENT_INTERVAL ||
                         previousTrack == null ||
-                        djAnnouncementInProgress
+                        djAnnouncementInProgress ||
+                        pendingDjAnnouncement != null
                     ) {
                         return
                     }
 
                     djTracksSinceAnnouncement = 0
                     djAnnouncementNumber += 1
-                    val announcement = buildDjFollowUpAnnouncement(
+                    pendingDjAnnouncement = PendingDjAnnouncement(
+                        session = session,
+                        announcement = buildDjFollowUpAnnouncement(
                         previousTrack = previousTrack,
                         currentTrack = currentTrack,
                         announcementNumber = djAnnouncementNumber,
+                        ),
                     )
-                    if (!controller.isPlaying) return
-                    val willSpeak = djNarrator.speak(
-                        announcement,
-                        currentDjVoicePreset.value,
-                    ) {
-                        val shouldResume = djAnnouncementInProgress &&
-                            djResumeAfterAnnouncement &&
-                            currentDjSession.value == session
-                        djAnnouncementInProgress = false
-                        djPauseCommandPending = false
-                        djResumeAfterAnnouncement = false
-                        if (shouldResume) controller.play()
-                    }
-                    if (willSpeak) {
-                        djAnnouncementInProgress = true
-                        djResumeAfterAnnouncement = true
-                        djPauseCommandPending = true
-                        // Do not let the transition announcement compete with the song.
-                        controller.pause()
-                    }
+                    startPendingDjAnnouncement()
                 }
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                     val msg = "Audio playback failed (${error.errorCodeName}): ${error.message}"
@@ -303,14 +430,21 @@ fun MusicScreen(
     fun startDjMix(session: DjSession) {
         if (djStarting) return
         val firstTrack = session.tracks.firstOrNull() ?: return
+        val sessionGeneration = djSessionGeneration + 1
+        djSessionGeneration = sessionGeneration
         activeDjSession = session
+        djQueueInstalled = false
         djTracksSinceAnnouncement = 0
         djAnnouncementNumber = 0
         lastDjTrack = firstTrack
         cancelDjAnnouncement()
         djStarting = true
         val startPlayback = {
-            if (djStarting) {
+            if (
+                djStarting &&
+                djSessionGeneration == sessionGeneration &&
+                activeDjSession == session
+            ) {
                 djStarting = false
                 playFromQueue(firstTrack, session.tracks, 0)
                 showDj = false
@@ -352,6 +486,7 @@ fun MusicScreen(
                     onProfileClick = onProfileClick,
                     onHistoryClick = { showHistory = true },
                     onSearchClick = onSearchClick,
+                    onRecognitionClick = ::openRecognition,
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                     djLoading = djQuickMixLoading || djStarting,
                     onDjClick = {
@@ -661,6 +796,27 @@ fun MusicScreen(
                 },
             )
         }
+        if (showRecognition) {
+            MusicRecognitionSheet(
+                state = recognitionState,
+                onStart = ::openRecognition,
+                onRetry = ::openRecognition,
+                onSearch = { result ->
+                    recognitionJob?.cancel()
+                    recognitionRequestId += 1
+                    showRecognition = false
+                    recognitionState = MusicRecognitionState.Ready
+                    onSearchWithQuery("${result.title} ${result.artist}")
+                },
+                onDismiss = {
+                    recognitionJob?.cancel()
+                    recognitionJob = null
+                    recognitionRequestId += 1
+                    showRecognition = false
+                    recognitionState = MusicRecognitionState.Ready
+                },
+            )
+        }
     }
 }
 
@@ -701,6 +857,7 @@ private fun MusicHeader(
     onProfileClick: () -> Unit,
     onHistoryClick: () -> Unit,
     onSearchClick: () -> Unit = {},
+    onRecognitionClick: () -> Unit = {},
     onTrendingClick: () -> Unit = {},
     djLoading: Boolean = false,
     onDjClick: () -> Unit = {},
@@ -728,6 +885,11 @@ private fun MusicHeader(
                 icon = Icons.Default.Search,
                 contentDescription = "Search music",
                 onClick = onSearchClick,
+            )
+            MusicHeaderAction(
+                icon = Icons.Default.Mic,
+                contentDescription = "Recognize music nearby",
+                onClick = onRecognitionClick,
             )
             MusicHeaderAction(
                 icon = Icons.Default.AutoAwesome,
