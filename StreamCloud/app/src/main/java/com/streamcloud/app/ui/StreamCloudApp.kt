@@ -1455,6 +1455,7 @@ fun StreamCloudApp() {
             )
         }
     }
+    StartupUpdatePrompt(enabled = !showProfilePicker)
     } // end outer Box
 }
 
