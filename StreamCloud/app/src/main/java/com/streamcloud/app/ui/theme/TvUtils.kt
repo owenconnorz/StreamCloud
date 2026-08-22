@@ -6,12 +6,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.focusable
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -35,7 +31,6 @@ private const val TvFocusScale = 1.035f
 private const val TvHorizontalRepeatGateMs = 80L
 private const val TvVerticalRepeatGateMs = 112L
 
-@OptIn(ExperimentalFoundationApi::class)
 fun Modifier.tvFocusBorder(
     shape: Shape = RoundedCornerShape(12.dp),
     borderWidth: Dp = 3.dp,
@@ -44,7 +39,6 @@ fun Modifier.tvFocusBorder(
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     if (!isTv) return@composed this
     var focused by remember { mutableStateOf(false) }
-    val bringIntoViewRequester = remember { BringIntoViewRequester() }
     val scale by animateFloatAsState(
         targetValue = if (focused) TvFocusScale else 1f,
         animationSpec = tween(durationMillis = 160),
@@ -56,13 +50,12 @@ fun Modifier.tvFocusBorder(
         label = "tvFocusBorder",
     )
 
-    LaunchedEffect(focused) {
-        if (focused) bringIntoViewRequester.bringIntoView()
-    }
-
     this
-        .bringIntoViewRequester(bringIntoViewRequester)
         .onFocusChanged { focused = it.isFocused }
+        // Focusable already asks a Lazy list to reveal the focused item. A second,
+        // unconditional bringIntoView request here made nested TV rails fight the
+        // parent list and could scroll vertically while moving across a row.
+        .focusable()
         .graphicsLayer {
             scaleX = scale
             scaleY = scale
@@ -81,9 +74,7 @@ fun Modifier.tvFocusBorder(
 @OptIn(ExperimentalComposeUiApi::class)
 fun Modifier.tvFocusGroup(): Modifier = composed {
     if (LocalUiFormFactor.current == UiFormFactor.Tv) {
-        this
-            .focusRestorer()
-            .focusGroup()
+        this.focusGroup()
     } else {
         this
     }
@@ -121,5 +112,9 @@ fun Modifier.tvDpadRepeatThrottle(
 
         lastRepeatAt[0] = now
         focusManager.moveFocus(direction)
+        // Repeated D-pad events must never fall through to a LazyColumn when
+        // focus reaches an edge. Otherwise the focus search and list scrolling
+        // run together, causing skipped rows and noticeable input lag.
+        true
     }
 }
