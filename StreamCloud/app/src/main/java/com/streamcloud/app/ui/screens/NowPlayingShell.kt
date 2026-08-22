@@ -82,6 +82,7 @@ import coil.request.SuccessResult
 import com.streamcloud.app.data.downloads.MusicDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.lyrics.LyricsRepository
+import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.cast.MusicRemoteCast
@@ -224,7 +225,6 @@ fun NowPlayingShell(
     var artworkDragX by remember { mutableStateOf(0f) }
 
 
-    var showLyrics by remember { mutableStateOf(false) }
     var lyrics by remember(mediaId) { mutableStateOf<com.streamcloud.app.data.lyrics.LrcEntry?>(null) }
     var lyricsLoading by remember(mediaId) { mutableStateOf(false) }
     LaunchedEffect(mediaId, title, artist) {
@@ -232,6 +232,13 @@ fun NowPlayingShell(
         lyricsLoading = true
         lyrics = runCatching { LyricsRepository.fetch(title, artist, 0L) }.getOrNull()
         lyricsLoading = false
+    }
+    var trackMeta by remember(mediaId) { mutableStateOf<NewPipeRepository.StreamMeta?>(null) }
+    LaunchedEffect(mediaId) {
+        val mid = mediaId ?: return@LaunchedEffect
+        val videoId = if (mid.startsWith("http")) mid.substringAfter("v=", "").substringBefore("&") else mid
+        if (videoId.length != 11) return@LaunchedEffect
+        trackMeta = runCatching { NewPipeRepository.fetchStreamMeta(videoId) }.getOrNull()
     }
 
 
@@ -871,16 +878,9 @@ fun NowPlayingShell(
                     BottomToolbar(
                         shuffleOn = shuffleOn,
                         repeatMode = repeatMode,
-                        sleepActive = sleepEndTs != null,
-                        lyricsActive = showLyrics,
-                        onQueue = { showQueueSheet = true },
-                        onSleep = {
-                            if (sleepEndTs != null) sleepEndTs = null
-                            else showSleepDialog = true
-                        },
-                        onLyrics = { showLyrics = !showLyrics },
-                        onCast = { showSonos = true },
                         isCasting = isCasting,
+                        onQueue = { showQueueSheet = true },
+                        onCast = { showSonos = true },
                         onShuffle = { controller.shuffleModeEnabled = !controller.shuffleModeEnabled },
                         onRepeat = {
                             val next = when (controller.repeatMode) {
@@ -893,15 +893,31 @@ fun NowPlayingShell(
                         onMore = { showActions = true },
                     )
 
-                    if (showLyrics) {
+                    Spacer(Modifier.height(16.dp))
+                    LyricsCard(
+                        lyrics = lyrics,
+                        loading = lyricsLoading,
+                        positionMs = positionMs,
+                        onTextColor = onBg,
+                        cardBg = Color.Black.copy(alpha = 0.35f),
+                    )
+                    trackMeta?.let { meta ->
                         Spacer(Modifier.height(12.dp))
-                        LyricsView(
-                            lyrics = lyrics,
-                            loading = lyricsLoading,
-                            positionMs = positionMs,
+                        ArtistCard(
+                            artistName = artist,
+                            avatarUrl = meta.uploaderAvatarUrl,
+                            subscriberCount = meta.uploaderSubscriberCount,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        YoutubeStatsCard(
+                            viewCount = meta.viewCount,
+                            likeCount = meta.likeCount,
+                            uploadDate = meta.uploadDate,
+                            description = meta.description,
                             onTextColor = onBg,
                         )
                     }
+                    Spacer(Modifier.height(16.dp))
                 }
             }
         }
@@ -938,6 +954,12 @@ fun NowPlayingShell(
             currentArtist = artist,
             isLiked = isLiked,
             isDownloaded = isDownloaded,
+            sleepActive = sleepEndTs != null,
+            onSleep = {
+                showActions = false
+                if (sleepEndTs != null) sleepEndTs = null
+                else showSleepDialog = true
+            },
             onDismiss = { showActions = false },
             onOpenSettings = onOpenSettings,
             onOpenArtistSearch = onOpenArtistSearch,
@@ -1038,12 +1060,8 @@ private fun NpIconButton(
 private fun BottomToolbar(
     shuffleOn: Boolean,
     repeatMode: Int,
-    sleepActive: Boolean,
-    lyricsActive: Boolean,
     isCasting: Boolean,
     onQueue: () -> Unit,
-    onSleep: () -> Unit,
-    onLyrics: () -> Unit,
     onCast: () -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
@@ -1054,11 +1072,6 @@ private fun BottomToolbar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ToolbarChip(Icons.Default.QueueMusic, "Queue", false, false, onQueue, Modifier.weight(1f))
-        ToolbarChip(
-            if (sleepActive) Icons.Default.BedtimeOff else Icons.Default.Bedtime,
-            "Sleep timer", sleepActive, false, onSleep, Modifier.weight(1f),
-        )
-        ToolbarChip(Icons.Default.Lyrics, "Lyrics", lyricsActive, false, onLyrics, Modifier.weight(1f))
         ToolbarChip(Icons.Default.Cast, "Cast to devices", isCasting, false, onCast, Modifier.weight(1f))
         ToolbarChip(Icons.Default.Shuffle, "Shuffle", shuffleOn, false, onShuffle, Modifier.weight(1f))
         ToolbarChip(
@@ -1121,48 +1134,221 @@ internal fun rememberDominant(thumbnailUrl: String?): State<Color> {
 }
 
 @Composable
-private fun LyricsView(
+private fun LyricsCard(
     lyrics: com.streamcloud.app.data.lyrics.LrcEntry?,
     loading: Boolean,
     positionMs: Long,
     onTextColor: Color,
+    cardBg: Color,
 ) {
-    when {
-        loading -> Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = onTextColor)
-        }
-        lyrics?.syncedLyrics?.isNotBlank() == true -> {
-            val parsed = remember(lyrics) { LyricsRepository.parseLrc(lyrics.syncedLyrics) }
-            val activeIdx = remember(positionMs, parsed) {
-                parsed.indexOfLast { it.first <= positionMs }.coerceAtLeast(0)
-            }
-            androidx.compose.foundation.lazy.LazyColumn(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items(parsed.size) { i ->
-                    val (_, line) = parsed[i]
-                    Text(
-                        line,
-                        color = if (i == activeIdx) onTextColor else onTextColor.copy(alpha = 0.55f),
-                        style = if (i == activeIdx) MaterialTheme.typography.titleMedium
-                        else MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+    val hasSynced = lyrics?.syncedLyrics?.isNotBlank() == true
+    val hasAny = hasSynced || lyrics?.plainLyrics?.isNotBlank() == true
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp),
+    ) {
+        Column {
+            Text(
+                "Lyrics",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = onTextColor,
+            )
+            Spacer(Modifier.height(12.dp))
+            when {
+                loading -> Box(
+                    Modifier.fillMaxWidth().padding(20.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = onTextColor)
                 }
+                hasSynced -> {
+                    val parsed = remember(lyrics) { LyricsRepository.parseLrc(lyrics!!.syncedLyrics) }
+                    val activeIdx = remember(positionMs, parsed) {
+                        parsed.indexOfLast { it.first <= positionMs }.coerceAtLeast(0)
+                    }
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(parsed.size) { i ->
+                            val (_, line) = parsed[i]
+                            Text(
+                                line,
+                                color = if (i == activeIdx) onTextColor else onTextColor.copy(alpha = 0.4f),
+                                style = if (i == activeIdx)
+                                    MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                                else
+                                    MaterialTheme.typography.bodyLarge,
+                                textAlign = TextAlign.Start,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+                lyrics?.plainLyrics?.isNotBlank() == true -> Text(
+                    lyrics.plainLyrics,
+                    color = onTextColor.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                else -> Text(
+                    "No lyrics found.",
+                    color = onTextColor.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+            if (!loading && hasAny) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (hasSynced) "Line Synced" else "Plain text",
+                    color = onTextColor.copy(alpha = 0.4f),
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Lyrics provided by LRCLIB",
+                    color = onTextColor.copy(alpha = 0.4f),
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
-        lyrics?.plainLyrics?.isNotBlank() == true -> Text(
-            lyrics.plainLyrics,
-            color = onTextColor.copy(alpha = 0.85f),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        else -> Text(
-            "No lyrics found.",
-            color = onTextColor.copy(alpha = 0.7f),
-            modifier = Modifier.padding(8.dp),
-        )
+    }
+}
+
+@Composable
+private fun ArtistCard(
+    artistName: String,
+    avatarUrl: String?,
+    subscriberCount: Long,
+) {
+    val subLabel = when {
+        subscriberCount >= 1_000_000 -> "%.1f".format(subscriberCount / 1_000_000.0)
+            .trimEnd('0').trimEnd('.') + "M subscribers"
+        subscriberCount >= 1_000 -> "%.1f".format(subscriberCount / 1_000.0)
+            .trimEnd('0').trimEnd('.') + "K subscribers"
+        subscriberCount > 0 -> "$subscriberCount subscribers"
+        else -> ""
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black.copy(alpha = 0.4f)),
+    ) {
+        Column {
+            Text(
+                "Artists",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            if (!avatarUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = avatarUrl,
+                    contentDescription = artistName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                artistName,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            if (subLabel.isNotBlank()) {
+                Text(
+                    subLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun YoutubeStatsCard(
+    viewCount: Long,
+    likeCount: Long,
+    uploadDate: String?,
+    description: String,
+    onTextColor: Color,
+) {
+    val viewLabel = when {
+        viewCount >= 1_000_000 -> "%.1f".format(viewCount / 1_000_000.0)
+            .trimEnd('0').trimEnd('.') + "M views"
+        viewCount >= 1_000 -> "%.1f".format(viewCount / 1_000.0)
+            .trimEnd('0').trimEnd('.') + "K views"
+        viewCount > 0 -> "$viewCount views"
+        else -> null
+    }
+    val likeLabel = when {
+        likeCount >= 1_000_000 -> "%.1f".format(likeCount / 1_000_000.0)
+            .trimEnd('0').trimEnd('.') + "M like(s)"
+        likeCount >= 1_000 -> "%.1f".format(likeCount / 1_000.0)
+            .trimEnd('0').trimEnd('.') + "K like(s)"
+        likeCount > 0 -> "$likeCount like(s)"
+        else -> null
+    }
+    val hasContent = !uploadDate.isNullOrBlank() || viewLabel != null || likeLabel != null || description.isNotBlank()
+    if (!hasContent) return
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black.copy(alpha = 0.4f))
+            .padding(16.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (!uploadDate.isNullOrBlank()) {
+                Text(
+                    "Published on $uploadDate",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = onTextColor,
+                )
+            }
+            if (viewLabel != null) {
+                Text(
+                    viewLabel,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = onTextColor,
+                )
+            }
+            if (likeLabel != null) {
+                Text(
+                    likeLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = onTextColor.copy(alpha = 0.75f),
+                )
+            }
+            if (description.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Description",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    color = onTextColor,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    description.take(600),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = onTextColor.copy(alpha = 0.75f),
+                )
+            }
+        }
     }
 }
 
