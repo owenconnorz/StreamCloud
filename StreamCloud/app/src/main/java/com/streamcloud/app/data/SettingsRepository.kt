@@ -143,6 +143,7 @@ object SettingsKeys {
     // Nav
     val NAV_HIDDEN_TABS    = stringPreferencesKey("nav_hidden_tabs")
     val NAV_LIQUID_GLASS   = booleanPreferencesKey("nav_liquid_glass")
+    val STARTUP_UPDATE_PROMPT_DISMISSED_TAG = stringPreferencesKey("startup_update_prompt_dismissed_tag")
 
     // Discord RPC
     val DISCORD_RPC_ENABLED     = booleanPreferencesKey("discord_rpc_enabled")
@@ -581,6 +582,12 @@ class SettingsRepository(private val context: Context) {
     val navHiddenTabsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.NAV_HIDDEN_TABS] }
 
     suspend fun setNavHiddenTabs(csv: String) = context.dataStore.edit { it[SettingsKeys.NAV_HIDDEN_TABS] = csv }
+
+    val startupUpdatePromptDismissedTag: Flow<String> =
+        context.dataStore.data.map { it[SettingsKeys.STARTUP_UPDATE_PROMPT_DISMISSED_TAG] ?: "" }
+
+    suspend fun setStartupUpdatePromptDismissedTag(tag: String) =
+        context.dataStore.edit { it[SettingsKeys.STARTUP_UPDATE_PROMPT_DISMISSED_TAG] = tag }
 
     // Discord RPC
     val discordRpcEnabled: Flow<Boolean>  = context.dataStore.data.map { it[SettingsKeys.DISCORD_RPC_ENABLED]     ?: false }
