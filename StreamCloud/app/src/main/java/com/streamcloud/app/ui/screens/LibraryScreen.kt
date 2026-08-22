@@ -876,6 +876,7 @@ private fun LibTile(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
+            .tvFocusBorder(RoundedCornerShape(20.dp))
             .clickable(onClick = onClick),
     ) {
         Box(

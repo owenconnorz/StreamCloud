@@ -55,7 +55,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.focusable
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -87,7 +86,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -120,7 +118,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -323,10 +320,10 @@ fun StreamCloudApp() {
             (currentRoute == null || tabs.any { it.route == currentRoute })
         val firstRailFocus = remember { FocusRequester() }
         val firstTvNavFocus = remember { FocusRequester() }
-        val tvContentFocus = remember { FocusRequester() }
+        val focusManager = LocalFocusManager.current
         LaunchedEffect(showRail) {
             // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
-            // On TV, the content focus bridge owns the initial page handoff.
+            // On TV, focus starts on the persistent navigation launcher.
             if (showRail && !isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
         }
         // TV popup nav state — auto-close on route change
@@ -338,7 +335,7 @@ fun StreamCloudApp() {
             if (!isTv) return@LaunchedEffect
             try {
                 if (tvNavOpen) firstTvNavFocus.requestFocus()
-                else tvContentFocus.requestFocus()
+                else firstRailFocus.requestFocus()
             } catch (_: Exception) {}
         }
         // Intercept the back button to close the TV nav panel instead of exiting the app.
@@ -1195,18 +1192,6 @@ fun StreamCloudApp() {
                     }
                 }
 
-                if (isTv && showRail) {
-                    // Fire TV's spatial focus search can remain on the hamburger because
-                    // the first page control may be centered or below the fold. Give it a
-                    // deterministic focus target so every TV page can enter its content.
-                    TvContentFocusBridge(
-                        focusRequester = tvContentFocus,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(start = TvOverscanPadding, top = TvOverscanPadding + 56.dp),
-                    )
-                }
-
                 // TV Nuvio-style popup navigation
                 if (isTv && showRail) {
                     // Semi-transparent scrim that closes the nav on click
@@ -1231,17 +1216,23 @@ fun StreamCloudApp() {
                             Modifier
                                 .size(48.dp)
                                 .clip(RoundedCornerShape(12.dp))
+                                .focusRequester(firstRailFocus)
                                 .tvFocusBorder(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                                .focusRequester(firstRailFocus)
                                 .onKeyEvent { event ->
-                                    if (event.type == KeyEventType.KeyDown &&
-                                        (event.key == Key.DirectionDown || event.key == Key.DirectionRight)
-                                    ) {
-                                        tvContentFocus.requestFocus()
-                                        true
-                                    } else {
-                                        false
+                                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                                    when (event.key) {
+                                        Key.DirectionDown -> {
+                                            focusManager.moveFocus(FocusDirection.Down)
+                                            true
+                                        }
+                                        Key.DirectionRight -> {
+                                            if (!focusManager.moveFocus(FocusDirection.Right)) {
+                                                focusManager.moveFocus(FocusDirection.Down)
+                                            }
+                                            true
+                                        }
+                                        else -> false
                                     }
                                 }
                                 .clickable { tvNavOpen = !tvNavOpen },
@@ -1456,33 +1447,6 @@ fun StreamCloudApp() {
         }
     }
     } // end outer Box
-}
-
-@Composable
-private fun TvContentFocusBridge(
-    focusRequester: FocusRequester,
-    modifier: Modifier = Modifier,
-) {
-    val focusManager = LocalFocusManager.current
-    var isFocused by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isFocused) {
-        if (!isFocused) return@LaunchedEffect
-        // Content may be populated asynchronously. Retry briefly so the handoff
-        // still succeeds after the first row becomes focusable.
-        repeat(30) {
-            delay(100)
-            if (focusManager.moveFocus(FocusDirection.Down)) return@LaunchedEffect
-        }
-    }
-
-    Box(
-        modifier
-            .size(2.dp)
-            .focusRequester(focusRequester)
-            .focusable()
-            .onFocusChanged { isFocused = it.isFocused },
-    )
 }
 
 @Composable

@@ -1,6 +1,7 @@
 package com.streamcloud.app.ui.theme
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.getValue
@@ -27,6 +28,7 @@ fun Modifier.tvFocusBorder(
     var focused by remember { mutableStateOf(false) }
     this
         .onFocusChanged { focused = it.isFocused }
+        .focusable()
         .border(
             width = if (focused) borderWidth else 0.dp,
             color = if (focused) color else Color.Transparent,
