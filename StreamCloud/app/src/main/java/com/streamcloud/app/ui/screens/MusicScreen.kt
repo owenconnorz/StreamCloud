@@ -116,7 +116,6 @@ fun MusicScreen(
     val settings = remember(context) { ServiceLocator.get(context).settings }
     val djViewModel: DjViewModel = viewModel(factory = DjViewModel.factory(context))
     val djState by djViewModel.state.collectAsState()
-    val djNarrationEnabled by settings.djNarrationEnabled.collectAsState(initial = true)
     val djVoicePresetName by settings.djVoicePreset.collectAsState(initial = DjVoicePreset.BrightHost.name)
     val djVoicePreset = remember(djVoicePresetName) {
         DjVoicePreset.entries.firstOrNull { it.name == djVoicePresetName } ?: DjVoicePreset.BrightHost
@@ -141,7 +140,6 @@ fun MusicScreen(
     var djPauseCommandPending by remember { mutableStateOf(false) }
     var djResumeAfterAnnouncement by remember { mutableStateOf(false) }
     val currentDjSession = rememberUpdatedState(activeDjSession)
-    val currentDjNarrationEnabled = rememberUpdatedState(djNarrationEnabled)
     val currentDjVoicePreset = rememberUpdatedState(djVoicePreset)
 
     fun cancelDjAnnouncement() {
@@ -156,14 +154,6 @@ fun MusicScreen(
         activeDjSession = null
         djTracksSinceAnnouncement = 0
         lastDjTrack = null
-    }
-
-    LaunchedEffect(djNarrationEnabled) {
-        if (!djNarrationEnabled && djAnnouncementInProgress) {
-            val shouldResume = djResumeAfterAnnouncement && activeDjSession != null
-            cancelDjAnnouncement()
-            if (shouldResume) player?.play()
-        }
     }
 
     LaunchedEffect(Unit) {
@@ -225,7 +215,6 @@ fun MusicScreen(
                     }
 
                     djTracksSinceAnnouncement = 0
-                    if (!currentDjNarrationEnabled.value) return
                     djAnnouncementNumber += 1
                     val announcement = buildDjFollowUpAnnouncement(
                         previousTrack = previousTrack,
@@ -327,14 +316,10 @@ fun MusicScreen(
                 showDj = false
             }
         }
-        if (djNarrationEnabled) {
-            val willSpeak = djNarrator.speak(session.narration, djVoicePreset, startPlayback)
-            if (willSpeak) {
-                // A DJ introduction should occur before, rather than over, the selected music.
-                player?.pause()
-            } else {
-                startPlayback()
-            }
+        val willSpeak = djNarrator.speak(session.narration, djVoicePreset, startPlayback)
+        if (willSpeak) {
+            // A DJ introduction should occur before, rather than over, the selected music.
+            player?.pause()
         } else {
             startPlayback()
         }
@@ -661,10 +646,6 @@ fun MusicScreen(
                 voicePreset = djVoicePreset,
                 onVoicePresetChange = { preset ->
                     dlScope.launch { settings.setDjVoicePreset(preset.name) }
-                },
-                narrationEnabled = djNarrationEnabled,
-                onNarrationEnabledChange = { enabled ->
-                    dlScope.launch { settings.setDjNarrationEnabled(enabled) }
                 },
                 state = djState,
                 startingMix = djStarting,
