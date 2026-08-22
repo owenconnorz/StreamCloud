@@ -62,6 +62,8 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.ui.viewmodel.DjSession
 import com.streamcloud.app.ui.viewmodel.DjViewModel
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
+import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
@@ -407,7 +409,10 @@ fun MusicScreen(
             .background(MaterialTheme.colorScheme.background),
     ) {
         LazyColumn(
-            Modifier.fillMaxSize(),
+            Modifier
+                .fillMaxSize()
+                .tvFocusGroup()
+                .tvDpadRepeatThrottle(),
             contentPadding = PaddingValues(bottom = if (nowPlaying != null) 180.dp else 80.dp),
         ) {
             item {
@@ -514,6 +519,7 @@ fun MusicScreen(
                             item(key = "yt_prail_title_$idx") { SectionTitle(section.title) }
                             item(key = "yt_prail_$idx") {
                                 LazyRow(
+                                    modifier = Modifier.tvFocusGroup(),
                                     contentPadding = PaddingValues(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
@@ -531,6 +537,7 @@ fun MusicScreen(
                                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                                     val cardWidth = ((maxWidth - 68.dp) / 4).coerceAtLeast(76.dp)
                                     LazyRow(
+                                        modifier = Modifier.tvFocusGroup(),
                                         contentPadding = PaddingValues(horizontal = 16.dp),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     ) {
@@ -558,6 +565,7 @@ fun MusicScreen(
                     item { SectionTitle("Trending today") }
                     item {
                         LazyRow(
+                            modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {

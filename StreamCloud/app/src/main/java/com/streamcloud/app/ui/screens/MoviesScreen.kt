@@ -1004,11 +1004,16 @@ private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portr
 private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait", onClick: (Long) -> Unit, onLongPress: (TmdbMovie) -> Unit = {}) {
     val chunkSize = if (posterStyle == "landscape") 2 else 3
     Column(
-        modifier = Modifier.padding(horizontal = 16.dp),
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .tvFocusGroup(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         movies.chunked(chunkSize).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.tvFocusGroup(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 row.forEach { m ->
                     val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
                     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
@@ -1017,6 +1022,7 @@ private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait"
                         Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(12.dp))
+                            .tvFocusBorder(RoundedCornerShape(12.dp))
                             .combinedClickable(
                                 onClick = { onClick(m.id) },
                                 onLongClick = { onLongPress(m) },

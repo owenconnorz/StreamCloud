@@ -345,7 +345,14 @@ fun StreamCloudApp() {
                 .fillMaxSize()
                 .padding(padding)
                 .onPreviewKeyEvent { event ->
-                    if (isTv && event.type == KeyEventType.KeyDown && event.key == Key.Menu) {
+                    if (
+                        isTv && tvNavOpen && event.type == KeyEventType.KeyDown &&
+                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight)
+                    ) {
+                        // The drawer owns focus while it is visible. Back closes it;
+                        // horizontal D-pad presses must not escape to the page behind.
+                        true
+                    } else if (isTv && event.type == KeyEventType.KeyDown && event.key == Key.Menu) {
                         tvNavOpen = !tvNavOpen
                         true
                     } else {
@@ -1285,16 +1292,18 @@ fun StreamCloudApp() {
                                     label = "Search",
                                     selected = currentRoute == "movie-search",
                                     modifier = Modifier.focusRequester(firstTvNavFocus),
+                                    trapUp = true,
                                     onClick = {
                                         tvNavOpen = false
                                         nav.navigate("movie-search")
                                     },
                                 )
-                                tabs.forEach { tab ->
+                                tabs.forEachIndexed { index, tab ->
                                     TvNavRow(
                                         icon = tab.icon,
                                         label = tab.label,
                                         selected = currentRoute == tab.route,
+                                        trapDown = index == tabs.lastIndex,
                                         onClick = {
                                             tvNavOpen = false
                                             navigateToTab(nav, tab.route)
@@ -1455,6 +1464,8 @@ private fun TvNavRow(
     label: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    trapUp: Boolean = false,
+    trapDown: Boolean = false,
     onClick: () -> Unit,
 ) {
     val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
@@ -1468,6 +1479,12 @@ private fun TvNavRow(
             .clip(RoundedCornerShape(10.dp))
             .tvFocusBorder(RoundedCornerShape(10.dp))
             .background(bg)
+            .onKeyEvent { event ->
+                event.type == KeyEventType.KeyDown && (
+                    (trapUp && event.key == Key.DirectionUp) ||
+                    (trapDown && event.key == Key.DirectionDown)
+                )
+            }
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {

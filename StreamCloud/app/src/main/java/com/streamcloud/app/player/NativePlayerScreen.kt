@@ -823,6 +823,7 @@ fun NativePlayerScreen(
                 Box(Modifier.align(Alignment.CenterEnd)
                     .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
                     .background(Color.Black.copy(alpha = 0.55f))
+                    .tvFocusBorder(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
                     .clickable { showSidePanel = true; bumpInteraction() }
                     .padding(horizontal = 6.dp, vertical = 18.dp)) {
                     Icon(Icons.Default.ChevronLeft, "Open panel", tint = Color.White, modifier = Modifier.size(20.dp))
