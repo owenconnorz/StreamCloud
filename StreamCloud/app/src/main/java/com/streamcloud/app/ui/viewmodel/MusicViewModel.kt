@@ -94,17 +94,43 @@ class MusicViewModel(context: Context) : ViewModel() {
         )
     }
 
+    private fun primeLibraryTracks(tracks: Iterable<TrackEntity>) {
+        primeTracks(
+            tracks.map {
+                YtTrack(
+                    title = it.title,
+                    uploader = it.artist,
+                    durationSec = it.durationSec,
+                    url = it.url,
+                    thumbnail = it.thumbnail,
+                )
+            },
+        )
+    }
+
     init {
         loadHomeFeed()
         loadYtHome()
         viewModelScope.launch {
-            dao.recent().collect { list -> _state.update { it.copy(recent = list) } }
+            dao.recent().collect {
+                list ->
+                _state.update { it.copy(recent = list) }
+                primeLibraryTracks(list)
+            }
         }
         viewModelScope.launch {
-            dao.liked().collect { list -> _state.update { it.copy(liked = list) } }
+            dao.liked().collect {
+                list ->
+                _state.update { it.copy(liked = list) }
+                primeLibraryTracks(list)
+            }
         }
         viewModelScope.launch {
-            dao.mostPlayed().collect { list -> _state.update { it.copy(mostPlayed = list) } }
+            dao.mostPlayed().collect {
+                list ->
+                _state.update { it.copy(mostPlayed = list) }
+                primeLibraryTracks(list)
+            }
         }
         viewModelScope.launch {
             followedArtistsDao.all().collect { list -> _state.update { it.copy(followedArtists = list) } }

@@ -199,8 +199,8 @@ fun LibraryScreen(
         )
     }
 
-    LaunchedEffect(liked, recent, mostPlayed) {
-        val visibleLibrarySongs = (liked + recent + mostPlayed)
+    LaunchedEffect(liked, recent, downloaded, mostPlayed) {
+        val visibleLibrarySongs = (liked + recent + downloaded + mostPlayed)
             .asSequence()
             .map(TrackEntity::toYtmSong)
             .filter { it.videoId.length == 11 }

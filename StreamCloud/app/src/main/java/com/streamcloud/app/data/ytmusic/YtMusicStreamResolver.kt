@@ -13,6 +13,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicLong
 
 internal fun boundedPrefetchVideoIds(videoIds: Iterable<String>, limit: Int): List<String> =
     videoIds
@@ -22,6 +24,19 @@ internal fun boundedPrefetchVideoIds(videoIds: Iterable<String>, limit: Int): Li
         .distinct()
         .take(limit.coerceAtLeast(0))
         .toList()
+
+internal fun queuePrefetchVideoIds(
+    videoIds: List<String>,
+    currentIndex: Int,
+    lookAhead: Int,
+): List<String> {
+    if (videoIds.isEmpty()) return emptyList()
+    val start = currentIndex.coerceIn(0, videoIds.lastIndex)
+    return boundedPrefetchVideoIds(
+        videoIds = videoIds.drop(start),
+        limit = lookAhead.coerceAtLeast(1),
+    )
+}
 
 /**
  * Resolves and caches the short-lived YouTube audio URL independently of ExoPlayer.
@@ -33,9 +48,22 @@ internal fun boundedPrefetchVideoIds(videoIds: Iterable<String>, limit: Int): Li
 object YtMusicStreamResolver {
     private const val TAG = "YtMusicStreamResolver"
 
+    private enum class PrefetchPriority {
+        VISIBLE_LIST,
+        ACTIVE_QUEUE,
+    }
+
+    private data class InFlightResolution(
+        val deferred: Deferred<StreamUrlCache.Entry>,
+        val speculative: Boolean,
+    )
+
     private val prefetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val foregroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val resolutionLocks = ConcurrentHashMap<String, Mutex>()
-    private val inFlightResolutions = ConcurrentHashMap<String, Deferred<StreamUrlCache.Entry>>()
+    private val inFlightResolutions = ConcurrentHashMap<String, InFlightResolution>()
+    private val resolutionGenerations = ConcurrentHashMap<String, AtomicLong>()
+    private val queuedPrefetchPriorities = ConcurrentHashMap<String, PrefetchPriority>()
     private val prefetchPermits = Semaphore(PREFETCH_PARALLELISM)
 
     suspend fun resolveInnertube(
@@ -53,57 +81,156 @@ object YtMusicStreamResolver {
         // A rejected client must not reuse a speculative request that may be resolving the same
         // client. This path only follows a confirmed CDN failure and is intentionally isolated.
         if (excludedClientLabels.isNotEmpty()) {
-            return resolveFresh(videoId, excludedClientLabels)
+            val generation = invalidateResolution(videoId)
+            return resolveFresh(
+                videoId = videoId,
+                excludedClientLabels = excludedClientLabels,
+                serializeWithPrefetch = false,
+                generation = generation,
+            )
         }
 
-        // UI prefetch and ResolvingDataSource often begin within the same few milliseconds. Share
-        // the actual resolver Deferred, rather than merely serializing callers behind a mutex, so
-        // the player always receives the cache entry produced by the warm-up request.
-        inFlightResolutions[videoId]?.let { return it.await() }
-        val created = prefetchScope.async(start = CoroutineStart.LAZY) {
-            resolveFresh(videoId, emptySet())
-        }
-        val shared = inFlightResolutions.putIfAbsent(videoId, created)
-        if (shared != null) return shared.await()
+        // A foreground request must never inherit a slow, speculative warm-up. It promotes the
+        // work to its own resolver job, while concurrent foreground requests still share one job.
+        return resolveShared(videoId, speculative = false)
+    }
 
-        created.start()
-        return try {
-            created.await()
-        } finally {
-            inFlightResolutions.remove(videoId, created)
+    private suspend fun resolveForPrefetch(videoId: String): StreamUrlCache.Entry {
+        StreamUrlCache.getEntry(videoId)?.let { return it }
+        return resolveShared(videoId, speculative = true)
+    }
+
+    private suspend fun resolveShared(
+        videoId: String,
+        speculative: Boolean,
+    ): StreamUrlCache.Entry {
+        while (true) {
+            val active = inFlightResolutions[videoId]
+            if (active != null) {
+                if (!speculative && active.speculative) {
+                    // Drop stale low-priority work and let playback resolve without waiting.
+                    if (inFlightResolutions.remove(videoId, active)) {
+                        invalidateResolution(videoId)
+                        active.deferred.cancel()
+                    }
+                    continue
+                }
+                return active.deferred.await()
+            }
+
+            val scope = if (speculative) prefetchScope else foregroundScope
+            val generation = if (speculative) {
+                currentResolutionGeneration(videoId)
+            } else {
+                nextResolutionGeneration(videoId)
+            }
+            val deferred = scope.async(start = CoroutineStart.LAZY) {
+                resolveFresh(
+                    videoId = videoId,
+                    excludedClientLabels = emptySet(),
+                    // A promoted request must not wait for a cancelled/non-cooperative prefetch
+                    // still holding the per-video mutex.
+                    serializeWithPrefetch = speculative,
+                    generation = generation,
+                )
+            }
+            val created = InFlightResolution(deferred, speculative)
+            if (inFlightResolutions.putIfAbsent(videoId, created) != null) {
+                deferred.cancel()
+                continue
+            }
+
+            deferred.invokeOnCompletion {
+                inFlightResolutions.remove(videoId, created)
+            }
+            deferred.start()
+            return deferred.await()
         }
     }
 
     private suspend fun resolveFresh(
         videoId: String,
         excludedClientLabels: Set<String>,
+        serializeWithPrefetch: Boolean = true,
+        generation: Long = currentResolutionGeneration(videoId),
     ): StreamUrlCache.Entry {
+        if (!serializeWithPrefetch) {
+            return resolveFreshUnserialized(videoId, excludedClientLabels, generation)
+        }
         val lock = resolutionLocks.computeIfAbsent(videoId) { Mutex() }
         return lock.withLock {
-            StreamUrlCache.getEntry(videoId)
-                ?.takeIf { entry ->
-                    excludedClientLabels.isEmpty() || entry.clientLabel !in excludedClientLabels
-                }
-                ?.let { return@withLock it }
+            resolveFreshUnserialized(videoId, excludedClientLabels, generation)
+        }
+    }
 
-            val now = System.currentTimeMillis()
-            val info = YtPlayerUtils.resolveAudioFormatInfo(
-                videoId = videoId,
-                excludedClientLabels = excludedClientLabels,
-            ) ?: error("YouTube returned no audio stream for $videoId")
-            val expiryMs = now + (info.expiresInSeconds - EXPIRY_SAFETY_SECONDS)
-                .coerceAtLeast(MINIMUM_CACHE_SECONDS) * 1_000L
+    private suspend fun resolveFreshUnserialized(
+        videoId: String,
+        excludedClientLabels: Set<String>,
+        generation: Long,
+    ): StreamUrlCache.Entry {
+        StreamUrlCache.getEntry(videoId)
+            ?.takeIf { entry ->
+                excludedClientLabels.isEmpty() || entry.clientLabel !in excludedClientLabels
+            }
+            ?.let { return it }
 
+        val now = System.currentTimeMillis()
+        val info = YtPlayerUtils.resolveAudioFormatInfo(
+            videoId = videoId,
+            excludedClientLabels = excludedClientLabels,
+        ) ?: error("YouTube returned no audio stream for $videoId")
+        val expiryMs = now + (info.expiresInSeconds - EXPIRY_SAFETY_SECONDS)
+            .coerceAtLeast(MINIMUM_CACHE_SECONDS) * 1_000L
+
+        val entry = StreamUrlCache.Entry(
+            url = info.url,
+            userAgent = info.userAgent,
+            expiryMs = expiryMs,
+            clientLabel = info.clientLabel,
+            requiresWebSessionHeaders = info.requiresWebSessionHeaders,
+        )
+        // A foreground recovery/promotion may have superseded this resolver while an underlying
+        // extractor ignored cancellation. Generation validation and cache publication share the
+        // same per-video lock as invalidation, so an old resolver cannot slip in a stale URL.
+        publishIfCurrent(videoId, generation, entry)
+        return entry
+    }
+
+    private fun generationState(videoId: String): AtomicLong =
+        resolutionGenerations.computeIfAbsent(videoId) { AtomicLong() }
+
+    private fun currentResolutionGeneration(videoId: String): Long =
+        synchronized(generationState(videoId)) {
+            generationState(videoId).get()
+        }
+
+    private fun nextResolutionGeneration(videoId: String): Long =
+        synchronized(generationState(videoId)) {
+            generationState(videoId).incrementAndGet()
+        }
+
+    private fun invalidateResolution(videoId: String): Long =
+        synchronized(generationState(videoId)) {
+            generationState(videoId).incrementAndGet().also {
+                StreamUrlCache.remove(videoId)
+            }
+        }
+
+    private fun publishIfCurrent(
+        videoId: String,
+        generation: Long,
+        entry: StreamUrlCache.Entry,
+    ) {
+        synchronized(generationState(videoId)) {
+            if (generation != generationState(videoId).get()) return
             StreamUrlCache.put(
                 videoId = videoId,
-                url = info.url,
-                userAgent = info.userAgent,
-                expiryMs = expiryMs,
-                clientLabel = info.clientLabel,
-                requiresWebSessionHeaders = info.requiresWebSessionHeaders,
+                url = entry.url,
+                userAgent = entry.userAgent,
+                expiryMs = entry.expiryMs,
+                clientLabel = entry.clientLabel,
+                requiresWebSessionHeaders = entry.requiresWebSessionHeaders,
             )
-            StreamUrlCache.getEntry(videoId)
-                ?: error("Resolved YouTube stream was not cached for $videoId")
         }
     }
 
@@ -113,23 +240,70 @@ object YtMusicStreamResolver {
      * own resolver immediately.
      */
     fun prime(videoIds: Iterable<String>, limit: Int = DEFAULT_PREFETCH_COUNT) {
-        val ids = boundedPrefetchVideoIds(videoIds, limit)
-        if (ids.isEmpty()) return
+        enqueuePrefetch(
+            videoIds = boundedPrefetchVideoIds(videoIds, limit),
+            priority = PrefetchPriority.VISIBLE_LIST,
+        )
+    }
 
-        ids.forEach { videoId ->
+    private fun enqueuePrefetch(
+        videoIds: List<String>,
+        priority: PrefetchPriority,
+    ) {
+        videoIds.forEach { videoId ->
+            if (!schedulePrefetch(videoId, priority)) return@forEach
             prefetchScope.launch {
-                prefetchPermits.withPermit {
-                    runCatching { resolveInnertube(videoId) }
-                }
-                    .onFailure { error ->
-                        AppLogger.w(TAG, "Prefetch failed for $videoId: ${error.message}")
+                try {
+                    prefetchPermits.withPermit {
+                        resolveForPrefetch(videoId)
                     }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    AppLogger.w(TAG, "Prefetch failed for $videoId: ${error.message}")
+                } finally {
+                    queuedPrefetchPriorities.remove(videoId, priority)
+                }
             }
         }
     }
 
+    private fun schedulePrefetch(videoId: String, priority: PrefetchPriority): Boolean {
+        if (StreamUrlCache.getEntry(videoId) != null) return false
+        if (queuedPrefetchPriorities.putIfAbsent(videoId, priority) != null) return false
+        val budget = when (priority) {
+            PrefetchPriority.VISIBLE_LIST -> MAX_VISIBLE_LIST_PREFETCH
+            PrefetchPriority.ACTIVE_QUEUE -> MAX_ACTIVE_QUEUE_PREFETCH
+        }
+        val queuedAtPriority = queuedPrefetchPriorities.values.count { it == priority }
+        if (queuedAtPriority <= budget) return true
+        queuedPrefetchPriorities.remove(videoId, priority)
+        return false
+    }
+
+    /**
+     * Warm the current queue position and a bounded number of following songs.
+     *
+     * Queue prefetch is deliberately separate from visible-list prefetch: a long playlist should
+     * not cause every item to resolve, while advancing playback should always keep a useful
+     * runway ahead of the player.
+     */
+    fun primeQueue(
+        videoIds: List<String>,
+        currentIndex: Int,
+        lookAhead: Int = PLAYBACK_LOOKAHEAD_COUNT,
+    ) {
+        enqueuePrefetch(
+            videoIds = queuePrefetchVideoIds(videoIds, currentIndex, lookAhead),
+            priority = PrefetchPriority.ACTIVE_QUEUE,
+        )
+    }
+
     private const val DEFAULT_PREFETCH_COUNT = 8
+    const val PLAYBACK_LOOKAHEAD_COUNT = 6
     private const val PREFETCH_PARALLELISM = 2
+    private const val MAX_VISIBLE_LIST_PREFETCH = 12
+    private const val MAX_ACTIVE_QUEUE_PREFETCH = 12
     private const val EXPIRY_SAFETY_SECONDS = 300L
     private const val MINIMUM_CACHE_SECONDS = 60L
 }
