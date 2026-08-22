@@ -15,6 +15,12 @@ If the first live Sonos request gets a CDN 403 or 416 after preflight succeeds, 
 
 **How to apply:** Preserve the resolver-specific request identity, replace the active source only for the fresh retry, and report the final failure if that retry is also rejected.
 
+Prefer an independently extractor-validated audio stream for Sonos, and use identity content encoding for both the preflight and live proxy request.
+
+**Why:** Some InnerTube URLs accept a tiny preflight but reject the later, long-lived Sonos range request. The maintained extractor already validates a real media range and is more reliable for the speaker proxy.
+
+**How to apply:** Treat the standard resolver as fallback only, preserve the selected extractor's user agent, and never let OkHttp transparently alter the encoded media response.
+
 When replacing a Sonos track, serialize proxy/URI/play commands with pause and resume commands, and make every replacement generation-aware.
 
 **Why:** Stream preparation and Sonos SOAP calls can block after a newer skip or pause is requested. Cancellation alone cannot prevent a stale command from becoming the final speaker state.
