@@ -15,7 +15,9 @@ enum class DjVoicePreset(
     val pitch: Float,
     val rate: Float,
 ) {
-    BrightHost("Bright host", "Warm and upbeat", 1.08f, 1.02f),
+    // Keep the enum name for preference compatibility while making the default style
+    // smoother and more alluring through Android's local TTS controls.
+    BrightHost("Velvet host", "Smooth, warm, and alluring", 0.90f, 0.90f),
     Midnight("Midnight host", "Deep and cinematic", 0.82f, 0.88f),
     Chill("Chill host", "Relaxed and smooth", 0.96f, 0.86f),
     Hype("Hype host", "Fast and energetic", 1.14f, 1.13f),
