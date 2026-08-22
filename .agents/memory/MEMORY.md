@@ -10,3 +10,4 @@
 - [YouTube Music video surfaces](yt-music-video-surfaces.md) — Preserve explicit video intent and accept adaptive visual streams for Now Playing.
 - [Personalized DJ privacy](personalized-dj-privacy.md) — Keep listener preference signals on-device; external music searches are discovery-only and disclosed.
 - [Music prefetch priority](music-prefetch-priority.md) — Foreground playback and the active queue must outrank speculative visible-list stream warm-up.
+- [Android in-app release tags](android-in-app-release-tags.md) — Publish APK releases with a tag whose first number is the CI build number so the updater detects them.
