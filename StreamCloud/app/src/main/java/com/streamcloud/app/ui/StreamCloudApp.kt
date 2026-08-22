@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -117,6 +118,7 @@ import com.streamcloud.app.data.util.GoogleAccountHelper
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -164,6 +166,7 @@ fun StreamCloudApp() {
     val sl = remember { ServiceLocator.get(context) }
     val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
+    val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
 
 
 
@@ -320,6 +323,7 @@ fun StreamCloudApp() {
             (currentRoute == null || tabs.any { it.route == currentRoute })
         val firstRailFocus = remember { FocusRequester() }
         val firstTvNavFocus = remember { FocusRequester() }
+        val firstMovieCardFocus = remember { FocusRequester() }
         val focusManager = LocalFocusManager.current
         LaunchedEffect(showRail) {
             // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
@@ -329,13 +333,22 @@ fun StreamCloudApp() {
         // TV popup nav state — auto-close on route change
         var tvNavOpen by remember { mutableStateOf(false) }
         LaunchedEffect(currentRoute) { tvNavOpen = false }
-        // The drawer owns focus while it is visible. On close, return to the
-        // launcher button instead of leaving the remote on a removed nav row.
-        LaunchedEffect(tvNavOpen, isTv) {
+        // The drawer owns focus while visible. The menu launcher deliberately
+        // never receives startup focus on TV: content starts focused, and Left
+        // opens this panel directly (Nuvio-style).
+        var returningFromTvNav by remember { mutableStateOf(false) }
+        LaunchedEffect(tvNavOpen, isTv, currentRoute) {
             if (!isTv) return@LaunchedEffect
             try {
-                if (tvNavOpen) firstTvNavFocus.requestFocus()
-                else firstRailFocus.requestFocus()
+                if (tvNavOpen) {
+                    returningFromTvNav = true
+                    firstTvNavFocus.requestFocus()
+                } else if (returningFromTvNav) {
+                    if (currentRoute == Tab.Movies.route) {
+                        firstMovieCardFocus.requestFocus()
+                    }
+                    returningFromTvNav = false
+                }
             } catch (_: Exception) {}
         }
         // Intercept the back button to close the TV nav panel instead of exiting the app.
@@ -345,12 +358,24 @@ fun StreamCloudApp() {
                 .fillMaxSize()
                 .padding(padding)
                 .onPreviewKeyEvent { event ->
-                    if (
-                        isTv && tvNavOpen && event.type == KeyEventType.KeyDown &&
-                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight)
+                    if (isTv && tvNavOpen && event.type == KeyEventType.KeyDown) {
+                        when (event.key) {
+                            Key.DirectionLeft -> true
+                            Key.DirectionRight -> {
+                                tvNavOpen = false
+                                true
+                            }
+                            else -> false
+                        }
+                    } else if (
+                        isTv && !tvNavOpen && showRail &&
+                        event.type == KeyEventType.KeyDown &&
+                        event.key == Key.DirectionLeft
                     ) {
-                        // The drawer owns focus while it is visible. Back closes it;
-                        // horizontal D-pad presses must not escape to the page behind.
+                        // Content stays in control at launch. A single Left press
+                        // opens the drawer, rather than first moving to a top-left
+                        // hamburger button.
+                        tvNavOpen = true
                         true
                     } else if (isTv && event.type == KeyEventType.KeyDown && event.key == Key.Menu) {
                         tvNavOpen = !tvNavOpen
@@ -445,6 +470,8 @@ fun StreamCloudApp() {
             ) {
                 composable(Tab.Movies.route) {
                     MoviesScreen(
+                        initialFocusRequester = firstMovieCardFocus,
+                        initialFocusEnabled = !showProfilePicker,
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
                         onOpenCloudStreamPlugin = { internalName ->
@@ -1212,7 +1239,8 @@ fun StreamCloudApp() {
                                 },
                         )
                     }
-                    // Hamburger button — always visible at top-left
+                    // A compact home launcher remains available for touch users,
+                    // but TV D-pad focus stays on content until Left opens the drawer.
                     Box(
                         Modifier
                             .align(Alignment.TopStart)
@@ -1221,11 +1249,12 @@ fun StreamCloudApp() {
                     ) {
                         Box(
                             Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .size(44.dp)
+                                .clip(CircleShape)
                                 .focusRequester(firstRailFocus)
-                                .tvFocusBorder(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                                .focusProperties { canFocus = tvNavOpen }
+                                .tvFocusBorder(CircleShape)
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.78f))
                                 .onKeyEvent { event ->
                                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                                     when (event.key) {
@@ -1246,8 +1275,8 @@ fun StreamCloudApp() {
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                Icons.Filled.Menu,
-                                contentDescription = "Navigation",
+                                Icons.Filled.Home,
+                                contentDescription = "Open navigation",
                                 tint = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(24.dp),
                             )
@@ -1279,37 +1308,74 @@ fun StreamCloudApp() {
                                     .tvFocusGroup(),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                Text(
-                                    "StreamCloud",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                                ) {
+                                    Surface(
+                                        modifier = Modifier.size(32.dp),
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Home,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(7.dp),
+                                        )
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        activeProfile?.name ?: "Profiles",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                TvNavRow(
+                                    icon = Icons.Filled.Home,
+                                    label = "Home",
+                                    selected = currentRoute == Tab.Movies.route,
+                                    modifier = Modifier.focusRequester(firstTvNavFocus),
+                                    trapUp = true,
+                                    onClick = {
+                                        tvNavOpen = false
+                                        navigateToTab(nav, Tab.Movies.route)
+                                    },
                                 )
-                                // Search shortcut
                                 TvNavRow(
                                     icon = Icons.Default.Search,
                                     label = "Search",
                                     selected = currentRoute == "movie-search",
-                                    modifier = Modifier.focusRequester(firstTvNavFocus),
-                                    trapUp = true,
                                     onClick = {
                                         tvNavOpen = false
                                         nav.navigate("movie-search")
                                     },
                                 )
-                                tabs.forEachIndexed { index, tab ->
+                                val middleTabs = tabs.filter {
+                                    it != Tab.Movies && it != Tab.Settings
+                                }
+                                middleTabs.forEach { tab ->
                                     TvNavRow(
                                         icon = tab.icon,
                                         label = tab.label,
                                         selected = currentRoute == tab.route,
-                                        trapDown = index == tabs.lastIndex,
                                         onClick = {
                                             tvNavOpen = false
                                             navigateToTab(nav, tab.route)
                                         },
                                     )
                                 }
+                                TvNavRow(
+                                    icon = Tab.Settings.icon,
+                                    label = Tab.Settings.label,
+                                    selected = currentRoute == Tab.Settings.route,
+                                    trapDown = true,
+                                    onClick = {
+                                        tvNavOpen = false
+                                        navigateToTab(nav, Tab.Settings.route)
+                                    },
+                                )
                             }
                         }
                     }
