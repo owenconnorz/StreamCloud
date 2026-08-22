@@ -9,3 +9,4 @@
 - [Remote cast transition ownership](remote-cast-transition-ownership.md) — Serialize Cast/DLNA handoffs and clean up the exact callback-owned Cast session, never a generic current session.
 - [YouTube Music video surfaces](yt-music-video-surfaces.md) — Preserve explicit video intent and accept adaptive visual streams for Now Playing.
 - [Personalized DJ privacy](personalized-dj-privacy.md) — Keep listener preference signals on-device; external music searches are discovery-only and disclosed.
+- [Music prefetch priority](music-prefetch-priority.md) — Foreground playback and the active queue must outrank speculative visible-list stream warm-up.
