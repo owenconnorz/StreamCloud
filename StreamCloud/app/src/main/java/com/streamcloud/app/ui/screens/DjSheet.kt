@@ -21,11 +21,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -43,8 +41,6 @@ fun DjSheet(
     onRequestChange: (String) -> Unit,
     voicePreset: DjVoicePreset,
     onVoicePresetChange: (DjVoicePreset) -> Unit,
-    narrationEnabled: Boolean,
-    onNarrationEnabledChange: (Boolean) -> Unit,
     state: DjUiState,
     startingMix: Boolean,
     onBuildMix: () -> Unit,
@@ -112,19 +108,6 @@ fun DjSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("DJ narration", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Play a short DJ intro plus original transition updates every two songs.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Switch(checked = narrationEnabled, onCheckedChange = onNarrationEnabledChange)
-            }
 
             Button(
                 onClick = onBuildMix,
