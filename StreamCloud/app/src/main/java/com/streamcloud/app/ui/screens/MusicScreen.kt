@@ -2,6 +2,8 @@ package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -84,6 +86,7 @@ fun MusicScreen(
     var showDj by remember { mutableStateOf(false) }
     var djRequest by remember { mutableStateOf("") }
     var djStarting by remember { mutableStateOf(false) }
+    var djQuickMixLoading by remember { mutableStateOf(false) }
     val dlScope = rememberCoroutineScope()
     val settings = remember(context) { ServiceLocator.get(context).settings }
     val djViewModel: DjViewModel = viewModel(factory = DjViewModel.factory(context))
@@ -210,7 +213,19 @@ fun MusicScreen(
                     onHistoryClick = { showHistory = true },
                     onSearchClick = onSearchClick,
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
-                    onDjClick = { showDj = true },
+                    djLoading = djQuickMixLoading || djStarting,
+                    onDjClick = {
+                        if (!djQuickMixLoading && !djStarting) {
+                            djQuickMixLoading = true
+                            djViewModel.buildPersonalizedMix { session ->
+                                djQuickMixLoading = false
+                                session?.let(::startDjMix)
+                            }
+                        }
+                    },
+                    onDjLongClick = {
+                        if (!djQuickMixLoading && !djStarting) showDj = true
+                    },
                 )
             }
 
@@ -498,7 +513,6 @@ fun MusicScreen(
                 },
                 state = djState,
                 startingMix = djStarting,
-                onBuildPersonalizedMix = { djViewModel.buildPersonalizedMix() },
                 onBuildMix = { djViewModel.buildMix(djRequest) },
                 onPlayMix = ::startDjMix,
                 onDismiss = {
@@ -552,7 +566,9 @@ private fun MusicHeader(
     onHistoryClick: () -> Unit,
     onSearchClick: () -> Unit = {},
     onTrendingClick: () -> Unit = {},
+    djLoading: Boolean = false,
     onDjClick: () -> Unit = {},
+    onDjLongClick: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
@@ -579,8 +595,10 @@ private fun MusicHeader(
             )
             MusicHeaderAction(
                 icon = Icons.Default.AutoAwesome,
-                contentDescription = "Open StreamCloud DJ",
+                contentDescription = "Play a personalized StreamCloud DJ mix; hold for DJ options",
+                loading = djLoading,
                 onClick = onDjClick,
+                onLongClick = onDjLongClick,
             )
             MusicHeaderAction(
                 icon = Icons.Default.History,
@@ -596,26 +614,46 @@ private fun MusicHeader(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MusicHeaderAction(
     icon: ImageVector,
     contentDescription: String,
+    loading: Boolean = false,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
 ) {
+    fun Modifier.actionGesture() = if (onLongClick != null) {
+        combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick,
+        )
+    } else {
+        clickable(onClick = onClick)
+    }
+
     Box(
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick),
+            .actionGesture(),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(23.dp),
-        )
+        if (loading) {
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(21.dp),
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(23.dp),
+            )
+        }
     }
 }
 
