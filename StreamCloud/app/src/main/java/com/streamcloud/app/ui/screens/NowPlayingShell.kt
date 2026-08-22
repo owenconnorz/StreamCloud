@@ -233,7 +233,8 @@ fun NowPlayingShell(
     LaunchedEffect(mediaId, title, artist) {
         if (mediaId == null || title.isBlank()) return@LaunchedEffect
         lyricsLoading = true
-        lyrics = runCatching { LyricsRepository.fetch(title, artist, 0L) }.getOrNull()
+        val durSec = durationMs.takeIf { it > 0L }?.div(1000L) ?: 0L
+        lyrics = runCatching { LyricsRepository.fetch(title, artist, durSec) }.getOrNull()
         lyricsLoading = false
     }
     var trackMeta by remember(mediaId) { mutableStateOf<StreamMeta?>(null) }
@@ -426,7 +427,9 @@ fun NowPlayingShell(
 
     // Controls visibility — auto-hides after 3.5 s, tap screen to reveal.
     var controlsVisible by remember { mutableStateOf(true) }
-    var controlsPinned by remember { mutableStateOf(false) }
+    // Pin state persisted across minimize/app-restart via SharedPreferences
+    val playerPrefs = remember { context.getSharedPreferences("sc_player_prefs", android.content.Context.MODE_PRIVATE) }
+    var controlsPinned by remember { mutableStateOf(playerPrefs.getBoolean("controls_pinned", false)) }
     var hideKey by remember { mutableStateOf(0) }
     // Auto-hide only when a canvas video is actually playing and controls are not pinned.
     LaunchedEffect(hideKey, activeCanvas, controlsPinned) {
@@ -437,6 +440,9 @@ fun NowPlayingShell(
         delay(3_500L)
         if (!controlsPinned) controlsVisible = false
     }
+
+    // Hoisted scroll state so artwork can offset in sync with the scrollable controls column
+    val npScrollState = rememberScrollState()
 
     Box(
         Modifier
@@ -497,6 +503,7 @@ fun NowPlayingShell(
             Box(
                 Modifier
                     .fillMaxSize()
+                    .offset { IntOffset(0, (-npScrollState.value * 0.6f).roundToInt()) }
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .padding(top = 72.dp, bottom = 280.dp),
                 contentAlignment = Alignment.Center,
@@ -667,7 +674,6 @@ fun NowPlayingShell(
                         .fillMaxSize()
                         .align(Alignment.TopStart),
                 ) {
-                    val npScrollState = rememberScrollState()
                     // Spacer height = everything above the controls region.
                     // The artwork box uses padding(bottom = 280.dp); controls sit in that 280dp zone.
                     val controlsZone = 300.dp
@@ -933,6 +939,7 @@ fun NowPlayingShell(
                         NpIconButton(
                             onClick = {
                                 controlsPinned = !controlsPinned
+                                playerPrefs.edit().putBoolean("controls_pinned", controlsPinned).apply()
                                 controlsVisible = true
                                 hideKey++
                             },
