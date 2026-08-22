@@ -9,6 +9,12 @@ Preflight a signed audio URL with the resolver’s client identity using a tiny 
 
 **How to apply:** Derive the full length from `Content-Range` for 206 responses, not the partial `Content-Length`. Do not advertise ranges unless the source honored the range probe, and surface later upstream connection or read failures to the cast state.
 
+If the first live Sonos request gets a CDN 403 or 416 after preflight succeeds, resolve one fresh stream and retry once before ending the cast.
+
+**Why:** Signed media URLs can be invalidated or rejected for a later range request even though the phone's immediate preflight was accepted. A bounded refresh recovers transient failures without masking persistent source errors or retrying indefinitely.
+
+**How to apply:** Preserve the resolver-specific request identity, replace the active source only for the fresh retry, and report the final failure if that retry is also rejected.
+
 When replacing a Sonos track, serialize proxy/URI/play commands with pause and resume commands, and make every replacement generation-aware.
 
 **Why:** Stream preparation and Sonos SOAP calls can block after a newer skip or pause is requested. Cancellation alone cannot prevent a stale command from becoming the final speaker state.
