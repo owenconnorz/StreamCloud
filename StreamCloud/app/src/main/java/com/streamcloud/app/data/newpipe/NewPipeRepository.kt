@@ -50,6 +50,15 @@ data class YtArtist(
     val subscriberLabel: String? = null,
 )
 
+data class StreamMeta(
+    val viewCount: Long,
+    val likeCount: Long,
+    val uploadDate: String?,
+    val description: String,
+    val uploaderAvatarUrl: String?,
+    val uploaderSubscriberCount: Long,
+)
+
 data class MusicSearchSections(
     val topResult: YtTrack? = null,
     val songs: List<YtTrack> = emptyList(),
@@ -664,5 +673,30 @@ object NewPipeRepository {
         n >= 1_000_000 -> "%.1f".format(n / 1_000_000.0).trimEnd('0').trimEnd('.') + "M"
         n >= 1_000 -> "%.1f".format(n / 1_000.0).trimEnd('0').trimEnd('.') + "K"
         else -> n.toString()
+    }
+
+    private val streamMetaCache: MutableMap<String, StreamMeta> =
+        java.util.Collections.synchronizedMap(
+            object : java.util.LinkedHashMap<String, StreamMeta>(16, 0.75f, true) {
+                override fun removeEldestEntry(eldest: Map.Entry<String, StreamMeta>) = size > 30
+            },
+        )
+
+    /**
+     * Fetches lightweight metadata (views, likes, upload date, description, uploader avatar)
+     * for a YouTube video. Results are cached in memory by videoId.
+     */
+    suspend fun fetchStreamMeta(videoId: String): StreamMeta = withContext(Dispatchers.IO) {
+        streamMetaCache[videoId]?.let { return@withContext it }
+        val url = "https://www.youtube.com/watch?v=$videoId"
+        val info = BravePipeStreamInfo.getInfo(BravePipe.getService(0), url)
+        StreamMeta(
+            viewCount = info.viewCount.coerceAtLeast(0L),
+            likeCount = info.likeCount.coerceAtLeast(0L),
+            uploadDate = info.textualUploadDate,
+            description = info.description?.content.orEmpty(),
+            uploaderAvatarUrl = info.uploaderAvatars?.firstOrNull()?.url,
+            uploaderSubscriberCount = info.uploaderSubscriberCount.coerceAtLeast(0L),
+        ).also { streamMetaCache[videoId] = it }
     }
 }
