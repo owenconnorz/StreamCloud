@@ -126,6 +126,57 @@ object SonosProxyServer {
     }
 
     /**
+     * A stream URL can pass the local preflight and still be rejected by the CDN on Sonos's
+     * subsequent request (for example when the signed URL expires or a CDN edge rejects the
+     * requested range). Resolve one fresh URL so a transient 403/416 does not stop an otherwise
+     * healthy Sonos session.
+     */
+    private fun refreshTrack(track: TrackInfo): TrackInfo? = runBlocking {
+        val formatInfo = if (track.videoId.isNotBlank()) {
+            runCatching {
+                YtPlayerUtils.resolveAudioFormatInfo(track.videoId, sonosSafe = true)
+            }.getOrNull()?.takeUnless { it.requiresWebSessionHeaders }
+        } else {
+            null
+        }
+        if (formatInfo != null) {
+            return@runBlocking track.copy(
+                resolvedUrl = formatInfo.url,
+                mimeType = formatInfo.mimeType.substringBefore(";").trim(),
+                userAgent = formatInfo.userAgent,
+                contentLength = formatInfo.contentLength ?: track.contentLength,
+            )
+        }
+
+        if (track.watchUrl.isBlank()) return@runBlocking null
+        runCatching {
+            NewPipeRepository.resolveVerifiedAudioStream(track.watchUrl)?.let { extracted ->
+                track.copy(
+                    resolvedUrl = extracted.url,
+                    userAgent = extracted.userAgent,
+                    contentLength = track.contentLength,
+                )
+            }
+        }.getOrNull()
+    }
+
+    private fun openUpstream(track: TrackInfo, rangeHeader: String?): okhttp3.Response {
+        val streamUrl = track.resolvedUrl ?: resolveStreamUrl(track)
+            ?: error("No playable audio URL was available.")
+        val reqBuilder = Request.Builder()
+            .url(streamUrl)
+            // CDN signatures are tied to the client that minted the URL. Reusing a generic
+            // YouTube Music identity makes otherwise valid PipePipe/InnerTube streams fail
+            // only after Sonos has accepted the local proxy URI.
+            .header("User-Agent", track.userAgent)
+            .header("Accept", "*/*")
+        if (rangeHeader != null) {
+            reqBuilder.header("Range", rangeHeader)
+        }
+        return http.newCall(reqBuilder.build()).execute()
+    }
+
+    /**
      * Confirm that the URL can provide real audio bytes from this phone before Sonos receives the
      * local proxy URI.  A synthetic successful HEAD response lets Sonos accept a track that will
      * fail as soon as it requests the first byte, leaving its UI at 0:00 with no useful error.
@@ -267,8 +318,7 @@ object SonosProxyServer {
             // Forward Range header from Sonos so partial-content/seeking works end-to-end.
             val rangeHeader = reqHeaders["range"]
 
-            val streamUrl = resolveStreamUrl(track)
-            if (streamUrl == null) {
+            if (resolveStreamUrl(track) == null) {
                 Log.w(TAG, "Could not resolve stream for ${track.videoId}")
                 reportUpstreamFailure("The audio source could not resolve a playable stream.")
                 client.getOutputStream()
@@ -276,21 +326,9 @@ object SonosProxyServer {
                 return
             }
 
-            currentTrack.set(track.copy(resolvedUrl = streamUrl))
-
-            val reqBuilder = Request.Builder()
-                .url(streamUrl)
-                // CDN signatures are tied to the client that minted the URL. Reusing a generic
-                // YouTube Music identity here makes otherwise valid PipePipe/InnerTube streams
-                // fail only after Sonos has accepted the local proxy URI.
-                .header("User-Agent", track.userAgent)
-                .header("Accept", "*/*")
-            if (rangeHeader != null) {
-                reqBuilder.header("Range", rangeHeader)
-            }
-
-            val upstreamResponse = try {
-                http.newCall(reqBuilder.build()).execute()
+            var requestTrack = track
+            var upstreamResponse = try {
+                openUpstream(requestTrack, rangeHeader)
             } catch (error: Exception) {
                 val message = "The audio source connection failed (${error.javaClass.simpleName})."
                 reportUpstreamFailure(message)
@@ -299,9 +337,35 @@ object SonosProxyServer {
                 return
             }
 
+            // A signed URL may be accepted by the preflight but rejected by the actual Sonos
+            // request. Refresh it once instead of reporting a permanent cast failure. Do not
+            // retry indefinitely: a persistent CDN rejection must remain visible to the user.
+            if (!upstreamResponse.isSuccessful &&
+                upstreamResponse.code in setOf(403, 416) &&
+                requestTrack.videoId.isNotBlank()
+            ) {
+                upstreamResponse.close()
+                val refreshed = refreshTrack(requestTrack)
+                if (refreshed != null) {
+                    requestTrack = refreshed
+                    currentTrack.set(refreshed)
+                    upstreamResponse = try {
+                        openUpstream(requestTrack, rangeHeader)
+                    } catch (error: Exception) {
+                        val message =
+                            "The refreshed audio source connection failed (${error.javaClass.simpleName})."
+                        reportUpstreamFailure(message)
+                        client.getOutputStream()
+                            .write("HTTP/502 Refreshed Upstream Failed\r\nConnection: close\r\n\r\n".toByteArray())
+                        return
+                    }
+                }
+            }
+
+            currentTrack.set(requestTrack)
             upstreamResponse.use { resp ->
                 if (!resp.isSuccessful) {
-                    Log.w(TAG, "CDN error HTTP ${resp.code} for ${track.videoId}")
+                    Log.w(TAG, "CDN error HTTP ${resp.code} for ${requestTrack.videoId}")
                     reportUpstreamFailure("The audio source rejected playback (HTTP ${resp.code}).")
                     client.getOutputStream()
                         .write("HTTP/1.1 ${resp.code} Upstream Error\r\nConnection: close\r\n\r\n".toByteArray())
