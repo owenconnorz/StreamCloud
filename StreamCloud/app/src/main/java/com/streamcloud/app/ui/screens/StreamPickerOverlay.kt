@@ -18,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -34,6 +36,9 @@ import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
 import com.streamcloud.app.data.nuvio.NuvioRuntime
@@ -194,6 +199,11 @@ fun StreamPickerOverlay(
     }
 
     val isAnyLoading = groups.values.any { it.isLoading }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val firstPickerFocus = remember { FocusRequester() }
+    LaunchedEffect(isTv) {
+        if (isTv) runCatching { firstPickerFocus.requestFocus() }
+    }
 
     val allSources = remember(groups) {
         groupOrder.mapNotNull { (key, _) -> groups[key]?.streams }.flatten()
@@ -289,7 +299,9 @@ fun StreamPickerOverlay(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .statusBarsPadding()
-                        .padding(4.dp),
+                        .padding(4.dp)
+                        .focusRequester(firstPickerFocus)
+                        .tvFocusBorder(RoundedCornerShape(50)),
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
                 }
@@ -342,6 +354,7 @@ fun StreamPickerOverlay(
             if (tabs.size > 1) {
                 ScrollableTabRow(
                     selectedTabIndex = safeTab,
+                    modifier = Modifier.tvFocusGroup(),
                     containerColor = MaterialTheme.colorScheme.background,
                     contentColor = MaterialTheme.colorScheme.onBackground,
                     edgePadding = 8.dp,
@@ -367,7 +380,7 @@ fun StreamPickerOverlay(
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().tvFocusGroup(),
             ) {
                 visibleGroups.forEach { (key, addonName, groupState) ->
                     // When still loading: show header + progress bar

@@ -34,6 +34,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
+import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.viewmodel.CsSearchResult
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.ui.viewmodel.StremioSearchResult
@@ -187,7 +189,7 @@ private fun RecentSearches(
             top = padding.calculateTopPadding() + 8.dp,
             bottom = 32.dp,
         ),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().tvFocusGroup(),
     ) {
         item(key = "history-header") {
             Row(
@@ -281,7 +283,7 @@ private fun CombinedResultsList(
             top = padding.calculateTopPadding() + 8.dp,
             bottom = 32.dp,
         ),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().tvFocusGroup(),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         // ── Series (TMDB TV) ──────────────────────────────────────────────
@@ -411,7 +413,8 @@ private fun NuvioCardRow(cards: @Composable () -> Unit) {
     androidx.compose.foundation.layout.Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+            .horizontalScroll(rememberScrollState())
+            .tvFocusGroup(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         content = {
             Spacer(Modifier.width(6.dp))
@@ -438,6 +441,7 @@ private fun NuvioCard(
             .aspectRatio(16f / 9f)
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .tvFocusBorder(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
