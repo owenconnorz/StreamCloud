@@ -16,11 +16,14 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CancellationException
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -52,13 +55,17 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 
 @OptIn(UnstableApi::class)
@@ -71,6 +78,10 @@ class MusicPlaybackService : MediaLibraryService() {
     private lateinit var playerCache: SimpleCache
     private lateinit var downloadCache: SimpleCache
     private lateinit var dataSourceFactory: ResolvingDataSource.Factory
+    private lateinit var bufferedCacheDataSourceFactory: CacheDataSource.Factory
+    private val bufferedPrefetchJobs = ConcurrentHashMap<String, Job>()
+    private val bufferedPrefetchWriters = ConcurrentHashMap<String, CacheWriter>()
+    private val bufferedPrefetchPermit = Semaphore(1)
 
     // ── Crossfade engine ──────────────────────────────────────────────────────
     // True crossfade uses TWO ExoPlayer instances.
@@ -531,58 +542,72 @@ class MusicPlaybackService : MediaLibraryService() {
 
         val httpFactory = OkHttpDataSource.Factory(streamOkHttp)
 
+        val playerCacheFactory = CacheDataSource.Factory()
+            .setCache(playerCache)
+            .setUpstreamDataSourceFactory(httpFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+        // CacheWriter requires a CacheDataSource. This dedicated path checks playerCache first,
+        // resolves the watch URL only on a miss, then writes the byte range back under the same
+        // watch URL cache key used by the foreground player's custom cache key.
+        bufferedCacheDataSourceFactory = CacheDataSource.Factory()
+            .setCache(playerCache)
+            .setUpstreamDataSourceFactory(
+                ResolvingDataSource.Factory(httpFactory) { dataSpec ->
+                    resolveMusicDataSpec(dataSpec)
+                },
+            )
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
         val chainedCacheFactory = CacheDataSource.Factory()
             .setCache(downloadCache)
-            .setUpstreamDataSourceFactory(
-                CacheDataSource.Factory()
-                    .setCache(playerCache)
-                    .setUpstreamDataSourceFactory(httpFactory),
-            )
+            .setUpstreamDataSourceFactory(playerCacheFactory)
             .setCacheWriteDataSinkFactory(null)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
         return ResolvingDataSource.Factory(chainedCacheFactory) { dataSpec ->
-            val cacheKey = dataSpec.key ?: dataSpec.uri.toString()
-            val watchUrl = if (cacheKey.startsWith("http")) cacheKey
-                           else "https://music.youtube.com/watch?v=$cacheKey"
-
-            // Only skip resolution for fully-completed ExoPlayer downloads.
-            // The download cache is guaranteed to contain the full file in that case,
-            // so ExoPlayer can seek anywhere (including to the moov atom at the end of
-            // an mp4 file) without needing a live stream URL.
-            if (com.streamcloud.app.data.downloads.YtMusicDownloadUtil.isDownloaded(watchUrl)) {
-                return@Factory dataSpec
-            }
-
-            // Legacy MusicDownloader files stored as real paths in the library DB.
-            val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
-            val localPath = runBlocking(Dispatchers.IO) { dao.byUrl(watchUrl)?.localPath }
-            if (localPath != null && !localPath.startsWith("cache:") && File(localPath).exists()) {
-                return@Factory dataSpec.withUri(localPath.toUri())
-            }
-
-            // Always resolve to the real stream URL for everything else.
-            // CacheDataSource handles player-cache hits transparently — there is no need
-            // for an early-return here, and doing so would leave the raw watch URL as the
-            // HTTP fallback, causing ExoPlayer to receive an HTML page when it seeks to an
-            // uncached range (e.g. the moov atom at the end of a mp4 stream).
-            val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
-            val stream = resolveStreamUrl(videoId, watchUrl)
-
-
-
-
-            dataSpec.buildUpon()
-                .setUri(stream.url.toUri())
-                .setHttpRequestHeaders(
-                    dataSpec.httpRequestHeaders + mapOf(
-                        "User-Agent" to stream.userAgent,
-                        STREAM_WEB_SESSION_HEADER to
-                            if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
-                    )
-                )
-                .build()
+            resolveMusicDataSpec(dataSpec)
         }
+    }
+
+    private fun resolveMusicDataSpec(dataSpec: DataSpec): DataSpec {
+        val cacheKey = dataSpec.key ?: dataSpec.uri.toString()
+        val watchUrl = if (cacheKey.startsWith("http")) cacheKey
+        else "https://music.youtube.com/watch?v=$cacheKey"
+
+        // Only skip resolution for fully-completed ExoPlayer downloads.
+        // The download cache is guaranteed to contain the full file in that case,
+        // so ExoPlayer can seek anywhere (including to the moov atom at the end of
+        // an mp4 file) without needing a live stream URL.
+        if (com.streamcloud.app.data.downloads.YtMusicDownloadUtil.isDownloaded(watchUrl)) {
+            return dataSpec
+        }
+
+        // Legacy MusicDownloader files stored as real paths in the library DB.
+        val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
+        val localPath = runBlocking(Dispatchers.IO) { dao.byUrl(watchUrl)?.localPath }
+        if (localPath != null && !localPath.startsWith("cache:") && File(localPath).exists()) {
+            return dataSpec.withUri(localPath.toUri())
+        }
+
+        // Always resolve to the real stream URL for everything else.
+        // CacheDataSource handles player-cache hits transparently — there is no need
+        // for an early-return here, and doing so would leave the raw watch URL as the
+        // HTTP fallback, causing ExoPlayer to receive an HTML page when it seeks to an
+        // uncached range (e.g. the moov atom at the end of a mp4 stream).
+        val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
+        val stream = resolveStreamUrl(videoId, watchUrl)
+
+        return dataSpec.buildUpon()
+            .setUri(stream.url.toUri())
+            .setHttpRequestHeaders(
+                dataSpec.httpRequestHeaders + mapOf(
+                    "User-Agent" to stream.userAgent,
+                    STREAM_WEB_SESSION_HEADER to
+                        if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
+                )
+            )
+            .build()
     }
 
 
@@ -681,6 +706,10 @@ class MusicPlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        bufferedPrefetchWriters.values.forEach { it.cancel() }
+        bufferedPrefetchJobs.values.forEach { it.cancel() }
+        bufferedPrefetchWriters.clear()
+        bufferedPrefetchJobs.clear()
         ioScope.cancel()
         audioFx?.release(); audioFx = null
         xfPlayer?.stop(); xfPlayer?.release(); xfPlayer = null
@@ -722,8 +751,8 @@ class MusicPlaybackService : MediaLibraryService() {
     }
 
     /**
-     * Warm the active queue item and a short runway of following tracks. This resolves only the
-     * signed stream URL; Media3 remains responsible for the actual audio transfer and playback.
+     * Warm the active queue item and a short runway of following tracks. Signed URLs are resolved
+     * for the full runway, while the immediate following tracks also receive cached audio bytes.
      */
     private fun prefetchUpcomingStreams() {
         if (!::exoPlayer.isInitialized) return
@@ -749,6 +778,7 @@ class MusicPlaybackService : MediaLibraryService() {
             }
         }
         YtMusicStreamResolver.primeQueue(videoIds, currentIndex = 0)
+        prefetchBufferedQueueItems()
     }
 
     private fun prefetchMediaItems(items: Iterable<MediaItem>) {
@@ -760,6 +790,96 @@ class MusicPlaybackService : MediaLibraryService() {
             ?.getString(YtPlayback.EXTRA_VIDEO_ID)
             ?.takeIf { it.isNotBlank() }
             ?: youtubeVideoId(item.mediaId)
+
+    /**
+     * Resolve and cache the first bytes of the next few tracks, not just their signed URLs.
+     * CacheWriter uses the same resolving/cache data source as the foreground player, so the
+     * cached range is immediately reusable when Media3 transitions to that item.
+     */
+    private fun prefetchBufferedQueueItems() {
+        if (!::dataSourceFactory.isInitialized || !::exoPlayer.isInitialized) return
+        var itemIndex = exoPlayer.currentMediaItemIndex
+        if (itemIndex < 0 || exoPlayer.mediaItemCount < 2) return
+
+        val timeline = exoPlayer.currentTimeline
+        val visitedIndices = mutableSetOf<Int>()
+        val items = buildList {
+            while (
+                size < YtMusicStreamResolver.PLAYBACK_LOOKAHEAD_COUNT &&
+                itemIndex >= 0 &&
+                visitedIndices.add(itemIndex)
+            ) {
+                add(exoPlayer.getMediaItemAt(itemIndex))
+                itemIndex = timeline.getNextWindowIndex(
+                    itemIndex,
+                    exoPlayer.repeatMode,
+                    exoPlayer.shuffleModeEnabled,
+                )
+            }
+        }
+
+        val upcomingItems = items.drop(1).take(BUFFERED_PREFETCH_TRACK_COUNT)
+        val wantedVideoIds = upcomingItems.mapNotNull(::videoIdFor).toSet()
+        cancelObsoleteBufferedPrefetches(wantedVideoIds)
+        upcomingItems.forEach(::prefetchBufferedItem)
+    }
+
+    private fun prefetchBufferedItem(item: MediaItem) {
+        val videoId = videoIdFor(item) ?: return
+        val watchUrl = item.mediaId.takeIf { it.startsWith("http") } ?: return
+        // Completed downloads are already served by downloadCache. Sending their watch URL to the
+        // byte warmer would fetch HTML through the HTTP upstream instead of the downloaded audio.
+        if (com.streamcloud.app.data.downloads.YtMusicDownloadUtil.isDownloaded(watchUrl)) return
+        val job = ioScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                bufferedPrefetchPermit.withPermit {
+                    val dataSpec = DataSpec.Builder()
+                        .setUri(watchUrl)
+                        .setKey(watchUrl)
+                        .setPosition(0L)
+                        .setLength(BUFFERED_PREFETCH_BYTES)
+                        .build()
+                    val writer = CacheWriter(
+                        bufferedCacheDataSourceFactory.createDataSource(),
+                        dataSpec,
+                        ByteArray(BUFFERED_PREFETCH_BUFFER_BYTES),
+                        null,
+                    )
+                    bufferedPrefetchWriters[videoId] = writer
+                    try {
+                        writer.cache()
+                    } finally {
+                        bufferedPrefetchWriters.remove(videoId, writer)
+                    }
+                }
+                AppLogger.i(TAG, "Buffered next-track audio for $videoId")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                // Speculative buffering is best effort. The foreground player still resolves and
+                // streams this item normally if the CDN, cache, or resolver rejects the warm-up.
+                AppLogger.w(TAG, "Buffered prefetch failed for $videoId: ${error.message}")
+            } finally {
+                bufferedPrefetchJobs.remove(videoId)
+            }
+        }
+        if (bufferedPrefetchJobs.putIfAbsent(videoId, job) == null) {
+            job.start()
+        } else {
+            job.cancel()
+        }
+    }
+
+    private fun cancelObsoleteBufferedPrefetches(wantedVideoIds: Set<String>) {
+        bufferedPrefetchWriters
+            .filterKeys { it !in wantedVideoIds }
+            .values
+            .forEach { it.cancel() }
+        bufferedPrefetchJobs
+            .filterKeys { it !in wantedVideoIds }
+            .values
+            .forEach { it.cancel() }
+    }
 
     private suspend fun toggleLike() {
         val s = session ?: return
@@ -1435,6 +1555,9 @@ class MusicPlaybackService : MediaLibraryService() {
 
     companion object {
         private const val TAG    = "MusicPlaybackService"
+        private const val BUFFERED_PREFETCH_TRACK_COUNT = 3
+        private const val BUFFERED_PREFETCH_BYTES = 1L * 1024L * 1024L
+        private const val BUFFERED_PREFETCH_BUFFER_BYTES = 64 * 1024
         private const val STREAM_WEB_SESSION_HEADER = "X-StreamCloud-Web-Session"
         private const val STREAM_WEB_SESSION_VALUE = "1"
         const val ROOT_ID        = "streamcloud_root"
