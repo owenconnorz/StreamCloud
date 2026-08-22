@@ -526,8 +526,26 @@ fun MusicScreen(
                         }
                         is com.streamcloud.app.data.ytmusic.HomeSection.SongRail -> {
                             item(key = "yt_srail_title_$idx") { SectionTitle(section.title) }
-                            itemsIndexed(section.items, key = { index, s -> "yt_srail_${index}_${s.videoId}" }) { index, s ->
-                                YtHomeSongRow(s, section.items, index)
+                            item(key = "yt_srail_${idx}") {
+                                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                                    val cardWidth = ((maxWidth - 68.dp) / 4).coerceAtLeast(76.dp)
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        itemsIndexed(
+                                            section.items,
+                                            key = { index, s -> "yt_srail_${idx}_${index}_${s.videoId}" },
+                                        ) { index, song ->
+                                            YtHomeSongCard(
+                                                song = song,
+                                                queue = section.items,
+                                                startIndex = index,
+                                                modifier = Modifier.width(cardWidth),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1417,10 +1435,11 @@ private fun YtHomePlaylistCard(
 }
 
 @Composable
-private fun YtHomeSongRow(
-    s: com.streamcloud.app.data.ytmusic.YtmSong,
+private fun YtHomeSongCard(
+    song: com.streamcloud.app.data.ytmusic.YtmSong,
     queue: List<com.streamcloud.app.data.ytmusic.YtmSong>,
     startIndex: Int,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1436,40 +1455,48 @@ private fun YtHomeSongRow(
         }
         Unit
     }
-    Row(
+    Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .then(modifier)
             .clickable { onPlay() }
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(bottom = 10.dp),
     ) {
-        AsyncImage(
-            model = s.thumbnail,
-            contentDescription = s.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(54.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
+        Box {
+            AsyncImage(
+                model = song.thumbnail,
+                contentDescription = song.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
+            com.streamcloud.app.ui.components.SongRowMenu(
+                song = song,
+                onPlay = { onPlay() },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(36.dp),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Column(Modifier.fillMaxWidth()) {
             Text(
-                s.title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                song.title,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                s.artist,
-                style = MaterialTheme.typography.bodySmall,
+                song.artist,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        com.streamcloud.app.ui.components.SongRowMenu(song = s, onPlay = { onPlay() })
     }
 }
 
