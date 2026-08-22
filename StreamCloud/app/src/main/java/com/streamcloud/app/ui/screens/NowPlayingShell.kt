@@ -83,6 +83,7 @@ import com.streamcloud.app.data.downloads.MusicDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.lyrics.LyricsRepository
 import com.streamcloud.app.data.newpipe.NewPipeRepository
+import com.streamcloud.app.data.newpipe.StreamMeta
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.cast.MusicRemoteCast
@@ -233,7 +234,7 @@ fun NowPlayingShell(
         lyrics = runCatching { LyricsRepository.fetch(title, artist, 0L) }.getOrNull()
         lyricsLoading = false
     }
-    var trackMeta by remember(mediaId) { mutableStateOf<NewPipeRepository.StreamMeta?>(null) }
+    var trackMeta by remember(mediaId) { mutableStateOf<StreamMeta?>(null) }
     LaunchedEffect(mediaId) {
         val mid = mediaId ?: return@LaunchedEffect
         val videoId = if (mid.startsWith("http")) mid.substringAfter("v=", "").substringBefore("&") else mid
@@ -901,7 +902,8 @@ fun NowPlayingShell(
                         onTextColor = onBg,
                         cardBg = Color.Black.copy(alpha = 0.35f),
                     )
-                    trackMeta?.let { meta ->
+                    val meta = trackMeta
+                    if (meta != null) {
                         Spacer(Modifier.height(12.dp))
                         ArtistCard(
                             artistName = artist,
