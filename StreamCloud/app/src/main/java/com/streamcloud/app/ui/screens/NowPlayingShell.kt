@@ -1197,7 +1197,7 @@ private fun LyricsCard(
                     CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = onTextColor)
                 }
                 hasSynced -> {
-                    val parsed = remember(lyrics) { LyricsRepository.parseLrc(lyrics!!.syncedLyrics) }
+                    val parsed = remember(lyrics) { LyricsRepository.parseLrc(lyrics?.syncedLyrics) }
                     val activeIdx = remember(positionMs, parsed) {
                         parsed.indexOfLast { it.first <= positionMs }.coerceAtLeast(0)
                     }

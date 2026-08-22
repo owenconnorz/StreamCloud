@@ -1,5 +1,6 @@
 package com.streamcloud.app.data.lyrics
 
+import com.streamcloud.app.data.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -8,6 +9,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+
+private const val TAG = "Lyrics"
 
 @Serializable
 data class LrcEntry(
@@ -49,32 +52,63 @@ object LyricsRepository {
             val cleanTrack = cleanTitle(track)
             val cleanArt  = cleanArtist(artist)
 
+            AppLogger.i(TAG, "fetch: track='$cleanTrack' artist='$cleanArt' dur=${durationSec}s (raw: '$track' / '$artist')")
+
             // 1. Exact endpoint with duration (tight match — best result when available)
             if (durationSec > 0) {
-                runCatching { fetchExact(cleanTrack, cleanArt, durationSec) }.getOrNull()
-                    ?.let { return@withContext it }
+                val result = runCatching { fetchExact(cleanTrack, cleanArt, durationSec) }
+                result.exceptionOrNull()?.let { AppLogger.w(TAG, "Stage 1 (exact) error: ${it.message}") }
+                result.getOrNull()?.let {
+                    AppLogger.i(TAG, "Stage 1 (exact) hit: '${it.name}' by '${it.artistName}'")
+                    return@withContext it
+                }
             }
 
             // 2. Structured field search: track_name + artist_name params
-            runCatching { fetchByField(cleanTrack, cleanArt) }.getOrNull()
-                ?.let { return@withContext it }
+            val r2 = runCatching { fetchByField(cleanTrack, cleanArt) }
+            r2.exceptionOrNull()?.let { AppLogger.w(TAG, "Stage 2 (field) error: ${it.message}") }
+            r2.getOrNull()?.let {
+                AppLogger.i(TAG, "Stage 2 (field) hit: '${it.name}' by '${it.artistName}'")
+                return@withContext it
+            } ?: AppLogger.i(TAG, "Stage 2 (field) miss for '$cleanTrack' / '$cleanArt'")
 
             // 3. Free-text search with cleaned values
-            runCatching { fetchSearch(cleanTrack, cleanArt) }.getOrNull()
-                ?.let { return@withContext it }
+            val r3 = runCatching { fetchSearch(cleanTrack, cleanArt) }
+            r3.exceptionOrNull()?.let { AppLogger.w(TAG, "Stage 3 (q-clean) error: ${it.message}") }
+            r3.getOrNull()?.let {
+                AppLogger.i(TAG, "Stage 3 (q-clean) hit: '${it.name}' by '${it.artistName}'")
+                return@withContext it
+            } ?: AppLogger.i(TAG, "Stage 3 (q-clean) miss")
 
             // 4. Track-only structured search (no artist — broader match)
-            runCatching { fetchByField(cleanTrack, null) }.getOrNull()
-                ?.let { return@withContext it }
+            val r4 = runCatching { fetchByField(cleanTrack, null) }
+            r4.exceptionOrNull()?.let { AppLogger.w(TAG, "Stage 4 (field-no-artist) error: ${it.message}") }
+            r4.getOrNull()?.let {
+                AppLogger.i(TAG, "Stage 4 (field-no-artist) hit: '${it.name}' by '${it.artistName}'")
+                return@withContext it
+            } ?: AppLogger.i(TAG, "Stage 4 (field-no-artist) miss")
 
             // 5. Free-text with just track name
-            runCatching { fetchSearch(cleanTrack, "") }.getOrNull()
-                ?.let { return@withContext it }
+            val r5 = runCatching { fetchSearch(cleanTrack, "") }
+            r5.exceptionOrNull()?.let { AppLogger.w(TAG, "Stage 5 (q-track-only) error: ${it.message}") }
+            r5.getOrNull()?.let {
+                AppLogger.i(TAG, "Stage 5 (q-track-only) hit: '${it.name}' by '${it.artistName}'")
+                return@withContext it
+            } ?: AppLogger.i(TAG, "Stage 5 (q-track-only) miss")
 
             // 6. Raw original values as last resort
             if (cleanTrack != track || cleanArt != artist) {
-                runCatching { fetchSearch(track, artist) }.getOrNull()
-            } else null
+                val r6 = runCatching { fetchSearch(track, artist) }
+                r6.exceptionOrNull()?.let { AppLogger.w(TAG, "Stage 6 (raw) error: ${it.message}") }
+                r6.getOrNull()?.let {
+                    AppLogger.i(TAG, "Stage 6 (raw) hit: '${it.name}' by '${it.artistName}'")
+                    return@withContext it
+                } ?: AppLogger.i(TAG, "Stage 6 (raw) miss — no lyrics found")
+                null
+            } else {
+                AppLogger.i(TAG, "All stages exhausted — no lyrics for '$cleanTrack'")
+                null
+            }
         }
 
     private fun fetchExact(track: String, artist: String, durationSec: Long): LrcEntry? {
@@ -89,7 +123,7 @@ object LyricsRepository {
             if (!it.isSuccessful) error("LRClib HTTP ${it.code}")
             val body = it.body?.string().orEmpty()
             val entry = json.decodeFromString(LrcEntry.serializer(), body)
-            if (entry.instrumental) return null           // skip instrumentals
+            if (entry.instrumental) return null
             if (entry.syncedLyrics.isNullOrBlank() && entry.plainLyrics.isNullOrBlank()) return null
             return entry
         }
@@ -102,13 +136,17 @@ object LyricsRepository {
         if (!artist.isNullOrBlank()) {
             sb.append("&artist_name=").append(URLEncoder.encode(artist, "UTF-8"))
         }
-        val resp = http.newCall(Request.Builder().url(sb.toString()).build()).execute()
+        val url = sb.toString()
+        AppLogger.i(TAG, "fetchByField url: $url")
+        val resp = http.newCall(Request.Builder().url(url).build()).execute()
         resp.use {
+            AppLogger.i(TAG, "fetchByField response: ${it.code}")
             if (!it.isSuccessful) return null
             val body = it.body?.string().orEmpty()
             val list = json.decodeFromString(
                 kotlinx.serialization.builtins.ListSerializer(LrcEntry.serializer()), body,
             )
+            AppLogger.i(TAG, "fetchByField parsed ${list.size} results")
             return list.firstOrNull { e ->
                 !e.instrumental && (!e.syncedLyrics.isNullOrBlank() || !e.plainLyrics.isNullOrBlank())
             } ?: list.firstOrNull { e -> !e.instrumental } ?: list.firstOrNull()
@@ -131,8 +169,8 @@ object LyricsRepository {
         }
     }
 
-
-    fun parseLrc(lrc: String): List<Pair<Long, String>> {
+    fun parseLrc(lrc: String?): List<Pair<Long, String>> {
+        if (lrc.isNullOrBlank()) return emptyList()
         val out = mutableListOf<Pair<Long, String>>()
         val re = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]""")
         lrc.lineSequence().forEach { rawLine ->
