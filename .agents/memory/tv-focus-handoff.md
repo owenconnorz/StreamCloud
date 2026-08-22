@@ -14,3 +14,9 @@ Nested TV rails should rely on the focusable item's normal list reveal behavior 
 **Why:** A second reveal request made horizontal movement in a nested rail scroll its parent vertically, while unconsumed repeat events let focus search and list scrolling run together.
 
 **How to apply:** Keep focus animation lightweight, use `focusGroup()` for rail traversal, and let the first D-pad press use normal spatial search while throttled repeats are handled exclusively by the focus manager.
+
+For the Nuvio-style home flow, initial TV focus belongs on the first available movie card, not the corner launcher. Pressing Left from top-level content opens the drawer directly; the drawer begins with Home and its profile header is informational rather than the default focus target.
+
+**Why:** Starting on a persistent hamburger trapped remote users at the top of the screen and required an extra navigation step before they could browse.
+
+**How to apply:** Keep the corner control available for touch, but non-focusable while the drawer is closed. Restore the first movie card after closing Home’s drawer and retain Menu as a hardware fallback.
