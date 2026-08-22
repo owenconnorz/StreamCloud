@@ -792,7 +792,8 @@ class MusicPlaybackService : MediaLibraryService() {
             ?: youtubeVideoId(item.mediaId)
 
     /**
-     * Resolve and cache the first bytes of the next few tracks, not just their signed URLs.
+     * Resolve and cache the first bytes of a rolling set of upcoming tracks, not just their
+     * signed URLs.
      * CacheWriter uses the same resolving/cache data source as the foreground player, so the
      * cached range is immediately reusable when Media3 transitions to that item.
      */
@@ -805,7 +806,7 @@ class MusicPlaybackService : MediaLibraryService() {
         val visitedIndices = mutableSetOf<Int>()
         val items = buildList {
             while (
-                size < YtMusicStreamResolver.PLAYBACK_LOOKAHEAD_COUNT &&
+                size < BUFFERED_PREFETCH_TRACK_COUNT + 1 &&
                 itemIndex >= 0 &&
                 visitedIndices.add(itemIndex)
             ) {
@@ -1555,7 +1556,9 @@ class MusicPlaybackService : MediaLibraryService() {
 
     companion object {
         private const val TAG    = "MusicPlaybackService"
-        private const val BUFFERED_PREFETCH_TRACK_COUNT = 3
+        // 50 one-megabyte ranges fit comfortably beneath the 256 MiB LRU player cache while
+        // giving long queues a generous rolling runway. The window advances with the player.
+        private const val BUFFERED_PREFETCH_TRACK_COUNT = 50
         private const val BUFFERED_PREFETCH_BYTES = 1L * 1024L * 1024L
         private const val BUFFERED_PREFETCH_BUFFER_BYTES = 64 * 1024
         private const val STREAM_WEB_SESSION_HEADER = "X-StreamCloud-Web-Session"
