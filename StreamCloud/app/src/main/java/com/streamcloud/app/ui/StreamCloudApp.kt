@@ -300,8 +300,11 @@ fun StreamCloudApp() {
         label = "navOuterBottomPad",
     )
 
-    // Show miniplayer on all non-media routes (including music home)
-    val showMiniPlayer = currentRoute != null && !isMediaRoute
+    // Mini player is hidden on Settings, Plugins, and Adult routes
+    val isSettingsOrAdult = currentRoute == Tab.Settings.route ||
+        currentRoute == "plugins" || currentRoute == "plugin-picker" ||
+        currentRoute == Tab.Adult.route
+    val showMiniPlayer = currentRoute != null && !isMediaRoute && !isSettingsOrAdult
 
     // Profile picker — show on launch when profiles exist; also triggered from Settings
     var showProfilePicker by remember { mutableStateOf(false) }
@@ -1213,21 +1216,25 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(Tab.Settings.route) {
-                    SettingsHubScreen(
-                        onOpenPlugins     = { nav.navigate("plugins") },
-                        onOpenCollections = { nav.navigate("collections") },
-                        onSwitchProfile   = { showProfilePicker = true },
-                    )
+                    com.streamcloud.app.ui.theme.StaticAppTheme {
+                        SettingsHubScreen(
+                            onOpenPlugins     = { nav.navigate("plugins") },
+                            onOpenCollections = { nav.navigate("collections") },
+                            onSwitchProfile   = { showProfilePicker = true },
+                        )
+                    }
                 }
                 composable("plugins") {
-                    PluginsScreen(onBack = { nav.popBackStack() })
+                    com.streamcloud.app.ui.theme.StaticAppTheme {
+                        PluginsScreen(onBack = { nav.popBackStack() })
+                    }
                 }
             }
                     }
 
 
 
-                    if (showRail && currentRoute != Tab.Music.route && !isMediaRoute) {
+                    if (showRail && currentRoute != Tab.Music.route && !isMediaRoute && !isSettingsOrAdult) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()

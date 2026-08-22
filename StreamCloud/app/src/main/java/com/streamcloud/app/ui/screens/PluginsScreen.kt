@@ -235,12 +235,14 @@ private fun AddonHubCard(
                 .background(AddonIconBg),
             contentAlignment = Alignment.Center,
         ) {
-            if (logoUrl != null) {
+            var imageOk by remember(logoUrl) { mutableStateOf(logoUrl != null) }
+            if (logoUrl != null && imageOk) {
                 coil.compose.AsyncImage(
                     model = logoUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
+                    onError = { imageOk = false },
                 )
             } else {
                 Icon(icon, null, tint = iconTint, modifier = Modifier.size(28.dp))
