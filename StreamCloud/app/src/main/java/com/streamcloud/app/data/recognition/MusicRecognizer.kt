@@ -20,7 +20,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.TimeZone
 import java.util.UUID
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
 import kotlin.math.PI
 import kotlin.math.cos
@@ -37,6 +39,9 @@ import kotlin.math.sin
  * branding or its UI.
  */
 class MusicRecognizer {
+    private val closeRequested = AtomicBoolean(false)
+    private val closeExecutor = Executors.newSingleThreadExecutor()
+
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -53,9 +58,20 @@ class MusicRecognizer {
     }
 
     fun close() {
-        httpClient.dispatcher.executorService.shutdown()
-        httpClient.connectionPool.evictAll()
-        httpClient.cache?.close()
+        if (!closeRequested.compareAndSet(false, true)) return
+        // Closing a TLS socket can write a close-notify record. Compose calls this method from
+        // DisposableEffect on the main thread, where Android StrictMode correctly rejects that
+        // network I/O. Use a short-lived worker so disposal remains non-blocking.
+        closeExecutor.execute {
+            try {
+                httpClient.dispatcher.cancelAll()
+                httpClient.dispatcher.executorService.shutdown()
+                httpClient.connectionPool.evictAll()
+                httpClient.cache?.close()
+            } finally {
+                closeExecutor.shutdown()
+            }
+        }
     }
 
     private suspend fun requestRecognition(signature: ShazamSignature): RecognitionResult =

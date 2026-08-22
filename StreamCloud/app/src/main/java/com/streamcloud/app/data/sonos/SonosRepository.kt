@@ -99,7 +99,17 @@ object SonosRepository {
         videoId: String,
         watchUrl: String,
     ): PreparedSonosStream {
-        val formatInfo = if (videoId.isNotBlank()) {
+        // The maintained extractors validate a real byte-range read before returning a stream.
+        // Prefer that independently verified, anonymous source for Sonos: some InnerTube URLs
+        // accept our tiny preflight but reject Sonos's later long-lived range request with 403.
+        val extractorStream = if (watchUrl.isNotBlank()) {
+            runCatching {
+                NewPipeRepository.resolveVerifiedAudioStream(watchUrl)
+            }.getOrNull()
+        } else {
+            null
+        }
+        val formatInfo = if (extractorStream == null && videoId.isNotBlank()) {
             runCatching {
                 YtPlayerUtils.resolveAudioFormatInfo(videoId, sonosSafe = true)
             }.getOrNull()
@@ -107,21 +117,13 @@ object SonosRepository {
             null
         }
         // Browser/PoToken URLs depend on session headers that a separate Sonos speaker cannot
-        // send. Prefer the independent extractor in that case rather than advertising a URL that
-        // will fail after the speaker has accepted the cast request.
+        // send, so never expose them through the proxy.
         val sonosFormat = formatInfo?.takeUnless { it.requiresWebSessionHeaders }
-        val extractorStream = if (sonosFormat?.url == null) {
-            runCatching {
-                NewPipeRepository.resolveVerifiedAudioStream(watchUrl)
-            }.getOrNull()
-        } else {
-            null
-        }
         return PreparedSonosStream(
-            url = sonosFormat?.url ?: extractorStream?.url,
+            url = extractorStream?.url ?: sonosFormat?.url,
             mimeType = sonosFormat?.mimeType?.substringBefore(";")?.trim() ?: "audio/mp4",
-            userAgent = sonosFormat?.userAgent
-                ?: extractorStream?.userAgent
+            userAgent = extractorStream?.userAgent
+                ?: sonosFormat?.userAgent
                 ?: SonosProxyServer.DEFAULT_UPSTREAM_USER_AGENT,
             contentLength = sonosFormat?.contentLength,
         )
