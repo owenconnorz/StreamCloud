@@ -695,7 +695,9 @@ object NewPipeRepository {
             likeCount = info.likeCount.coerceAtLeast(0L),
             uploadDate = info.textualUploadDate,
             description = info.description?.content.orEmpty(),
-            uploaderAvatarUrl = info.uploaderAvatars?.firstOrNull()?.url,
+            uploaderAvatarUrl = (info.uploaderAvatars?.maxByOrNull { it.width }?.url
+                ?: info.uploaderAvatars?.firstOrNull()?.url)
+                ?.replace(Regex("=s\\d+"), "=s400"),
             uploaderSubscriberCount = info.uploaderSubscriberCount.coerceAtLeast(0L),
         ).also { streamMetaCache[videoId] = it }
     }

@@ -30,13 +30,32 @@ object LyricsRepository {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
 
+    /** Strip feat., official video, and other suffixes YouTube Music adds to track names. */
+    private fun cleanTitle(title: String): String =
+        title
+            .replace(Regex("""\s*[\(\[]?(feat\.?|ft\.?|featuring)\s+[^\(\)\[\]]*[\)\]]?""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s*[\(\[](official\s+(?:video|audio|music video|lyric video|visualizer)|lyrics?|lyric video|audio|mv|m/v|hd|4k|visualizer|prod\.?[^\)\]]*)\s*[\)\]]""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s*-\s*(official\s+\w+|lyrics?|audio)\s*$""", RegexOption.IGNORE_CASE), "")
+            .trim()
+
     suspend fun fetch(track: String, artist: String, durationSec: Long): LrcEntry? =
         withContext(Dispatchers.IO) {
+            val clean = cleanTitle(track)
 
-            val exact = runCatching { fetchExact(track, artist, durationSec) }.getOrNull()
-            if (exact != null) return@withContext exact
+            // 1. Exact match with cleaned title + duration (skip if duration unknown)
+            if (durationSec > 0) {
+                val exact = runCatching { fetchExact(clean, artist, durationSec) }.getOrNull()
+                if (exact != null) return@withContext exact
+            }
 
-            runCatching { fetchSearch(track, artist) }.getOrNull()
+            // 2. Search with cleaned title + artist
+            val search = runCatching { fetchSearch(clean, artist) }.getOrNull()
+            if (search != null) return@withContext search
+
+            // 3. Fallback: search with original title + artist (in case cleaning was too aggressive)
+            if (clean != track) {
+                runCatching { fetchSearch(track, artist) }.getOrNull()
+            } else null
         }
 
     private fun fetchExact(track: String, artist: String, durationSec: Long): LrcEntry? {
