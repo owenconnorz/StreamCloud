@@ -13,6 +13,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -695,14 +697,25 @@ fun NowPlayingShell(
                     }
                 }
 
-                // ── Bottom controls ──
-                Column(
+                // ── Bottom controls (scrollable — scroll down to reveal Lyrics / Artist / Stats) ──
+                BoxWithConstraints(
+                    Modifier
+                        .fillMaxSize()
+                        .align(Alignment.TopStart),
+                ) {
+                    val npScrollState = rememberScrollState()
+                    // Spacer height = everything above the controls region.
+                    // The artwork box uses padding(bottom = 280.dp); controls sit in that 280dp zone.
+                    val controlsZone = 300.dp
+                    val artworkSpace = (maxHeight - controlsZone).coerceAtLeast(80.dp)
+                    Column(
                     Modifier
                         .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
+                        .verticalScroll(npScrollState)
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
+                    Spacer(Modifier.height(artworkSpace))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // Album art thumbnail — only shown when Spotify Canvas is playing;
                         // without canvas the full artwork is already visible in the centre.
@@ -921,6 +934,7 @@ fun NowPlayingShell(
                     }
                     Spacer(Modifier.height(16.dp))
                 }
+                } // end BoxWithConstraints
             }
         }
     }
