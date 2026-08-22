@@ -10,3 +10,4 @@
 - [YouTube Music video surfaces](yt-music-video-surfaces.md) — Preserve explicit video intent and accept adaptive visual streams for Now Playing.
 - [Personalized DJ privacy](personalized-dj-privacy.md) — Keep listener preference signals on-device; external music searches are discovery-only and disclosed.
 - [Music prefetch priority](music-prefetch-priority.md) — Foreground playback and the active queue must outrank speculative visible-list stream warm-up.
+- [Fire TV focus handoff](tv-focus-handoff.md) — Persistent overlay navigation needs an explicit, retryable focus handoff into asynchronous page content.
