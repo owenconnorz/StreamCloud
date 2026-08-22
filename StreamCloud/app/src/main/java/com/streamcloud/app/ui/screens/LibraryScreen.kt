@@ -256,6 +256,7 @@ fun LibraryScreen(
                 modifier = Modifier.weight(1f),
             )
             Row(
+                modifier = Modifier.tvFocusGroup(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

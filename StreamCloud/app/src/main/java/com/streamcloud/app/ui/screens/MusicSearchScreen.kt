@@ -239,6 +239,7 @@ fun MusicSearchScreen(
                         Row(
                             Modifier
                                 .fillMaxWidth()
+                                .tvFocusBorder(RoundedCornerShape(12.dp))
                                 .clickable { query = term; submitSearch(term) }
                                 .padding(start = 20.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
