@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -676,57 +677,105 @@ private fun HeroPager(
     onInitialItemFocusChanged: (Boolean) -> Unit = {},
     onClick: (HeroBannerItem) -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val pagerState = rememberPagerState(pageCount = { items.size })
-    var pagerHasFocus by remember { mutableStateOf(false) }
 
-    LaunchedEffect(items.size, pagerHasFocus) {
-        if (items.size <= 1 || pagerHasFocus) return@LaunchedEffect
-        while (true) {
-            kotlinx.coroutines.delay(6_000)
-            val next = (pagerState.currentPage + 1) % items.size
-            pagerState.animateScrollToPage(next)
-        }
-    }
-
-    Column(Modifier.fillMaxWidth()) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight).tvFocusGroup(),
-            pageSpacing = 0.dp,
-        ) { page ->
-            val item = items[page]
-            HeroBannerSlide(
-                item = item,
-                modifier = if (page == 0 && initialFocusRequester != null) {
-                    Modifier
-                        .focusRequester(initialFocusRequester)
-                        .onFocusChanged { onInitialItemFocusChanged(it.isFocused) }
-                } else {
-                    Modifier
-                },
-                onClick = { onClick(item) },
-                onFocusChange = { pagerHasFocus = it },
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            items.forEachIndexed { i, _ ->
-                val active = i == pagerState.currentPage
-                Box(
-                    Modifier
-                        .padding(horizontal = 4.dp)
-                        .height(6.dp)
-                        .width(if (active) 22.dp else 6.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (active) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                )
+    if (isTv) {
+        // HorizontalPager intercepts every D-pad left/right at the input level and permanently
+        // traps the remote. On TV, auto-cycle with a crossfade instead — only the
+        // "View Details" button is focusable, so left/right/up/down all move freely.
+        var currentPage by remember { mutableStateOf(0) }
+        var buttonHasFocus by remember { mutableStateOf(false) }
+        LaunchedEffect(items.size, buttonHasFocus) {
+            if (items.size <= 1 || buttonHasFocus) return@LaunchedEffect
+            while (true) {
+                kotlinx.coroutines.delay(6_000)
+                currentPage = (currentPage + 1) % items.size
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Column(Modifier.fillMaxWidth()) {
+            Crossfade(
+                targetState = currentPage,
+                modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight),
+                label = "tvHeroBanner",
+            ) { page ->
+                val item = items.getOrNull(page) ?: return@Crossfade
+                HeroBannerSlide(
+                    item = item,
+                    onClick = { onClick(item) },
+                    // Only page 0 carries the startup focus requester. Crossfade composes
+                    // both old and new content during the transition, so attaching the same
+                    // requester to every page would cause a duplicate-requester error.
+                    buttonFocusRequester = if (page == 0) initialFocusRequester else null,
+                    onButtonFocusChanged = { focused ->
+                        buttonHasFocus = focused
+                        onInitialItemFocusChanged(focused)
+                    },
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                items.forEachIndexed { i, _ ->
+                    val active = i == currentPage
+                    Box(
+                        Modifier
+                            .padding(horizontal = 4.dp)
+                            .height(6.dp)
+                            .width(if (active) 22.dp else 6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (active) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    } else {
+        // Mobile / tablet: keep the swipeable horizontal pager.
+        val pagerState = rememberPagerState(pageCount = { items.size })
+        var pagerHasFocus by remember { mutableStateOf(false) }
+        LaunchedEffect(items.size, pagerHasFocus) {
+            if (items.size <= 1 || pagerHasFocus) return@LaunchedEffect
+            while (true) {
+                kotlinx.coroutines.delay(6_000)
+                val next = (pagerState.currentPage + 1) % items.size
+                pagerState.animateScrollToPage(next)
+            }
+        }
+        Column(Modifier.fillMaxWidth()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight),
+                pageSpacing = 0.dp,
+            ) { page ->
+                val item = items[page]
+                HeroBannerSlide(
+                    item = item,
+                    onClick = { onClick(item) },
+                    onFocusChange = { pagerHasFocus = it },
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                items.forEachIndexed { i, _ ->
+                    val active = i == pagerState.currentPage
+                    Box(
+                        Modifier
+                            .padding(horizontal = 4.dp)
+                            .height(6.dp)
+                            .width(if (active) 22.dp else 6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (active) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 
@@ -736,15 +785,20 @@ private fun HeroBannerSlide(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onFocusChange: (Boolean) -> Unit = {},
+    // TV only: focus requester and callback for the "View Details" button.
+    buttonFocusRequester: FocusRequester? = null,
+    onButtonFocusChanged: (Boolean) -> Unit = {},
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Box(
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
-            .tvFocusBorder(RoundedCornerShape(14.dp))
+            // On TV the outer box is a visual container only; the button below is the
+            // sole focus target so D-pad navigates freely in all directions.
+            .then(if (!isTv) Modifier.tvFocusBorder(RoundedCornerShape(14.dp)) else Modifier)
             .then(if (isTv) Modifier.onFocusChanged { onFocusChange(it.hasFocus) } else Modifier)
-            .clickable(onClick = onClick),
+            .then(if (!isTv) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         AsyncImage(
             model = item.imageUrl,
@@ -795,7 +849,11 @@ private fun HeroBannerSlide(
             )
             Spacer(Modifier.height(18.dp))
             Box(
-                Modifier
+                (if (isTv && buttonFocusRequester != null)
+                    Modifier.focusRequester(buttonFocusRequester)
+                else
+                    Modifier)
+                    .then(if (isTv) Modifier.onFocusChanged { onButtonFocusChanged(it.isFocused) } else Modifier)
                     .tvFocusBorder(RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary)
                     .clip(RoundedCornerShape(50))
                     .background(Color.White)
