@@ -109,6 +109,7 @@ fun NowPlayingShell(
     onClose: () -> Unit,
     onOpenSettings: () -> Unit = {},
     onOpenArtistSearch: (String) -> Unit = {},
+    npScrollState: androidx.compose.foundation.ScrollState = rememberScrollState(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -440,9 +441,6 @@ fun NowPlayingShell(
         delay(3_500L)
         if (!controlsPinned) controlsVisible = false
     }
-
-    // Hoisted scroll state so artwork can offset in sync with the scrollable controls column
-    val npScrollState = rememberScrollState()
 
     Box(
         Modifier
