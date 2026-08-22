@@ -178,7 +178,10 @@ object YtPlayback {
     suspend fun playPlaylist(context: Context, songs: List<YtmSong>, startIndex: Int = 0) {
         if (songs.isEmpty()) return
         val safeStart = startIndex.coerceIn(0, songs.lastIndex)
-        primeStreams(songs.subList(safeStart, minOf(songs.size, safeStart + 3)))
+        YtMusicStreamResolver.primeQueue(
+            videoIds = songs.map(YtmSong::videoId),
+            currentIndex = safeStart,
+        )
 
 
         val allItems = songs.map { buildMediaItem(it) }

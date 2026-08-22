@@ -194,6 +194,9 @@ class MusicPlaybackService : MediaLibraryService() {
                                 preferMaintainedExtractorVideoIds.remove(videoId)
                             }
                         }
+                        // Keep the next few queue entries warm after every transition, including
+                        // queues created by Android Auto or another MediaSession client.
+                        prefetchUpcomingStreams()
                         refreshLikedState()
                         if (xfCrossfading) {
                             // Primary advanced to the next track while xfPlayer was fading in.
@@ -217,6 +220,14 @@ class MusicPlaybackService : MediaLibraryService() {
                             // that ended before the fade-out window even started).
                             exoPlayer.volume = 1f
                         }
+                    }
+                    override fun onTimelineChanged(
+                        timeline: androidx.media3.common.Timeline,
+                        reason: Int,
+                    ) {
+                        // Queue edits do not always produce a transition immediately (for example,
+                        // when a user adds several songs while the current item is playing).
+                        prefetchUpcomingStreams()
                     }
                     override fun onRepeatModeChanged(repeatMode: Int) {
                         session?.setCustomLayout(buildCustomLayout())
@@ -710,6 +721,46 @@ class MusicPlaybackService : MediaLibraryService() {
         }
     }
 
+    /**
+     * Warm the active queue item and a short runway of following tracks. This resolves only the
+     * signed stream URL; Media3 remains responsible for the actual audio transfer and playback.
+     */
+    private fun prefetchUpcomingStreams() {
+        if (!::exoPlayer.isInitialized) return
+        var itemIndex = exoPlayer.currentMediaItemIndex
+        if (itemIndex < 0 || exoPlayer.mediaItemCount == 0) return
+
+        // Let Media3 choose the next index so shuffled queues, repeat-all wrapping, and repeat-one
+        // use the exact same navigation order as the player itself.
+        val visitedIndices = mutableSetOf<Int>()
+        val timeline = exoPlayer.currentTimeline
+        val videoIds = buildList {
+            while (
+                size < YtMusicStreamResolver.PLAYBACK_LOOKAHEAD_COUNT &&
+                itemIndex >= 0 &&
+                visitedIndices.add(itemIndex)
+            ) {
+                videoIdFor(exoPlayer.getMediaItemAt(itemIndex))?.let(::add)
+                itemIndex = timeline.getNextWindowIndex(
+                    itemIndex,
+                    exoPlayer.repeatMode,
+                    exoPlayer.shuffleModeEnabled,
+                )
+            }
+        }
+        YtMusicStreamResolver.primeQueue(videoIds, currentIndex = 0)
+    }
+
+    private fun prefetchMediaItems(items: Iterable<MediaItem>) {
+        YtMusicStreamResolver.prime(items.mapNotNull(::videoIdFor))
+    }
+
+    private fun videoIdFor(item: MediaItem): String? =
+        item.mediaMetadata.extras
+            ?.getString(YtPlayback.EXTRA_VIDEO_ID)
+            ?.takeIf { it.isNotBlank() }
+            ?: youtubeVideoId(item.mediaId)
+
     private suspend fun toggleLike() {
         val s = session ?: return
         // Capture player state on the main thread before switching to IO.
@@ -803,6 +854,7 @@ class MusicPlaybackService : MediaLibraryService() {
                     )
                     else -> emptyList()
                 }
+                prefetchMediaItems(children)
                 fut.set(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
             }
             return fut
@@ -817,7 +869,12 @@ class MusicPlaybackService : MediaLibraryService() {
             val voiceQuery = mediaItems
                 .singleOrNull()
                 ?.let(::requestedSearchQuery)
-                ?: return Futures.immediateFuture(mediaItems.map(::attachUri).toMutableList())
+                ?: return Futures.immediateFuture(
+                    mediaItems
+                        .map(::attachUri)
+                        .also(::prefetchMediaItems)
+                        .toMutableList(),
+                )
             val future = SettableFuture.create<MutableList<MediaItem>>()
             ioScope.launch {
                 val matches = searchCarMusic(voiceQuery)
@@ -826,6 +883,7 @@ class MusicPlaybackService : MediaLibraryService() {
                     future.set(mutableListOf())
                 } else {
                     AppLogger.i(TAG, "Android Auto voice search matched \"$voiceQuery\" to ${matches.first().mediaMetadata.title}")
+                    prefetchMediaItems(matches)
                     future.set(mutableListOf(matches.first()))
                 }
             }
@@ -859,6 +917,7 @@ class MusicPlaybackService : MediaLibraryService() {
             val fut = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             ioScope.launch {
                 val allItems = searchCarMusic(query)
+                prefetchMediaItems(allItems)
                 val items = ImmutableList.copyOf(
                     if (pageSize <= 0) allItems
                     else allItems.drop(page * pageSize).take(pageSize),

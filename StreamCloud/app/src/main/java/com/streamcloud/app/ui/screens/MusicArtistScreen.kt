@@ -36,6 +36,7 @@ import com.streamcloud.app.data.newpipe.YtAlbum
 import com.streamcloud.app.data.newpipe.YtArtist
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.ytmusic.YtmSong
+import com.streamcloud.app.data.ytmusic.YtMusicStreamResolver
 import com.streamcloud.app.ui.components.SongRowMenu
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -62,6 +63,17 @@ fun MusicArtistScreen(
         try { page = withContext(Dispatchers.IO) { NewPipeRepository.loadArtist(channelUrl) } }
         catch (e: Throwable) { error = e.message }
         loading = false
+    }
+
+    LaunchedEffect(page) {
+        page?.let { artistPage ->
+            YtMusicStreamResolver.prime(
+                (artistPage.topTracks + artistPage.videos).mapNotNull { track ->
+                    Uri.parse(track.url).getQueryParameter("v")
+                        ?: track.url.substringAfterLast('/').takeIf { it.length == 11 }
+                },
+            )
+        }
     }
 
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
