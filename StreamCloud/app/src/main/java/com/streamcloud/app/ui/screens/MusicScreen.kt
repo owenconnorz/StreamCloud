@@ -1,7 +1,5 @@
 package com.streamcloud.app.ui.screens
 
-import android.Manifest
-import android.content.pm.PackageManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -24,7 +22,6 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -36,8 +33,6 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
@@ -54,7 +49,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -62,17 +56,12 @@ import androidx.media3.exoplayer.ExoPlayer
 import android.net.Uri
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.newpipe.YtTrack
-import com.streamcloud.app.data.recognition.MusicRecognitionState
-import com.streamcloud.app.data.recognition.MusicRecognizer
-import com.streamcloud.app.data.recognition.NoMatchException
 import com.streamcloud.app.audio.DjNarrator
 import com.streamcloud.app.audio.DjVoicePreset
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.ui.viewmodel.DjSession
 import com.streamcloud.app.ui.viewmodel.DjViewModel
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 
@@ -124,15 +113,10 @@ fun MusicScreen(
     var query by remember { mutableStateOf("") }
     var showHistory by remember { mutableStateOf(false) }
     var showDj by remember { mutableStateOf(false) }
-    var showRecognition by remember { mutableStateOf(false) }
     var djRequest by remember { mutableStateOf("") }
     var djStarting by remember { mutableStateOf(false) }
     var djQuickMixLoading by remember { mutableStateOf(false) }
     val dlScope = rememberCoroutineScope()
-    val recognizer = remember { MusicRecognizer() }
-    var recognitionState by remember { mutableStateOf<MusicRecognitionState>(MusicRecognitionState.Ready) }
-    var recognitionJob by remember { mutableStateOf<Job?>(null) }
-    var recognitionRequestId by remember { mutableIntStateOf(0) }
     val settings = remember(context) { ServiceLocator.get(context).settings }
     val djViewModel: DjViewModel = viewModel(factory = DjViewModel.factory(context))
     val djState by djViewModel.state.collectAsState()
@@ -143,12 +127,6 @@ fun MusicScreen(
     val djNarrator = remember(context) { DjNarrator(context.applicationContext) }
     DisposableEffect(djNarrator) {
         onDispose { djNarrator.close() }
-    }
-    DisposableEffect(recognizer) {
-        onDispose {
-            recognitionJob?.cancel()
-            recognizer.close()
-        }
     }
 
 
@@ -189,57 +167,6 @@ fun MusicScreen(
         activeDjSession = null
         djTracksSinceAnnouncement = 0
         lastDjTrack = null
-    }
-
-    fun startRecognition() {
-        recognitionJob?.cancel()
-        val requestId = recognitionRequestId + 1
-        recognitionRequestId = requestId
-        recognitionState = MusicRecognitionState.Listening
-        recognitionJob = dlScope.launch {
-            try {
-                val result = recognizer.recognize()
-                if (requestId == recognitionRequestId && showRecognition) {
-                    recognitionState = MusicRecognitionState.Success(result)
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: NoMatchException) {
-                if (requestId == recognitionRequestId && showRecognition) {
-                    recognitionState = MusicRecognitionState.NoMatch()
-                }
-            } catch (error: Exception) {
-                if (requestId == recognitionRequestId && showRecognition) {
-                    recognitionState = MusicRecognitionState.Error(
-                        error.message?.takeIf { it.isNotBlank() }
-                            ?: "Please check your connection and try again.",
-                    )
-                }
-            }
-        }
-    }
-
-    val microphonePermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) {
-            startRecognition()
-        } else {
-            recognitionState = MusicRecognitionState.PermissionDenied
-        }
-    }
-
-    fun openRecognition() {
-        showRecognition = true
-        if (
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED
-        ) {
-            startRecognition()
-        } else {
-            recognitionState = MusicRecognitionState.Ready
-            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
     }
 
     LaunchedEffect(Unit) {
@@ -486,7 +413,6 @@ fun MusicScreen(
                     onProfileClick = onProfileClick,
                     onHistoryClick = { showHistory = true },
                     onSearchClick = onSearchClick,
-                    onRecognitionClick = ::openRecognition,
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                     djLoading = djQuickMixLoading || djStarting,
                     onDjClick = {
@@ -796,27 +722,6 @@ fun MusicScreen(
                 },
             )
         }
-        if (showRecognition) {
-            MusicRecognitionSheet(
-                state = recognitionState,
-                onStart = ::openRecognition,
-                onRetry = ::openRecognition,
-                onSearch = { result ->
-                    recognitionJob?.cancel()
-                    recognitionRequestId += 1
-                    showRecognition = false
-                    recognitionState = MusicRecognitionState.Ready
-                    onSearchWithQuery("${result.title} ${result.artist}")
-                },
-                onDismiss = {
-                    recognitionJob?.cancel()
-                    recognitionJob = null
-                    recognitionRequestId += 1
-                    showRecognition = false
-                    recognitionState = MusicRecognitionState.Ready
-                },
-            )
-        }
     }
 }
 
@@ -857,7 +762,6 @@ private fun MusicHeader(
     onProfileClick: () -> Unit,
     onHistoryClick: () -> Unit,
     onSearchClick: () -> Unit = {},
-    onRecognitionClick: () -> Unit = {},
     onTrendingClick: () -> Unit = {},
     djLoading: Boolean = false,
     onDjClick: () -> Unit = {},
@@ -885,11 +789,6 @@ private fun MusicHeader(
                 icon = Icons.Default.Search,
                 contentDescription = "Search music",
                 onClick = onSearchClick,
-            )
-            MusicHeaderAction(
-                icon = Icons.Default.Mic,
-                contentDescription = "Recognize music nearby",
-                onClick = onRecognitionClick,
             )
             MusicHeaderAction(
                 icon = Icons.Default.AutoAwesome,
