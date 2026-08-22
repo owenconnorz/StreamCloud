@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -18,9 +19,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.composed
-import androidx.compose.ui.draw.graphicsLayer
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -34,6 +35,7 @@ private const val TvFocusScale = 1.035f
 private const val TvHorizontalRepeatGateMs = 80L
 private const val TvVerticalRepeatGateMs = 112L
 
+@OptIn(ExperimentalFoundationApi::class)
 fun Modifier.tvFocusBorder(
     shape: Shape = RoundedCornerShape(12.dp),
     borderWidth: Dp = 3.dp,
