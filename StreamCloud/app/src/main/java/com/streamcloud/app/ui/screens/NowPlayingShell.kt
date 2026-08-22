@@ -683,22 +683,8 @@ fun NowPlayingShell(
                             )
                         }
                     }
-                    // Pin button — only relevant when canvas auto-hides the controls
-                    if (activeCanvas != null) {
-                        NpIconButton(
-                            onClick = {
-                                controlsPinned = !controlsPinned
-                                controlsVisible = true
-                                hideKey++
-                            },
-                            tint = onBg,
-                        ) {
-                            Icon(
-                                if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
-                                contentDescription = if (controlsPinned) "Unpin controls" else "Pin controls",
-                            )
-                        }
-                    } else if (videoStreamUrl == null) {
+                    // Spacer to balance layout when neither pin nor video button is shown
+                    if (activeCanvas == null && videoStreamUrl == null) {
                         Spacer(Modifier.size(40.dp))
                     }
                 }
@@ -941,6 +927,30 @@ fun NowPlayingShell(
                     Spacer(Modifier.height(16.dp))
                 }
                 } // end BoxWithConstraints
+            }
+        }
+
+        // ── Pin button — always visible outside the fade overlay so user can always reach it ──
+        if (activeCanvas != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars),
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                NpIconButton(
+                    onClick = {
+                        controlsPinned = !controlsPinned
+                        controlsVisible = true
+                        hideKey++
+                    },
+                    tint = onBg,
+                ) {
+                    Icon(
+                        if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = if (controlsPinned) "Unpin controls" else "Pin controls",
+                    )
+                }
             }
         }
     }
