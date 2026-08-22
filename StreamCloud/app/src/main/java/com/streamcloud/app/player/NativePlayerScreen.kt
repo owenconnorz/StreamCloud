@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -1037,14 +1038,14 @@ private fun PlayerClock(
             horizontalAlignment = Alignment.End,
         ) {
             Text(
-                text = now.format(playerClockTimeFormatter),
+                text = playerClockTimeFormatter.format(now),
                 color = Color.White,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 lineHeight = 20.sp,
             )
             Text(
-                text = now.format(playerClockDateFormatter),
+                text = playerClockDateFormatter.format(now),
                 color = Color.White.copy(alpha = 0.82f),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
