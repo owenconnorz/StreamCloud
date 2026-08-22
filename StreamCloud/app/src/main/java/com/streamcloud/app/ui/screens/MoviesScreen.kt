@@ -32,11 +32,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalFocusManager
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -77,6 +83,7 @@ private data class PosterSheetItem(
 fun MoviesScreen(
     initialFocusRequester: FocusRequester? = null,
     initialFocusEnabled: Boolean = true,
+    onFirstMovieFocusedChanged: (Boolean) -> Unit = {},
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit = {},
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
@@ -126,6 +133,7 @@ fun MoviesScreen(
     val firstStremioRowKey = state.stremioRows
         .firstOrNull { it.items.isNotEmpty() }
         ?.rowKey
+    val focusManager = LocalFocusManager.current
     val startupFocusTarget = when {
         state.continueWatching.isNotEmpty() -> "continue"
         firstCollectionRowId != null -> "collection"
@@ -153,7 +161,32 @@ fun MoviesScreen(
     MoviesThemeWrapper(moviesThemeName) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyColumn(
-            Modifier.fillMaxSize(),
+            Modifier
+                .fillMaxSize()
+                // Keep vertical D-pad movement in focus traversal instead of
+                // letting the parent list scroll independently.
+                .onPreviewKeyEvent { event ->
+                    if (
+                        isTv &&
+                        event.type == KeyEventType.KeyDown &&
+                        event.nativeKeyEvent.repeatCount == 0
+                    ) {
+                        when (event.key) {
+                            Key.DirectionUp -> {
+                                focusManager.moveFocus(FocusDirection.Up)
+                                true
+                            }
+                            Key.DirectionDown -> {
+                                focusManager.moveFocus(FocusDirection.Down)
+                                true
+                            }
+                            else -> false
+                        }
+                    } else {
+                        false
+                    }
+                }
+                .tvDpadRepeatThrottle(),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
             if (query.isNotBlank()) {
@@ -179,6 +212,7 @@ fun MoviesScreen(
                             } else {
                                 null
                             },
+                            onInitialItemFocusChanged = onFirstMovieFocusedChanged,
                             onClick = { item ->
                                 when {
                                     item.tmdbId != null && item.mediaType == "tv" -> onTvClick(item.tmdbId)
@@ -227,7 +261,11 @@ fun MoviesScreen(
                                         startupFocusTarget == "continue" &&
                                         initialFocusRequester != null
                                     ) {
-                                        Modifier.focusRequester(initialFocusRequester)
+                                        Modifier
+                                            .focusRequester(initialFocusRequester)
+                                            .onFocusChanged {
+                                                onFirstMovieFocusedChanged(it.isFocused)
+                                            }
                                     } else {
                                         Modifier
                                     },
@@ -349,7 +387,11 @@ fun MoviesScreen(
                                         startupFocusTarget == "collection" &&
                                         initialFocusRequester != null
                                     ) {
-                                        Modifier.focusRequester(initialFocusRequester)
+                                        Modifier
+                                            .focusRequester(initialFocusRequester)
+                                            .onFocusChanged {
+                                                onFirstMovieFocusedChanged(it.isFocused)
+                                            }
                                     } else {
                                         Modifier
                                     },
@@ -396,7 +438,11 @@ fun MoviesScreen(
                                         startupFocusTarget == "stremio" &&
                                         initialFocusRequester != null
                                     ) {
-                                        Modifier.focusRequester(initialFocusRequester)
+                                        Modifier
+                                            .focusRequester(initialFocusRequester)
+                                            .onFocusChanged {
+                                                onFirstMovieFocusedChanged(it.isFocused)
+                                            }
                                     } else {
                                         Modifier
                                     },
@@ -651,6 +697,7 @@ private fun MoviesHeader(
 private fun HeroPager(
     items: List<HeroBannerItem>,
     initialFocusRequester: FocusRequester? = null,
+    onInitialItemFocusChanged: (Boolean) -> Unit = {},
     onClick: (HeroBannerItem) -> Unit,
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -676,7 +723,9 @@ private fun HeroPager(
             HeroBannerSlide(
                 item = item,
                 modifier = if (page == 0 && initialFocusRequester != null) {
-                    Modifier.focusRequester(initialFocusRequester)
+                    Modifier
+                        .focusRequester(initialFocusRequester)
+                        .onFocusChanged { onInitialItemFocusChanged(it.isFocused) }
                 } else {
                     Modifier
                 },
