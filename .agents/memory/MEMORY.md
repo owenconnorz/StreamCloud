@@ -5,5 +5,6 @@
 - [YouTube stream URL persistence](yt-stream-url-persistence.md) — Persist signed URLs only until expiry and evict them on every CDN rejection.
 - [Signed stream request identities](youtube-stream-request-identities.md) — Use the resolver’s user agent for every direct or proxied CDN request.
 - [Sonos proxy preflight](sonos-proxy-preflight.md) — Verify audio bytes and exact HTTP metadata before assigning a signed stream to Sonos.
+- [Remote cast transition ownership](remote-cast-transition-ownership.md) — Serialize Cast/DLNA handoffs and clean up the exact callback-owned Cast session, never a generic current session.
 - [YouTube Music video surfaces](yt-music-video-surfaces.md) — Preserve explicit video intent and accept adaptive visual streams for Now Playing.
 - [Personalized DJ privacy](personalized-dj-privacy.md) — Keep listener preference signals on-device; external music searches are discovery-only and disclosed.

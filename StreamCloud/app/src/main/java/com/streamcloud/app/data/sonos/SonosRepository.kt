@@ -504,7 +504,7 @@ object SonosRepository {
         scope.launch { SonosController.setVolume(device, clamped) }
     }
 
-    fun disconnect() {
+    fun disconnect(resumeOnPhone: Boolean = true) {
         trackUpdateGeneration.incrementAndGet()
         trackUpdateJob?.cancel()
         trackUpdateJob = null
@@ -524,7 +524,7 @@ object SonosRepository {
         _devices.value    = emptyList()
         _sonosVolume.value = 50
 
-        if (ctx != null) {
+        if (resumeOnPhone && ctx != null) {
             scope.launch {
                 runCatching {
                     withContext(Dispatchers.Main) {

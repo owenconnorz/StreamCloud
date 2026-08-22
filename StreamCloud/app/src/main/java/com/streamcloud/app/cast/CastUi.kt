@@ -497,12 +497,13 @@ fun rememberCastController(
     return isCasting
 }
 
-private fun loadRemoteMedia(
+internal fun loadRemoteMedia(
     session: com.google.android.gms.cast.framework.CastSession,
     streamUrl: String,
     title: String,
     artworkUrl: String?,
     contentType: String?,
+    mediaType: Int = com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE,
 ) {
 
 
@@ -514,7 +515,7 @@ private fun loadRemoteMedia(
         return
     }
     val metadata = com.google.android.gms.cast.MediaMetadata(
-        com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE,
+        mediaType,
     ).apply {
         putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title)
         if (!artworkUrl.isNullOrBlank()) {

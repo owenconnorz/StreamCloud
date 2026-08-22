@@ -84,6 +84,12 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.lyrics.LyricsRepository
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+import com.streamcloud.app.cast.MusicRemoteCast
+import com.streamcloud.app.cast.dlna.DlnaController
+import com.streamcloud.app.cast.dlna.DlnaRepository
+import com.google.android.gms.cast.MediaSeekOptions
+import com.google.android.gms.cast.MediaStatus
+import com.google.android.gms.cast.framework.CastContext
 import com.streamcloud.app.ui.player.MusicActionsSheet
 import com.streamcloud.app.ui.player.SonosDevicePickerSheet
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
@@ -155,20 +161,26 @@ fun NowPlayingShell(
             override fun onRepeatModeChanged(mode: Int) { repeatMode = mode }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updateSelectedMusicVideo(mediaItem)
-                // When casting, tell Sonos to load and play the newly-selected track.
+                if (mediaItem == null) return
+                val mid = mediaItem.mediaId
+                val vid = if (mid.startsWith("http")) {
+                    mid.substringAfter("v=", "").substringBefore("&")
+                } else {
+                    mid
+                }
+                val watchUrl = if (mid.startsWith("http")) mid else "https://music.youtube.com/watch?v=$mid"
+                val trackTitle = mediaItem.mediaMetadata.title?.toString().orEmpty()
+
+                // When casting, tell the active network destination to load the selected track.
                 val cstate = SonosRepository.castState.value
-                if (cstate is SonosRepository.CastState.Casting && mediaItem != null) {
+                if (cstate is SonosRepository.CastState.Casting) {
                     // The queue is still driven by Media3, but its audio must never take back
                     // the phone speaker while Sonos resolves the replacement stream.
                     controller.pause()
-                    val mid = mediaItem.mediaId
-                    val vid = if (mid.startsWith("http"))
-                        mid.substringAfter("v=", "").substringBefore("&")
-                    else mid
-                    val watchUrl = if (mid.startsWith("http")) mid
-                    else "https://music.youtube.com/watch?v=$mid"
-                    val trackTitle = mediaItem.mediaMetadata.title?.toString().orEmpty()
                     SonosRepository.updateTrack(context.applicationContext, vid, trackTitle, watchUrl)
+                } else if (MusicRemoteCast.state.value is MusicRemoteCast.State.Casting) {
+                    controller.pause()
+                    MusicRemoteCast.updateTrack(context.applicationContext, vid, trackTitle, watchUrl)
                 }
             }
         }
@@ -236,16 +248,59 @@ fun NowPlayingShell(
 
     var showSonos by remember { mutableStateOf(false) }
     val castState by SonosRepository.castState.collectAsState()
-    val isCasting = castState is SonosRepository.CastState.Casting
+    val remoteCastState by MusicRemoteCast.state.collectAsState()
+    val isSonosCasting = castState is SonosRepository.CastState.Casting
+    val isNetworkCasting = remoteCastState is MusicRemoteCast.State.Casting ||
+        remoteCastState is MusicRemoteCast.State.Connecting
+    val isCasting = isSonosCasting || isNetworkCasting
 
     val sonosIsPlaying  by SonosRepository.isSonosPlaying.collectAsState()
     val sonosTrackUpdating by SonosRepository.isSonosTrackUpdating.collectAsState()
     val sonosPosMs      by SonosRepository.sonosPositionMs.collectAsState()
     val sonosDurMs      by SonosRepository.sonosDurationMs.collectAsState()
+    val dlnaIsPlaying by DlnaRepository.isPlaying.collectAsState()
+    val dlnaPosMs by DlnaRepository.positionMs.collectAsState()
+    val dlnaDurMs by DlnaRepository.durationMs.collectAsState()
+    val isGoogleCasting = (remoteCastState as? MusicRemoteCast.State.Casting)
+        ?.destination == MusicRemoteCast.DestinationType.GoogleCast
+    val isDlnaCasting = (remoteCastState as? MusicRemoteCast.State.Casting)
+        ?.destination == MusicRemoteCast.DestinationType.Dlna
+    var googleIsPlaying by remember { mutableStateOf(false) }
+    var googlePositionMs by remember { mutableLongStateOf(0L) }
+    var googleDurationMs by remember { mutableLongStateOf(0L) }
 
-    val displayIsPlaying  = if (isCasting) sonosIsPlaying  else isPlaying
-    val displayPositionMs = if (isCasting) sonosPosMs      else positionMs
-    val displayDurationMs = if (isCasting) sonosDurMs      else durationMs
+    LaunchedEffect(isGoogleCasting) {
+        while (isGoogleCasting) {
+            val client = runCatching {
+                CastContext.getSharedInstance(context.applicationContext)
+                    .sessionManager.currentCastSession?.remoteMediaClient
+            }.getOrNull()
+            val status = client?.mediaStatus
+            googleIsPlaying = status?.playerState == MediaStatus.PLAYER_STATE_PLAYING
+            googlePositionMs = status?.streamPosition?.coerceAtLeast(0L) ?: 0L
+            googleDurationMs = client?.mediaInfo?.streamDuration?.coerceAtLeast(0L) ?: 0L
+            delay(500)
+        }
+    }
+
+    val displayIsPlaying = when {
+        isSonosCasting -> sonosIsPlaying
+        isGoogleCasting -> googleIsPlaying
+        isDlnaCasting -> dlnaIsPlaying
+        else -> isPlaying
+    }
+    val displayPositionMs = when {
+        isSonosCasting -> sonosPosMs
+        isGoogleCasting -> googlePositionMs
+        isDlnaCasting -> dlnaPosMs
+        else -> positionMs
+    }
+    val displayDurationMs = when {
+        isSonosCasting -> sonosDurMs
+        isGoogleCasting -> googleDurationMs
+        isDlnaCasting -> dlnaDurMs
+        else -> durationMs
+    }
 
     fun skipToNext() {
         if (isCasting) controller.pause()
@@ -731,9 +786,21 @@ fun NowPlayingShell(
                     Slider(
                         value = if (displayDurationMs > 0) displayPositionMs / displayDurationMs.toFloat() else 0f,
                         onValueChange = { v ->
-                            if (isCasting) {
+                            if (isSonosCasting) {
                                 if (displayDurationMs > 0)
                                     SonosRepository.seek((v * displayDurationMs).toLong())
+                            } else if (isGoogleCasting) {
+                                val target = (v * displayDurationMs).toLong()
+                                runCatching {
+                                    CastContext.getSharedInstance(context.applicationContext)
+                                        .sessionManager.currentCastSession?.remoteMediaClient
+                                        ?.seek(MediaSeekOptions.Builder().setPosition(target).build())
+                                }
+                            } else if (isDlnaCasting) {
+                                val device = DlnaRepository.selectedDevice.value
+                                if (device != null && displayDurationMs > 0) {
+                                    scope.launch { DlnaController.seek(device, (v * displayDurationMs).toLong()) }
+                                }
                             } else if (durationMs > 0) {
                                 controller.seekTo((v * durationMs).toLong())
                             }
@@ -770,9 +837,23 @@ fun NowPlayingShell(
                         PlayPill(
                             playing = displayIsPlaying,
                             onClick = {
-                                if (isCasting) {
+                                if (isSonosCasting) {
                                     if (sonosTrackUpdating || sonosIsPlaying) SonosRepository.pause()
                                     else SonosRepository.resume()
+                                } else if (isGoogleCasting) {
+                                    val client = runCatching {
+                                        CastContext.getSharedInstance(context.applicationContext)
+                                            .sessionManager.currentCastSession?.remoteMediaClient
+                                    }.getOrNull()
+                                    if (googleIsPlaying) client?.pause() else client?.play()
+                                } else if (isDlnaCasting) {
+                                    val device = DlnaRepository.selectedDevice.value
+                                    if (device != null) {
+                                        scope.launch {
+                                            if (dlnaIsPlaying) DlnaController.pause(device)
+                                            else DlnaController.play(device)
+                                        }
+                                    }
                                 } else {
                                     if (isPlaying) controller.pause() else controller.play()
                                 }
@@ -978,7 +1059,7 @@ private fun BottomToolbar(
             "Sleep timer", sleepActive, false, onSleep, Modifier.weight(1f),
         )
         ToolbarChip(Icons.Default.Lyrics, "Lyrics", lyricsActive, false, onLyrics, Modifier.weight(1f))
-        ToolbarChip(Icons.Default.Cast, "Cast to Sonos", isCasting, false, onCast, Modifier.weight(1f))
+        ToolbarChip(Icons.Default.Cast, "Cast to devices", isCasting, false, onCast, Modifier.weight(1f))
         ToolbarChip(Icons.Default.Shuffle, "Shuffle", shuffleOn, false, onShuffle, Modifier.weight(1f))
         ToolbarChip(
             if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOneOn else Icons.Default.Repeat,
