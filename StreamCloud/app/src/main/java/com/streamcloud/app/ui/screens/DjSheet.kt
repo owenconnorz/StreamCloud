@@ -115,9 +115,9 @@ fun DjSheet(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Spoken introductions", style = MaterialTheme.typography.titleSmall)
+                    Text("DJ narration", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Play a short DJ intro before your mix starts.",
+                        "Play a short DJ intro plus original transition updates every two songs.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                     )
