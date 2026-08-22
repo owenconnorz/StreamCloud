@@ -619,9 +619,9 @@ fun NowPlayingShell(
             }
         }
 
-        // Controls overlay — fades only when canvas is active; always visible otherwise
+        // Controls overlay — fades only when canvas is active and not pinned
         AnimatedVisibility(
-            visible = controlsVisible || activeCanvas == null,
+            visible = controlsVisible || activeCanvas == null || controlsPinned,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(600)),
             modifier = Modifier.fillMaxSize(),
@@ -657,10 +657,15 @@ fun NowPlayingShell(
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    if (activeCanvas != null) {
+                    // Video button — visible whenever a video stream is available or canvas is playing
+                    if (activeCanvas != null || videoStreamUrl != null) {
                         NpIconButton(
                             onClick = {
-                                manualVideoRequested = !manualVideoRequested
+                                if (activeCanvas != null) {
+                                    manualVideoRequested = !manualVideoRequested
+                                } else {
+                                    showVideoPlayer = !showVideoPlayer
+                                }
                                 controlsVisible = true
                                 hideKey++
                             },
@@ -668,13 +673,18 @@ fun NowPlayingShell(
                         ) {
                             Icon(
                                 Icons.Default.PlayCircle,
-                                contentDescription = if (manualVideoRequested) {
+                                contentDescription = if (activeCanvas != null && manualVideoRequested) {
                                     "Return to Canvas"
+                                } else if (showVideoPlayer) {
+                                    "Hide video"
                                 } else {
                                     "Watch video"
                                 },
                             )
                         }
+                    }
+                    // Pin button — only relevant when canvas auto-hides the controls
+                    if (activeCanvas != null) {
                         NpIconButton(
                             onClick = {
                                 controlsPinned = !controlsPinned
@@ -685,14 +695,10 @@ fun NowPlayingShell(
                         ) {
                             Icon(
                                 if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
-                                contentDescription = if (controlsPinned) {
-                                    "Unpin controls"
-                                } else {
-                                    "Pin controls"
-                                },
+                                contentDescription = if (controlsPinned) "Unpin controls" else "Pin controls",
                             )
                         }
-                    } else {
+                    } else if (videoStreamUrl == null) {
                         Spacer(Modifier.size(40.dp))
                     }
                 }
