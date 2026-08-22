@@ -4,11 +4,15 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.api.ChatRequest
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.newpipe.YtTrack
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +24,8 @@ data class DjSession(
     val request: String,
     val narration: String,
     val tracks: List<YtTrack>,
+    val isPersonalized: Boolean = false,
+    val sourceDescription: String = "",
 )
 
 data class DjUiState(
@@ -36,6 +42,7 @@ data class DjUiState(
 class DjViewModel(context: Context) : ViewModel() {
     private val appContext = context.applicationContext
     private val serviceLocator = ServiceLocator.get(appContext)
+    private val trackDao = LibraryDb.get(appContext).tracks()
 
     private val _state = MutableStateFlow(DjUiState())
     val state: StateFlow<DjUiState> = _state.asStateFlow()
@@ -71,6 +78,7 @@ class DjViewModel(context: Context) : ViewModel() {
                             request = normalized,
                             narration = narration,
                             tracks = tracks,
+                            sourceDescription = "Built from your StreamCloud search.",
                         ),
                     )
                 }
@@ -81,6 +89,115 @@ class DjViewModel(context: Context) : ViewModel() {
                     it.copy(
                         loading = false,
                         error = "The DJ couldn't build that mix: ${error.message ?: "please try again."}",
+                    )
+                }
+            }
+        }
+    }
+
+    fun buildPersonalizedMix() {
+        _state.update { it.copy(loading = true, error = null, session = null) }
+        viewModelScope.launch {
+            try {
+                val liked = trackDao.liked().first()
+                val listeningHistoryEnabled = serviceLocator.settings.listenHistoryEnabled.first() &&
+                    !serviceLocator.settings.pauseListenHistory.first()
+                val recent = if (listeningHistoryEnabled) trackDao.recent().first() else emptyList()
+                val mostPlayed = if (listeningHistoryEnabled) {
+                    trackDao.mostPlayed().first().filter { it.playCount > 0 }
+                } else {
+                    emptyList()
+                }
+                val searchHistory = serviceLocator.settings.musicSearchHistory.first()
+
+                val seeds = buildList {
+                    addAll(liked)
+                    addAll(mostPlayed)
+                    addAll(recent)
+                }.distinctBy { it.url }.take(6)
+                val seedTracks = seeds.map { entity ->
+                    YtTrack(
+                        title = entity.title,
+                        uploader = entity.artist,
+                        durationSec = entity.durationSec,
+                        url = entity.url,
+                        thumbnail = entity.thumbnail,
+                    )
+                }
+                val discoveryQueries = buildList {
+                    seeds.take(3).forEach { seed ->
+                        if (seed.artist.isNotBlank()) add("${seed.artist} similar songs")
+                        if (seed.title.isNotBlank()) add("${seed.title} ${seed.artist}")
+                    }
+                    addAll(searchHistory.take(2))
+                }.map(String::trim).filter { it.length >= 2 }.distinct().take(7)
+
+                if (seeds.isEmpty() && discoveryQueries.isEmpty()) {
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            error = "Play or like a few songs first, then the DJ can make a mix around your taste.",
+                        )
+                    }
+                    return@launch
+                }
+
+                val discoveredTracks = coroutineScope {
+                    discoveryQueries.map { query ->
+                        async {
+                            runCatching { NewPipeRepository.searchSongs(query) }
+                                .getOrDefault(emptyList())
+                                .take(8)
+                        }
+                    }.awaitAll().flatten()
+                }
+                val tracks = (seedTracks + discoveredTracks)
+                    .filter { it.url.isNotBlank() }
+                    .distinctBy { it.url }
+                    .take(15)
+                if (tracks.isEmpty()) {
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            error = "I couldn't find playable songs around your listening yet. Try again or use a mood below.",
+                        )
+                    }
+                    return@launch
+                }
+
+                val signalParts = buildList {
+                    if (liked.isNotEmpty()) add("${liked.size} liked")
+                    if (listeningHistoryEnabled && mostPlayed.isNotEmpty()) add("your most-played")
+                    if (listeningHistoryEnabled && recent.isNotEmpty()) add("recent listening")
+                    if (searchHistory.isNotEmpty()) add("recent searches")
+                }
+                val sourceDescription = if (signalParts.isEmpty()) {
+                    "Your preferences stay on this device. Song searches are used only to find this mix."
+                } else {
+                    "Built from ${signalParts.joinToString(", ")}. Your preferences stay on this device; song searches find fresh similar tracks."
+                }
+                // Personalized track metadata is private listening data. Keep this narration local
+                // instead of sending a seed track to the optional remote AI backend.
+                val narration = buildFallbackNarration("your listening", tracks)
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        session = DjSession(
+                            request = "For you",
+                            narration = narration,
+                            tracks = tracks,
+                            isPersonalized = true,
+                            sourceDescription = sourceDescription,
+                        ),
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        error = "The personalized DJ couldn't build a mix: ${error.message ?: "please try again."}",
                     )
                 }
             }
