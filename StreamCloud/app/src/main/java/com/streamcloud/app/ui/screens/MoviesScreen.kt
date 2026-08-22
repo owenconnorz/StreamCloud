@@ -159,34 +159,37 @@ fun MoviesScreen(
     }
 
     MoviesThemeWrapper(moviesThemeName) {
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        LazyColumn(
-            Modifier
-                .fillMaxSize()
-                // Keep vertical D-pad movement in focus traversal instead of
-                // letting the parent list scroll independently.
-                .onPreviewKeyEvent { keyEvent ->
-                    if (
-                        isTv &&
-                        keyEvent.type == KeyEventType.KeyDown &&
-                        keyEvent.nativeKeyEvent.repeatCount == 0
-                    ) {
-                        when (keyEvent.key) {
-                            Key.DirectionUp -> {
-                                focusManager.moveFocus(FocusDirection.Up)
-                                true
-                            }
-                            Key.DirectionDown -> {
-                                focusManager.moveFocus(FocusDirection.Down)
-                                true
-                            }
-                            else -> false
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            // Keep vertical D-pad movement in focus traversal instead of
+            // letting the parent list scroll independently.
+            .onPreviewKeyEvent { keyEvent ->
+                if (
+                    isTv &&
+                    keyEvent.type == KeyEventType.KeyDown &&
+                    keyEvent.nativeKeyEvent.repeatCount == 0
+                ) {
+                    when (keyEvent.key) {
+                        Key.DirectionUp -> {
+                            focusManager.moveFocus(FocusDirection.Up)
+                            true
                         }
-                    } else {
-                        false
+                        Key.DirectionDown -> {
+                            focusManager.moveFocus(FocusDirection.Down)
+                            true
+                        }
+                        else -> false
                     }
+                } else {
+                    false
                 }
-                .tvDpadRepeatThrottle(),
+            }
+            .tvDpadRepeatThrottle(),
+    ) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
             if (query.isNotBlank()) {
