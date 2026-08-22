@@ -20,3 +20,9 @@ For the Nuvio-style home flow, initial TV focus belongs on the first available m
 **Why:** Starting on a persistent hamburger trapped remote users at the top of the screen and required an extra navigation step before they could browse.
 
 **How to apply:** Keep the corner control available for touch, but non-focusable while the drawer is closed. Restore the first movie card after closing Home’s drawer and retain Menu as a hardware fallback.
+
+When a screen needs to own initial and repeated D-pad traversal, attach the shared handler outside the `LazyColumn`/`LazyRow` content DSL and opt into initial presses explicitly; keeping it in the lazy-list argument can trigger misleading Kotlin scope resolution errors.
+
+**Why:** The compiler treated a locally declared key-event lambda inside the list call as list-scope symbols, while the shared modifier works reliably at the screen container.
+
+**How to apply:** Let the shared modifier move and consume Up/Down on the Movies screen, while the app shell handles only the drawer boundary after the first-card focus callback.
