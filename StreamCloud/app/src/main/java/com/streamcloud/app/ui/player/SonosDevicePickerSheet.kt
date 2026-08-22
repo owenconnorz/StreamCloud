@@ -22,6 +22,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.mediarouter.media.MediaRouteSelector
+import androidx.mediarouter.media.MediaRouter
+import com.google.android.gms.cast.framework.CastContext
+import com.streamcloud.app.cast.MusicRemoteCast
+import com.streamcloud.app.cast.dlna.DlnaDevice
+import com.streamcloud.app.cast.dlna.DlnaRepository
 import com.streamcloud.app.data.sonos.SonosDevice
 import com.streamcloud.app.data.sonos.SonosGroup
 import com.streamcloud.app.data.sonos.SonosRepository
@@ -36,10 +42,54 @@ fun SonosDevicePickerSheet(
 ) {
     val context   = LocalContext.current
     val castState by SonosRepository.castState.collectAsState()
+    val remoteCastState by MusicRemoteCast.state.collectAsState()
+    val dlnaState by DlnaRepository.state.collectAsState()
+    val dlnaDevices = (dlnaState as? DlnaRepository.State.Ready)?.devices.orEmpty()
+    val castContext = remember(context) {
+        runCatching { CastContext.getSharedInstance(context.applicationContext) }.getOrNull()
+    }
+    val mediaRouter = remember(context) { MediaRouter.getInstance(context.applicationContext) }
+    val routeSelector = remember(castContext) {
+        castContext?.mergedSelector ?: MediaRouteSelector.EMPTY
+    }
+    val mediaRoutes = remember { mutableStateListOf<MediaRouter.RouteInfo>() }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         if (castState !is SonosRepository.CastState.Casting) {
             SonosRepository.startDiscovery(context)
+        }
+        DlnaRepository.discover(context)
+    }
+
+    DisposableEffect(routeSelector) {
+        val callback = object : MediaRouter.Callback() {
+            override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) =
+                refreshDeviceRoutes(router, routeSelector, mediaRoutes)
+
+            override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) =
+                refreshDeviceRoutes(router, routeSelector, mediaRoutes)
+
+            override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) =
+                refreshDeviceRoutes(router, routeSelector, mediaRoutes)
+        }
+        mediaRouter.addCallback(
+            routeSelector,
+            callback,
+            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY or MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN,
+        )
+        refreshDeviceRoutes(mediaRouter, routeSelector, mediaRoutes)
+        onDispose { mediaRouter.removeCallback(callback) }
+    }
+
+    val googleRoutes = mediaRoutes.filter { route ->
+        !route.isBluetooth && route.matchesSelector(routeSelector)
+    }
+    val bluetoothRoutes = mediaRoutes.filter { it.isBluetooth }
+
+    fun clearOtherDestination() {
+        if (castState is SonosRepository.CastState.Casting) {
+            SonosRepository.disconnect(resumeOnPhone = false)
         }
     }
 
@@ -64,7 +114,7 @@ fun SonosDevicePickerSheet(
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    "Cast to Sonos",
+                    "Cast to devices",
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 )
@@ -76,7 +126,20 @@ fun SonosDevicePickerSheet(
 
             Spacer(Modifier.height(16.dp))
 
-            when (val state = castState) {
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = Color.Transparent,
+                contentColor = Color(0xFF4FC3F7),
+            ) {
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Sonos") })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Cast & TV") })
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Bluetooth") })
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            when (selectedTab) {
+                0 -> when (val state = castState) {
 
                 is SonosRepository.CastState.Discovering ->
                     SheetStatus("Scanning for Sonos speakers…", showSpinner = true)
@@ -91,14 +154,16 @@ fun SonosDevicePickerSheet(
                             }
                             items(state.groups, key = { "g_${it.id}" }) { group ->
                                 GroupRow(group = group) {
-                                    SonosRepository.connect(
-                                        context     = context,
-                                        device      = group.coordinatorDevice,
-                                        videoId     = videoId,
-                                        title       = title,
-                                        watchUrl    = watchUrl,
-                                        displayName = group.displayName,
-                                    )
+                                    MusicRemoteCast.handOffToSonos {
+                                        SonosRepository.connect(
+                                            context     = context,
+                                            device      = group.coordinatorDevice,
+                                            videoId     = videoId,
+                                            title       = title,
+                                            watchUrl    = watchUrl,
+                                            displayName = group.displayName,
+                                        )
+                                    }
                                 }
                             }
                             item(key = "speakers_header") {
@@ -115,13 +180,15 @@ fun SonosDevicePickerSheet(
                         // Individual speakers
                         items(state.devices, key = { "d_${it.udn}" }) { device ->
                             DeviceRow(device = device) {
-                                SonosRepository.connect(
-                                    context  = context,
-                                    device   = device,
-                                    videoId  = videoId,
-                                    title    = title,
-                                    watchUrl = watchUrl,
-                                )
+                                MusicRemoteCast.handOffToSonos {
+                                    SonosRepository.connect(
+                                        context  = context,
+                                        device   = device,
+                                        videoId  = videoId,
+                                        title    = title,
+                                        watchUrl = watchUrl,
+                                    )
+                                }
                             }
                         }
                     }
@@ -238,8 +305,228 @@ fun SonosDevicePickerSheet(
 
                 SonosRepository.CastState.Idle ->
                     SheetStatus("Opening scanner…", showSpinner = true)
+                }
+
+                1 -> NetworkDestinationTab(
+                    remoteState = remoteCastState,
+                    googleRoutes = googleRoutes,
+                    dlnaDevices = dlnaDevices,
+                    isDlnaDiscovering = dlnaState is DlnaRepository.State.Discovering,
+                    onGoogleRoute = { route ->
+                        clearOtherDestination()
+                        MusicRemoteCast.connectGoogle(
+                            context = context,
+                            route = route,
+                            videoId = videoId,
+                            title = title,
+                            watchUrl = watchUrl,
+                        )
+                    },
+                    onDlnaDevice = { device ->
+                        clearOtherDestination()
+                        MusicRemoteCast.connectDlna(
+                            context = context,
+                            device = device,
+                            videoId = videoId,
+                            title = title,
+                            watchUrl = watchUrl,
+                        )
+                    },
+                    onRescan = {
+                        DlnaRepository.discover(context)
+                        refreshDeviceRoutes(mediaRouter, routeSelector, mediaRoutes)
+                    },
+                    onDisconnect = { MusicRemoteCast.disconnect() },
+                )
+
+                else -> BluetoothDestinationTab(
+                    routes = bluetoothRoutes,
+                    onPickRoute = { route ->
+                        clearOtherDestination()
+                        MusicRemoteCast.switchToBluetooth(context, route, onDismiss)
+                    },
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun NetworkDestinationTab(
+    remoteState: MusicRemoteCast.State,
+    googleRoutes: List<MediaRouter.RouteInfo>,
+    dlnaDevices: List<DlnaDevice>,
+    isDlnaDiscovering: Boolean,
+    onGoogleRoute: (MediaRouter.RouteInfo) -> Unit,
+    onDlnaDevice: (DlnaDevice) -> Unit,
+    onRescan: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    when (remoteState) {
+        is MusicRemoteCast.State.Connecting -> SheetStatus(
+            "Connecting to ${remoteState.name}…",
+            showSpinner = true,
+        )
+
+        is MusicRemoteCast.State.Casting -> {
+            Text(
+                "Now playing on ${remoteState.name}",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                remoteState.title,
+                color = Color.White.copy(alpha = 0.55f),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(16.dp))
+            OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
+                Text("Disconnect", color = Color.White)
+            }
+        }
+
+        else -> {
+            Text("Google Cast / Google TV", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelLarge)
+            if (googleRoutes.isEmpty()) {
+                Text(
+                    "No Google Cast devices found. Check that the device is on the same Wi-Fi.",
+                    color = Color.White.copy(alpha = 0.5f),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            } else {
+                googleRoutes.forEach { route ->
+                    DestinationRouteRow(
+                        name = route.name.toString(),
+                        subtitle = route.description?.toString(),
+                        icon = Icons.Default.Tv,
+                        onClick = { onGoogleRoute(route) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text("Network speakers & TVs (DLNA)", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelLarge)
+            when {
+                isDlnaDiscovering && dlnaDevices.isEmpty() ->
+                    SheetStatus("Scanning your Wi-Fi network…", showSpinner = true)
+
+                dlnaDevices.isEmpty() -> {
+                    Text(
+                        "No compatible network devices found.",
+                        color = Color.White.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+
+                else -> dlnaDevices.forEach { device ->
+                    DestinationRouteRow(
+                        name = device.name,
+                        subtitle = device.host,
+                        icon = Icons.Default.Speaker,
+                        onClick = { onDlnaDevice(device) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Alexa/Echo devices only appear if they expose a standard Cast or DLNA route. Direct Alexa playback requires Amazon account integration.",
+                color = Color.White.copy(alpha = 0.42f),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) {
+                Text("Scan again", color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BluetoothDestinationTab(
+    routes: List<MediaRouter.RouteInfo>,
+    onPickRoute: (MediaRouter.RouteInfo) -> Unit,
+) {
+    Text(
+        "Bluetooth audio",
+        color = Color.White.copy(alpha = 0.6f),
+        style = MaterialTheme.typography.labelLarge,
+    )
+    Text(
+        "Connected Bluetooth speakers, headphones, and car audio appear here. Pair new devices in Android's Bluetooth settings first.",
+        color = Color.White.copy(alpha = 0.48f),
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
+    )
+    if (routes.isEmpty()) {
+        Text(
+            "No Bluetooth audio devices are currently connected.",
+            color = Color.White.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(vertical = 14.dp),
+        )
+    } else {
+        routes.forEach { route ->
+            DestinationRouteRow(
+                name = route.name.toString(),
+                subtitle = route.description?.toString() ?: "Bluetooth audio",
+                icon = Icons.Default.Speaker,
+                onClick = { onPickRoute(route) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun DestinationRouteRow(
+    name: String,
+    subtitle: String?,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White.copy(alpha = 0.07f),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onClick),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(25.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(name, color = Color.White, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
+                subtitle?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        color = Color.White.copy(alpha = 0.45f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun refreshDeviceRoutes(
+    router: MediaRouter,
+    selector: MediaRouteSelector,
+    out: SnapshotStateList<MediaRouter.RouteInfo>,
+) {
+    val visible = router.routes.filter { route ->
+        !route.isDefault && (route.isBluetooth || route.matchesSelector(selector))
+    }
+    if (visible.map { it.id } != out.map { it.id }) {
+        out.clear()
+        out.addAll(visible)
     }
 }
 
