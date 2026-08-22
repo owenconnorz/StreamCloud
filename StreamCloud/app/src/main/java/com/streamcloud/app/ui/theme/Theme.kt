@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.streamcloud.app.data.ServiceLocator
 
-private val AioColors = darkColorScheme(
+internal val AioColors = darkColorScheme(
     primary = Salmon,
     onPrimary = TextPrimary,
     primaryContainer = SalmonDark,
@@ -252,4 +252,14 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     ProvideUiFormFactor(formFactor) {
         MaterialTheme(colorScheme = colors, typography = AioTypography, content = content)
     }
+}
+
+/** Wrap content with the app's base dark colour scheme, ignoring dynamic album-art colours. */
+@Composable
+fun StaticAppTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = AioColors,
+        typography  = AioTypography,
+        content     = content,
+    )
 }

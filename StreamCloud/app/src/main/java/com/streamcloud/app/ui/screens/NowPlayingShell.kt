@@ -10,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -655,10 +656,12 @@ fun NowPlayingShell(
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         )
                         Text(
-                            title.ifBlank { "—" }.take(40),
+                            title.ifBlank { "—" },
                             color = onBg,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                         )
                     }
                     Spacer(Modifier.weight(1f))
@@ -703,13 +706,17 @@ fun NowPlayingShell(
                                 title.ifBlank { "—" },
                                 color = onBg,
                                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
-                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                             )
                             Text(
                                 artist.ifBlank { "Unknown artist" },
                                 color = onBg.copy(alpha = 0.8f),
                                 style = MaterialTheme.typography.titleMedium,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                             )
                         }
                         Spacer(Modifier.width(12.dp))
