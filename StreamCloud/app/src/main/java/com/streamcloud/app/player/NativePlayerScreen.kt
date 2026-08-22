@@ -88,6 +88,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private val playerClockTimeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+private val playerClockDateFormatter = SimpleDateFormat("EEE, d MMM", Locale.getDefault())
 
 @OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @SuppressLint("UnsafeOptInUsageError")
@@ -352,6 +358,15 @@ fun NativePlayerScreen(
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
     var resizeMode        by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var playbackSpeed     by remember { mutableStateOf(1f) }
+    var playerClockNow    by remember { mutableStateOf(Date()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            playerClockNow = Date()
+            val millisToNextMinute = 60_000L - (System.currentTimeMillis() % 60_000L)
+            delay(millisToNextMinute.coerceAtLeast(1_000L))
+        }
+    }
 
     LaunchedEffect(ex) {
         ex ?: return@LaunchedEffect
@@ -598,6 +613,14 @@ fun NativePlayerScreen(
             })
         }
 
+        // Nuvio-style local clock and date stay visible over the movie player.
+        PlayerClock(
+            now = playerClockNow,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(end = 18.dp, top = 14.dp),
+        )
+
         // Gesture indicator pills
         volumeOverlay?.let { v ->
             Box(Modifier.align(Alignment.CenterStart).padding(start = 28.dp)) {
@@ -693,7 +716,7 @@ fun NativePlayerScreen(
                     }
                 }
                 // Top-right icon row
-                Row(Modifier.align(Alignment.TopEnd).padding(end = 14.dp, top = 14.dp),
+                Row(Modifier.align(Alignment.TopEnd).padding(end = 152.dp, top = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     if (!locked && !anyDeviceCasting) {
@@ -993,6 +1016,38 @@ fun NativePlayerScreen(
                 onChanged = { newStyle -> subtitleStyle = newStyle; SubtitleStylePrefs.save(context, newStyle); applySubtitleStyle(playerViewRef.value, newStyle) },
                 onReset   = { subtitleStyle = SubtitleStylePrefs.reset(context); applySubtitleStyle(playerViewRef.value, subtitleStyle) },
                 onDismiss = { showSubtitleStyle = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerClock(
+    now: Date,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        color = Color.Black.copy(alpha = 0.48f),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            horizontalAlignment = Alignment.End,
+        ) {
+            Text(
+                text = now.format(playerClockTimeFormatter),
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 20.sp,
+            )
+            Text(
+                text = now.format(playerClockDateFormatter),
+                color = Color.White.copy(alpha = 0.82f),
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
             )
         }
     }
