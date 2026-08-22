@@ -43,6 +43,8 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.components.SongRowMenu
+import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.launch
 
@@ -190,7 +192,7 @@ fun MusicSearchScreen(
                 top    = padding.calculateTopPadding() + 4.dp,
                 bottom = padding.calculateBottomPadding() + 8.dp,
             ),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().tvFocusGroup(),
         ) {
             if (query.isBlank()) {
                 // ── Search history ──
@@ -267,6 +269,7 @@ fun MusicSearchScreen(
                     }
                     item {
                         LazyRow(
+                            modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -439,6 +442,7 @@ private fun SearchFilterPills(
         com.streamcloud.app.ui.viewmodel.SearchMode.Artists to "Artists",
     )
     LazyRow(
+        modifier = Modifier.tvFocusGroup(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -475,6 +479,7 @@ private fun SongResultRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -526,6 +531,7 @@ private fun MusicSearchResultRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -571,6 +577,7 @@ private fun MusicSuggestionListRow(text: String, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,

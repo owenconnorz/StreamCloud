@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -171,6 +172,7 @@ fun MoviesScreen(
                     item(key = "continue_watching_t") { SectionTitle("Continue Watching") }
                     item(key = "continue_watching") {
                         LazyRow(
+                            modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -198,6 +200,7 @@ fun MoviesScreen(
                     if (pinnedRow.folders.isNotEmpty()) {
                         item(key = "pinned_${pinnedRow.collectionId}") {
                             LazyRow(
+                                modifier = Modifier.tvFocusGroup(),
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
@@ -277,6 +280,7 @@ fun MoviesScreen(
 
 
                         LazyRow(
+                            modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -310,6 +314,7 @@ fun MoviesScreen(
                     }
                     item(key = "stremio_${row.rowKey}") {
                         LazyRow(
+                            modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -392,6 +397,7 @@ fun MoviesScreen(
                         val csCardWidth = if (csLandscape) 200.dp else 120.dp
                         val csAspect    = if (csLandscape) 16f / 9f else 2f / 3f
                         LazyRow(
+                            modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -403,6 +409,7 @@ fun MoviesScreen(
                                     Modifier
                                         .width(csCardWidth)
                                         .clip(RoundedCornerShape(12.dp))
+                                        .tvFocusBorder(RoundedCornerShape(12.dp))
                                         .clickable {
                                             onOpenCsItem(row.pluginInternalName, sr.url, sr.name, sr.posterUrl)
                                         },
@@ -583,7 +590,7 @@ private fun HeroPager(
     Column(Modifier.fillMaxWidth()) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight),
+            modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight).tvFocusGroup(),
             pageSpacing = 0.dp,
         ) { page ->
             val item = items[page]
@@ -625,6 +632,7 @@ private fun HeroBannerSlide(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
+            .tvFocusBorder(RoundedCornerShape(14.dp))
             .then(if (isTv) Modifier.onFocusChanged { onFocusChange(it.hasFocus) } else Modifier)
             .clickable(onClick = onClick),
     ) {

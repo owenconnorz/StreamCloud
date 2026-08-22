@@ -79,6 +79,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 
 private enum class LibTab(val label: String) {
     Playlists("Playlists"),
@@ -263,6 +265,7 @@ fun LibraryScreen(
                         Modifier
                             .size(36.dp)
                             .clip(CircleShape)
+                            .tvFocusBorder(CircleShape)
                             .background(
                                 if (selected) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.surfaceVariant
@@ -288,7 +291,8 @@ fun LibraryScreen(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 16.dp)
+                    .tvFocusGroup(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 listOf("Watchlist", "Downloaded").forEach { label ->
@@ -326,7 +330,7 @@ fun LibraryScreen(
                 } else {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(if (isTv) 5 else 3),
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().tvFocusGroup(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -335,6 +339,7 @@ fun LibraryScreen(
                             Column(
                                 Modifier
                                     .clip(RoundedCornerShape(10.dp))
+                                    .tvFocusBorder(RoundedCornerShape(10.dp))
                                     .combinedClickable(
                                         onClick = {
                                             if (entry.status == "done" && !entry.filePath.isNullOrBlank()) {
@@ -424,7 +429,7 @@ fun LibraryScreen(
                 } else {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(if (isTv) 5 else 3),
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().tvFocusGroup(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -433,6 +438,7 @@ fun LibraryScreen(
                             Column(
                                 Modifier
                                     .clip(RoundedCornerShape(10.dp))
+                                    .tvFocusBorder(RoundedCornerShape(10.dp))
                                     .clickable {
                                         when (entry.mediaType) {
                                             "tv" -> onTvClick(entry.tmdbId)
@@ -559,7 +565,7 @@ fun LibraryScreen(
             Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(gridColumns),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().tvFocusGroup(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 16.dp),
                 verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 16.dp),

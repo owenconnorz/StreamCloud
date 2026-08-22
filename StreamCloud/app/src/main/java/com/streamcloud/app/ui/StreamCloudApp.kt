@@ -108,6 +108,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.media3.common.util.UnstableApi
@@ -115,6 +116,9 @@ import com.streamcloud.app.data.util.GoogleAccountHelper
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import com.streamcloud.app.ui.theme.AllMoviesThemes
 import com.streamcloud.app.ui.theme.TvOverscanPadding
@@ -123,6 +127,7 @@ import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.text.style.TextOverflow
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -309,6 +314,7 @@ fun StreamCloudApp() {
         val showRail = useRail &&
             (currentRoute == null || tabs.any { it.route == currentRoute })
         val firstRailFocus = remember { FocusRequester() }
+        val firstTvNavFocus = remember { FocusRequester() }
         LaunchedEffect(showRail) {
             // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
             // On TV, it is attached to the hamburger button — see focusRequester() below.
@@ -317,17 +323,29 @@ fun StreamCloudApp() {
         // TV popup nav state — auto-close on route change
         var tvNavOpen by remember { mutableStateOf(false) }
         LaunchedEffect(currentRoute) { tvNavOpen = false }
-        // Restore focus to the hamburger whenever the TV nav panel closes so that
-        // D-pad navigation continues to work in the content area.
-        LaunchedEffect(tvNavOpen) {
-            if (!tvNavOpen && isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
+        // The drawer owns focus while it is visible. On close, return to the
+        // launcher button instead of leaving the remote on a removed nav row.
+        LaunchedEffect(tvNavOpen, isTv) {
+            if (!isTv) return@LaunchedEffect
+            try {
+                if (tvNavOpen) firstTvNavFocus.requestFocus()
+                else firstRailFocus.requestFocus()
+            } catch (_: Exception) {}
         }
         // Intercept the back button to close the TV nav panel instead of exiting the app.
         BackHandler(enabled = isTv && tvNavOpen) { tvNavOpen = false }
         Row(
             Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .onPreviewKeyEvent { event ->
+                    if (isTv && event.type == KeyEventType.KeyDown && event.key == Key.Menu) {
+                        tvNavOpen = !tvNavOpen
+                        true
+                    } else {
+                        false
+                    }
+                },
         ) {
             if (showRail && !isTv) {
                 NavigationRail(
@@ -1176,7 +1194,9 @@ fun StreamCloudApp() {
                             Modifier
                                 .fillMaxSize()
                                 .background(Color.Black.copy(alpha = 0.55f))
-                                .clickable { tvNavOpen = false },
+                                .pointerInput(Unit) {
+                                    detectTapGestures(onTap = { tvNavOpen = false })
+                                },
                         )
                     }
                     // Hamburger button — always visible at top-left
@@ -1226,7 +1246,8 @@ fun StreamCloudApp() {
                                 Modifier
                                     .fillMaxSize()
                                     .statusBarsPadding()
-                                    .padding(vertical = TvOverscanPadding, horizontal = 12.dp),
+                                    .padding(vertical = TvOverscanPadding, horizontal = 12.dp)
+                                    .tvFocusGroup(),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 Text(
@@ -1241,6 +1262,7 @@ fun StreamCloudApp() {
                                     icon = Icons.Default.Search,
                                     label = "Search",
                                     selected = currentRoute == "movie-search",
+                                    modifier = Modifier.focusRequester(firstTvNavFocus),
                                     onClick = {
                                         tvNavOpen = false
                                         nav.navigate("movie-search")
@@ -1410,6 +1432,7 @@ private fun TvNavRow(
     icon: ImageVector,
     label: String,
     selected: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
@@ -1418,7 +1441,7 @@ private fun TvNavRow(
                else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .tvFocusBorder(RoundedCornerShape(10.dp))

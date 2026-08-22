@@ -19,6 +19,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +36,10 @@ import com.streamcloud.app.cast.dlna.DlnaRepository
 import com.streamcloud.app.data.sonos.SonosDevice
 import com.streamcloud.app.data.sonos.SonosGroup
 import com.streamcloud.app.data.sonos.SonosRepository
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,6 +63,11 @@ fun SonosDevicePickerSheet(
     }
     val mediaRoutes = remember { mutableStateListOf<MediaRouter.RouteInfo>() }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val firstTabFocus = remember { FocusRequester() }
+    LaunchedEffect(isTv) {
+        if (isTv) runCatching { firstTabFocus.requestFocus() }
+    }
 
     LaunchedEffect(Unit) {
         if (castState !is SonosRepository.CastState.Casting) {
@@ -131,10 +142,16 @@ fun SonosDevicePickerSheet(
 
             TabRow(
                 selectedTabIndex = selectedTab,
+                modifier = Modifier.tvFocusGroup(),
                 containerColor = Color.Transparent,
                 contentColor = Color(0xFF4FC3F7),
             ) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Sonos") })
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    modifier = Modifier.focusRequester(firstTabFocus),
+                    text = { Text("Sonos") },
+                )
                 Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Cast & TV") })
                 Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Bluetooth") })
             }
@@ -148,7 +165,10 @@ fun SonosDevicePickerSheet(
                     SheetStatus("Scanning for Sonos speakers…", showSpinner = true)
 
                 is SonosRepository.CastState.DevicesFound -> {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LazyColumn(
+                        modifier = Modifier.tvFocusGroup(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         // Groups section
                         if (state.groups.isNotEmpty()) {
                             item(key = "groups_header") {
@@ -495,7 +515,11 @@ private fun DestinationRouteRow(
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = Color.White.copy(alpha = 0.07f),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onClick),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .tvFocusBorder(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
     ) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
@@ -547,7 +571,10 @@ private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = Color(0xFF4FC3F7).copy(alpha = 0.1f),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
     ) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -585,7 +612,10 @@ private fun DeviceRow(device: SonosDevice, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = Color.White.copy(alpha = 0.07f),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
     ) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
