@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
@@ -72,6 +75,8 @@ private data class PosterSheetItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MoviesScreen(
+    initialFocusRequester: FocusRequester? = null,
+    initialFocusEnabled: Boolean = true,
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit = {},
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
@@ -114,6 +119,36 @@ fun MoviesScreen(
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val firstCollectionRowId = state.collections
+        .firstOrNull { it.items.isNotEmpty() }
+        ?.id
+    val firstStremioRowKey = state.stremioRows
+        .firstOrNull { it.items.isNotEmpty() }
+        ?.rowKey
+    val startupFocusTarget = when {
+        state.continueWatching.isNotEmpty() -> "continue"
+        firstCollectionRowId != null -> "collection"
+        firstStremioRowKey != null -> "stremio"
+        !state.loading && state.showHeroSection && state.heroBanner.isNotEmpty() -> "hero"
+        else -> null
+    }
+    var startupFocusRequested by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isTv, initialFocusEnabled, startupFocusTarget) {
+        if (
+            !isTv ||
+            !initialFocusEnabled ||
+            startupFocusRequested ||
+            startupFocusTarget == null ||
+            initialFocusRequester == null
+        ) {
+            return@LaunchedEffect
+        }
+        startupFocusRequested = runCatching {
+            initialFocusRequester.requestFocus()
+        }.isSuccess
+    }
 
     MoviesThemeWrapper(moviesThemeName) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -139,6 +174,11 @@ fun MoviesScreen(
                     item(key = "hero_pager") {
                         HeroPager(
                             items = state.heroBanner,
+                            initialFocusRequester = if (startupFocusTarget == "hero") {
+                                initialFocusRequester
+                            } else {
+                                null
+                            },
                             onClick = { item ->
                                 when {
                                     item.tmdbId != null && item.mediaType == "tv" -> onTvClick(item.tmdbId)
@@ -176,9 +216,21 @@ fun MoviesScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(state.continueWatching, key = { "cw_${it.tmdbId}" }) { entry ->
+                            itemsIndexed(
+                                state.continueWatching,
+                                key = { _, entry -> "cw_${entry.tmdbId}" },
+                            ) { index, entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
+                                    modifier = if (
+                                        index == 0 &&
+                                        startupFocusTarget == "continue" &&
+                                        initialFocusRequester != null
+                                    ) {
+                                        Modifier.focusRequester(initialFocusRequester)
+                                    } else {
+                                        Modifier
+                                    },
                                     onClick = { openCwEntry(entry) },
                                     onLongPress = { cwSheetEntry = entry },
                                 )
@@ -284,10 +336,23 @@ fun MoviesScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(row.items, key = { "${row.id}_${it.id}" }) { m ->
+                            itemsIndexed(
+                                row.items,
+                                key = { _, movie -> "${row.id}_${movie.id}" },
+                            ) { index, m ->
                                 MidPoster(
                                     m = m,
                                     posterStyle = posterStyle,
+                                    modifier = if (
+                                        row.id == firstCollectionRowId &&
+                                        index == 0 &&
+                                        startupFocusTarget == "collection" &&
+                                        initialFocusRequester != null
+                                    ) {
+                                        Modifier.focusRequester(initialFocusRequester)
+                                    } else {
+                                        Modifier
+                                    },
                                     onClick = { onMovieClick(m.id) },
                                     onLongPress = {
                                         posterSheet = PosterSheetItem(m.id, m.displayTitle, m.posterUrl, "movie")
@@ -318,10 +383,23 @@ fun MoviesScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
+                            itemsIndexed(
+                                row.items,
+                                key = { _, meta -> "${row.rowKey}_${meta.id}" },
+                            ) { index, meta ->
                                 StremioPoster(
                                     meta = meta,
                                     posterStyle = posterStyle,
+                                    modifier = if (
+                                        row.rowKey == firstStremioRowKey &&
+                                        index == 0 &&
+                                        startupFocusTarget == "stremio" &&
+                                        initialFocusRequester != null
+                                    ) {
+                                        Modifier.focusRequester(initialFocusRequester)
+                                    } else {
+                                        Modifier
+                                    },
                                     onLongPress = {
                                         posterSheet = PosterSheetItem(
                                             tmdbId = null,
@@ -572,6 +650,7 @@ private fun MoviesHeader(
 @Composable
 private fun HeroPager(
     items: List<HeroBannerItem>,
+    initialFocusRequester: FocusRequester? = null,
     onClick: (HeroBannerItem) -> Unit,
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -596,6 +675,11 @@ private fun HeroPager(
             val item = items[page]
             HeroBannerSlide(
                 item = item,
+                modifier = if (page == 0 && initialFocusRequester != null) {
+                    Modifier.focusRequester(initialFocusRequester)
+                } else {
+                    Modifier
+                },
                 onClick = { onClick(item) },
                 onFocusChange = { pagerHasFocus = it },
             )
@@ -624,12 +708,13 @@ private fun HeroPager(
 @Composable
 private fun HeroBannerSlide(
     item: HeroBannerItem,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onFocusChange: (Boolean) -> Unit = {},
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Box(
-        Modifier
+        modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
             .tvFocusBorder(RoundedCornerShape(14.dp))
@@ -858,6 +943,7 @@ private fun AddonSectionTitleWithViewAll(
 @Composable
 private fun ContinueWatchingCard(
     entry: WatchProgressEntity,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
 ) {
@@ -866,7 +952,7 @@ private fun ContinueWatchingCard(
     else 0f
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier
             .width(320.dp)
             .tvFocusBorder(RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
@@ -927,13 +1013,19 @@ private fun ContinueWatchingCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: () -> Unit, onLongPress: () -> Unit = {}) {
+private fun MidPoster(
+    m: TmdbMovie,
+    posterStyle: String = "portrait",
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit = {},
+) {
     val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     Column(
-        Modifier
+        modifier
             .width(width)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
@@ -961,12 +1053,18 @@ private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: (
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portrait", onLongPress: () -> Unit = {}, onClick: () -> Unit) {
+private fun StremioPoster(
+    meta: StremioMetaPreview,
+    posterStyle: String = "portrait",
+    modifier: Modifier = Modifier,
+    onLongPress: () -> Unit = {},
+    onClick: () -> Unit,
+) {
     val useLandscape = posterStyle == "landscape"
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     Column(
-        Modifier
+        modifier
             .width(width)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
