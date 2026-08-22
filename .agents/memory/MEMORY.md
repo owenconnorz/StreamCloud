@@ -2,6 +2,7 @@
 - [Android KAPT source isolation](android-kapt-source-isolation.md) — Isolate new provider resolver models when KAPT duplicates existing model classes during CI.
 - [GitHub Android source path](github-android-source-path.md) — The Actions build and path filter use the repository’s nested `StreamCloud/` tree.
 - [Android Auto voice playback](android-auto-voice-playback.md) — Resolve Media3 voice search metadata to a real playable item before returning it to the car.
+- [DJ narration behavior](dj-narration-behavior.md) — DJ narration is mandatory for intros and automatic transitions; voice style remains configurable.
 - [YouTube stream URL persistence](yt-stream-url-persistence.md) — Persist signed URLs only until expiry and evict them on every CDN rejection.
 - [Signed stream request identities](youtube-stream-request-identities.md) — Use the resolver’s user agent for every direct or proxied CDN request.
 - [Sonos proxy preflight](sonos-proxy-preflight.md) — Verify audio bytes and exact HTTP metadata before assigning a signed stream to Sonos.
