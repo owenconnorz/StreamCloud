@@ -148,9 +148,17 @@ fun MoviesScreen(
         ) {
             return@LaunchedEffect
         }
-        startupFocusRequested = runCatching {
-            initialFocusRequester.requestFocus()
-        }.isSuccess
+        // The LazyColumn item the focus requester is attached to may not be
+        // laid out yet when this effect first runs. Retry every 200 ms until
+        // the node is attached and requestFocus() succeeds (up to ~2 s).
+        repeat(10) {
+            kotlinx.coroutines.delay(200L)
+            val ok = runCatching { initialFocusRequester.requestFocus() }.isSuccess
+            if (ok) {
+                startupFocusRequested = true
+                return@LaunchedEffect
+            }
+        }
     }
 
     MoviesThemeWrapper(moviesThemeName) {

@@ -1260,9 +1260,15 @@ fun StreamCloudApp() {
                             Modifier
                                 .size(44.dp)
                                 .clip(CircleShape)
-                                .focusRequester(firstRailFocus)
-                                .focusProperties { canFocus = tvNavOpen }
-                                .tvFocusBorder(CircleShape)
+                                // Only focusable while the drawer is open so Android TV's native
+                                // focus engine cannot land here on startup. tvFocusBorder() calls
+                                // .focusable() internally, so we must not apply it when closed.
+                                .then(
+                                    if (tvNavOpen)
+                                        Modifier.tvFocusBorder(CircleShape)
+                                    else
+                                        Modifier.focusable(false)
+                                )
                                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.78f))
                                 .onKeyEvent { event ->
                                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
