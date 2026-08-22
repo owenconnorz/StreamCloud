@@ -132,31 +132,32 @@ object SonosProxyServer {
      * healthy Sonos session.
      */
     private fun refreshTrack(track: TrackInfo): TrackInfo? = runBlocking {
-        val formatInfo = if (track.videoId.isNotBlank()) {
+        val extracted = if (track.watchUrl.isNotBlank()) {
             runCatching {
-                YtPlayerUtils.resolveAudioFormatInfo(track.videoId, sonosSafe = true)
-            }.getOrNull()?.takeUnless { it.requiresWebSessionHeaders }
+                NewPipeRepository.resolveVerifiedAudioStream(track.watchUrl)
+            }.getOrNull()
         } else {
             null
         }
-        if (formatInfo != null) {
+        if (extracted != null) {
             return@runBlocking track.copy(
-                resolvedUrl = formatInfo.url,
-                mimeType = formatInfo.mimeType.substringBefore(";").trim(),
-                userAgent = formatInfo.userAgent,
-                contentLength = formatInfo.contentLength ?: track.contentLength,
+                resolvedUrl = extracted.url,
+                userAgent = extracted.userAgent,
             )
         }
 
-        if (track.watchUrl.isBlank()) return@runBlocking null
+        if (track.videoId.isBlank()) return@runBlocking null
         runCatching {
-            NewPipeRepository.resolveVerifiedAudioStream(track.watchUrl)?.let { extracted ->
-                track.copy(
-                    resolvedUrl = extracted.url,
-                    userAgent = extracted.userAgent,
-                    contentLength = track.contentLength,
-                )
-            }
+            YtPlayerUtils.resolveAudioFormatInfo(track.videoId, sonosSafe = true)
+                ?.takeUnless { it.requiresWebSessionHeaders }
+                ?.let { formatInfo ->
+                    track.copy(
+                        resolvedUrl = formatInfo.url,
+                        mimeType = formatInfo.mimeType.substringBefore(";").trim(),
+                        userAgent = formatInfo.userAgent,
+                        contentLength = formatInfo.contentLength ?: track.contentLength,
+                    )
+                }
         }.getOrNull()
     }
 
@@ -170,6 +171,7 @@ object SonosProxyServer {
             // only after Sonos has accepted the local proxy URI.
             .header("User-Agent", track.userAgent)
             .header("Accept", "*/*")
+            .header("Accept-Encoding", "identity")
         if (rangeHeader != null) {
             reqBuilder.header("Range", rangeHeader)
         }
@@ -190,6 +192,7 @@ object SonosProxyServer {
                 .url(streamUrl)
                 .header("User-Agent", track.userAgent)
                 .header("Accept", "*/*")
+                .header("Accept-Encoding", "identity")
                 .header("Range", "bytes=0-1")
                 .build()
 
