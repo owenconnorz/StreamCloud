@@ -29,6 +29,15 @@ object LyricsRepository {
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        // lrclib.net is behind Cloudflare which returns 520 for the default OkHttp UA
+        .addInterceptor { chain ->
+            chain.proceed(
+                chain.request().newBuilder()
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36")
+                    .header("Accept", "application/json")
+                    .build()
+            )
+        }
         .build()
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
