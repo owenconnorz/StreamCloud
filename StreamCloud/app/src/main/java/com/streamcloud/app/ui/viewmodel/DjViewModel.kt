@@ -95,7 +95,7 @@ class DjViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun buildPersonalizedMix() {
+    fun buildPersonalizedMix(onComplete: (DjSession?) -> Unit = {}) {
         _state.update { it.copy(loading = true, error = null, session = null) }
         viewModelScope.launch {
             try {
@@ -139,6 +139,7 @@ class DjViewModel(context: Context) : ViewModel() {
                             error = "Play or like a few songs first, then the DJ can make a mix around your taste.",
                         )
                     }
+                    onComplete(null)
                     return@launch
                 }
 
@@ -162,6 +163,7 @@ class DjViewModel(context: Context) : ViewModel() {
                             error = "I couldn't find playable songs around your listening yet. Try again or use a mood below.",
                         )
                     }
+                    onComplete(null)
                     return@launch
                 }
 
@@ -179,18 +181,17 @@ class DjViewModel(context: Context) : ViewModel() {
                 // Personalized track metadata is private listening data. Keep this narration local
                 // instead of sending a seed track to the optional remote AI backend.
                 val narration = buildFallbackNarration("your listening", tracks)
+                val session = DjSession(
+                    request = "For you",
+                    narration = narration,
+                    tracks = tracks,
+                    isPersonalized = true,
+                    sourceDescription = sourceDescription,
+                )
                 _state.update {
-                    it.copy(
-                        loading = false,
-                        session = DjSession(
-                            request = "For you",
-                            narration = narration,
-                            tracks = tracks,
-                            isPersonalized = true,
-                            sourceDescription = sourceDescription,
-                        ),
-                    )
+                    it.copy(loading = false, session = session)
                 }
+                onComplete(session)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -200,6 +201,7 @@ class DjViewModel(context: Context) : ViewModel() {
                         error = "The personalized DJ couldn't build a mix: ${error.message ?: "please try again."}",
                     )
                 }
+                onComplete(null)
             }
         }
     }
