@@ -582,33 +582,30 @@ object YtPlayerUtils {
                     // a second CDN round trip before every ordinary song start. A real CDN 403
                     // still triggers the service's bounded independent-extractor recovery.
                     //
-                    // Also SKIP for authenticated web clients (WEB, WEB_CREATOR, WEB_REMIX):
-                    // These clients generate session-signed CDN URLs.  The URL is perfectly
-                    // valid for ExoPlayer (which sends proper User-Agent + Range headers) but
-                    // our bare unauthenticated HEAD probe often 403s because the CDN rejects
-                    // headless/bot-like requests for premium/login-required content.
-                    // Skipping HEAD validation for these clients lets ExoPlayer attempt the
-                    // URL directly — if it genuinely fails, ExoPlayer reports the error anyway.
-                    //
-                    // KEEP for unauthenticated fallback clients (ANDROID_VR, etc.)
-                    // where the CDN URL should be freely accessible and HEAD validation
-                    // filters out bad URLs early without bothering ExoPlayer.
-                    val skipHeadValidation = client.label == PRIMARY_FAST_START_CLIENT ||
-                        client.useWebAuth || client.requiresAuth
-                    if (skipHeadValidation || validateStreamUrl(candidateUrl, client.userAgent)) {
-                        if (skipHeadValidation) {
+                    // Keep the fastest anonymous client probe-free for first-audio latency. Every
+                    // fallback, including WEB_REMIX, must prove its first byte-range request can
+                    // be read with the same resolver identity that Media3 will use.
+                    val requiresWebSessionHeaders =
+                        client.useWebAuth || client.useWebPoTokens || client.requiresAuth
+                    val skipRangeValidation = client.label == PRIMARY_FAST_START_CLIENT
+                    if (skipRangeValidation || validateStreamUrl(
+                            url = candidateUrl,
+                            userAgent = client.userAgent,
+                            requiresWebSessionHeaders = requiresWebSessionHeaders,
+                        )
+                    ) {
+                        if (skipRangeValidation) {
                             AppLogger.i(
                                 TAG,
-                                "[${client.label}] $videoId — skipping HEAD validation, passing to ExoPlayer",
+                                "[${client.label}] $videoId — skipping range validation, passing to ExoPlayer",
                             )
                         }
                         return@withContext result.info.copy(
                             url = candidateUrl,
-                            requiresWebSessionHeaders =
-                                client.useWebAuth || client.useWebPoTokens || client.requiresAuth,
+                            requiresWebSessionHeaders = requiresWebSessionHeaders,
                         )
                     } else {
-                        AppLogger.w(TAG, "[${client.label}] $videoId — URL failed HEAD validation (403), trying next client")
+                        AppLogger.w(TAG, "[${client.label}] $videoId — URL failed range validation, trying next client")
                     }
                 }
                 is ClientResult.CipheredOnly ->
@@ -1019,24 +1016,45 @@ object YtPlayerUtils {
     }
 
     /**
-     * Validate a stream URL by making a HEAD request — identical to Metrolist's validateStatus().
-     * Returns true if the server responds 2xx, false for 403/404/etc.
-     * Skips validation (returns true) if the network call itself fails so we don't block playback
-     * on transient connectivity issues.
+     * Validate a stream URL with the same first-byte request shape that Media3 will use.
      *
-     * userAgent must match the client that generated the URL.  Without the correct UA the
-     * CDN rejects the HEAD probe with 403 even when the URL is perfectly valid for that
-     * client's ExoPlayer requests — previously this caused ANDROID_TESTSUITE and Android VR
-     * URLs to be discarded before they ever reached the player.
+     * A HEAD request is not sufficient for WEB_REMIX/TVHTML5 URLs: the CDN can accept HEAD and
+     * still reject the first ranged media read. The exact resolver identity and browser session
+     * must be carried into this probe or a valid session-backed URL is falsely rejected.
      */
-    private fun validateStreamUrl(url: String, userAgent: String): Boolean {
+    private fun validateStreamUrl(
+        url: String,
+        userAgent: String,
+        requiresWebSessionHeaders: Boolean,
+    ): Boolean {
         return try {
-            val req = Request.Builder()
+            val builder = Request.Builder()
                 .url(url)
-                .head()
+                .get()
                 .header("User-Agent", userAgent)
-                .build()
-            http.newCall(req).execute().use { it.isSuccessful }
+                .header("Range", "bytes=0-1")
+            if (requiresWebSessionHeaders) {
+                ytMusicCookie.takeIf { it.isNotBlank() }?.let { cookie ->
+                    builder.header("Cookie", cookie)
+                        .header("Origin", "https://music.youtube.com")
+                        .header("Referer", "https://music.youtube.com/")
+                }
+                cachedVisitorData?.let { visitor ->
+                    builder.header("X-Goog-Visitor-Id", visitor)
+                }
+                if (url.contains("pot=")) {
+                    builder.header("Sec-Fetch-Dest", "audio")
+                        .header("Sec-Fetch-Mode", "cors")
+                        .header("Sec-Fetch-Site", "cross-site")
+                }
+            }
+            http.newCall(builder.build()).execute().use { response ->
+                val valid = response.code == 200 || response.code == 206
+                if (!valid) {
+                    AppLogger.w(TAG, "stream range probe rejected HTTP ${response.code}")
+                }
+                valid
+            }
         } catch (e: Exception) {
             Log.d(TAG, "validateStreamUrl exception (assuming ok): ${e.message}")
             true   // network error ≠ 403 — don't skip a potentially good URL

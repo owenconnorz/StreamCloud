@@ -101,11 +101,12 @@ class MusicPlaybackService : MediaLibraryService() {
     @Volatile private var ytMusicCookieForStream: String = ""
     @Volatile private var isCurrentLiked: Boolean = false
     /**
-     * A GVS URL can be invalidated by YouTube even though its `expire=` value is hours away.
-     * Retrying that exact cached URL just produces repeated 403s. Track one automatic refresh per
-     * song and remember the rejecting Innertube client so the resolver selects the next client.
+     * A GVS URL can be invalidated by YouTube even though its `expire=` value is hours away, or
+     * answer the first Media3 range read with an out-of-range source error. Retrying that exact
+     * cached URL just repeats the failure. Track one automatic refresh per song and remember the
+     * rejecting Innertube client so the resolver selects the next client.
      */
-    private val youtube403RetriedVideoIds = ConcurrentHashMap.newKeySet<String>()
+    private val youtubeStreamRetriedVideoIds = ConcurrentHashMap.newKeySet<String>()
     private val rejectedYouTubeClientByVideoId = ConcurrentHashMap<String, String>()
     /**
      * A 403 means an Innertube URL was accepted by the player API but rejected by the CDN. On the
@@ -188,7 +189,7 @@ class MusicPlaybackService : MediaLibraryService() {
                         mediaItem?.let { item ->
                             youtubeVideoId(item.mediaId)?.let { videoId ->
                                 // A newly started track gets its own one-shot 403 recovery budget.
-                                youtube403RetriedVideoIds.remove(videoId)
+                                youtubeStreamRetriedVideoIds.remove(videoId)
                                 rejectedYouTubeClientByVideoId.remove(videoId)
                                 preferMaintainedExtractorVideoIds.remove(videoId)
                             }
@@ -1235,11 +1236,15 @@ class MusicPlaybackService : MediaLibraryService() {
      * the invalid cached URL.
      */
     private fun retryWithFreshYoutubeStream(error: androidx.media3.common.PlaybackException): Boolean {
-        if (!isYoutubeCdn403(error)) return false
+        val rangeReadFailure = isYoutubeRangeReadFailure(error)
+        if (!isYoutubeCdn403(error) && !rangeReadFailure) return false
 
         val videoId = youtubeVideoId(exoPlayer.currentMediaItem?.mediaId) ?: return false
-        if (!youtube403RetriedVideoIds.add(videoId)) {
-            AppLogger.w(TAG, "YouTube CDN 403 for $videoId after automatic refresh; not retrying again")
+        if (!youtubeStreamRetriedVideoIds.add(videoId)) {
+            AppLogger.w(
+                TAG,
+                "YouTube stream read failed for $videoId after automatic refresh; not retrying again",
+            )
             return false
         }
 
@@ -1248,11 +1253,32 @@ class MusicPlaybackService : MediaLibraryService() {
             rejectedYouTubeClientByVideoId[videoId] = client
         }
         preferMaintainedExtractorVideoIds.add(videoId)
-        val resumePosition = exoPlayer.currentPosition.coerceAtLeast(0L)
+        // A POSITION_OUT_OF_RANGE error can be caused by a stale partial cache span. Do not carry
+        // its byte position into the newly resolved URL; the fresh stream must start at byte zero.
+        val resumePosition = if (rangeReadFailure) 0L else exoPlayer.currentPosition.coerceAtLeast(0L)
+        val currentItem = exoPlayer.currentMediaItem
+        val cacheKey = currentItem?.localConfiguration?.customCacheKey
+            ?: currentItem?.localConfiguration?.uri?.toString()
+            ?: currentItem?.mediaId
+            ?: "https://music.youtube.com/watch?v=$videoId"
+        val preservesCompletedDownload =
+            com.streamcloud.app.data.downloads.YtMusicDownloadUtil.isDownloaded(cacheKey)
+        runCatching { playerCache.removeResource(cacheKey) }
+            .onFailure { cacheError ->
+                AppLogger.w(TAG, "Could not evict partial player cache for $videoId: ${cacheError.message}")
+            }
+        if (!preservesCompletedDownload) {
+            runCatching { downloadCache.removeResource(cacheKey) }
+                .onFailure { cacheError ->
+                    AppLogger.w(TAG, "Could not evict partial download cache for $videoId: ${cacheError.message}")
+                }
+        }
         AppLogger.w(
             TAG,
-            "YouTube CDN 403 for $videoId; discarded ${rejected?.clientLabel ?: "uncached"} URL " +
-                "and trying the independent extractor chain",
+            "YouTube ${if (rangeReadFailure) "range read failure" else "CDN 403"} for $videoId; " +
+                "discarded ${rejected?.clientLabel ?: "uncached"} URL and stale " +
+                "${if (preservesCompletedDownload) "player" else "player/download"} cache data; " +
+                "trying the independent extractor chain",
         )
 
         // ResolvingDataSource invokes resolveStreamUrl() on prepare. It sees the removed cache
@@ -1268,6 +1294,22 @@ class MusicPlaybackService : MediaLibraryService() {
         var cause: Throwable? = error.cause
         while (cause != null) {
             if (cause is HttpDataSource.InvalidResponseCodeException && cause.responseCode == 403) {
+                return true
+            }
+            cause = cause.cause
+        }
+        return false
+    }
+
+    private fun isYoutubeRangeReadFailure(error: androidx.media3.common.PlaybackException): Boolean {
+        if (error.errorCode ==
+            androidx.media3.common.PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE
+        ) {
+            return true
+        }
+        var cause: Throwable? = error.cause
+        while (cause != null) {
+            if (cause is HttpDataSource.InvalidResponseCodeException && cause.responseCode == 416) {
                 return true
             }
             cause = cause.cause
