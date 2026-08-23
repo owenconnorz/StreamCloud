@@ -2,6 +2,7 @@ package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -190,6 +191,15 @@ private fun RecentSearches(
         return
     }
 
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val anchorFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(isTv) {
+        if (isTv) {
+            delay(200)
+            try { anchorFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
     LazyColumn(
         contentPadding = PaddingValues(
             top = padding.calculateTopPadding() + 8.dp,
@@ -197,6 +207,11 @@ private fun RecentSearches(
         ),
         modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(),
     ) {
+        if (isTv) {
+            item(key = "tv-focus-anchor") {
+                Box(Modifier.size(1.dp).focusRequester(anchorFocusRequester).focusable())
+            }
+        }
         item(key = "history-header") {
             Row(
                 Modifier
@@ -264,11 +279,23 @@ private fun CombinedResultsList(
     onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit,
     onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val csGrouped = remember(state.csSearchResults) { state.csSearchResults.groupBy { it.pluginName } }
     val stremioGrouped = remember(state.stremioSearchResults) { state.stremioSearchResults.groupBy { it.addonName } }
     val anyLoading = state.moviesLoading || state.seriesLoading || state.csLoading || state.stremioLoading
     val hasAny = state.searchResults.isNotEmpty() || state.tvSearchResults.isNotEmpty() ||
         state.csSearchResults.isNotEmpty() || state.stremioSearchResults.isNotEmpty()
+
+    // On TV the text field never auto-focuses, so nothing has focus when results appear.
+    // Request focus on a tiny invisible anchor as the first LazyColumn item so the user
+    // can immediately navigate with the D-pad (same pattern as the player's FocusRequester).
+    val anchorFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(hasAny) {
+        if (isTv && hasAny) {
+            delay(200)
+            try { anchorFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
 
     if (!hasAny && !anyLoading) {
         Box(
@@ -294,6 +321,14 @@ private fun CombinedResultsList(
         modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(verticalOnly = true),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
+        // TV: 1dp invisible anchor receives the initial focus request so D-pad Down
+        // immediately moves into the first card row below it.
+        if (isTv) {
+            item(key = "tv-focus-anchor") {
+                Box(Modifier.size(1.dp).focusRequester(anchorFocusRequester).focusable())
+            }
+        }
+
         // ── Series (TMDB TV) ──────────────────────────────────────────────
         if (state.tvSearchResults.isNotEmpty() || state.seriesLoading) {
             item(key = "series-section") {
