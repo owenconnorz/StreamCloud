@@ -385,11 +385,12 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
 
 
             null -> SettingsHubList(
-                onNavigate        = { currentPage = it },
-                onOpenPlugins     = onOpenPlugins,
-                onOpenCollections = onOpenCollections,
-                onSwitchProfile   = onSwitchProfile,
-                onOpenDownloads   = onOpenDownloads,
+                onNavigate          = { currentPage = it },
+                onOpenPlugins       = onOpenPlugins,
+                onOpenCollections   = onOpenCollections,
+                onSwitchProfile     = onSwitchProfile,
+                onOpenDownloads     = onOpenDownloads,
+                tvNavFocusRequester = tvNavFocusRequester,
             )
 
 
@@ -2174,7 +2175,7 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
 }
 
 @Composable
-private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}, onOpenDownloads: () -> Unit = {}) {
+private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}, onOpenDownloads: () -> Unit = {}, tvNavFocusRequester: FocusRequester? = null) {
     val context = LocalContext.current
     val checker = remember { UpdateChecker(context.applicationContext) }
     var updateLabel by remember { mutableStateOf<String?>(null) }
