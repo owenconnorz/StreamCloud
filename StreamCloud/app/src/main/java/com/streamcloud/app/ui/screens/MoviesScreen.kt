@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -689,6 +690,8 @@ private fun HeroPager(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    // On TV the hero fills the whole screen (Netflix-style); content rows are below the fold.
+    val tvHeroHeight = LocalConfiguration.current.screenHeightDp.dp
 
     if (isTv) {
         // HorizontalPager intercepts every D-pad left/right at the input level and permanently
@@ -706,7 +709,7 @@ private fun HeroPager(
         Column(Modifier.fillMaxWidth()) {
             Crossfade(
                 targetState = currentPage,
-                modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight),
+                modifier = Modifier.fillMaxWidth().height(tvHeroHeight),
                 label = "tvHeroBanner",
             ) { page ->
                 val item = items.getOrNull(page) ?: return@Crossfade
