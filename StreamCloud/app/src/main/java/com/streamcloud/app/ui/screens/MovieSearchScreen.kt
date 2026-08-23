@@ -2,10 +2,10 @@ package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -299,7 +299,7 @@ private fun CombinedResultsList(
                     header = "TMDB \u2022 Series",
                     loading = state.seriesLoading,
                 ) {
-                    state.tvSearchResults.forEach { movie ->
+                    items(state.tvSearchResults) { movie ->
                         NuvioCard(
                             imageUrl = movie.backdropUrl ?: movie.posterUrl,
                             title = movie.displayTitle,
@@ -317,7 +317,7 @@ private fun CombinedResultsList(
                     header = "TMDB \u2022 Movies",
                     loading = state.moviesLoading,
                 ) {
-                    state.searchResults.forEach { movie ->
+                    items(state.searchResults) { movie ->
                         NuvioCard(
                             imageUrl = movie.backdropUrl ?: movie.posterUrl,
                             title = movie.displayTitle,
@@ -335,7 +335,7 @@ private fun CombinedResultsList(
                     header = "$pluginName \u2022 Search",
                     loading = false,
                 ) {
-                    results.forEach { r ->
+                    items(results) { r ->
                         NuvioCard(
                             imageUrl = r.item.posterUrl,
                             title = r.item.name,
@@ -358,7 +358,7 @@ private fun CombinedResultsList(
                     header = "$addonName \u2022 Search",
                     loading = false,
                 ) {
-                    results.forEach { r ->
+                    items(results) { r ->
                         NuvioCard(
                             imageUrl = r.item.poster,
                             title = r.item.name,
@@ -384,10 +384,9 @@ private fun CombinedResultsList(
 private fun NuvioSection(
     header: String,
     loading: Boolean,
-    cards: @Composable () -> Unit,
+    cards: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
 ) {
     Column {
-        // Header row
         Row(
             Modifier
                 .fillMaxWidth()
@@ -409,25 +408,15 @@ private fun NuvioSection(
                 )
             }
         }
-
-        NuvioCardRow(cards = cards)
+        // LazyRow gives proper TV D-pad focus traversal and auto bring-into-view,
+        // unlike a regular Row+horizontalScroll which intercepts directional events.
+        LazyRow(
+            modifier = Modifier.fillMaxWidth().tvFocusGroup(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = 6.dp),
+            content = cards,
+        )
     }
-}
-
-@Composable
-private fun NuvioCardRow(cards: @Composable () -> Unit) {
-    androidx.compose.foundation.layout.Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .tvFocusGroup(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        content = {
-            Spacer(Modifier.width(6.dp))
-            cards()
-            Spacer(Modifier.width(6.dp))
-        },
-    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
