@@ -3,6 +3,7 @@ package com.streamcloud.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -53,6 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -115,10 +118,13 @@ import androidx.media3.common.util.UnstableApi
 import com.streamcloud.app.data.util.GoogleAccountHelper
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
@@ -130,6 +136,7 @@ import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.text.style.TextOverflow
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import androidx.compose.ui.focus.onFocusChanged
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -161,6 +168,7 @@ fun StreamCloudApp() {
     val sl = remember { ServiceLocator.get(context) }
     val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
+    val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
 
 
 
@@ -293,8 +301,11 @@ fun StreamCloudApp() {
         label = "navOuterBottomPad",
     )
 
-    // Show miniplayer on all non-media routes (including music home)
-    val showMiniPlayer = currentRoute != null && !isMediaRoute
+    // Mini player is hidden on Settings, Plugins, and Adult routes
+    val isSettingsOrAdult = currentRoute == Tab.Settings.route ||
+        currentRoute == "plugins" || currentRoute == "plugin-picker" ||
+        currentRoute == Tab.Adult.route
+    val showMiniPlayer = currentRoute != null && !isMediaRoute && !isSettingsOrAdult
 
     // Profile picker — show on launch when profiles exist; also triggered from Settings
     var showProfilePicker by remember { mutableStateOf(false) }
@@ -317,36 +328,39 @@ fun StreamCloudApp() {
             (currentRoute == null || tabs.any { it.route == currentRoute })
         val firstRailFocus = remember { FocusRequester() }
         val firstTvNavFocus = remember { FocusRequester() }
+        val firstMovieCardFocus = remember { FocusRequester() }
+        // Dedicated requester always attached to the current hero Play button so
+        // D-pad Down from the top nav bar reliably lands there regardless of
+        // which startupFocusTarget the content decides to use.
+        val tvNavHeroFocus = remember { FocusRequester() }
+        val focusManager = LocalFocusManager.current
         LaunchedEffect(showRail) {
             // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
-            // On TV, it is attached to the hamburger button — see focusRequester() below.
+            // On TV, focus starts on the persistent navigation launcher.
             if (showRail && !isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
         }
-        // TV popup nav state — auto-close on route change
-        var tvNavOpen by remember { mutableStateOf(false) }
-        LaunchedEffect(currentRoute) { tvNavOpen = false }
-        // The drawer owns focus while it is visible. On close, return to the
-        // launcher button instead of leaving the remote on a removed nav row.
-        LaunchedEffect(tvNavOpen, isTv) {
-            if (!isTv) return@LaunchedEffect
-            try {
-                if (tvNavOpen) firstTvNavFocus.requestFocus()
-                else firstRailFocus.requestFocus()
-            } catch (_: Exception) {}
-        }
-        // Intercept the back button to close the TV nav panel instead of exiting the app.
-        BackHandler(enabled = isTv && tvNavOpen) { tvNavOpen = false }
+        // Netflix-style TV nav: track which item last had startup focus so Up-from-hero focuses nav
+        var firstMovieFocused by remember { mutableStateOf(false) }
+        LaunchedEffect(currentRoute) { firstMovieFocused = false }
         Row(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .onPreviewKeyEvent { event ->
-                    if (isTv && event.type == KeyEventType.KeyDown && event.key == Key.Menu) {
-                        tvNavOpen = !tvNavOpen
-                        true
-                    } else {
-                        false
-                    }
+                    // On TV: Menu key or Up-while-hero-is-focused raises focus to the top nav bar
+                    if (isTv && showRail && event.type == KeyEventType.KeyDown) {
+                        when {
+                            event.key == Key.Menu -> {
+                                try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
+                                true
+                            }
+                            event.key == Key.DirectionUp && firstMovieFocused -> {
+                                try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
+                                true
+                            }
+                            else -> false
+                        }
+                    } else false
                 },
         ) {
             if (showRail && !isTv) {
@@ -434,6 +448,10 @@ fun StreamCloudApp() {
             ) {
                 composable(Tab.Movies.route) {
                     MoviesScreen(
+                        initialFocusRequester = firstMovieCardFocus,
+                        initialFocusEnabled = !showProfilePicker,
+                        tvNavHeroFocus = tvNavHeroFocus,
+                        onFirstMovieFocusedChanged = { firstMovieFocused = it },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
                         onOpenCloudStreamPlugin = { internalName ->
@@ -563,17 +581,19 @@ fun StreamCloudApp() {
                     val stremioRepo = remember { com.streamcloud.app.data.stremio.StremioRepository(ctx.applicationContext) }
                     val installedPlugins by pluginRepo.installed.collectAsState(initial = emptyList())
                     val installedAddons by stremioRepo.addons.collectAsState(initial = emptyList())
-                    com.streamcloud.app.ui.screens.CollectionsScreen(
-                        onBack = { nav.popBackStack() },
-                        installedCsPlugins = installedPlugins,
-                        installedStremioAddons = installedAddons,
-                        onOpenCatalog = { src, t, sub ->
-                            val s = URLEncoder.encode(src, "UTF-8")
-                            val tt = URLEncoder.encode(t, "UTF-8")
-                            val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
-                            nav.navigate("catalog/$s/$tt/$ss")
-                        },
-                    )
+                    com.streamcloud.app.ui.theme.StaticAppTheme {
+                        com.streamcloud.app.ui.screens.CollectionsScreen(
+                            onBack = { nav.popBackStack() },
+                            installedCsPlugins = installedPlugins,
+                            installedStremioAddons = installedAddons,
+                            onOpenCatalog = { src, t, sub ->
+                                val s = URLEncoder.encode(src, "UTF-8")
+                                val tt = URLEncoder.encode(t, "UTF-8")
+                                val ss = URLEncoder.encode(sub.ifBlank { " " }, "UTF-8")
+                                nav.navigate("catalog/$s/$tt/$ss")
+                            },
+                        )
+                    }
                 }
                 composable(
                     "catalog/{src}/{title}/{subtitle}",
@@ -833,13 +853,15 @@ fun StreamCloudApp() {
                     )
                 }
                 composable("plugin-picker") {
-                    PluginPickerScreen(
-                        onBack = { nav.popBackStack() },
-                        onOpenPlugin = { internalName ->
-                            val n = URLEncoder.encode(internalName, "UTF-8")
-                            nav.navigate("cloudstream/$n")
-                        },
-                    )
+                    com.streamcloud.app.ui.theme.StaticAppTheme {
+                        PluginPickerScreen(
+                            onBack = { nav.popBackStack() },
+                            onOpenPlugin = { internalName ->
+                                val n = URLEncoder.encode(internalName, "UTF-8")
+                                nav.navigate("cloudstream/$n")
+                            },
+                        )
+                    }
                 }
                 composable(
                     "music-search?q={q}",
@@ -903,6 +925,11 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("yt-playlist/$i/$t")
                         },
+                        onOpenSpotifyPlaylist = { id, title ->
+                            val i = URLEncoder.encode(id, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("spotify-playlist/$i/$t")
+                        },
                         onOpenArtist = { url ->
                             val u = URLEncoder.encode(url, "UTF-8")
                             nav.navigate("artist/$u")
@@ -941,6 +968,19 @@ fun StreamCloudApp() {
                             val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("cs-detail/$p/$u/$n/$po")
                         },
+                    )
+                }
+                composable(
+                    "spotify-playlist/{id}/{title}",
+                    arguments = listOf(
+                        navArgument("id")    { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    com.streamcloud.app.ui.screens.SpotifyPlaylistScreen(
+                        playlistId    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8"),
+                        playlistTitle = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8"),
+                        onBack        = { nav.popBackStack() },
                     )
                 }
                 composable(
@@ -1165,21 +1205,25 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(Tab.Settings.route) {
-                    SettingsHubScreen(
-                        onOpenPlugins     = { nav.navigate("plugins") },
-                        onOpenCollections = { nav.navigate("collections") },
-                        onSwitchProfile   = { showProfilePicker = true },
-                    )
+                    com.streamcloud.app.ui.theme.StaticAppTheme {
+                        SettingsHubScreen(
+                            onOpenPlugins     = { nav.navigate("plugins") },
+                            onOpenCollections = { nav.navigate("collections") },
+                            onSwitchProfile   = { showProfilePicker = true },
+                        )
+                    }
                 }
                 composable("plugins") {
-                    PluginsScreen(onBack = { nav.popBackStack() })
+                    com.streamcloud.app.ui.theme.StaticAppTheme {
+                        PluginsScreen(onBack = { nav.popBackStack() })
+                    }
                 }
             }
                     }
 
 
 
-                    if (showRail && currentRoute != Tab.Music.route && !isMediaRoute) {
+                    if (showRail && currentRoute != Tab.Music.route && !isMediaRoute && !isSettingsOrAdult) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
@@ -1189,101 +1233,17 @@ fun StreamCloudApp() {
                 }
 
                 // TV Nuvio-style popup navigation
+                // Netflix-style transparent top nav bar — only on TV main tab screens
                 if (isTv && showRail) {
-                    // Semi-transparent scrim that closes the nav on click
-                    if (tvNavOpen) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.55f))
-                                .pointerInput(Unit) {
-                                    detectTapGestures(onTap = { tvNavOpen = false })
-                                },
-                        )
-                    }
-                    // Hamburger button — always visible at top-left
-                    Box(
-                        Modifier
-                            .align(Alignment.TopStart)
-                            .statusBarsPadding()
-                            .padding(TvOverscanPadding),
-                    ) {
-                        Box(
-                            Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .tvFocusBorder(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                                .focusRequester(firstRailFocus)
-                                .clickable { tvNavOpen = !tvNavOpen },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Filled.Menu,
-                                contentDescription = "Navigation",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
-                    }
-                    // Animated slide-in nav panel
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = tvNavOpen,
-                        enter = slideInHorizontally(initialOffsetX = { -it }) + fadeIn(),
-                        exit = slideOutHorizontally(targetOffsetX = { -it }) + fadeOut(),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .fillMaxHeight(),
-                    ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 8.dp,
-                            shadowElevation = 12.dp,
-                            shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .width(240.dp),
-                        ) {
-                            Column(
-                                Modifier
-                                    .fillMaxSize()
-                                    .statusBarsPadding()
-                                    .padding(vertical = TvOverscanPadding, horizontal = 12.dp)
-                                    .tvFocusGroup(),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Text(
-                                    "StreamCloud",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
-                                )
-                                // Search shortcut
-                                TvNavRow(
-                                    icon = Icons.Default.Search,
-                                    label = "Search",
-                                    selected = currentRoute == "movie-search",
-                                    modifier = Modifier.focusRequester(firstTvNavFocus),
-                                    onClick = {
-                                        tvNavOpen = false
-                                        nav.navigate("movie-search")
-                                    },
-                                )
-                                tabs.forEach { tab ->
-                                    TvNavRow(
-                                        icon = tab.icon,
-                                        label = tab.label,
-                                        selected = currentRoute == tab.route,
-                                        onClick = {
-                                            tvNavOpen = false
-                                            navigateToTab(nav, tab.route)
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    TvNetflixTopNav(
+                        tabs                  = tabs,
+                        currentRoute          = currentRoute,
+                        firstTabFocus         = firstTvNavFocus,
+                        contentFocusRequester = tvNavHeroFocus,
+                        onTabSelected         = { route -> navigateToTab(nav, route) },
+                        onSearchClick         = { nav.navigate("movie-search") },
+                        modifier              = Modifier.align(Alignment.TopStart).fillMaxWidth(),
+                    )
                 }
 
                 // Nuvio-style flat bottom nav bar
@@ -1426,7 +1386,142 @@ fun StreamCloudApp() {
             )
         }
     }
+    StartupUpdatePrompt(enabled = !showProfilePicker)
     } // end outer Box
+}
+
+// ── Netflix-style transparent TV top navigation bar ──────────────────────────
+
+@Composable
+private fun TvNetflixTopNav(
+    tabs: List<Tab>,
+    currentRoute: String?,
+    firstTabFocus: FocusRequester,
+    contentFocusRequester: FocusRequester,
+    onTabSelected: (String) -> Unit,
+    onSearchClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var navHasFocus by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val gradStartAlpha by animateFloatAsState(
+        targetValue = if (navHasFocus) 0.97f else 0.72f,
+        animationSpec = tween(250),
+        label = "tvNavGradStart",
+    )
+    val gradMidAlpha by animateFloatAsState(
+        targetValue = if (navHasFocus) 0.45f else 0f,
+        animationSpec = tween(250),
+        label = "tvNavGradMid",
+    )
+
+    Box(modifier = modifier.onFocusChanged { navHasFocus = it.hasFocus }) {
+        // Gradient scrim — readable at all times, heavier when nav has focus
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = gradStartAlpha),
+                            Color.Black.copy(alpha = gradMidAlpha),
+                            Color.Transparent,
+                        )
+                    )
+                )
+        )
+
+        // Content row: app name left | tabs centred (Netflix layout)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = TvOverscanPadding, vertical = 14.dp),
+        ) {
+            // App name anchored to the left edge
+            Text(
+                "StreamCloud",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
+
+            // Search icon + tab labels — absolutely centred in the bar
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .onKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        when (event.key) {
+                            Key.DirectionDown -> {
+                                // Try direct requester first (crosses NavHost focus boundary).
+                                // Fall back to spatial search if the hero isn't attached yet.
+                                try { contentFocusRequester.requestFocus() }
+                                catch (_: Exception) { focusManager.moveFocus(FocusDirection.Down) }
+                                true
+                            }
+                            // Nothing focusable above the nav bar — consume Up.
+                            Key.DirectionUp -> true
+                            else -> false
+                        }
+                    },
+            ) {
+                // Search icon item (first focusable — gets firstTabFocus)
+                var searchFocused by remember { mutableStateOf(false) }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .focusRequester(firstTabFocus)
+                        .tvFocusBorder(RoundedCornerShape(8.dp))
+                        .onFocusChanged { searchFocused = it.isFocused }
+                        .clickable { onSearchClick() }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = if (searchFocused) Color.White else Color.White.copy(alpha = 0.60f),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+
+                // Tab items — Netflix-style grey pill on the active/focused tab
+                tabs.forEach { tab ->
+                    val selected = currentRoute == tab.route
+                    var itemFocused by remember { mutableStateOf(false) }
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .tvFocusBorder(RoundedCornerShape(50))
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                when {
+                                    selected -> Color.White.copy(alpha = 0.20f)
+                                    itemFocused -> Color.White.copy(alpha = 0.12f)
+                                    else -> Color.Transparent
+                                }
+                            )
+                            .onFocusChanged { itemFocused = it.isFocused }
+                            .clickable { onTabSelected(tab.route) }
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            tab.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = when {
+                                selected || itemFocused -> Color.White
+                                else -> Color.White.copy(alpha = 0.60f)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1435,6 +1530,8 @@ private fun TvNavRow(
     label: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    trapUp: Boolean = false,
+    trapDown: Boolean = false,
     onClick: () -> Unit,
 ) {
     val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
@@ -1448,6 +1545,12 @@ private fun TvNavRow(
             .clip(RoundedCornerShape(10.dp))
             .tvFocusBorder(RoundedCornerShape(10.dp))
             .background(bg)
+            .onKeyEvent { event ->
+                event.type == KeyEventType.KeyDown && (
+                    (trapUp && event.key == Key.DirectionUp) ||
+                    (trapDown && event.key == Key.DirectionDown)
+                )
+            }
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {

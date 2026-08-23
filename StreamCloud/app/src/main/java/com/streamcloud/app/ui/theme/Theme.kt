@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.streamcloud.app.data.ServiceLocator
 
-private val AioColors = darkColorScheme(
+internal val AioColors = darkColorScheme(
     primary = Salmon,
     onPrimary = TextPrimary,
     primaryContainer = SalmonDark,
@@ -139,14 +139,12 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     val albumArtAccent  by AlbumArtThemeBus.accent.collectAsState()
     val albumArtSecond  by AlbumArtThemeBus.accentSecondary.collectAsState()
     val hasArtwork      by AlbumArtThemeBus.hasArtwork.collectAsState()
-    val uiModeStr       by sl.settings.uiMode.collectAsState(initial = "Auto")
     val themeMode       by sl.settings.theme.collectAsState(initial = "dark")
     val colorPaletteId  by sl.settings.colorPalette.collectAsState(initial = "default")
     val isSystemDark = isSystemInDarkTheme()
 
-    val formFactor = remember(uiModeStr, context) {
-        UiModeOverride.fromStorage(uiModeStr).resolve(context)
-    }
+    // Always auto-detect — no manual override allowed.
+    val formFactor = remember(context) { detectFormFactor(context) }
 
     val useDark = when (themeMode) {
         "light"  -> false
@@ -252,4 +250,36 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     ProvideUiFormFactor(formFactor) {
         MaterialTheme(colorScheme = colors, typography = AioTypography, content = content)
     }
+}
+
+/** Static dark colour scheme for Settings and its sub-pages.
+ *  Matches the clean black/blue palette used by CollectionsScreen. */
+private val SettingsColors = darkColorScheme(
+    primary              = Color(0xFF2196F3),
+    onPrimary            = Color.White,
+    primaryContainer     = Color(0xFF1565C0),
+    onPrimaryContainer   = Color.White,
+    secondary            = Color(0xFF6AABA8),
+    onSecondary          = Color.White,
+    background           = Color(0xFF000000),
+    onBackground         = Color.White,
+    surface              = Color(0xFF121212),
+    onSurface            = Color.White,
+    surfaceContainerHigh = Color(0xFF252525),
+    surfaceVariant       = Color(0xFF1E1E1E),
+    onSurfaceVariant     = Color(0xFFAAAAAA),
+    outline              = Color(0xFF333333),
+    outlineVariant       = Color(0xFF262626),
+    error                = Color(0xFFD32F2F),
+    onError              = Color.White,
+)
+
+/** Wrap content with the static dark/blue colour scheme used by Settings and its categories. */
+@Composable
+fun StaticAppTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = SettingsColors,
+        typography  = AioTypography,
+        content     = content,
+    )
 }

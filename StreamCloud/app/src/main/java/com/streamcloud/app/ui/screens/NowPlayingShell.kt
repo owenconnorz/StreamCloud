@@ -10,9 +10,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -82,6 +85,8 @@ import coil.request.SuccessResult
 import com.streamcloud.app.data.downloads.MusicDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.lyrics.LyricsRepository
+import com.streamcloud.app.data.newpipe.NewPipeRepository
+import com.streamcloud.app.data.newpipe.StreamMeta
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.cast.MusicRemoteCast
@@ -105,6 +110,7 @@ fun NowPlayingShell(
     onClose: () -> Unit,
     onOpenSettings: () -> Unit = {},
     onOpenArtistSearch: (String) -> Unit = {},
+    npScrollState: androidx.compose.foundation.ScrollState = rememberScrollState(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -224,14 +230,21 @@ fun NowPlayingShell(
     var artworkDragX by remember { mutableStateOf(0f) }
 
 
-    var showLyrics by remember { mutableStateOf(false) }
     var lyrics by remember(mediaId) { mutableStateOf<com.streamcloud.app.data.lyrics.LrcEntry?>(null) }
     var lyricsLoading by remember(mediaId) { mutableStateOf(false) }
     LaunchedEffect(mediaId, title, artist) {
         if (mediaId == null || title.isBlank()) return@LaunchedEffect
         lyricsLoading = true
-        lyrics = runCatching { LyricsRepository.fetch(title, artist, 0L) }.getOrNull()
+        val durSec = durationMs.takeIf { it > 0L }?.div(1000L) ?: 0L
+        lyrics = runCatching { LyricsRepository.fetch(title, artist, durSec) }.getOrNull()
         lyricsLoading = false
+    }
+    var trackMeta by remember(mediaId) { mutableStateOf<StreamMeta?>(null) }
+    LaunchedEffect(mediaId) {
+        val mid = mediaId ?: return@LaunchedEffect
+        val videoId = if (mid.startsWith("http")) mid.substringAfter("v=", "").substringBefore("&") else mid
+        if (videoId.length != 11) return@LaunchedEffect
+        trackMeta = runCatching { NewPipeRepository.fetchStreamMeta(videoId) }.getOrNull()
     }
 
 
@@ -416,7 +429,9 @@ fun NowPlayingShell(
 
     // Controls visibility — auto-hides after 3.5 s, tap screen to reveal.
     var controlsVisible by remember { mutableStateOf(true) }
-    var controlsPinned by remember { mutableStateOf(false) }
+    // Pin state persisted across minimize/app-restart via SharedPreferences
+    val playerPrefs = remember { context.getSharedPreferences("sc_player_prefs", android.content.Context.MODE_PRIVATE) }
+    var controlsPinned by remember { mutableStateOf(playerPrefs.getBoolean("controls_pinned", false)) }
     var hideKey by remember { mutableStateOf(0) }
     // Auto-hide only when a canvas video is actually playing and controls are not pinned.
     LaunchedEffect(hideKey, activeCanvas, controlsPinned) {
@@ -487,6 +502,7 @@ fun NowPlayingShell(
             Box(
                 Modifier
                     .fillMaxSize()
+                    .offset { IntOffset(0, (-npScrollState.value * 0.6f).roundToInt()) }
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .padding(top = 72.dp, bottom = 280.dp),
                 contentAlignment = Alignment.Center,
@@ -609,9 +625,9 @@ fun NowPlayingShell(
             }
         }
 
-        // Controls overlay — fades only when canvas is active; always visible otherwise
+        // Controls overlay — fades only when canvas is active and not pinned
         AnimatedVisibility(
-            visible = controlsVisible || activeCanvas == null,
+            visible = controlsVisible || activeCanvas == null || controlsPinned,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(600)),
             modifier = Modifier.fillMaxSize(),
@@ -640,61 +656,37 @@ fun NowPlayingShell(
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         )
                         Text(
-                            title.ifBlank { "—" }.take(40),
+                            title.ifBlank { "—" },
                             color = onBg,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    if (activeCanvas != null) {
-                        NpIconButton(
-                            onClick = {
-                                manualVideoRequested = !manualVideoRequested
-                                controlsVisible = true
-                                hideKey++
-                            },
-                            tint = onBg,
-                        ) {
-                            Icon(
-                                Icons.Default.PlayCircle,
-                                contentDescription = if (manualVideoRequested) {
-                                    "Return to Canvas"
-                                } else {
-                                    "Watch video"
-                                },
-                            )
-                        }
-                        NpIconButton(
-                            onClick = {
-                                controlsPinned = !controlsPinned
-                                controlsVisible = true
-                                hideKey++
-                            },
-                            tint = onBg,
-                        ) {
-                            Icon(
-                                if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
-                                contentDescription = if (controlsPinned) {
-                                    "Unpin controls"
-                                } else {
-                                    "Pin controls"
-                                },
-                            )
-                        }
-                    } else {
-                        Spacer(Modifier.size(40.dp))
-                    }
+                    // Balanced spacer — video/pin buttons live in the permanent overlay, not here
+                    Spacer(Modifier.size(40.dp))
                 }
 
-                // ── Bottom controls ──
-                Column(
+                // ── Bottom controls (scrollable — scroll down to reveal Lyrics / Artist / Stats) ──
+                BoxWithConstraints(
+                    Modifier
+                        .fillMaxSize()
+                        .align(Alignment.TopStart),
+                ) {
+                    // Spacer height = everything above the controls region.
+                    // The artwork box uses padding(bottom = 280.dp); controls sit in that 280dp zone.
+                    val controlsZone = 300.dp
+                    val artworkSpace = (maxHeight - controlsZone).coerceAtLeast(80.dp)
+                    Column(
                     Modifier
                         .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
+                        .verticalScroll(npScrollState)
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
+                    Spacer(Modifier.height(artworkSpace))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // Album art thumbnail — only shown when Spotify Canvas is playing;
                         // without canvas the full artwork is already visible in the centre.
@@ -714,13 +706,17 @@ fun NowPlayingShell(
                                 title.ifBlank { "—" },
                                 color = onBg,
                                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
-                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                             )
                             Text(
                                 artist.ifBlank { "Unknown artist" },
                                 color = onBg.copy(alpha = 0.8f),
                                 style = MaterialTheme.typography.titleMedium,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                             )
                         }
                         Spacer(Modifier.width(12.dp))
@@ -871,16 +867,9 @@ fun NowPlayingShell(
                     BottomToolbar(
                         shuffleOn = shuffleOn,
                         repeatMode = repeatMode,
-                        sleepActive = sleepEndTs != null,
-                        lyricsActive = showLyrics,
-                        onQueue = { showQueueSheet = true },
-                        onSleep = {
-                            if (sleepEndTs != null) sleepEndTs = null
-                            else showSleepDialog = true
-                        },
-                        onLyrics = { showLyrics = !showLyrics },
-                        onCast = { showSonos = true },
                         isCasting = isCasting,
+                        onQueue = { showQueueSheet = true },
+                        onCast = { showSonos = true },
                         onShuffle = { controller.shuffleModeEnabled = !controller.shuffleModeEnabled },
                         onRepeat = {
                             val next = when (controller.repeatMode) {
@@ -893,14 +882,79 @@ fun NowPlayingShell(
                         onMore = { showActions = true },
                     )
 
-                    if (showLyrics) {
+                    Spacer(Modifier.height(16.dp))
+                    LyricsCard(
+                        lyrics = lyrics,
+                        loading = lyricsLoading,
+                        positionMs = positionMs,
+                        onTextColor = onBg,
+                        cardBg = Color.Black.copy(alpha = 0.35f),
+                    )
+                    val meta = trackMeta
+                    if (meta != null) {
                         Spacer(Modifier.height(12.dp))
-                        LyricsView(
-                            lyrics = lyrics,
-                            loading = lyricsLoading,
-                            positionMs = positionMs,
+                        ArtistCard(
+                            artistName = artist,
+                            avatarUrl = meta.uploaderAvatarUrl,
+                            subscriberCount = meta.uploaderSubscriberCount,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        YoutubeStatsCard(
+                            viewCount = meta.viewCount,
+                            likeCount = meta.likeCount,
+                            uploadDate = meta.uploadDate,
+                            description = meta.description,
                             onTextColor = onBg,
                         )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
+                } // end BoxWithConstraints
+            }
+        }
+
+        // ── Permanent top-right buttons — never fade with canvas controls ──
+        if (activeCanvas != null || videoStreamUrl != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(end = 4.dp, top = 4.dp),
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Video / canvas toggle
+                    NpIconButton(
+                        onClick = {
+                            if (activeCanvas != null) manualVideoRequested = !manualVideoRequested
+                            else showVideoPlayer = !showVideoPlayer
+                            controlsVisible = true
+                            hideKey++
+                        },
+                        tint = onBg,
+                    ) {
+                        Icon(
+                            Icons.Default.PlayCircle,
+                            contentDescription = if (activeCanvas != null && manualVideoRequested) "Return to Canvas"
+                            else if (showVideoPlayer) "Hide video" else "Watch video",
+                        )
+                    }
+                    // Pin — only relevant when canvas auto-hides controls
+                    if (activeCanvas != null) {
+                        NpIconButton(
+                            onClick = {
+                                controlsPinned = !controlsPinned
+                                playerPrefs.edit().putBoolean("controls_pinned", controlsPinned).apply()
+                                controlsVisible = true
+                                hideKey++
+                            },
+                            tint = onBg,
+                        ) {
+                            Icon(
+                                if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
+                                contentDescription = if (controlsPinned) "Unpin controls" else "Pin controls",
+                            )
+                        }
                     }
                 }
             }
@@ -938,6 +992,12 @@ fun NowPlayingShell(
             currentArtist = artist,
             isLiked = isLiked,
             isDownloaded = isDownloaded,
+            sleepActive = sleepEndTs != null,
+            onSleep = {
+                showActions = false
+                if (sleepEndTs != null) sleepEndTs = null
+                else showSleepDialog = true
+            },
             onDismiss = { showActions = false },
             onOpenSettings = onOpenSettings,
             onOpenArtistSearch = onOpenArtistSearch,
@@ -1038,12 +1098,8 @@ private fun NpIconButton(
 private fun BottomToolbar(
     shuffleOn: Boolean,
     repeatMode: Int,
-    sleepActive: Boolean,
-    lyricsActive: Boolean,
     isCasting: Boolean,
     onQueue: () -> Unit,
-    onSleep: () -> Unit,
-    onLyrics: () -> Unit,
     onCast: () -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
@@ -1054,11 +1110,6 @@ private fun BottomToolbar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ToolbarChip(Icons.Default.QueueMusic, "Queue", false, false, onQueue, Modifier.weight(1f))
-        ToolbarChip(
-            if (sleepActive) Icons.Default.BedtimeOff else Icons.Default.Bedtime,
-            "Sleep timer", sleepActive, false, onSleep, Modifier.weight(1f),
-        )
-        ToolbarChip(Icons.Default.Lyrics, "Lyrics", lyricsActive, false, onLyrics, Modifier.weight(1f))
         ToolbarChip(Icons.Default.Cast, "Cast to devices", isCasting, false, onCast, Modifier.weight(1f))
         ToolbarChip(Icons.Default.Shuffle, "Shuffle", shuffleOn, false, onShuffle, Modifier.weight(1f))
         ToolbarChip(
@@ -1121,48 +1172,245 @@ internal fun rememberDominant(thumbnailUrl: String?): State<Color> {
 }
 
 @Composable
-private fun LyricsView(
+private fun LyricsCard(
     lyrics: com.streamcloud.app.data.lyrics.LrcEntry?,
     loading: Boolean,
     positionMs: Long,
     onTextColor: Color,
+    cardBg: Color,
 ) {
-    when {
-        loading -> Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = onTextColor)
-        }
-        lyrics?.syncedLyrics?.isNotBlank() == true -> {
-            val parsed = remember(lyrics) { LyricsRepository.parseLrc(lyrics.syncedLyrics) }
-            val activeIdx = remember(positionMs, parsed) {
-                parsed.indexOfLast { it.first <= positionMs }.coerceAtLeast(0)
-            }
-            androidx.compose.foundation.lazy.LazyColumn(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items(parsed.size) { i ->
-                    val (_, line) = parsed[i]
-                    Text(
-                        line,
-                        color = if (i == activeIdx) onTextColor else onTextColor.copy(alpha = 0.55f),
-                        style = if (i == activeIdx) MaterialTheme.typography.titleMedium
-                        else MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+    val hasSynced = lyrics?.syncedLyrics?.isNotBlank() == true
+    val hasAny = hasSynced || lyrics?.plainLyrics?.isNotBlank() == true
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp),
+    ) {
+        Column {
+            Text(
+                "Lyrics",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = onTextColor,
+            )
+            Spacer(Modifier.height(12.dp))
+            when {
+                loading -> Box(
+                    Modifier.fillMaxWidth().padding(20.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = onTextColor)
                 }
+                hasSynced -> {
+                    val parsed = remember(lyrics) { LyricsRepository.parseLrc(lyrics?.syncedLyrics) }
+                    val activeIdx = remember(positionMs, parsed) {
+                        parsed.indexOfLast { it.first <= positionMs }.coerceAtLeast(0)
+                    }
+                    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    androidx.compose.runtime.LaunchedEffect(activeIdx) {
+                        // Scroll so the active line is the 2nd visible item — one previous line stays above for context
+                        listState.animateScrollToItem((activeIdx - 1).coerceAtLeast(0))
+                    }
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(parsed.size) { i ->
+                            val (_, line) = parsed[i]
+                            Text(
+                                line,
+                                color = if (i == activeIdx) onTextColor else onTextColor.copy(alpha = 0.4f),
+                                style = if (i == activeIdx)
+                                    MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                                else
+                                    MaterialTheme.typography.bodyLarge,
+                                textAlign = TextAlign.Start,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+                lyrics?.plainLyrics?.isNotBlank() == true -> Text(
+                    lyrics.plainLyrics,
+                    color = onTextColor.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                else -> Text(
+                    "No lyrics found.",
+                    color = onTextColor.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+            if (!loading && hasAny) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (hasSynced) "Line Synced" else "Plain text",
+                    color = onTextColor.copy(alpha = 0.4f),
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Lyrics provided by LRCLIB",
+                    color = onTextColor.copy(alpha = 0.4f),
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
-        lyrics?.plainLyrics?.isNotBlank() == true -> Text(
-            lyrics.plainLyrics,
-            color = onTextColor.copy(alpha = 0.85f),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        else -> Text(
-            "No lyrics found.",
-            color = onTextColor.copy(alpha = 0.7f),
-            modifier = Modifier.padding(8.dp),
-        )
+    }
+}
+
+@Composable
+private fun ArtistCard(
+    artistName: String,
+    avatarUrl: String?,
+    subscriberCount: Long,
+) {
+    val subLabel = when {
+        subscriberCount >= 1_000_000 -> "%.1f".format(subscriberCount / 1_000_000.0)
+            .trimEnd('0').trimEnd('.') + "M subscribers"
+        subscriberCount >= 1_000 -> "%.1f".format(subscriberCount / 1_000.0)
+            .trimEnd('0').trimEnd('.') + "K subscribers"
+        subscriberCount > 0 -> "$subscriberCount subscribers"
+        else -> ""
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black.copy(alpha = 0.4f)),
+    ) {
+        Column {
+            Text(
+                "Artists",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            if (!avatarUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = avatarUrl,
+                    contentDescription = artistName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                artistName,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            if (subLabel.isNotBlank()) {
+                Text(
+                    subLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun YoutubeStatsCard(
+    viewCount: Long,
+    likeCount: Long,
+    uploadDate: String?,
+    description: String,
+    onTextColor: Color,
+) {
+    val viewLabel = when {
+        viewCount >= 1_000_000 -> "%.1f".format(viewCount / 1_000_000.0)
+            .trimEnd('0').trimEnd('.') + "M views"
+        viewCount >= 1_000 -> "%.1f".format(viewCount / 1_000.0)
+            .trimEnd('0').trimEnd('.') + "K views"
+        viewCount > 0 -> "$viewCount views"
+        else -> null
+    }
+    val likeLabel = when {
+        likeCount >= 1_000_000 -> "%.1f".format(likeCount / 1_000_000.0)
+            .trimEnd('0').trimEnd('.') + "M likes"
+        likeCount >= 1_000 -> "%.1f".format(likeCount / 1_000.0)
+            .trimEnd('0').trimEnd('.') + "K likes"
+        likeCount > 0 -> "$likeCount likes"
+        else -> null
+    }
+    // Format "2025-02-06T02:04:48-08:00" → "6 Feb 2025"
+    val formattedDate = remember(uploadDate) {
+        if (uploadDate.isNullOrBlank()) null
+        else try {
+            val ymd = uploadDate.take(10).split("-")
+            val months = listOf("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+            "${ymd[2].trimStart('0').ifEmpty { "0" }} ${months[ymd[1].toInt() - 1]} ${ymd[0]}"
+        } catch (_: Exception) { uploadDate }
+    }
+    // Strip HTML tags and decode entities from the description
+    val cleanDesc = remember(description) {
+        description
+            .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+            .replace(Regex("<[^>]+>"), "")
+            .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&nbsp;", " ").replace("&quot;", "\"").replace("&#39;", "'")
+            .trim()
+    }
+    val hasContent = formattedDate != null || viewLabel != null || likeLabel != null || cleanDesc.isNotBlank()
+    if (!hasContent) return
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black.copy(alpha = 0.4f))
+            .padding(16.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (formattedDate != null) {
+                Text(
+                    formattedDate,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = onTextColor.copy(alpha = 0.7f),
+                )
+            }
+            if (viewLabel != null) {
+                Text(
+                    viewLabel,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = onTextColor,
+                )
+            }
+            if (likeLabel != null) {
+                Text(
+                    likeLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = onTextColor.copy(alpha = 0.75f),
+                )
+            }
+            if (cleanDesc.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "About",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    color = onTextColor,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    cleanDesc.take(600),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = onTextColor.copy(alpha = 0.75f),
+                )
+            }
+        }
     }
 }
 

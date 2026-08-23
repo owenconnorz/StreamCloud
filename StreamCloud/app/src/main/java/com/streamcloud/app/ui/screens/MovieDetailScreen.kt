@@ -331,21 +331,26 @@ fun MovieDetailScreen(
     val scrollScope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
-        try { focusRequester.requestFocus() } catch (_: Exception) {}
+        if (!isTv) try { focusRequester.requestFocus() } catch (_: Exception) {}
     }
     Box(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             .focusRequester(focusRequester)
-            .focusable()
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.DirectionDown -> { scrollScope.launch { scrollState.scrollBy(300f) }; true }
-                        Key.DirectionUp   -> { scrollScope.launch { scrollState.scrollBy(-300f) }; true }
-                        else -> false
-                    }
-                } else false
-            }
+            .then(
+                if (!isTv) {
+                    Modifier
+                        .focusable()
+                        .onKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown) {
+                                when (event.key) {
+                                    Key.DirectionDown -> { scrollScope.launch { scrollState.scrollBy(300f) }; true }
+                                    Key.DirectionUp -> { scrollScope.launch { scrollState.scrollBy(-300f) }; true }
+                                    else -> false
+                                }
+                            } else false
+                        }
+                } else Modifier
+            )
     ) {
         Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
 

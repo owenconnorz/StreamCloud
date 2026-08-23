@@ -8,9 +8,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,9 +34,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -72,6 +78,12 @@ private data class PosterSheetItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MoviesScreen(
+    initialFocusRequester: FocusRequester? = null,
+    initialFocusEnabled: Boolean = true,
+    // Always attached to the current hero Play button so the TV nav D-pad Down
+    // can jump here even when initialFocusRequester targets something else.
+    tvNavHeroFocus: FocusRequester? = null,
+    onFirstMovieFocusedChanged: (Boolean) -> Unit = {},
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit = {},
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
@@ -114,9 +126,54 @@ fun MoviesScreen(
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val firstCollectionRowId = state.collections
+        .firstOrNull { it.items.isNotEmpty() }
+        ?.id
+    val firstStremioRowKey = state.stremioRows
+        .firstOrNull { it.items.isNotEmpty() }
+        ?.rowKey
+    val startupFocusTarget = when {
+        state.continueWatching.isNotEmpty() -> "continue"
+        firstCollectionRowId != null -> "collection"
+        firstStremioRowKey != null -> "stremio"
+        !state.loading && state.showHeroSection && state.heroBanner.isNotEmpty() -> "hero"
+        else -> null
+    }
+    var startupFocusRequested by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isTv, initialFocusEnabled, startupFocusTarget) {
+        if (
+            !isTv ||
+            !initialFocusEnabled ||
+            startupFocusRequested ||
+            startupFocusTarget == null ||
+            initialFocusRequester == null
+        ) {
+            return@LaunchedEffect
+        }
+        // The LazyColumn item the focus requester is attached to may not be
+        // laid out yet when this effect first runs. Retry every 200 ms until
+        // the node is attached and requestFocus() succeeds (up to ~2 s).
+        repeat(10) {
+            kotlinx.coroutines.delay(200L)
+            val ok = runCatching { initialFocusRequester.requestFocus() }.isSuccess
+            if (ok) {
+                startupFocusRequested = true
+                return@LaunchedEffect
+            }
+        }
+    }
 
     MoviesThemeWrapper(moviesThemeName) {
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            // Keep vertical D-pad movement in focus traversal instead of
+            // letting the parent list scroll independently.
+            .tvDpadRepeatThrottle(handleInitialPresses = true),
+    ) {
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
@@ -139,6 +196,13 @@ fun MoviesScreen(
                     item(key = "hero_pager") {
                         HeroPager(
                             items = state.heroBanner,
+                            initialFocusRequester = if (startupFocusTarget == "hero") {
+                                initialFocusRequester
+                            } else {
+                                null
+                            },
+                            navFocusRequester = tvNavHeroFocus,
+                            onInitialItemFocusChanged = onFirstMovieFocusedChanged,
                             onClick = { item ->
                                 when {
                                     item.tmdbId != null && item.mediaType == "tv" -> onTvClick(item.tmdbId)
@@ -154,7 +218,9 @@ fun MoviesScreen(
                         )
                     }
                 } else {
-                    item { Spacer(Modifier.statusBarsPadding().height(56.dp)) }
+                    // On TV the transparent top nav bar overlays the content — give enough
+                    // clearance so the first row isn't hidden behind it.
+                    item { Spacer(Modifier.statusBarsPadding().height(if (isTv) 90.dp else 56.dp)) }
                 }
 
                 state.notice?.let {
@@ -176,9 +242,25 @@ fun MoviesScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(state.continueWatching, key = { "cw_${it.tmdbId}" }) { entry ->
+                            itemsIndexed(
+                                state.continueWatching,
+                                key = { _, entry -> "cw_${entry.tmdbId}" },
+                            ) { index, entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
+                                    modifier = if (
+                                        index == 0 &&
+                                        startupFocusTarget == "continue" &&
+                                        initialFocusRequester != null
+                                    ) {
+                                        Modifier
+                                            .focusRequester(initialFocusRequester)
+                                            .onFocusChanged {
+                                                onFirstMovieFocusedChanged(it.isFocused)
+                                            }
+                                    } else {
+                                        Modifier
+                                    },
                                     onClick = { openCwEntry(entry) },
                                     onLongPress = { cwSheetEntry = entry },
                                 )
@@ -284,10 +366,27 @@ fun MoviesScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(row.items, key = { "${row.id}_${it.id}" }) { m ->
+                            itemsIndexed(
+                                row.items,
+                                key = { _, movie -> "${row.id}_${movie.id}" },
+                            ) { index, m ->
                                 MidPoster(
                                     m = m,
                                     posterStyle = posterStyle,
+                                    modifier = if (
+                                        row.id == firstCollectionRowId &&
+                                        index == 0 &&
+                                        startupFocusTarget == "collection" &&
+                                        initialFocusRequester != null
+                                    ) {
+                                        Modifier
+                                            .focusRequester(initialFocusRequester)
+                                            .onFocusChanged {
+                                                onFirstMovieFocusedChanged(it.isFocused)
+                                            }
+                                    } else {
+                                        Modifier
+                                    },
                                     onClick = { onMovieClick(m.id) },
                                     onLongPress = {
                                         posterSheet = PosterSheetItem(m.id, m.displayTitle, m.posterUrl, "movie")
@@ -318,10 +417,27 @@ fun MoviesScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(row.items, key = { "${row.rowKey}_${it.id}" }) { meta ->
+                            itemsIndexed(
+                                row.items,
+                                key = { _, meta -> "${row.rowKey}_${meta.id}" },
+                            ) { index, meta ->
                                 StremioPoster(
                                     meta = meta,
                                     posterStyle = posterStyle,
+                                    modifier = if (
+                                        row.rowKey == firstStremioRowKey &&
+                                        index == 0 &&
+                                        startupFocusTarget == "stremio" &&
+                                        initialFocusRequester != null
+                                    ) {
+                                        Modifier
+                                            .focusRequester(initialFocusRequester)
+                                            .onFocusChanged {
+                                                onFirstMovieFocusedChanged(it.isFocused)
+                                            }
+                                    } else {
+                                        Modifier
+                                    },
                                     onLongPress = {
                                         posterSheet = PosterSheetItem(
                                             tmdbId = null,
@@ -500,13 +616,18 @@ fun MoviesScreen(
             }
         }
 
-        MoviesHeader(
-            onProfileClick = onProfileClick,
-            onOpenCollections = onOpenCollections,
-            onSearchClick = onSearchClick,
-            onPluginsClick = onPluginsClick,
-            hasPlugins = state.installedPlugins.isNotEmpty(),
-        )
+        // On TV the TvNetflixTopNav in StreamCloudApp already provides the header
+        // (with "StreamCloud" title + tabs). Rendering MoviesHeader here too
+        // causes the double "StreamCloud" text visible in the top-left corner.
+        if (!isTv) {
+            MoviesHeader(
+                onProfileClick = onProfileClick,
+                onOpenCollections = onOpenCollections,
+                onSearchClick = onSearchClick,
+                onPluginsClick = onPluginsClick,
+                hasPlugins = state.installedPlugins.isNotEmpty(),
+            )
+        }
     }
     } // MoviesThemeWrapper
 }
@@ -572,69 +693,138 @@ private fun MoviesHeader(
 @Composable
 private fun HeroPager(
     items: List<HeroBannerItem>,
+    initialFocusRequester: FocusRequester? = null,
+    navFocusRequester: FocusRequester? = null,
+    onInitialItemFocusChanged: (Boolean) -> Unit = {},
     onClick: (HeroBannerItem) -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val pagerState = rememberPagerState(pageCount = { items.size })
-    var pagerHasFocus by remember { mutableStateOf(false) }
+    // On TV the hero fills the whole screen (Netflix-style); content rows are below the fold.
+    val tvHeroHeight = LocalConfiguration.current.screenHeightDp.dp
 
-    LaunchedEffect(items.size, pagerHasFocus) {
-        if (items.size <= 1 || pagerHasFocus) return@LaunchedEffect
-        while (true) {
-            kotlinx.coroutines.delay(6_000)
-            val next = (pagerState.currentPage + 1) % items.size
-            pagerState.animateScrollToPage(next)
-        }
-    }
-
-    Column(Modifier.fillMaxWidth()) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight).tvFocusGroup(),
-            pageSpacing = 0.dp,
-        ) { page ->
-            val item = items[page]
-            HeroBannerSlide(
-                item = item,
-                onClick = { onClick(item) },
-                onFocusChange = { pagerHasFocus = it },
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            items.forEachIndexed { i, _ ->
-                val active = i == pagerState.currentPage
-                Box(
-                    Modifier
-                        .padding(horizontal = 4.dp)
-                        .height(6.dp)
-                        .width(if (active) 22.dp else 6.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (active) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                )
+    if (isTv) {
+        // HorizontalPager intercepts every D-pad left/right at the input level and permanently
+        // traps the remote. On TV, auto-cycle with a crossfade instead — only the
+        // "View Details" button is focusable, so left/right/up/down all move freely.
+        var currentPage by remember { mutableStateOf(0) }
+        var buttonHasFocus by remember { mutableStateOf(false) }
+        LaunchedEffect(items.size, buttonHasFocus) {
+            if (items.size <= 1 || buttonHasFocus) return@LaunchedEffect
+            while (true) {
+                kotlinx.coroutines.delay(6_000)
+                currentPage = (currentPage + 1) % items.size
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Column(Modifier.fillMaxWidth()) {
+            Crossfade(
+                targetState = currentPage,
+                modifier = Modifier.fillMaxWidth().height(tvHeroHeight),
+                label = "tvHeroBanner",
+            ) { page ->
+                val item = items.getOrNull(page) ?: return@Crossfade
+                HeroBannerSlide(
+                    item = item,
+                    onClick = { onClick(item) },
+                    // Only page 0 carries the startup focus requester. Crossfade composes
+                    // both old and new content during the transition, so attaching the same
+                    // requester to every page would cause a duplicate-requester error.
+                    buttonFocusRequester = if (page == 0) initialFocusRequester else null,
+                    navFocusRequester = if (page == currentPage) navFocusRequester else null,
+                    onButtonFocusChanged = { focused ->
+                        buttonHasFocus = focused
+                        onInitialItemFocusChanged(focused)
+                    },
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                items.forEachIndexed { i, _ ->
+                    val active = i == currentPage
+                    Box(
+                        Modifier
+                            .padding(horizontal = 4.dp)
+                            .height(6.dp)
+                            .width(if (active) 22.dp else 6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (active) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    } else {
+        // Mobile / tablet: keep the swipeable horizontal pager.
+        val pagerState = rememberPagerState(pageCount = { items.size })
+        var pagerHasFocus by remember { mutableStateOf(false) }
+        LaunchedEffect(items.size, pagerHasFocus) {
+            if (items.size <= 1 || pagerHasFocus) return@LaunchedEffect
+            while (true) {
+                kotlinx.coroutines.delay(6_000)
+                val next = (pagerState.currentPage + 1) % items.size
+                pagerState.animateScrollToPage(next)
+            }
+        }
+        Column(Modifier.fillMaxWidth()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight),
+                pageSpacing = 0.dp,
+            ) { page ->
+                val item = items[page]
+                HeroBannerSlide(
+                    item = item,
+                    onClick = { onClick(item) },
+                    onFocusChange = { pagerHasFocus = it },
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                items.forEachIndexed { i, _ ->
+                    val active = i == pagerState.currentPage
+                    Box(
+                        Modifier
+                            .padding(horizontal = 4.dp)
+                            .height(6.dp)
+                            .width(if (active) 22.dp else 6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (active) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 
 @Composable
 private fun HeroBannerSlide(
     item: HeroBannerItem,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onFocusChange: (Boolean) -> Unit = {},
+    // TV only: startup focus requester (conditional on startupFocusTarget == "hero").
+    buttonFocusRequester: FocusRequester? = null,
+    // TV only: always-active nav requester so D-pad Down from the top bar lands here.
+    navFocusRequester: FocusRequester? = null,
+    onButtonFocusChanged: (Boolean) -> Unit = {},
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Box(
-        Modifier
+        modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
-            .tvFocusBorder(RoundedCornerShape(14.dp))
+            // On TV the outer box is a visual container only; the button below is the
+            // sole focus target so D-pad navigates freely in all directions.
+            .then(if (!isTv) Modifier.tvFocusBorder(RoundedCornerShape(14.dp)) else Modifier)
             .then(if (isTv) Modifier.onFocusChanged { onFocusChange(it.hasFocus) } else Modifier)
-            .clickable(onClick = onClick),
+            .then(if (!isTv) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         AsyncImage(
             model = item.imageUrl,
@@ -642,61 +832,170 @@ private fun HeroBannerSlide(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color.Black.copy(alpha = 0.65f),
-                        Color.Transparent,
-                        Color.Black.copy(alpha = 0.92f),
-                    ),
-                    startY = 0f,
-                    endY = Float.POSITIVE_INFINITY,
+        val meta = listOfNotNull(
+            if (item.mediaType == "tv") "Series" else "Movie",
+            item.year.takeIf { it.isNotBlank() },
+            item.rating.takeIf { it.isNotBlank() },
+        ).joinToString("  •  ")
+
+        if (isTv) {
+            // TV: Netflix-style — left-side + bottom gradient, title/buttons bottom-left
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.85f),
+                            Color.Black.copy(alpha = 0.25f),
+                            Color.Transparent,
+                        )
+                    )
                 )
             )
-        )
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 24.dp, vertical = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                item.title,
-                style = MaterialTheme.typography.displayLarge.copy(
-                    fontWeight = FontWeight.Black,
-                    fontSize = 36.sp,
-                    lineHeight = 40.sp,
-                ),
-                color = Color.White,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                maxLines = 2, overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(8.dp))
-            val meta = listOfNotNull(
-                if (item.mediaType == "tv") "Series" else "Movie",
-                item.year.takeIf { it.isNotBlank() },
-                item.rating.takeIf { it.isNotBlank() },
-            ).joinToString("  •  ")
-            Text(
-                meta,
-                color = Color.White.copy(alpha = 0.85f),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(Modifier.height(18.dp))
             Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.55f),
+                            Color.Black.copy(alpha = 0.97f),
+                        )
+                    )
+                )
+            )
+            Column(
                 Modifier
-                    .tvFocusBorder(RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color.White)
-                    .clickable(onClick = onClick)
-                    .padding(horizontal = 38.dp, vertical = 14.dp),
+                    .align(Alignment.BottomStart)
+                    .padding(start = 48.dp, bottom = 52.dp, end = 260.dp),
+                horizontalAlignment = Alignment.Start,
             ) {
                 Text(
-                    "View Details",
-                    color = Color(0xFF111111),
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    item.title,
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontWeight = FontWeight.Black,
+                        fontSize = 44.sp,
+                        lineHeight = 48.sp,
+                    ),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    meta,
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(22.dp))
+                // Netflix-style: Play (white, primary) + More Info (semi-transparent) side by side
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Play — white filled, ▶ icon, primary action
+                    Row(
+                        (if (buttonFocusRequester != null)
+                            Modifier.focusRequester(buttonFocusRequester)
+                        else Modifier)
+                            .let { if (navFocusRequester != null) it.focusRequester(navFocusRequester) else it }
+                            .onFocusChanged { onButtonFocusChanged(it.isFocused) }
+                            .tvFocusBorder(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.White)
+                            .clickable(onClick = onClick)
+                            .padding(horizontal = 28.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Text(
+                            "Play",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        )
+                    }
+                    // More Info — semi-transparent, secondary action
+                    Row(
+                        Modifier
+                            .tvFocusBorder(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.White.copy(alpha = 0.22f))
+                            .border(1.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                            .clickable(onClick = onClick)
+                            .padding(horizontal = 28.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Text(
+                            "More Info",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        )
+                    }
+                }
+            }
+        } else {
+            // Mobile/tablet: vertical gradient + centred layout
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.65f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.92f),
+                        ),
+                        startY = 0f,
+                        endY = Float.POSITIVE_INFINITY,
+                    )
+                )
+            )
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    item.title,
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontWeight = FontWeight.Black,
+                        fontSize = 36.sp,
+                        lineHeight = 40.sp,
+                    ),
+                    color = Color.White,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    meta,
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(18.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White)
+                        .clickable(onClick = onClick)
+                        .padding(horizontal = 38.dp, vertical = 14.dp),
+                ) {
+                    Text(
+                        "View Details",
+                        color = Color(0xFF111111),
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    )
+                }
             }
         }
     }
@@ -858,6 +1157,7 @@ private fun AddonSectionTitleWithViewAll(
 @Composable
 private fun ContinueWatchingCard(
     entry: WatchProgressEntity,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
 ) {
@@ -866,7 +1166,7 @@ private fun ContinueWatchingCard(
     else 0f
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .width(320.dp)
             .tvFocusBorder(RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
@@ -927,13 +1227,19 @@ private fun ContinueWatchingCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: () -> Unit, onLongPress: () -> Unit = {}) {
+private fun MidPoster(
+    m: TmdbMovie,
+    posterStyle: String = "portrait",
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit = {},
+) {
     val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     Column(
-        Modifier
+        modifier = modifier
             .width(width)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
@@ -961,12 +1267,18 @@ private fun MidPoster(m: TmdbMovie, posterStyle: String = "portrait", onClick: (
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portrait", onLongPress: () -> Unit = {}, onClick: () -> Unit) {
+private fun StremioPoster(
+    meta: StremioMetaPreview,
+    posterStyle: String = "portrait",
+    modifier: Modifier = Modifier,
+    onLongPress: () -> Unit = {},
+    onClick: () -> Unit,
+) {
     val useLandscape = posterStyle == "landscape"
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     Column(
-        Modifier
+        modifier = modifier
             .width(width)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
@@ -1004,11 +1316,16 @@ private fun StremioPoster(meta: StremioMetaPreview, posterStyle: String = "portr
 private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait", onClick: (Long) -> Unit, onLongPress: (TmdbMovie) -> Unit = {}) {
     val chunkSize = if (posterStyle == "landscape") 2 else 3
     Column(
-        modifier = Modifier.padding(horizontal = 16.dp),
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .tvFocusGroup(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         movies.chunked(chunkSize).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.tvFocusGroup(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 row.forEach { m ->
                     val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
                     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
@@ -1017,6 +1334,7 @@ private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait"
                         Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(12.dp))
+                            .tvFocusBorder(RoundedCornerShape(12.dp))
                             .combinedClickable(
                                 onClick = { onClick(m.id) },
                                 onLongClick = { onLongPress(m) },
