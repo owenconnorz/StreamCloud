@@ -47,6 +47,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -515,14 +516,18 @@ fun NativePlayerScreen(
     Box(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(playerFocusRequester).focusable()
-            .onKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                val p = player.value ?: return@onKeyEvent false
+            // onPreviewKeyEvent fires before any focused child handles the event, so
+            // D-pad input is intercepted even when a button or slider inside the
+            // controls overlay has focus. Directional keys are only consumed when
+            // the overlay is hidden so that visible controls can still be operated.
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val p = player.value ?: return@onPreviewKeyEvent false
                 when (event.key) {
-                    Key.DirectionCenter  -> { if (p.isPlaying) p.pause() else p.play(); bumpInteraction(); true }
-                    Key.DirectionRight   -> { p.seekTo((p.currentPosition + 10_000L).coerceAtMost(p.duration.coerceAtLeast(0L))); bumpInteraction(); true }
-                    Key.DirectionLeft    -> { p.seekTo((p.currentPosition - 10_000L).coerceAtLeast(0L)); bumpInteraction(); true }
-                    Key.DirectionUp, Key.DirectionDown -> { bumpInteraction(); true }
+                    Key.DirectionCenter  -> if (!controlsVisible) { if (p.isPlaying) p.pause() else p.play(); bumpInteraction(); true } else false
+                    Key.DirectionRight   -> if (!controlsVisible) { p.seekTo((p.currentPosition + 10_000L).coerceAtMost(p.duration.coerceAtLeast(0L))); bumpInteraction(); true } else false
+                    Key.DirectionLeft    -> if (!controlsVisible) { p.seekTo((p.currentPosition - 10_000L).coerceAtLeast(0L)); bumpInteraction(); true } else false
+                    Key.DirectionUp, Key.DirectionDown -> { bumpInteraction(); false }
                     Key.MediaPlayPause   -> { if (p.isPlaying) p.pause() else p.play(); bumpInteraction(); true }
                     Key.MediaPlay        -> { p.play(); bumpInteraction(); true }
                     Key.MediaPause       -> { p.pause(); bumpInteraction(); true }
@@ -622,13 +627,17 @@ fun NativePlayerScreen(
             })
         }
 
-        // Nuvio-style local clock and date stay visible over the movie player.
-        PlayerClock(
-            now = playerClockNow,
+        // Clock fades in/out with the controls overlay.
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(tween(300)),
+            exit = fadeOut(tween(1500)),
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(end = 18.dp, top = 14.dp),
-        )
+        ) {
+            PlayerClock(now = playerClockNow)
+        }
 
         // Gesture indicator pills
         volumeOverlay?.let { v ->
@@ -826,7 +835,7 @@ fun NativePlayerScreen(
         }
 
         // ── Side panel ────────────────────────────────────────────────────
-        if (isLandscape && (bingeEpisodes.size > 1 || sources.isNotEmpty())) {
+        if (isLandscape && !isTv && (bingeEpisodes.size > 1 || sources.isNotEmpty())) {
             if (!showSidePanel) {
                 Box(Modifier.align(Alignment.CenterEnd)
                     .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))

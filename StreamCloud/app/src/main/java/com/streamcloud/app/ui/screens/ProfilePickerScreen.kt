@@ -9,7 +9,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,6 +79,9 @@ import com.streamcloud.app.data.profiles.BUILT_IN_AVATAR_SEEDS
 import com.streamcloud.app.data.profiles.ProfileRepository
 import com.streamcloud.app.data.profiles.UserProfile
 import com.streamcloud.app.data.profiles.builtInAvatarUrl
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvFocusBorder
 import java.security.MessageDigest
 
 private fun hashPin(pin: String): String {
@@ -197,6 +202,7 @@ private fun ProfileGridView(
     onAddNew: () -> Unit,
     onDone: () -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(
         Modifier
             .fillMaxSize()
@@ -234,22 +240,27 @@ private fun ProfileGridView(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
-        Button(
-            onClick = onDone,
-            shape   = RoundedCornerShape(50),
-            colors  = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E4EA8)),
-            modifier = Modifier
-                .padding(horizontal = 80.dp)
-                .fillMaxWidth()
-                .height(52.dp),
-        ) {
-            Text("Done", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+        if (!isTv) {
+            Spacer(Modifier.height(24.dp))
+            Button(
+                onClick = onDone,
+                shape   = RoundedCornerShape(50),
+                colors  = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E4EA8)),
+                modifier = Modifier
+                    .padding(horizontal = 80.dp)
+                    .fillMaxWidth()
+                    .height(52.dp),
+            ) {
+                Text("Done", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            }
+            Spacer(Modifier.height(24.dp))
+        } else {
+            Spacer(Modifier.height(24.dp))
         }
-        Spacer(Modifier.height(24.dp))
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProfileGridItem(
     profile: UserProfile,
@@ -257,9 +268,12 @@ private fun ProfileGridItem(
     onSelect: () -> Unit,
     onEdit: () -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onSelect),
+        // On TV the avatar Box handles clicks; Column stays non-clickable to
+        // avoid a second focusable node fighting for D-pad input.
+        modifier = if (isTv) Modifier else Modifier.clickable(onClick = onSelect),
     ) {
         Box(contentAlignment = Alignment.BottomEnd) {
             Box(
@@ -270,6 +284,16 @@ private fun ProfileGridItem(
                         if (isActive)
                             Modifier.border(3.dp, Color(0xFF1E4EA8), CircleShape)
                         else Modifier
+                    )
+                    .then(
+                        if (isTv)
+                            // tvFocusBorder makes the circle focusable and shows a white
+                            // border when focused. combinedClickable routes single press to
+                            // onSelect and a held centre button to onEdit.
+                            Modifier
+                                .tvFocusBorder(CircleShape)
+                                .combinedClickable(onClick = onSelect, onLongClick = onEdit)
+                        else Modifier
                     ),
             ) {
                 AvatarImage(
@@ -277,20 +301,23 @@ private fun ProfileGridItem(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            Box(
-                Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF1E4EA8))
-                    .clickable(onClick = onEdit),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Default.Edit,
-                    contentDescription = "Edit",
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp),
-                )
+            // Edit pencil is replaced by hold-to-edit on TV.
+            if (!isTv) {
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1E4EA8))
+                        .clickable(onClick = onEdit),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "Edit",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(8.dp))
