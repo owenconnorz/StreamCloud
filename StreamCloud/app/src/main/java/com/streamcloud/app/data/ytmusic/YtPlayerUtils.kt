@@ -55,14 +55,19 @@ object YtPlayerUtils {
     private val CLIENTS = listOf(
 
         // ── REMOVAL NOTES ────────────────────────────────────────────────────────
-        // ANDROID_MUSIC:  music.youtube.com returns LOGIN_REQUIRED for all unauthenticated
-        //                 requests; browser cookies are also rejected (endpoint needs OAuth2).
-        // ANDROID_VR:     Returns "Sign in to confirm you're not a bot" on every unauthenticated
-        //                 request — bot-detection triggered before IOS even gets a chance.
-        // IOS / IPADOS:   Resolve successfully but the CDN returns HTTP 403. YouTube now
-        //                 enforces the 'n' parameter for iOS clients; without descrambling
-        //                 the obfuscated 'n' value the CDN rejects the byte-fetch entirely.
-        //                 ANDROID (id=3) has the same problem.
+        // ANDROID_MUSIC:         music.youtube.com returns LOGIN_REQUIRED for all unauthenticated
+        //                        requests; browser cookies are also rejected (endpoint needs OAuth2).
+        // ANDROID_VR:            Returns "Sign in to confirm you're not a bot" on every unauthenticated
+        //                        request — bot-detection triggered before IOS even gets a chance.
+        // IOS / IPADOS:          Resolve successfully but CDN returns HTTP 403. YouTube enforces the
+        //                        'n' parameter for iOS clients; without JS descrambling the CDN
+        //                        rejects byte-fetches entirely. ANDROID (id=3) has the same problem.
+        // MOBILE (ANDROID id=3): 'n'-parameter CDN 403 same as IOS; also returns cipher-only streams
+        //                        when the STS fetch fails, making it unreliable.
+        // ANDROID_CREATOR:       Always returns "Please sign in" for unauthenticated requests;
+        //                        requires Android OAuth tokens the app does not hold.
+        // TVHTML5_SIMPLY_EMBEDDED: Returns "YouTube is no longer supported in this application or
+        //                        device" — permanently blocked by YouTube.
         // ─────────────────────────────────────────────────────────────────────────
 
         // #1 ANDROID_TESTSUITE — the only current client whose stream URLs bypass 'n'-parameter
@@ -125,20 +130,7 @@ object YtPlayerUtils {
             useSignatureTimestamp = true,
         ),
 
-        // #3 TVHTML5_SIMPLY_EMBEDDED_PLAYER — embedded PS4 UA; bypasses age-restriction without
-        // auth.  isEmbedded=true → thirdParty.embedUrl sent in player body (matches Metrolist).
-        // useSignatureTimestamp=true matches Metrolist's TVHTML5_SIMPLY_EMBEDDED_PLAYER config.
-        ClientConfig(
-            label                 = "TVHTML5_SIMPLY_EMBEDDED",
-            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName            = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientId              = "85",
-            clientVersion         = "2.0",
-            userAgent             = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
-            embedUrlTemplate      = "https://www.youtube.com/watch?v=%VIDEO_ID%",
-            supportsAuth          = false,
-            useSignatureTimestamp = true,
-        ),
+        // (TVHTML5_SIMPLY_EMBEDDED removed — YouTube returns "no longer supported" permanently)
 
         // #4 TVHTML5 — Smart TV UA; n-transform required.  useSignatureTimestamp=true and
         // useWebPoTokens=true match Metrolist's YouTubeClient.TVHTML5 config.
@@ -192,26 +184,7 @@ object YtPlayerUtils {
             supportsAuth  = false,
         ),
 
-        // #7 ANDROID_CREATOR — YouTube Studio Android app (Pixel 9 Pro Fold).
-        // Comment from Metrolist: "Cannot play livestreams and lacks HDR, but can play videos with
-        // music and labeled 'for children'."  useSignatureTimestamp=true matches Metrolist.
-        ClientConfig(
-            label                 = "ANDROID_CREATOR",
-            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName            = "ANDROID_CREATOR",
-            clientId              = "14",
-            clientVersion         = "25.03.101",
-            userAgent             = "com.google.android.apps.youtube.creator/25.03.101 (Linux; U; Android 15; en_US; Pixel 9 Pro Fold; Build/AP3A.241005.015.A2; Cronet/132.0.6779.0)",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "15",
-                "deviceMake"        to "Google",
-                "deviceModel"       to "Pixel 9 Pro Fold",
-                "androidSdkVersion" to "35",
-            ),
-            supportsAuth          = false,
-            useSignatureTimestamp = true,
-        ),
+        // (ANDROID_CREATOR removed — always returns "Please sign in"; needs Android OAuth not web cookie)
 
         // #8 ANDROID_VR_NO_AUTH — bare ANDROID_VR without any extra context fields.
         // Metrolist uses this as an additional fallback after the extended VR configs.
@@ -227,56 +200,11 @@ object YtPlayerUtils {
             supportsAuth  = false,
         ),
 
-        // #8 IPADOS — iOS family client with a different version and device model.
-        // useSignatureTimestamp is not set (no sig cipher lock), no n-transform required.
-        // Metrolist includes this after ANDROID_VR_NO_AUTH in the fallback chain.
-        ClientConfig(
-            label         = "IPADOS",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "IOS",
-            clientId      = "5",
-            clientVersion = "21.03.3",
-            userAgent     = "com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)",
-            extraClientFields = mapOf(
-                "osName"      to "iPadOS",
-                "osVersion"   to "17.7.10.21H450",
-                "deviceMake"  to "Apple",
-                "deviceModel" to "iPad7,6",
-            ),
-            supportsAuth  = false,
-        ),
+        // (IPADOS removed — CDN enforces 'n' parameter for iOS; stream URLs 403 at byte-fetch stage)
 
-        // #10 MOBILE (ANDROID clientId=3) — the standard YouTube Android client.
-        // Requires useSignatureTimestamp=true: without the sts value in the player body YouTube
-        // returns cipher-only stream formats.  With it, YouTube returns plain CDN URLs that
-        // require no n-transform.  The sts is extracted from the same player JS as the nsig func.
-        ClientConfig(
-            label                 = "MOBILE",
-            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName            = "ANDROID",
-            clientId              = "3",
-            clientVersion         = "21.03.38",
-            userAgent             = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
-            supportsAuth          = false,
-            useSignatureTimestamp = true,
-        ),
+        // (MOBILE/ANDROID id=3 removed — same 'n'-param CDN 403 as IOS; returns cipher-only when STS unavailable)
 
-        // #11 IOS — matches Metrolist's YouTubeClient.IOS config exactly.
-        ClientConfig(
-            label         = "IOS",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "IOS",
-            clientId      = "5",
-            clientVersion = "21.03.1",
-            userAgent     = "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
-            extraClientFields = mapOf(
-                "deviceMake"  to "Apple",
-                "deviceModel" to "iPhone16,2",
-                "osName"      to "iPhone",
-                "osVersion"   to "18.2.22C152",
-            ),
-            supportsAuth = false,
-        ),
+        // (IOS removed — CDN enforces 'n' parameter for iOS; same problem as IPADOS)
 
         // #12 WEB — standard YouTube web client.  Placed at the end of the fallback chain,
         // matching Metrolist's STREAM_FALLBACK_CLIENTS ordering.
@@ -640,13 +568,8 @@ object YtPlayerUtils {
         "ANDROID_VR_1_43"         -> 4
         "WEB_REMIX"               -> 5
         "TVHTML5"                 -> 6
-        "TVHTML5_SIMPLY_EMBEDDED" -> 7
-        "ANDROID_CREATOR"         -> 8
-        "MOBILE"                  -> 9
-        "IPADOS"                  -> 10
-        "IOS"                     -> 11
-        "WEB"                     -> 12
-        "WEB_CREATOR"             -> 13
+        "WEB"                     -> 7
+        "WEB_CREATOR"             -> 8
         else                       -> 50
     }
 

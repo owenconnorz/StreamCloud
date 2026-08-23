@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -245,6 +247,7 @@ fun AdultScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(2),
+                modifier = Modifier.tvFocusGroup(),
                 contentPadding = PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement   = Arrangement.spacedBy(12.dp),
@@ -443,6 +446,7 @@ private fun CategoryPickerSheet(
                                 modifier  = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
+                                    .tvFocusBorder(RoundedCornerShape(10.dp))
                                     .clickable { onSelect(cat) },
                                 color     = if (isSelected)
                                     MaterialTheme.colorScheme.primaryContainer
@@ -793,6 +797,7 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
     Column(
         Modifier
             .clip(RoundedCornerShape(12.dp))
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .background(cardBg)
             .clickable(onClick = onClick)
     ) {

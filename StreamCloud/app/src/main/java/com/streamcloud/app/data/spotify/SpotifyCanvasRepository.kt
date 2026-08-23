@@ -294,6 +294,10 @@ object SpotifyCanvasRepository {
 
     // ── Personal token (SimpMusic SpotifyAuth.refreshToken) ───────────────────
 
+    /** Returns a valid personal access token for the given sp_dc cookie.
+     *  Must be called from a background thread / IO dispatcher. */
+    fun getPersonalToken(spDc: String): String? = ensureToken(spDc)
+
     private fun ensureToken(spDc: String): String? {
         val now = System.currentTimeMillis()
         cachedToken?.takeIf { now < tokenExpiryMs - 60_000L }?.let { return it }

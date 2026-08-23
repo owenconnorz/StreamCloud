@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -822,6 +823,7 @@ fun NativePlayerScreen(
                 Box(Modifier.align(Alignment.CenterEnd)
                     .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
                     .background(Color.Black.copy(alpha = 0.55f))
+                    .tvFocusBorder(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
                     .clickable { showSidePanel = true; bumpInteraction() }
                     .padding(horizontal = 6.dp, vertical = 18.dp)) {
                     Icon(Icons.Default.ChevronLeft, "Open panel", tint = Color.White, modifier = Modifier.size(20.dp))
@@ -1037,14 +1039,14 @@ private fun PlayerClock(
             horizontalAlignment = Alignment.End,
         ) {
             Text(
-                text = now.format(playerClockTimeFormatter),
+                text = playerClockTimeFormatter.format(now),
                 color = Color.White,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 lineHeight = 20.sp,
             )
             Text(
-                text = now.format(playerClockDateFormatter),
+                text = playerClockDateFormatter.format(now),
                 color = Color.White.copy(alpha = 0.82f),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,

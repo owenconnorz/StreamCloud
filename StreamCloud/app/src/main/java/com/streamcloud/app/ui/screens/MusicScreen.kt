@@ -61,6 +61,9 @@ import com.streamcloud.app.audio.DjVoicePreset
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.ui.viewmodel.DjSession
 import com.streamcloud.app.ui.viewmodel.DjViewModel
+import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
+import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
@@ -406,7 +409,10 @@ fun MusicScreen(
             .background(MaterialTheme.colorScheme.background),
     ) {
         LazyColumn(
-            Modifier.fillMaxSize(),
+            Modifier
+                .fillMaxSize()
+                .tvFocusGroup()
+                .tvDpadRepeatThrottle(),
             contentPadding = PaddingValues(bottom = if (nowPlaying != null) 180.dp else 80.dp),
         ) {
             item {
@@ -513,6 +519,7 @@ fun MusicScreen(
                             item(key = "yt_prail_title_$idx") { SectionTitle(section.title) }
                             item(key = "yt_prail_$idx") {
                                 LazyRow(
+                                    modifier = Modifier.tvFocusGroup(),
                                     contentPadding = PaddingValues(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
@@ -530,6 +537,7 @@ fun MusicScreen(
                                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                                     val cardWidth = ((maxWidth - 68.dp) / 4).coerceAtLeast(76.dp)
                                     LazyRow(
+                                        modifier = Modifier.tvFocusGroup(),
                                         contentPadding = PaddingValues(horizontal = 16.dp),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     ) {
@@ -557,6 +565,7 @@ fun MusicScreen(
                     item { SectionTitle("Trending today") }
                     item {
                         LazyRow(
+                            modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -852,6 +861,7 @@ private fun MusicHeaderAction(
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
+            .tvFocusBorder(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .actionGesture(),
         contentAlignment = Alignment.Center,
@@ -965,6 +975,7 @@ private fun SearchResultRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1000,6 +1011,7 @@ private fun SuggestionListRow(text: String, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1040,6 +1052,7 @@ private fun SuggestionChip(label: String, onClick: () -> Unit) {
     Box(
         Modifier
             .clip(RoundedCornerShape(50))
+            .tvFocusBorder(RoundedCornerShape(50))
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp)
@@ -1089,6 +1102,7 @@ private fun TopResultCard(track: YtTrack, isPlaying: Boolean, onClick: () -> Uni
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(14.dp))
+            .tvFocusBorder(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
             .padding(12.dp),
@@ -1133,7 +1147,7 @@ private fun TopResultCard(track: YtTrack, isPlaying: Boolean, onClick: () -> Uni
 
 @Composable
 private fun AlbumCard(album: com.streamcloud.app.data.newpipe.YtAlbum, onClick: () -> Unit = {}) {
-    Column(Modifier.width(160.dp).clickable(onClick = onClick)) {
+    Column(Modifier.width(160.dp).tvFocusBorder(RoundedCornerShape(12.dp)).clickable(onClick = onClick)) {
         AsyncImage(
             model = album.thumbnail,
             contentDescription = album.title,
@@ -1166,7 +1180,7 @@ private fun ArtistCard(
     onClick: () -> Unit = {},
 ) {
     Column(
-        Modifier.width(140.dp).clickable(onClick = onClick),
+        Modifier.width(140.dp).tvFocusBorder(RoundedCornerShape(12.dp)).clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         AsyncImage(
@@ -1203,6 +1217,7 @@ private fun HeroCard(track: YtTrack, isPlaying: Boolean, onClick: () -> Unit) {
         Modifier
             .width(160.dp)
             .clip(RoundedCornerShape(14.dp))
+            .tvFocusBorder(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
     ) {
         Box(
@@ -1268,6 +1283,7 @@ private fun SongRow(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .background(if (highlighted) MaterialTheme.colorScheme.surface else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 8.dp),
@@ -1331,6 +1347,7 @@ private fun LibraryRow(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(12.dp))
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
             .padding(8.dp),
@@ -1395,6 +1412,7 @@ private fun YtHomePlaylistCard(
     Column(
         Modifier
             .width(150.dp)
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
@@ -1458,6 +1476,7 @@ private fun YtHomeSongCard(
     Column(
         modifier = Modifier
             .then(modifier)
+            .tvFocusBorder(RoundedCornerShape(10.dp))
             .clickable { onPlay() }
             .padding(bottom = 10.dp),
     ) {

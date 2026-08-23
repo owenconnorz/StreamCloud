@@ -64,9 +64,9 @@ fun SonosDevicePickerSheet(
     val mediaRoutes = remember { mutableStateListOf<MediaRouter.RouteInfo>() }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val firstTabFocus = remember { FocusRequester() }
-    LaunchedEffect(isTv) {
-        if (isTv) runCatching { firstTabFocus.requestFocus() }
+    val tabFocusRequesters = remember { List(3) { FocusRequester() } }
+    LaunchedEffect(isTv, selectedTab) {
+        if (isTv) runCatching { tabFocusRequesters[selectedTab].requestFocus() }
     }
 
     LaunchedEffect(Unit) {
@@ -149,11 +149,27 @@ fun SonosDevicePickerSheet(
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    modifier = Modifier.focusRequester(firstTabFocus),
+                    modifier = Modifier
+                        .focusRequester(tabFocusRequesters[0])
+                        .tvFocusBorder(RoundedCornerShape(24.dp)),
                     text = { Text("Sonos") },
                 )
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Cast & TV") })
-                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Bluetooth") })
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    modifier = Modifier
+                        .focusRequester(tabFocusRequesters[1])
+                        .tvFocusBorder(RoundedCornerShape(24.dp)),
+                    text = { Text("Cast & TV") },
+                )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    modifier = Modifier
+                        .focusRequester(tabFocusRequesters[2])
+                        .tvFocusBorder(RoundedCornerShape(24.dp)),
+                    text = { Text("Bluetooth") },
+                )
             }
 
             Spacer(Modifier.height(12.dp))

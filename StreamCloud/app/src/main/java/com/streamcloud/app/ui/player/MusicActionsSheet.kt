@@ -12,6 +12,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.BedtimeOff
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Groups
@@ -77,6 +79,8 @@ fun MusicActionsSheet(
     currentArtist: String,
     isLiked: Boolean,
     isDownloaded: Boolean,
+    sleepActive: Boolean = false,
+    onSleep: () -> Unit = {},
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenArtistSearch: (String) -> Unit,
@@ -132,6 +136,14 @@ fun MusicActionsSheet(
         ) {
 
             VolumeRow(context, accentColor = sheetAccent)
+
+            Divider(Modifier.padding(vertical = 12.dp))
+
+            ActionRow(
+                icon = if (sleepActive) Icons.Default.BedtimeOff else Icons.Default.Bedtime,
+                title = if (sleepActive) "Cancel sleep timer" else "Sleep timer",
+                subtitle = if (sleepActive) "Tap to cancel" else "Stop playback after a set time",
+            ) { onSleep() }
 
             Divider(Modifier.padding(vertical = 12.dp))
 

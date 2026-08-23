@@ -69,6 +69,8 @@ fun MusicSearchScreen(
     var showAllSongs    by remember { mutableStateOf(false) }
     var showAllArtists  by remember { mutableStateOf(false) }
     var showAllAlbums   by remember { mutableStateOf(false) }
+    // Collapsed top bar: starts expanded if opening with an initial query
+    var searchBarVisible by remember { mutableStateOf(initialQuery.isNotBlank()) }
 
     // Reset view-all when query changes
     LaunchedEffect(query) { showAllSongs = false; showAllArtists = false; showAllAlbums = false }
@@ -82,8 +84,8 @@ fun MusicSearchScreen(
     )
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) {
-        if (initialQuery.isBlank()) runCatching { focusRequester.requestFocus() }
+    LaunchedEffect(searchBarVisible) {
+        if (searchBarVisible) runCatching { focusRequester.requestFocus() }
     }
 
     LaunchedEffect(initialQuery) {
@@ -134,71 +136,104 @@ fun MusicSearchScreen(
                 color = Color.Transparent,
                 modifier = Modifier.statusBarsPadding(),
             ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onBackground,
-                        )
-                    }
-                    TextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(focusRequester),
-                        placeholder = {
-                            Text(
-                                "Search songs, artists, albums...",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        singleLine = true,
-                        leadingIcon = {
+                if (searchBarVisible) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onBack) {
                             Icon(
-                                Icons.Default.Search,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onBackground,
                             )
-                        },
-                        trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                when {
-                                    state.loading -> CircularProgressIndicator(
-                                        Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                    query.isNotEmpty() -> IconButton(onClick = { query = "" }) {
-                                        Icon(Icons.Default.Close, "Clear")
+                        }
+                        TextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(focusRequester),
+                            placeholder = {
+                                Text(
+                                    "Search songs, artists, albums...",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    when {
+                                        state.loading -> CircularProgressIndicator(
+                                            Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                        query.isNotEmpty() -> IconButton(onClick = { query = "" }) {
+                                            Icon(Icons.Default.Close, "Clear")
+                                        }
+                                    }
+                                    IconButton(onClick = onRecognitionClick) {
+                                        Icon(
+                                            Icons.Default.Mic,
+                                            contentDescription = "Recognize music nearby",
+                                        )
                                     }
                                 }
-                                IconButton(onClick = onRecognitionClick) {
-                                    Icon(
-                                        Icons.Default.Mic,
-                                        contentDescription = "Recognize music nearby",
-                                    )
-                                }
-                            }
-                        },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { submitSearch(query) }),
-                        shape = RoundedCornerShape(28.dp),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor   = MaterialTheme.colorScheme.surfaceVariant,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            focusedIndicatorColor   = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor  = Color.Transparent,
-                        ),
-                    )
+                            },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { submitSearch(query) }),
+                            shape = RoundedCornerShape(28.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor   = MaterialTheme.colorScheme.surfaceVariant,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                focusedIndicatorColor   = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor  = Color.Transparent,
+                            ),
+                        )
+                    }
+                } else {
+                    // Compact bar: back button + search icon on the right
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { searchBarVisible = true }) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                            )
+                        }
+                        IconButton(onClick = onRecognitionClick) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = "Recognize music nearby",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -239,6 +274,7 @@ fun MusicSearchScreen(
                         Row(
                             Modifier
                                 .fillMaxWidth()
+                                .tvFocusBorder(RoundedCornerShape(12.dp))
                                 .clickable { query = term; submitSearch(term) }
                                 .padding(start = 20.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -309,6 +345,27 @@ fun MusicSearchScreen(
                     )
                 }
 
+                // ── Artists ────────────────────────────────────────────────
+                if (sections.artists.isNotEmpty()) {
+                    item(key = "hdr_artists") {
+                        SearchSectionHeader(
+                            title      = "Artists",
+                            showingAll = showAllArtists,
+                            onViewAll  = { showAllArtists = !showAllArtists },
+                        )
+                    }
+                    val artistList = if (showAllArtists) sections.artists else sections.artists.take(3)
+                    items(artistList, key = { "artist_${it.url}" }) { artist ->
+                        MusicSearchResultRow(
+                            thumbnail = artist.thumbnail,
+                            title     = artist.name,
+                            subtitle  = "Artist",
+                            isCircle  = true,
+                            onClick   = { onArtistClick(artist.url, artist.thumbnail) },
+                        )
+                    }
+                }
+
                 // ── Songs ──────────────────────────────────────────────────
                 if (sections.songs.isNotEmpty()) {
                     item(key = "hdr_songs") {
@@ -335,27 +392,6 @@ fun MusicSearchScreen(
                                     null,
                                 )
                             },
-                        )
-                    }
-                }
-
-                // ── Artists ────────────────────────────────────────────────
-                if (sections.artists.isNotEmpty()) {
-                    item(key = "hdr_artists") {
-                        SearchSectionHeader(
-                            title      = "Artists",
-                            showingAll = showAllArtists,
-                            onViewAll  = { showAllArtists = !showAllArtists },
-                        )
-                    }
-                    val artistList = if (showAllArtists) sections.artists else sections.artists.take(3)
-                    items(artistList, key = { "artist_${it.url}" }) { artist ->
-                        MusicSearchResultRow(
-                            thumbnail = artist.thumbnail,
-                            title     = artist.name,
-                            subtitle  = "Artist",
-                            isCircle  = true,
-                            onClick   = { onArtistClick(artist.url, artist.thumbnail) },
                         )
                     }
                 }
