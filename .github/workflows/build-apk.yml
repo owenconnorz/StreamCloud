@@ -129,11 +129,16 @@ jobs:
           tag_name: V${{ github.run_number }}
           name: StreamCloud V${{ github.run_number }}
           body: |
-            StreamCloud V${{ github.run_number }}
+            ## StreamCloud V${{ github.run_number }}
 
-            - Nuvio-style Android TV focus navigation and D-pad behavior
-            - Startup update prompt with release notes and in-app APK installation
-            - Compose TV focus build fixes
+            ### Android TV remote improvements
+            - **D-pad Down from the nav bar** now jumps straight into content on every tab: Movies hero, Music Search button, Library first toggle, Settings first row
+            - **Hero scroll restoration** — pressing Menu or D-pad Up from content scrolls the Movies list back to the top
+            - **Nuvio-style hero** — content peeks below the fold so the page feels immediately alive
+            - **Movie detail carousels** — Cast, Trailers, Seasons, and Episodes rows are now fully D-pad navigable (tvFocusGroup + throttle); cast members, trailer cards, and "More Like This" tiles all show focus borders
+            - **View All card on every category row** — a poster-shaped focusable card sits at the end of each TMDB, Stremio, and CloudStream row on TV so you can reach View All without leaving the row
+            - **Music tab** — pull-to-refresh disabled on TV (no touchscreen; remote can't trigger it)
+            - **Settings tab** — search bar hidden on TV; D-pad navigates directly to settings rows
 
             Compiled and packaged by GitHub Actions.
           files: StreamCloud/artifacts/StreamCloud-release.apk
