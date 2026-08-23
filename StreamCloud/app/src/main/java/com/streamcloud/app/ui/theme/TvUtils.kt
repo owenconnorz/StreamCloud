@@ -83,11 +83,16 @@ fun Modifier.tvFocusGroup(): Modifier = composed {
 /**
  * Handles held D-pad events at a controlled cadence while allowing the first
  * press to use Compose's normal spatial focus search.
+ *
+ * Set [verticalOnly] = true when the container holds nested horizontal LazyRows:
+ * it limits throttling to Up/Down so Left/Right events fall through naturally
+ * to the inner row's own focus traversal.
  */
 fun Modifier.tvDpadRepeatThrottle(
     horizontalGateMs: Long = TvHorizontalRepeatGateMs,
     verticalGateMs: Long = TvVerticalRepeatGateMs,
     handleInitialPresses: Boolean = false,
+    verticalOnly: Boolean = false,
 ): Modifier = composed {
     if (LocalUiFormFactor.current != UiFormFactor.Tv) return@composed this
     val focusManager = LocalFocusManager.current
@@ -104,8 +109,9 @@ fun Modifier.tvDpadRepeatThrottle(
         val direction = when (native.keyCode) {
             AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
             AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
-            AndroidKeyEvent.KEYCODE_DPAD_LEFT -> FocusDirection.Left
-            AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
+            // When verticalOnly, let Left/Right fall through to nested LazyRows.
+            AndroidKeyEvent.KEYCODE_DPAD_LEFT -> if (verticalOnly) null else FocusDirection.Left
+            AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> if (verticalOnly) null else FocusDirection.Right
             else -> null
         } ?: return@onPreviewKeyEvent false
 
