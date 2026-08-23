@@ -816,65 +816,169 @@ private fun HeroBannerSlide(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color.Black.copy(alpha = 0.65f),
-                        Color.Transparent,
-                        Color.Black.copy(alpha = 0.92f),
-                    ),
-                    startY = 0f,
-                    endY = Float.POSITIVE_INFINITY,
+        val meta = listOfNotNull(
+            if (item.mediaType == "tv") "Series" else "Movie",
+            item.year.takeIf { it.isNotBlank() },
+            item.rating.takeIf { it.isNotBlank() },
+        ).joinToString("  •  ")
+
+        if (isTv) {
+            // TV: Netflix-style — left-side + bottom gradient, title/buttons bottom-left
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.85f),
+                            Color.Black.copy(alpha = 0.25f),
+                            Color.Transparent,
+                        )
+                    )
                 )
             )
-        )
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 24.dp, vertical = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                item.title,
-                style = MaterialTheme.typography.displayLarge.copy(
-                    fontWeight = FontWeight.Black,
-                    fontSize = 36.sp,
-                    lineHeight = 40.sp,
-                ),
-                color = Color.White,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                maxLines = 2, overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(8.dp))
-            val meta = listOfNotNull(
-                if (item.mediaType == "tv") "Series" else "Movie",
-                item.year.takeIf { it.isNotBlank() },
-                item.rating.takeIf { it.isNotBlank() },
-            ).joinToString("  •  ")
-            Text(
-                meta,
-                color = Color.White.copy(alpha = 0.85f),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(Modifier.height(18.dp))
             Box(
-                (if (isTv && buttonFocusRequester != null)
-                    Modifier.focusRequester(buttonFocusRequester)
-                else
-                    Modifier)
-                    .then(if (isTv) Modifier.onFocusChanged { onButtonFocusChanged(it.isFocused) } else Modifier)
-                    .tvFocusBorder(RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color.White)
-                    .clickable(onClick = onClick)
-                    .padding(horizontal = 38.dp, vertical = 14.dp),
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.55f),
+                            Color.Black.copy(alpha = 0.97f),
+                        )
+                    )
+                )
+            )
+            Column(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 48.dp, bottom = 52.dp, end = 260.dp),
+                horizontalAlignment = Alignment.Start,
             ) {
                 Text(
-                    "View Details",
-                    color = Color(0xFF111111),
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    item.title,
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontWeight = FontWeight.Black,
+                        fontSize = 44.sp,
+                        lineHeight = 48.sp,
+                    ),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    meta,
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(22.dp))
+                // Netflix-style: Play (white, primary) + More Info (semi-transparent) side by side
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Play — white filled, ▶ icon, primary action
+                    Row(
+                        (if (buttonFocusRequester != null)
+                            Modifier.focusRequester(buttonFocusRequester)
+                        else Modifier)
+                            .onFocusChanged { onButtonFocusChanged(it.isFocused) }
+                            .tvFocusBorder(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.White)
+                            .clickable(onClick = onClick)
+                            .padding(horizontal = 28.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Text(
+                            "Play",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        )
+                    }
+                    // More Info — semi-transparent, secondary action
+                    Row(
+                        Modifier
+                            .tvFocusBorder(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.White.copy(alpha = 0.22f))
+                            .border(1.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                            .clickable(onClick = onClick)
+                            .padding(horizontal = 28.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Text(
+                            "More Info",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        )
+                    }
+                }
+            }
+        } else {
+            // Mobile/tablet: vertical gradient + centred layout
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.65f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.92f),
+                        ),
+                        startY = 0f,
+                        endY = Float.POSITIVE_INFINITY,
+                    )
+                )
+            )
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    item.title,
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontWeight = FontWeight.Black,
+                        fontSize = 36.sp,
+                        lineHeight = 40.sp,
+                    ),
+                    color = Color.White,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    meta,
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(18.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White)
+                        .clickable(onClick = onClick)
+                        .padding(horizontal = 38.dp, vertical = 14.dp),
+                ) {
+                    Text(
+                        "View Details",
+                        color = Color(0xFF111111),
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    )
+                }
             }
         }
     }

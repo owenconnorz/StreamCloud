@@ -1235,6 +1235,7 @@ fun StreamCloudApp() {
                         currentRoute   = currentRoute,
                         firstTabFocus  = firstTvNavFocus,
                         onTabSelected  = { route -> navigateToTab(nav, route) },
+                        onSearchClick  = { nav.navigate("movie-search") },
                         onDownPressed  = { try { firstMovieCardFocus.requestFocus() } catch (_: Exception) {} },
                         modifier       = Modifier.align(Alignment.TopStart).fillMaxWidth(),
                     )
@@ -1392,11 +1393,11 @@ private fun TvNetflixTopNav(
     currentRoute: String?,
     firstTabFocus: FocusRequester,
     onTabSelected: (String) -> Unit,
+    onSearchClick: () -> Unit,
     onDownPressed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var navHasFocus by remember { mutableStateOf(false) }
-    // Gradient start alpha: lighter when content is focused, solid when nav is focused
     val gradStartAlpha by animateFloatAsState(
         targetValue = if (navHasFocus) 0.97f else 0.72f,
         animationSpec = tween(250),
@@ -1408,9 +1409,7 @@ private fun TvNetflixTopNav(
         label = "tvNavGradMid",
     )
 
-    Box(
-        modifier = modifier.onFocusChanged { navHasFocus = it.hasFocus },
-    ) {
+    Box(modifier = modifier.onFocusChanged { navHasFocus = it.hasFocus }) {
         // Gradient scrim — readable at all times, heavier when nav has focus
         Box(
             Modifier
@@ -1427,65 +1426,89 @@ private fun TvNetflixTopNav(
                 )
         )
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
+        // Content row: app name left | tabs centred (Netflix layout)
+        Box(
+            Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = TvOverscanPadding, vertical = 14.dp)
-                .tvFocusGroup()
-                .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown) {
-                        when (event.key) {
-                            Key.DirectionDown -> { onDownPressed(); true }
-                            Key.DirectionUp   -> true  // trap — nothing above the nav bar
-                            else -> false
-                        }
-                    } else false
-                },
+                .padding(horizontal = TvOverscanPadding, vertical = 14.dp),
         ) {
-            // App name — Netflix uses its logo here; we use the app name in bold white
+            // App name anchored to the left edge
             Text(
                 "StreamCloud",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color.White,
-                modifier = Modifier.padding(end = 36.dp),
+                modifier = Modifier.align(Alignment.CenterStart),
             )
 
-            // Tab items
-            tabs.forEachIndexed { index, tab ->
-                val selected = currentRoute == tab.route
-                var itemFocused by remember { mutableStateOf(false) }
+            // Search icon + tab labels — absolutely centred in the bar
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .tvFocusGroup()
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown) {
+                            when (event.key) {
+                                Key.DirectionDown -> { onDownPressed(); true }
+                                Key.DirectionUp   -> true
+                                else -> false
+                            }
+                        } else false
+                    },
+            ) {
+                // Search icon item (first focusable — gets firstTabFocus)
+                var searchFocused by remember { mutableStateOf(false) }
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .then(if (index == 0) Modifier.focusRequester(firstTabFocus) else Modifier)
+                        .focusRequester(firstTabFocus)
                         .tvFocusBorder(RoundedCornerShape(8.dp))
-                        .onFocusChanged { itemFocused = it.isFocused }
-                        .clickable { onTabSelected(tab.route) }
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
+                        .onFocusChanged { searchFocused = it.isFocused }
+                        .clickable { onSearchClick() }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            tab.label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = when {
-                                selected || itemFocused -> Color.White
-                                else -> Color.White.copy(alpha = 0.60f)
-                            },
-                        )
-                        // Active-tab underline indicator (Netflix style)
-                        if (selected) {
-                            Spacer(Modifier.height(3.dp))
-                            Box(
-                                Modifier
-                                    .width(20.dp)
-                                    .height(3.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .background(Color.White)
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = if (searchFocused) Color.White else Color.White.copy(alpha = 0.60f),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+
+                // Tab items
+                tabs.forEach { tab ->
+                    val selected = currentRoute == tab.route
+                    var itemFocused by remember { mutableStateOf(false) }
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .tvFocusBorder(RoundedCornerShape(8.dp))
+                            .onFocusChanged { itemFocused = it.isFocused }
+                            .clickable { onTabSelected(tab.route) }
+                            .padding(horizontal = 18.dp, vertical = 8.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                tab.label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = when {
+                                    selected || itemFocused -> Color.White
+                                    else -> Color.White.copy(alpha = 0.60f)
+                                },
                             )
+                            if (selected) {
+                                Spacer(Modifier.height(3.dp))
+                                Box(
+                                    Modifier
+                                        .width(20.dp)
+                                        .height(3.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(Color.White)
+                                )
+                            }
                         }
                     }
                 }
