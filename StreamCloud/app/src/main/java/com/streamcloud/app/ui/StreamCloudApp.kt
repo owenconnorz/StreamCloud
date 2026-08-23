@@ -329,6 +329,10 @@ fun StreamCloudApp() {
         val firstRailFocus = remember { FocusRequester() }
         val firstTvNavFocus = remember { FocusRequester() }
         val firstMovieCardFocus = remember { FocusRequester() }
+        // Dedicated requester always attached to the current hero Play button so
+        // D-pad Down from the top nav bar reliably lands there regardless of
+        // which startupFocusTarget the content decides to use.
+        val tvNavHeroFocus = remember { FocusRequester() }
         val focusManager = LocalFocusManager.current
         LaunchedEffect(showRail) {
             // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
@@ -446,6 +450,7 @@ fun StreamCloudApp() {
                     MoviesScreen(
                         initialFocusRequester = firstMovieCardFocus,
                         initialFocusEnabled = !showProfilePicker,
+                        tvNavHeroFocus = tvNavHeroFocus,
                         onFirstMovieFocusedChanged = { firstMovieFocused = it },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
@@ -1234,7 +1239,7 @@ fun StreamCloudApp() {
                         tabs                  = tabs,
                         currentRoute          = currentRoute,
                         firstTabFocus         = firstTvNavFocus,
-                        contentFocusRequester = firstMovieCardFocus,
+                        contentFocusRequester = tvNavHeroFocus,
                         onTabSelected         = { route -> navigateToTab(nav, route) },
                         onSearchClick         = { nav.navigate("movie-search") },
                         modifier              = Modifier.align(Alignment.TopStart).fillMaxWidth(),

@@ -80,6 +80,9 @@ private data class PosterSheetItem(
 fun MoviesScreen(
     initialFocusRequester: FocusRequester? = null,
     initialFocusEnabled: Boolean = true,
+    // Always attached to the current hero Play button so the TV nav D-pad Down
+    // can jump here even when initialFocusRequester targets something else.
+    tvNavHeroFocus: FocusRequester? = null,
     onFirstMovieFocusedChanged: (Boolean) -> Unit = {},
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit = {},
@@ -198,6 +201,7 @@ fun MoviesScreen(
                             } else {
                                 null
                             },
+                            navFocusRequester = tvNavHeroFocus,
                             onInitialItemFocusChanged = onFirstMovieFocusedChanged,
                             onClick = { item ->
                                 when {
@@ -685,6 +689,7 @@ private fun MoviesHeader(
 private fun HeroPager(
     items: List<HeroBannerItem>,
     initialFocusRequester: FocusRequester? = null,
+    navFocusRequester: FocusRequester? = null,
     onInitialItemFocusChanged: (Boolean) -> Unit = {},
     onClick: (HeroBannerItem) -> Unit,
 ) {
@@ -720,6 +725,7 @@ private fun HeroPager(
                     // both old and new content during the transition, so attaching the same
                     // requester to every page would cause a duplicate-requester error.
                     buttonFocusRequester = if (page == 0) initialFocusRequester else null,
+                    navFocusRequester = if (page == currentPage) navFocusRequester else null,
                     onButtonFocusChanged = { focused ->
                         buttonHasFocus = focused
                         onInitialItemFocusChanged(focused)
@@ -798,8 +804,10 @@ private fun HeroBannerSlide(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onFocusChange: (Boolean) -> Unit = {},
-    // TV only: focus requester and callback for the "View Details" button.
+    // TV only: startup focus requester (conditional on startupFocusTarget == "hero").
     buttonFocusRequester: FocusRequester? = null,
+    // TV only: always-active nav requester so D-pad Down from the top bar lands here.
+    navFocusRequester: FocusRequester? = null,
     onButtonFocusChanged: (Boolean) -> Unit = {},
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
@@ -883,6 +891,7 @@ private fun HeroBannerSlide(
                         (if (buttonFocusRequester != null)
                             Modifier.focusRequester(buttonFocusRequester)
                         else Modifier)
+                            .let { if (navFocusRequester != null) it.focusRequester(navFocusRequester) else it }
                             .onFocusChanged { onButtonFocusChanged(it.isFocused) }
                             .tvFocusBorder(RoundedCornerShape(6.dp))
                             .clip(RoundedCornerShape(6.dp))
