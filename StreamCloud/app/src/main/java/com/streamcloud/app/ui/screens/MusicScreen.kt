@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.focus.FocusRequester
@@ -402,14 +403,13 @@ fun MusicScreen(
         if (!state.ytHomeLoading && !state.homeLoading) isRefreshing = false
     }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing && !isTv,
+    MusicRefreshBox(
+        isTv = isTv,
+        isRefreshing = isRefreshing,
         onRefresh = {
-            if (!isTv) {
-                isRefreshing = true
-                vm.loadYtHome()
-                vm.loadHomeFeed()
-            }
+            isRefreshing = true
+            vm.loadYtHome()
+            vm.loadHomeFeed()
         },
         state = pullRefreshState,
         modifier = Modifier
@@ -759,6 +759,29 @@ fun MusicScreen(
                 },
             )
         }
+    }
+}
+
+/** Wraps content in a plain Box on TV (no pull-to-refresh gesture) or PullToRefreshBox on phone. */
+@Composable
+private fun MusicRefreshBox(
+    isTv: Boolean,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    state: PullToRefreshState,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    if (isTv) {
+        Box(modifier = modifier, content = content)
+    } else {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            state = state,
+            modifier = modifier,
+            content = content,
+        )
     }
 }
 

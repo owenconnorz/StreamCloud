@@ -2299,7 +2299,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
             )
         }
         // ── Sections ───────────────────────────────────────────────────────
-        filtered.forEach { section ->
+        filtered.forEachIndexed { sectionIdx, section ->
             item(key = "lbl:${section.label}") {
                 Text(
                     section.label,
@@ -2322,6 +2322,8 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                             badgeError = it.badgeError,
                             iconTint   = it.iconTint,
                             onClick    = it.onClick,
+                            modifier   = if (sectionIdx == 0 && idx == 0 && isTv && tvNavFocusRequester != null)
+                                Modifier.focusRequester(tvNavFocusRequester) else Modifier,
                         )
                         if (idx < section.items.lastIndex) SettingDivider()
                     }
@@ -2341,10 +2343,11 @@ private fun HubRow(
     badgeError: Boolean = false,
     iconTint: Color = HubIconFg,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .tvFocusBorder(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
