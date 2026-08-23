@@ -136,6 +136,7 @@ import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.text.style.TextOverflow
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import androidx.compose.ui.focus.onFocusChanged
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -334,67 +335,28 @@ fun StreamCloudApp() {
             // On TV, focus starts on the persistent navigation launcher.
             if (showRail && !isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
         }
-        // TV popup nav state — auto-close on route change
-        var tvNavOpen by remember { mutableStateOf(false) }
+        // Netflix-style TV nav: track which item last had startup focus so Up-from-hero focuses nav
         var firstMovieFocused by remember { mutableStateOf(false) }
-        LaunchedEffect(currentRoute) {
-            tvNavOpen = false
-            firstMovieFocused = false
-        }
-        // The drawer owns focus while visible. The menu launcher deliberately
-        // never receives startup focus on TV: content starts focused, and Left
-        // opens this panel directly (Nuvio-style).
-        var returningFromTvNav by remember { mutableStateOf(false) }
-        LaunchedEffect(tvNavOpen, isTv, currentRoute) {
-            if (!isTv) return@LaunchedEffect
-            try {
-                if (tvNavOpen) {
-                    returningFromTvNav = true
-                    firstTvNavFocus.requestFocus()
-                } else if (returningFromTvNav) {
-                    if (currentRoute == Tab.Movies.route) {
-                        firstMovieCardFocus.requestFocus()
-                    }
-                    returningFromTvNav = false
-                }
-            } catch (_: Exception) {}
-        }
-        // Intercept the back button to close the TV nav panel instead of exiting the app.
-        BackHandler(enabled = isTv && tvNavOpen) { tvNavOpen = false }
+        LaunchedEffect(currentRoute) { firstMovieFocused = false }
         Row(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .onPreviewKeyEvent { event ->
-                    if (isTv && tvNavOpen && event.type == KeyEventType.KeyDown) {
-                        when (event.key) {
-                            Key.DirectionLeft -> true
-                            Key.DirectionRight -> {
-                                tvNavOpen = false
+                    // On TV: Menu key or Up-while-hero-is-focused raises focus to the top nav bar
+                    if (isTv && showRail && event.type == KeyEventType.KeyDown) {
+                        when {
+                            event.key == Key.Menu -> {
+                                try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
+                                true
+                            }
+                            event.key == Key.DirectionUp && firstMovieFocused -> {
+                                try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
                                 true
                             }
                             else -> false
                         }
-                    } else if (
-                        isTv &&
-                        !tvNavOpen &&
-                        showRail &&
-                        currentRoute == Tab.Movies.route &&
-                        firstMovieFocused &&
-                        event.type == KeyEventType.KeyDown &&
-                        event.key == Key.DirectionLeft
-                    ) {
-                        // Compose first gets to move Left across a row. Only when
-                        // the first movie card itself has focus does the next Left
-                        // press open the Nuvio drawer.
-                        tvNavOpen = true
-                        true
-                    } else if (isTv && event.type == KeyEventType.KeyDown && event.key == Key.Menu) {
-                        tvNavOpen = !tvNavOpen
-                        true
-                    } else {
-                        false
-                    }
+                    } else false
                 },
         ) {
             if (showRail && !isTv) {
@@ -1266,164 +1228,16 @@ fun StreamCloudApp() {
                 }
 
                 // TV Nuvio-style popup navigation
+                // Netflix-style transparent top nav bar — only on TV main tab screens
                 if (isTv && showRail) {
-                    // Semi-transparent scrim that closes the nav on click
-                    if (tvNavOpen) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.55f))
-                                .pointerInput(Unit) {
-                                    detectTapGestures(onTap = { tvNavOpen = false })
-                                },
-                        )
-                    }
-                    // A compact home launcher remains available for touch users,
-                    // but TV D-pad focus stays on content until Left opens the drawer.
-                    Box(
-                        Modifier
-                            .align(Alignment.TopStart)
-                            .statusBarsPadding()
-                            .padding(TvOverscanPadding),
-                    ) {
-                        Box(
-                            Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                // Only focusable while the drawer is open so Android TV's native
-                                // focus engine cannot land here on startup. tvFocusBorder() calls
-                                // .focusable() internally, so we must not apply it when closed.
-                                .then(
-                                    if (tvNavOpen)
-                                        Modifier.tvFocusBorder(CircleShape)
-                                    else
-                                        Modifier.focusable(false)
-                                )
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.78f))
-                                .onKeyEvent { event ->
-                                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                                    when (event.key) {
-                                        Key.DirectionDown -> {
-                                            focusManager.moveFocus(FocusDirection.Down)
-                                            true
-                                        }
-                                        Key.DirectionRight -> {
-                                            if (!focusManager.moveFocus(FocusDirection.Right)) {
-                                                focusManager.moveFocus(FocusDirection.Down)
-                                            }
-                                            true
-                                        }
-                                        else -> false
-                                    }
-                                }
-                                .clickable { tvNavOpen = !tvNavOpen },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Filled.Home,
-                                contentDescription = "Open navigation",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
-                    }
-                    // Animated slide-in nav panel
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = tvNavOpen,
-                        enter = slideInHorizontally(initialOffsetX = { -it }) + fadeIn(),
-                        exit = slideOutHorizontally(targetOffsetX = { -it }) + fadeOut(),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .fillMaxHeight(),
-                    ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 8.dp,
-                            shadowElevation = 12.dp,
-                            shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .width(240.dp),
-                        ) {
-                            Column(
-                                Modifier
-                                    .fillMaxSize()
-                                    .statusBarsPadding()
-                                    .padding(vertical = TvOverscanPadding, horizontal = 12.dp)
-                                    .tvFocusGroup(),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
-                                ) {
-                                    Surface(
-                                        modifier = Modifier.size(32.dp),
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.Home,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(7.dp),
-                                        )
-                                    }
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(
-                                        activeProfile?.name ?: "Profiles",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                                TvNavRow(
-                                    icon = Icons.Filled.Home,
-                                    label = "Home",
-                                    selected = currentRoute == Tab.Movies.route,
-                                    modifier = Modifier.focusRequester(firstTvNavFocus),
-                                    trapUp = true,
-                                    onClick = {
-                                        tvNavOpen = false
-                                        navigateToTab(nav, Tab.Movies.route)
-                                    },
-                                )
-                                TvNavRow(
-                                    icon = Icons.Default.Search,
-                                    label = "Search",
-                                    selected = currentRoute == "movie-search",
-                                    onClick = {
-                                        tvNavOpen = false
-                                        nav.navigate("movie-search")
-                                    },
-                                )
-                                val middleTabs = tabs.filter {
-                                    it != Tab.Movies && it != Tab.Settings
-                                }
-                                middleTabs.forEach { tab ->
-                                    TvNavRow(
-                                        icon = tab.icon,
-                                        label = tab.label,
-                                        selected = currentRoute == tab.route,
-                                        onClick = {
-                                            tvNavOpen = false
-                                            navigateToTab(nav, tab.route)
-                                        },
-                                    )
-                                }
-                                TvNavRow(
-                                    icon = Tab.Settings.icon,
-                                    label = Tab.Settings.label,
-                                    selected = currentRoute == Tab.Settings.route,
-                                    trapDown = true,
-                                    onClick = {
-                                        tvNavOpen = false
-                                        navigateToTab(nav, Tab.Settings.route)
-                                    },
-                                )
-                            }
-                        }
-                    }
+                    TvNetflixTopNav(
+                        tabs           = tabs,
+                        currentRoute   = currentRoute,
+                        firstTabFocus  = firstTvNavFocus,
+                        onTabSelected  = { route -> navigateToTab(nav, route) },
+                        onDownPressed  = { try { firstMovieCardFocus.requestFocus() } catch (_: Exception) {} },
+                        modifier       = Modifier.align(Alignment.TopStart).fillMaxWidth(),
+                    )
                 }
 
                 // Nuvio-style flat bottom nav bar
@@ -1568,6 +1382,116 @@ fun StreamCloudApp() {
     }
     StartupUpdatePrompt(enabled = !showProfilePicker)
     } // end outer Box
+}
+
+// ── Netflix-style transparent TV top navigation bar ──────────────────────────
+
+@Composable
+private fun TvNetflixTopNav(
+    tabs: List<Tab>,
+    currentRoute: String?,
+    firstTabFocus: FocusRequester,
+    onTabSelected: (String) -> Unit,
+    onDownPressed: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var navHasFocus by remember { mutableStateOf(false) }
+    // Gradient start alpha: lighter when content is focused, solid when nav is focused
+    val gradStartAlpha by animateFloatAsState(
+        targetValue = if (navHasFocus) 0.97f else 0.72f,
+        animationSpec = tween(250),
+        label = "tvNavGradStart",
+    )
+    val gradMidAlpha by animateFloatAsState(
+        targetValue = if (navHasFocus) 0.45f else 0f,
+        animationSpec = tween(250),
+        label = "tvNavGradMid",
+    )
+
+    Box(
+        modifier = modifier.onFocusChanged { navHasFocus = it.hasFocus },
+    ) {
+        // Gradient scrim — readable at all times, heavier when nav has focus
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = gradStartAlpha),
+                            Color.Black.copy(alpha = gradMidAlpha),
+                            Color.Transparent,
+                        )
+                    )
+                )
+        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = TvOverscanPadding, vertical = 14.dp)
+                .tvFocusGroup()
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        when (event.key) {
+                            Key.DirectionDown -> { onDownPressed(); true }
+                            Key.DirectionUp   -> true  // trap — nothing above the nav bar
+                            else -> false
+                        }
+                    } else false
+                },
+        ) {
+            // App name — Netflix uses its logo here; we use the app name in bold white
+            Text(
+                "StreamCloud",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                modifier = Modifier.padding(end = 36.dp),
+            )
+
+            // Tab items
+            tabs.forEachIndexed { index, tab ->
+                val selected = currentRoute == tab.route
+                var itemFocused by remember { mutableStateOf(false) }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .then(if (index == 0) Modifier.focusRequester(firstTabFocus) else Modifier)
+                        .tvFocusBorder(RoundedCornerShape(8.dp))
+                        .onFocusChanged { itemFocused = it.isFocused }
+                        .clickable { onTabSelected(tab.route) }
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            tab.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = when {
+                                selected || itemFocused -> Color.White
+                                else -> Color.White.copy(alpha = 0.60f)
+                            },
+                        )
+                        // Active-tab underline indicator (Netflix style)
+                        if (selected) {
+                            Spacer(Modifier.height(3.dp))
+                            Box(
+                                Modifier
+                                    .width(20.dp)
+                                    .height(3.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Color.White)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

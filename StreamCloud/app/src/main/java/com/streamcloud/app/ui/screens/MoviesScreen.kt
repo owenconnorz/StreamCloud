@@ -213,7 +213,9 @@ fun MoviesScreen(
                         )
                     }
                 } else {
-                    item { Spacer(Modifier.statusBarsPadding().height(56.dp)) }
+                    // On TV the transparent top nav bar overlays the content — give enough
+                    // clearance so the first row isn't hidden behind it.
+                    item { Spacer(Modifier.statusBarsPadding().height(if (isTv) 90.dp else 56.dp)) }
                 }
 
                 state.notice?.let {
