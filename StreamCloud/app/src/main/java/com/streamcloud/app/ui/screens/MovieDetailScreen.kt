@@ -413,7 +413,7 @@ fun MovieDetailScreen(
                                     ?: run { resolverMessage = "Seasons not loaded yet." }
                             },
                             enabled = playEnabled && firstSeason != null,
-                            modifier = Modifier.weight(1f).height(52.dp)
+                            modifier = Modifier.weight(1f).height(if (isTv) 44.dp else 52.dp)
                                 .tvFocusBorder(RoundedCornerShape(50))
                                 .then(if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier),
                             shape = RoundedCornerShape(50),
@@ -467,6 +467,7 @@ fun MovieDetailScreen(
                                 loading = resolving,
                                 downloadProgress = downloadProgress,
                                 onClick = { playMovie() },
+                                isTv = isTv,
                                 modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
                             )
                         }
@@ -925,13 +926,15 @@ fun MovieDetailScreen(
             }
         }
 
-        // ── Floating back button ──────────────────────────────────────────────
-        IconButton(
-            onClick = onBack,
-            modifier = Modifier.padding(12.dp).clip(RoundedCornerShape(50))
-                .background(Color.Black.copy(alpha = 0.45f))
-        ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+        // ── Floating back button (phone only — TV uses system back) ──────────
+        if (!isTv) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.padding(12.dp).clip(RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.45f))
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+            }
         }
     }
 
@@ -1410,6 +1413,7 @@ private fun PlayMovieCta(
     loading: Boolean,
     downloadProgress: Float? = null,
     onClick: () -> Unit,
+    isTv: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val primary  = MaterialTheme.colorScheme.primary
@@ -1426,7 +1430,7 @@ private fun PlayMovieCta(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(if (isTv) 44.dp else 52.dp)
             .tvFocusBorder(RoundedCornerShape(50))
             .clip(RoundedCornerShape(50))
             .then(

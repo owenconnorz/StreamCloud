@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
@@ -179,6 +181,7 @@ fun CloudStreamPluginScreen(
         }
 
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
             TopAppBar(
                 title = { Text(section.title, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
@@ -188,7 +191,7 @@ fun CloudStreamPluginScreen(
                 },
             )
             LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
+                columns = GridCells.Fixed(if (isTv) 6 else 3),
                 state = gridState,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
