@@ -85,6 +85,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.AllMoviesThemes
@@ -148,7 +150,7 @@ private enum class SettingsPage {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}, onOpenDownloads: () -> Unit = {}) {
+fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}, onOpenDownloads: () -> Unit = {}, tvNavFocusRequester: FocusRequester? = null) {
     val context = LocalContext.current
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
@@ -2280,6 +2282,9 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
+                    // TV nav D-pad Down entry point — focuses the search bar so the user can
+                    // filter settings or press Down again to reach individual setting rows.
+                    .let { if (tvNavFocusRequester != null) it.focusRequester(tvNavFocusRequester) else it }
                     .padding(bottom = 22.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor   = MaterialTheme.colorScheme.outlineVariant,

@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -83,6 +84,9 @@ fun MoviesScreen(
     // Always attached to the current hero Play button so the TV nav D-pad Down
     // can jump here even when initialFocusRequester targets something else.
     tvNavHeroFocus: FocusRequester? = null,
+    // Incremented by StreamCloudApp whenever the nav bar regains focus; triggers
+    // an animated scroll back to the top so the hero is fully visible again.
+    navScrollToTopVersion: Int = 0,
     onFirstMovieFocusedChanged: (Boolean) -> Unit = {},
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit = {},
@@ -127,6 +131,11 @@ fun MoviesScreen(
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val moviesListState = rememberLazyListState()
+    // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.
+    LaunchedEffect(navScrollToTopVersion) {
+        if (navScrollToTopVersion > 0) moviesListState.animateScrollToItem(0)
+    }
     val firstCollectionRowId = state.collections
         .firstOrNull { it.items.isNotEmpty() }
         ?.id
@@ -176,6 +185,7 @@ fun MoviesScreen(
     ) {
         LazyColumn(
             Modifier.fillMaxSize(),
+            state = moviesListState,
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
             if (query.isNotBlank()) {
@@ -700,8 +710,9 @@ private fun HeroPager(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // On TV the hero fills the whole screen (Netflix-style); content rows are below the fold.
-    val tvHeroHeight = LocalConfiguration.current.screenHeightDp.dp
+    // Nuvio-style: hero is full-screen minus ~120 dp so the first content row peeks from below.
+    // This gives the user a visual cue to scroll down without reducing the hero's impact.
+    val tvHeroHeight = (LocalConfiguration.current.screenHeightDp.dp - 120.dp).coerceAtLeast(320.dp)
 
     if (isTv) {
         // HorizontalPager intercepts every D-pad left/right at the input level and permanently

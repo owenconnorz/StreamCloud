@@ -40,6 +40,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -100,6 +102,7 @@ fun LibraryScreen(
     onPlayLocalFile: (filePath: String, title: String, tmdbId: Long, mediaType: String) -> Unit = { _, _, _, _ -> },
     onTvClick: (Long) -> Unit = {},
     onCsClick: (plugin: String, url: String, title: String, poster: String?) -> Unit = { _, _, _, _ -> },
+    tvNavFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
@@ -271,12 +274,14 @@ fun LibraryScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                listOf("Music" to Icons.Default.MusicNote, "Movies" to Icons.Default.Movie).forEach { (label, icon) ->
+                listOf("Music" to Icons.Default.MusicNote, "Movies" to Icons.Default.Movie).forEachIndexed { idx, (label, icon) ->
                     val selected = sectionMode == label
                     Box(
                         Modifier
                             .size(36.dp)
                             .clip(CircleShape)
+                            // First toggle button is the D-pad Down entry point from the TV nav bar.
+                            .let { if (tvNavFocusRequester != null && idx == 0) it.focusRequester(tvNavFocusRequester) else it }
                             .tvFocusBorder(CircleShape)
                             .background(
                                 if (selected) MaterialTheme.colorScheme.primary
