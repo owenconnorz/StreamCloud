@@ -66,6 +66,8 @@ import com.streamcloud.app.ui.viewmodel.DjViewModel
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
@@ -393,6 +395,7 @@ fun MusicScreen(
         }
     }
 
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
     LaunchedEffect(state.ytHomeLoading, state.homeLoading) {
@@ -400,11 +403,13 @@ fun MusicScreen(
     }
 
     PullToRefreshBox(
-        isRefreshing = isRefreshing,
+        isRefreshing = isRefreshing && !isTv,
         onRefresh = {
-            isRefreshing = true
-            vm.loadYtHome()
-            vm.loadHomeFeed()
+            if (!isTv) {
+                isRefreshing = true
+                vm.loadYtHome()
+                vm.loadHomeFeed()
+            }
         },
         state = pullRefreshState,
         modifier = Modifier
