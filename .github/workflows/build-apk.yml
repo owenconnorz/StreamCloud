@@ -140,6 +140,23 @@ jobs:
             - **Music tab** — pull-to-refresh fully disabled on TV (plain Box, no nested scroll connection)
             - **Settings tab** — search bar hidden on TV; D-pad Down from nav lands on the first settings row
 
+            ### Player
+            - **Source picker redesigned for TV** — full-height right-side panel; video/backdrop stays visible on the left, sources list occupies the right 58% of the screen with D-pad-navigable filter chips and stream rows
+            - **D-pad seek guard** — directional keys no longer fire through an open sheet; source picker, speed, subtitles, and audio overlays each own D-pad focus exclusively while open
+            - **Controls stay visible during navigation** — D-pad presses while the overlay is showing now bump the auto-hide timer, so controls don't vanish mid-interaction
+            - **Lock and back capsule buttons hidden on TV** — remote Back handles navigation; the lock gesture is touch-only
+            - **Clock fades with controls** — on-screen clock is wrapped in AnimatedVisibility so it appears and hides with the rest of the overlay
+
+            ### Settings
+            - **Focus borders on all interactive rows** — navigation rows, toggle rows, Spotify account row, YouTube Music account row, updater row, and the inline TMDB / Stremio / CloudStream service toggles all show the TV white-border focus indicator
+
+            ### Search
+            - **Card rails now fully D-pad navigable** — search result rows (TMDB Movies, Series, CloudStream, Stremio) converted to LazyRow; held Left/Right no longer intercepted by the outer column, so the remote scrolls smoothly through cards
+            - **Text field auto-focus skipped on TV** — keyboard no longer pops up when opening Search on a TV remote
+
+            ### Profile picker
+            - **TV-friendly interaction** — single D-pad Centre selects the profile; long-press opens edit mode; pencil icon and Done button hidden on TV
+
             Compiled and packaged by GitHub Actions.
           files: StreamCloud/artifacts/StreamCloud-release.apk
           fail_on_unmatched_files: true
