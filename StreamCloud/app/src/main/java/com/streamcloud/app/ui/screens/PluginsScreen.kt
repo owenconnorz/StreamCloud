@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.data.plugins.CloudStreamPlugin
 import com.streamcloud.app.data.plugins.CloudStreamRepo
 import com.streamcloud.app.data.plugins.InstalledPlugin
@@ -651,6 +653,44 @@ private fun NuvioProvidersPage(
     onBack: () -> Unit,
 ) {
     var nuvioRepoInput by remember { mutableStateOf("") }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    var showRepoDialog by remember { mutableStateOf(false) }
+
+    // On TV: show a dialog for URL input so it doesn't trap D-pad scroll
+    if (showRepoDialog) {
+        AlertDialog(
+            onDismissRequest = { showRepoDialog = false },
+            title = { Text("Add Repository") },
+            text = {
+                OutlinedTextField(
+                    value = nuvioRepoInput,
+                    onValueChange = { nuvioRepoInput = it },
+                    label = { Text("Repository URL") },
+                    placeholder = { Text("https://raw.githubusercontent.com/…/main/") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { vm.loadNuvioRepo(nuvioRepoInput); showRepoDialog = false },
+                    enabled = nuvioRepoInput.isNotBlank() && !state.loadingNuvioRepo,
+                    colors = ButtonDefaults.buttonColors(containerColor = ColourNuvio),
+                ) {
+                    if (state.loadingNuvioRepo) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    } else {
+                        Text("Load Repository")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRepoDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     // Group providers by repo URL for the installed repos section
     val providersByRepo = remember(state.nuvioProviders) {
@@ -700,39 +740,53 @@ private fun NuvioProvidersPage(
             // Install repo section
             item { SectionLabel("Install Plugin Repository") }
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    OutlinedTextField(
-                        value = nuvioRepoInput,
-                        onValueChange = { nuvioRepoInput = it },
-                        label = { Text("Repository URL") },
-                        placeholder = { Text("https://raw.githubusercontent.com/…/main/") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                    )
+                if (isTv) {
+                    // On TV: single focusable button — URL entry is in the dialog above
                     Button(
-                        onClick = { vm.loadNuvioRepo(nuvioRepoInput) },
+                        onClick = { showRepoDialog = true },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = nuvioRepoInput.isNotBlank() && !state.loadingNuvioRepo,
                         colors = ButtonDefaults.buttonColors(containerColor = ColourNuvio),
                         shape = RoundedCornerShape(12.dp),
                     ) {
-                        if (state.loadingNuvioRepo) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Loading…")
-                        } else {
-                            Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Load Repository")
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add Repository")
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = nuvioRepoInput,
+                            onValueChange = { nuvioRepoInput = it },
+                            label = { Text("Repository URL") },
+                            placeholder = { Text("https://raw.githubusercontent.com/…/main/") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        Button(
+                            onClick = { vm.loadNuvioRepo(nuvioRepoInput) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = nuvioRepoInput.isNotBlank() && !state.loadingNuvioRepo,
+                            colors = ButtonDefaults.buttonColors(containerColor = ColourNuvio),
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            if (state.loadingNuvioRepo) {
+                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Loading…")
+                            } else {
+                                Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Load Repository")
+                            }
                         }
                     }
                 }

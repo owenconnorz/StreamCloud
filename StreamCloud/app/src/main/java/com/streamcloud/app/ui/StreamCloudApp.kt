@@ -324,6 +324,14 @@ fun StreamCloudApp() {
     ) { padding ->
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
         val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+        // On TV, automatically open the full music player as soon as a track starts —
+        // the mini-player is invisible on TV so we jump straight to the now-playing sheet.
+        val tvNowPlayingId by com.streamcloud.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState()
+        LaunchedEffect(tvNowPlayingId) {
+            if (isTv && !tvNowPlayingId.isNullOrBlank()) {
+                com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
+            }
+        }
         val showRail = useRail &&
             (currentRoute == null || tabs.any { it.route == currentRoute })
         val firstRailFocus = remember { FocusRequester() }

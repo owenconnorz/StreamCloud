@@ -28,6 +28,8 @@ import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.plugins.PluginRuntime
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 
 @Composable
 fun CsSectionListScreen(
@@ -49,6 +51,8 @@ fun CsSectionListScreen(
     var error by remember { mutableStateOf<String?>(null) }
 
     val gridState = rememberLazyGridState()
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val gridColumns = if (isTv) 6 else 3
 
     LaunchedEffect(pluginInternalName, sectionName) {
         loading = true
@@ -119,12 +123,12 @@ fun CsSectionListScreen(
 
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(gridColumns),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item(span = { GridItemSpan(3) }) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.padding(start = 4.dp, bottom = 8.dp)) {
                     Text(
                         sectionName,
@@ -141,7 +145,7 @@ fun CsSectionListScreen(
 
             when {
                 loading -> {
-                    item(span = { GridItemSpan(3) }) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         Box(
                             Modifier.fillMaxWidth().padding(40.dp),
                             contentAlignment = Alignment.Center,
@@ -151,7 +155,7 @@ fun CsSectionListScreen(
                     }
                 }
                 error != null -> {
-                    item(span = { GridItemSpan(3) }) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             error ?: "Unknown error",
                             color = MaterialTheme.colorScheme.error,
@@ -189,7 +193,7 @@ fun CsSectionListScreen(
                     }
 
                     if (loadingMore) {
-                        item(span = { GridItemSpan(3) }) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(
                                 Modifier.fillMaxWidth().padding(16.dp),
                                 contentAlignment = Alignment.Center,
