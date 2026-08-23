@@ -1231,13 +1231,12 @@ fun StreamCloudApp() {
                 // Netflix-style transparent top nav bar — only on TV main tab screens
                 if (isTv && showRail) {
                     TvNetflixTopNav(
-                        tabs           = tabs,
-                        currentRoute   = currentRoute,
-                        firstTabFocus  = firstTvNavFocus,
-                        onTabSelected  = { route -> navigateToTab(nav, route) },
-                        onSearchClick  = { nav.navigate("movie-search") },
-                        onDownPressed  = { try { firstMovieCardFocus.requestFocus() } catch (_: Exception) {} },
-                        modifier       = Modifier.align(Alignment.TopStart).fillMaxWidth(),
+                        tabs          = tabs,
+                        currentRoute  = currentRoute,
+                        firstTabFocus = firstTvNavFocus,
+                        onTabSelected = { route -> navigateToTab(nav, route) },
+                        onSearchClick = { nav.navigate("movie-search") },
+                        modifier      = Modifier.align(Alignment.TopStart).fillMaxWidth(),
                     )
                 }
 
@@ -1394,10 +1393,12 @@ private fun TvNetflixTopNav(
     firstTabFocus: FocusRequester,
     onTabSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
-    onDownPressed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var navHasFocus by remember { mutableStateOf(false) }
+    // Use Compose's spatial focus search for D-pad Down — more reliable than a
+    // specific FocusRequester, works regardless of which content is currently loaded.
+    val focusManager = LocalFocusManager.current
     val gradStartAlpha by animateFloatAsState(
         targetValue = if (navHasFocus) 0.97f else 0.72f,
         animationSpec = tween(250),
@@ -1447,12 +1448,18 @@ private fun TvNetflixTopNav(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .tvFocusGroup()
                     .onKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown) {
                             when (event.key) {
-                                Key.DirectionDown -> { onDownPressed(); true }
-                                Key.DirectionUp   -> true
+                                // Spatial search — finds whatever is physically below
+                                // the nav bar without needing a specific FocusRequester.
+                                Key.DirectionDown -> {
+                                    focusManager.moveFocus(FocusDirection.Down)
+                                    true
+                                }
+                                // Nothing above the nav bar — trap Up so focus doesn't
+                                // wander into the status bar region.
+                                Key.DirectionUp -> true
                                 else -> false
                             }
                         } else false
