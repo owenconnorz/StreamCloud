@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -403,6 +404,20 @@ fun MoviesScreen(
                                     },
                                 )
                             }
+                            if (isTv) {
+                                item(key = "${row.id}_viewall") {
+                                    ViewAllCard(
+                                        posterStyle = posterStyle,
+                                        onClick = {
+                                            onOpenCatalog(
+                                                "tmdb:${row.id}",
+                                                row.title,
+                                                HomeCollections.byId(row.id)?.subtitle.orEmpty(),
+                                            )
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -476,6 +491,20 @@ fun MoviesScreen(
                                             meta.name, meta.poster,
                                         )
                                     }
+                                }
+                            }
+                            if (isTv) {
+                                item(key = "${row.rowKey}_viewall") {
+                                    ViewAllCard(
+                                        posterStyle = posterStyle,
+                                        onClick = {
+                                            onOpenCatalog(
+                                                "stremio:${row.addonId}:${row.type}:${row.catalogId}",
+                                                row.catalogName,
+                                                row.addonName,
+                                            )
+                                        },
+                                    )
                                 }
                             }
                         }
@@ -557,6 +586,20 @@ fun MoviesScreen(
                                         color = MaterialTheme.colorScheme.onBackground,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            if (isTv) {
+                                item(key = "${row.pluginInternalName}_${row.sectionName}_viewall") {
+                                    ViewAllCard(
+                                        posterStyle = if (csAspect > 1f) "landscape" else "portrait",
+                                        onClick = {
+                                            onViewAllCsSection(
+                                                row.pluginInternalName,
+                                                row.sectionName,
+                                                row.pluginDisplayName,
+                                            )
+                                        },
                                     )
                                 }
                             }
@@ -1081,6 +1124,52 @@ private fun SectionTitle(text: String) {
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
     )
+}
+
+/** Card appended at the tail of a category LazyRow on TV so the D-pad can select "View all". */
+@Composable
+private fun ViewAllCard(
+    posterStyle: String = "portrait",
+    onClick: () -> Unit,
+) {
+    val useLandscape = posterStyle == "landscape"
+    val width = if (useLandscape) 220.dp else 140.dp
+    val ratio = if (useLandscape) 16f / 9f else 2f / 3f
+    Column(
+        modifier = Modifier
+            .width(width)
+            .tvFocusBorder(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(ratio)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "View all",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
 }
 
 @Composable

@@ -111,6 +111,8 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.updater.UpdateChecker
 import com.streamcloud.app.data.updater.UpdateInfo
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import kotlinx.coroutines.flow.first
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -2181,6 +2183,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
     var updateLabel by remember { mutableStateOf<String?>(null) }
     val errorCount by AppLogger.errorCount.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -2267,8 +2270,8 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 14.dp),
             )
         }
-        // ── Search bar ─────────────────────────────────────────────────────
-        item {
+        // ── Search bar — hidden on TV (no keyboard; D-pad navigates rows directly).
+        if (!isTv) item {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },

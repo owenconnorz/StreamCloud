@@ -94,6 +94,8 @@ import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
+import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -654,6 +656,7 @@ fun MovieDetailScreen(
             val cast = remember(credits) { credits?.cast?.take(15) ?: emptyList() }
             if (cast.isNotEmpty()) {
                 LazyRow(
+                    modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
                     contentPadding = PaddingValues(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
@@ -721,6 +724,7 @@ fun MovieDetailScreen(
             }
             if (filteredVideos.isNotEmpty()) {
                 LazyRow(
+                    modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
                     contentPadding = PaddingValues(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -748,6 +752,7 @@ fun MovieDetailScreen(
             if (mediaType == "tv" && tvSeasons.isNotEmpty()) {
                 // Season poster carousel
                 LazyRow(
+                    modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
                     contentPadding = PaddingValues(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -812,6 +817,7 @@ fun MovieDetailScreen(
                             style = MaterialTheme.typography.bodyMedium)
                     }
                     else -> LazyRow(
+                        modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
                         contentPadding = PaddingValues(horizontal = 20.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -879,6 +885,7 @@ fun MovieDetailScreen(
                                 Box(
                                     Modifier.weight(1f)
                                         .aspectRatio(16f / 9f)
+                                        .tvFocusBorder(RoundedCornerShape(10.dp))
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                         .clickable {
@@ -1258,7 +1265,10 @@ private fun CreditsRow(label: String, value: String) {
 
 @Composable
 private fun CastCard(member: TmdbCastMember) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(72.dp).tvFocusBorder(RoundedCornerShape(8.dp)),
+    ) {
         Box(
             Modifier.size(68.dp).clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -1294,7 +1304,9 @@ private fun CastCard(member: TmdbCastMember) {
 
 @Composable
 private fun TrailerCard(video: TmdbVideo, onClick: () -> Unit) {
-    Column(Modifier.width(220.dp).clickable(onClick = onClick)) {
+    Column(
+        modifier = Modifier.width(220.dp).tvFocusBorder(RoundedCornerShape(10.dp)).clickable(onClick = onClick),
+    ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(10.dp))
