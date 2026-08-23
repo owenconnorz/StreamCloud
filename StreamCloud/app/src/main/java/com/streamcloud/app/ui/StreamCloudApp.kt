@@ -958,6 +958,11 @@ fun StreamCloudApp() {
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("yt-playlist/$i/$t")
                         },
+                        onOpenSpotifyPlaylist = { id, title ->
+                            val i = URLEncoder.encode(id, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("spotify-playlist/$i/$t")
+                        },
                         onOpenArtist = { url ->
                             val u = URLEncoder.encode(url, "UTF-8")
                             nav.navigate("artist/$u")
@@ -996,6 +1001,19 @@ fun StreamCloudApp() {
                             val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("cs-detail/$p/$u/$n/$po")
                         },
+                    )
+                }
+                composable(
+                    "spotify-playlist/{id}/{title}",
+                    arguments = listOf(
+                        navArgument("id")    { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    com.streamcloud.app.ui.screens.SpotifyPlaylistScreen(
+                        playlistId    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8"),
+                        playlistTitle = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8"),
+                        onBack        = { nav.popBackStack() },
                     )
                 }
                 composable(
