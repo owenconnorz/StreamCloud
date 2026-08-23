@@ -34,6 +34,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.viewmodel.CsSearchResult
@@ -57,8 +60,11 @@ fun MovieSearchScreen(
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
 
-    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    // On TV the text field auto-focus traps D-pad input and prevents navigating
+    // down to search results. Skip it so focus starts free.
+    LaunchedEffect(Unit) { if (!isTv) runCatching { focusRequester.requestFocus() } }
 
     LaunchedEffect(query) {
         if (query.length >= 2) {
@@ -189,7 +195,7 @@ private fun RecentSearches(
             top = padding.calculateTopPadding() + 8.dp,
             bottom = 32.dp,
         ),
-        modifier = Modifier.fillMaxSize().tvFocusGroup(),
+        modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(),
     ) {
         item(key = "history-header") {
             Row(
@@ -283,7 +289,7 @@ private fun CombinedResultsList(
             top = padding.calculateTopPadding() + 8.dp,
             bottom = 32.dp,
         ),
-        modifier = Modifier.fillMaxSize().tvFocusGroup(),
+        modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         // ── Series (TMDB TV) ──────────────────────────────────────────────
