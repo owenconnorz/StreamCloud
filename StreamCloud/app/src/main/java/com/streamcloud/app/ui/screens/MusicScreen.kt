@@ -763,6 +763,7 @@ fun MusicScreen(
 }
 
 /** Wraps content in a plain Box on TV (no pull-to-refresh gesture) or PullToRefreshBox on phone. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MusicRefreshBox(
     isTv: Boolean,
