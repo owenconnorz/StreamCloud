@@ -287,16 +287,11 @@ private fun CombinedResultsList(
     val hasAny = state.searchResults.isNotEmpty() || state.tvSearchResults.isNotEmpty() ||
         state.csSearchResults.isNotEmpty() || state.stremioSearchResults.isNotEmpty()
 
-    // On TV the text field never auto-focuses, so nothing has focus when results appear.
-    // Request focus on a tiny invisible anchor as the first LazyColumn item so the user
-    // can immediately navigate with the D-pad (same pattern as the player's FocusRequester).
+    // TV: D-pad anchor for the results list. Focus is NOT requested automatically here —
+    // the user is actively typing in the TextField and we must not steal focus (which
+    // would close the on-screen keyboard every time a new batch of results arrives).
+    // The user presses D-pad Down from the search field to reach results naturally.
     val anchorFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(hasAny) {
-        if (isTv && hasAny) {
-            delay(200)
-            try { anchorFocusRequester.requestFocus() } catch (_: Exception) {}
-        }
-    }
 
     if (!hasAny && !anyLoading) {
         Box(
@@ -458,7 +453,7 @@ private fun NuvioSection(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Individual card — half screen width, 16:9, image only
+// Individual card — 185dp wide, 16:9 image + title label below
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -468,20 +463,31 @@ private fun NuvioCard(
     onClick: () -> Unit,
 ) {
     val cardWidth = 185.dp
-    Box(
-        modifier = Modifier
-            .width(cardWidth)
-            .aspectRatio(16f / 9f)
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .tvFocusBorder(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick),
-    ) {
-        AsyncImage(
-            model = imageUrl,
-            contentDescription = title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
+    Column(modifier = Modifier.width(cardWidth)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .tvFocusBorder(RoundedCornerShape(10.dp))
+                .clickable(onClick = onClick),
+        ) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 2.dp),
         )
     }
 }
