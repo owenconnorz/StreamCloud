@@ -487,7 +487,11 @@ fun NativePlayerScreen(
     // ── UI state ──────────────────────────────────────────────────────────
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val playerFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(isTv) { if (isTv) try { playerFocusRequester.requestFocus() } catch (_: Exception) {} }
+    // On TV, retry focus request so the Compose key-event Box captures D-pad before
+    // any child View (e.g. PlayerView) steals it.
+    LaunchedEffect(Unit) {
+        if (isTv) repeat(5) { delay(150); try { playerFocusRequester.requestFocus() } catch (_: Exception) {} }
+    }
 
     var locked            by remember { mutableStateOf(false) }
     var showSourcesSheet  by remember { mutableStateOf(false) }
@@ -542,6 +546,10 @@ fun NativePlayerScreen(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         useController = false
+                        // Prevent the PlayerView from stealing D-pad focus away from the
+                        // Compose Box that owns the key-event handler.
+                        isFocusable = false
+                        isFocusableInTouchMode = false
                         setShutterBackgroundColor(android.graphics.Color.BLACK)
                         this.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         setBackgroundColor(android.graphics.Color.BLACK)

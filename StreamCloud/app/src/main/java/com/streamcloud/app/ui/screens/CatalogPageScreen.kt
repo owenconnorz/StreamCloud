@@ -36,6 +36,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 
 @Composable
 fun CatalogPageScreen(
@@ -52,6 +54,8 @@ fun CatalogPageScreen(
     val sl = remember { ServiceLocator.get(context) }
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val columns = if (isTv) 6 else 3
 
     var tmdbItems by remember(source) { mutableStateOf<List<TmdbMovie>>(emptyList()) }
     var stremioItems by remember(source) { mutableStateOf<List<StremioMetaPreview>>(emptyList()) }
@@ -147,7 +151,7 @@ fun CatalogPageScreen(
 
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(columns),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),

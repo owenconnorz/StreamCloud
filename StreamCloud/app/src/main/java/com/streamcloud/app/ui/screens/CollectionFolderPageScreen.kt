@@ -388,8 +388,8 @@ fun CollectionFolderPageScreen(
 }
 
 @Composable
-internal fun FolderPosterCard(title: String, posterUrl: String?, onClick: () -> Unit) {
-    Column(modifier = Modifier.width(110.dp).clickable(onClick = onClick)) {
+internal fun FolderPosterCard(title: String, posterUrl: String?, onClick: () -> Unit, modifier: Modifier = Modifier.width(110.dp)) {
+    Column(modifier = modifier.clickable(onClick = onClick)) {
         AsyncImage(
             model = posterUrl,
             contentDescription = title,

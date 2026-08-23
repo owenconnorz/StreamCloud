@@ -16,6 +16,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,7 @@ fun CollectionTabbedScreen(
         { _, _, _, _, _ -> },
 ) {
     val context = LocalContext.current
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     var collectionName by remember { mutableStateOf("") }
     var folders by remember { mutableStateOf<List<CollectionFolderEntity>>(emptyList()) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -150,28 +153,32 @@ fun CollectionTabbedScreen(
                     }
                 } else {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 110.dp),
+                        columns = if (isTv) GridCells.Fixed(6) else GridCells.Adaptive(minSize = 110.dp),
                         contentPadding = PaddingValues(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(allItems, key = { it.key }) { item ->
+                            val cardMod = if (isTv) Modifier.fillMaxWidth() else Modifier.width(110.dp)
                             when (item) {
                                 is TabbedItem.Tmdb -> FolderPosterCard(
                                     title = item.movie.displayTitle,
                                     posterUrl = item.movie.posterUrl,
                                     onClick = { if (item.isTv) onTvClick(item.movie.id) else onMovieClick(item.movie.id) },
+                                    modifier = cardMod,
                                 )
                                 is TabbedItem.Stremio -> FolderPosterCard(
                                     title = item.meta.name,
                                     posterUrl = item.meta.poster,
                                     onClick = { onOpenStremio(item.addonId, item.contentType, item.meta.id, item.meta.name, item.meta.poster) },
+                                    modifier = cardMod,
                                 )
                                 is TabbedItem.Cs -> FolderPosterCard(
                                     title = item.result.name,
                                     posterUrl = item.result.posterUrl,
                                     onClick = { onOpenCsItem(item.pluginInternalName, item.result.url, item.result.name, item.result.posterUrl) },
+                                    modifier = cardMod,
                                 )
                             }
                         }

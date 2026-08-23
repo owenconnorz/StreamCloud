@@ -97,6 +97,8 @@ import com.google.android.gms.cast.MediaStatus
 import com.google.android.gms.cast.framework.CastContext
 import com.streamcloud.app.ui.player.MusicActionsSheet
 import com.streamcloud.app.ui.player.SonosDevicePickerSheet
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -441,6 +443,27 @@ fun NowPlayingShell(
         }
         delay(3_500L)
         if (!controlsPinned) controlsVisible = false
+    }
+
+    // ── TV: Spotify-style two-column layout ───────────────────────────────────
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    if (isTv) {
+        NowPlayingTvLayout(
+            artwork = artwork,
+            title = title,
+            artist = artist,
+            isPlaying = displayIsPlaying,
+            positionMs = displayPositionMs,
+            durationMs = displayDurationMs,
+            shuffleOn = shuffleOn,
+            repeatMode = repeatMode,
+            isLiked = isLiked,
+            controller = controller,
+            onSkipNext = { skipToNext() },
+            onSkipPrevious = { skipToPrevious() },
+            onClose = onClose,
+        )
+        return
     }
 
     Box(
@@ -1431,6 +1454,161 @@ private fun SleepTimerDialog(onDismiss: () -> Unit, onPick: (Int) -> Unit) {
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TV: Spotify-style two-column now-playing layout
+// ─────────────────────────────────────────────────────────────────────────────
+@OptIn(UnstableApi::class)
+@Composable
+private fun NowPlayingTvLayout(
+    artwork: String?,
+    title: String,
+    artist: String,
+    isPlaying: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+    shuffleOn: Boolean,
+    repeatMode: Int,
+    isLiked: Boolean,
+    controller: Player,
+    onSkipNext: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0A0A0A))
+            .padding(horizontal = 72.dp, vertical = 52.dp),
+        horizontalArrangement = Arrangement.spacedBy(64.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // ── Left: Album art ───────────────────────────────────────────────────
+        AsyncImage(
+            model = artwork,
+            contentDescription = title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxHeight(0.72f)
+                .aspectRatio(1f)
+                .shadow(40.dp, RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF1A1A1A)),
+        )
+
+        // ── Right: Info + controls ────────────────────────────────────────────
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
+        ) {
+            // Artist + song title
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    artist.ifBlank { "Unknown artist" },
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White.copy(alpha = 0.55f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    title.ifBlank { "—" },
+                    style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            // Progress bar + timestamps
+            val progress = if (durationMs > 0L) (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                    color = Color.White,
+                    trackColor = Color.White.copy(alpha = 0.2f),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(formatTime(positionMs), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(0.5f))
+                    Text(formatTime(durationMs), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(0.5f))
+                }
+            }
+
+            // Main playback controls: prev / play-pause / next
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onSkipPrevious, modifier = Modifier.size(56.dp)) {
+                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = Color.White, modifier = Modifier.size(38.dp))
+                }
+                Box(
+                    Modifier
+                        .size(72.dp)
+                        .background(Color.White, CircleShape)
+                        .clickable { if (isPlaying) controller.pause() else controller.play() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = Color.Black,
+                        modifier = Modifier.size(44.dp),
+                    )
+                }
+                IconButton(onClick = onSkipNext, modifier = Modifier.size(56.dp)) {
+                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(38.dp))
+                }
+            }
+
+            // Secondary controls: like / shuffle / repeat / close
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(modifier = Modifier.size(44.dp), onClick = { /* like toggle */ }) {
+                    Icon(
+                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Like",
+                        tint = if (isLiked) MaterialTheme.colorScheme.primary else Color.White.copy(0.6f),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                IconButton(
+                    modifier = Modifier.size(44.dp),
+                    onClick = { controller.shuffleModeEnabled = !shuffleOn },
+                ) {
+                    Icon(
+                        Icons.Default.Shuffle, "Shuffle",
+                        tint = if (shuffleOn) MaterialTheme.colorScheme.primary else Color.White.copy(0.6f),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                IconButton(
+                    modifier = Modifier.size(44.dp),
+                    onClick = {
+                        controller.repeatMode = when (repeatMode) {
+                            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                            else -> Player.REPEAT_MODE_OFF
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                        contentDescription = "Repeat",
+                        tint = if (repeatMode != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.primary else Color.White.copy(0.6f),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onClose, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Default.Close, "Close", tint = Color.White.copy(0.5f), modifier = Modifier.size(22.dp))
+                }
+            }
+        }
+    }
 }
 
 private fun formatTime(ms: Long): String {
