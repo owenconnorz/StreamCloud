@@ -1398,6 +1398,7 @@ private fun TvNetflixTopNav(
     modifier: Modifier = Modifier,
 ) {
     var navHasFocus by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     val gradStartAlpha by animateFloatAsState(
         targetValue = if (navHasFocus) 0.97f else 0.72f,
         animationSpec = tween(250),
@@ -1447,9 +1448,20 @@ private fun TvNetflixTopNav(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    // Trap D-pad Up — nothing focusable above the nav bar.
-                .onKeyEvent { event ->
-                        event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp
+                    .onKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        when (event.key) {
+                            Key.DirectionDown -> {
+                                // Try direct requester first (crosses NavHost focus boundary).
+                                // Fall back to spatial search if the hero isn't attached yet.
+                                try { contentFocusRequester.requestFocus() }
+                                catch (_: Exception) { focusManager.moveFocus(FocusDirection.Down) }
+                                true
+                            }
+                            // Nothing focusable above the nav bar — consume Up.
+                            Key.DirectionUp -> true
+                            else -> false
+                        }
                     },
             ) {
                 // Search icon item (first focusable — gets firstTabFocus)
@@ -1458,9 +1470,6 @@ private fun TvNetflixTopNav(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .focusRequester(firstTabFocus)
-                        // D-pad Down wires directly into the hero/content focus node via
-                        // Compose's focus graph — reliably crosses NavHost focus boundaries.
-                        .focusProperties { down = contentFocusRequester }
                         .tvFocusBorder(RoundedCornerShape(8.dp))
                         .onFocusChanged { searchFocused = it.isFocused }
                         .clickable { onSearchClick() }
@@ -1481,7 +1490,6 @@ private fun TvNetflixTopNav(
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .focusProperties { down = contentFocusRequester }
                             .tvFocusBorder(RoundedCornerShape(8.dp))
                             .onFocusChanged { itemFocused = it.isFocused }
                             .clickable { onTabSelected(tab.route) }
