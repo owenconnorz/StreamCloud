@@ -1488,39 +1488,35 @@ private fun TvNetflixTopNav(
                     )
                 }
 
-                // Tab items
+                // Tab items — Netflix-style grey pill on the active/focused tab
                 tabs.forEach { tab ->
                     val selected = currentRoute == tab.route
                     var itemFocused by remember { mutableStateOf(false) }
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .tvFocusBorder(RoundedCornerShape(8.dp))
+                            .tvFocusBorder(RoundedCornerShape(50))
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                when {
+                                    selected -> Color.White.copy(alpha = 0.20f)
+                                    itemFocused -> Color.White.copy(alpha = 0.12f)
+                                    else -> Color.Transparent
+                                }
+                            )
                             .onFocusChanged { itemFocused = it.isFocused }
                             .clickable { onTabSelected(tab.route) }
-                            .padding(horizontal = 18.dp, vertical = 8.dp),
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                tab.label,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                color = when {
-                                    selected || itemFocused -> Color.White
-                                    else -> Color.White.copy(alpha = 0.60f)
-                                },
-                            )
-                            if (selected) {
-                                Spacer(Modifier.height(3.dp))
-                                Box(
-                                    Modifier
-                                        .width(20.dp)
-                                        .height(3.dp)
-                                        .clip(RoundedCornerShape(50))
-                                        .background(Color.White)
-                                )
-                            }
-                        }
+                        Text(
+                            tab.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = when {
+                                selected || itemFocused -> Color.White
+                                else -> Color.White.copy(alpha = 0.60f)
+                            },
+                        )
                     }
                 }
             }
