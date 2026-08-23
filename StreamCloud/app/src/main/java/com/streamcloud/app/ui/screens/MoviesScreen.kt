@@ -1126,48 +1126,43 @@ private fun SectionTitle(text: String) {
     )
 }
 
-/** Card appended at the tail of a category LazyRow on TV so the D-pad can select "View all". */
+/** Compact button at the end of a category LazyRow on TV — D-pad-focusable "View all". */
 @Composable
 private fun ViewAllCard(
     posterStyle: String = "portrait",
     onClick: () -> Unit,
 ) {
     val useLandscape = posterStyle == "landscape"
-    val width = if (useLandscape) 220.dp else 140.dp
+    // Narrow card — clearly a button, not a content poster
+    val width = if (useLandscape) 100.dp else 72.dp
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
-    Column(
+    Box(
         modifier = Modifier
             .width(width)
+            .aspectRatio(ratio)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(ratio)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-            contentAlignment = Alignment.Center,
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp),
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "View all",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "View all",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
