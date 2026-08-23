@@ -413,7 +413,8 @@ fun MovieDetailScreen(
                                     ?: run { resolverMessage = "Seasons not loaded yet." }
                             },
                             enabled = playEnabled && firstSeason != null,
-                            modifier = Modifier.weight(1f).height(if (isTv) 44.dp else 52.dp)
+                            modifier = (if (isTv) Modifier else Modifier.weight(1f))
+                                .height(if (isTv) 44.dp else 52.dp)
                                 .tvFocusBorder(RoundedCornerShape(50))
                                 .then(if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier),
                             shape = RoundedCornerShape(50),
@@ -460,7 +461,7 @@ fun MovieDetailScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Box(Modifier.weight(1f)) {
+                        Box(if (isTv) Modifier else Modifier.weight(1f)) {
                             PlayMovieCta(
                                 addonCount = addonCount,
                                 enabled = playEnabled,
@@ -1429,7 +1430,7 @@ private fun PlayMovieCta(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .fillMaxWidth()
+            .then(if (!isTv) Modifier.fillMaxWidth() else Modifier.widthIn(min = 220.dp))
             .height(if (isTv) 44.dp else 52.dp)
             .tvFocusBorder(RoundedCornerShape(50))
             .clip(RoundedCornerShape(50))

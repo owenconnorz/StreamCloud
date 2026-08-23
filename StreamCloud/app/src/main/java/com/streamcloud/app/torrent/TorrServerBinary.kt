@@ -20,11 +20,6 @@ class TorrServerBinary(private val context: Context) {
         private const val HEALTH_CHECK_INTERVAL_MS = 300L
 
 
-        private val LINKER_PATH: String get() {
-            val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "armeabi-v7a"
-            return if (abi.contains("64")) "/system/bin/linker64"
-            else "/system/bin/linker"
-        }
     }
 
     private var process: Process? = null
@@ -65,14 +60,12 @@ class TorrServerBinary(private val context: Context) {
             throw TorrentException("TorrServer binary not found at ${binaryFile.absolutePath}")
         }
 
-        val linker = LINKER_PATH
-        Log.d(TAG, "Starting TorrServer via $linker port=$PORT binary=${binaryFile.absolutePath}")
+        Log.d(TAG, "Starting TorrServer port=$PORT binary=${binaryFile.absolutePath}")
 
-
-
-
+        // Run the PIE executable directly — Android 5.0+ (API 21+) does not need
+        // the explicit linker shim; using it causes arch-mismatch failures on some
+        // TV devices where the first reported ABI does not match the compiled binary.
         val pb = ProcessBuilder(
-            linker,
             binaryFile.absolutePath,
             "--port", PORT.toString(),
             "--path", configDir.absolutePath,

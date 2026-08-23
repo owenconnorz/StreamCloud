@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvFocusBorder
 
 @Composable
 fun CatalogPageScreen(
@@ -113,16 +114,18 @@ fun CatalogPageScreen(
         }.collect { reachedEnd -> if (reachedEnd) loadNext() }
     }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Column(Modifier.fillMaxSize().background(if (isTv) Color.Black else MaterialTheme.colorScheme.background)) {
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 4.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+        if (!isTv) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                }
             }
         }
         Text(
@@ -214,6 +217,7 @@ fun CatalogPageScreen(
 private fun GridPosterTmdb(m: TmdbMovie, onClick: () -> Unit) {
     Column(
         Modifier
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
@@ -241,6 +245,7 @@ private fun GridPosterTmdb(m: TmdbMovie, onClick: () -> Unit) {
 private fun GridPosterStremio(meta: StremioMetaPreview, onClick: () -> Unit) {
     Column(
         Modifier
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
