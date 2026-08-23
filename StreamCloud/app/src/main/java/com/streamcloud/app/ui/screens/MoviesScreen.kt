@@ -616,13 +616,18 @@ fun MoviesScreen(
             }
         }
 
-        MoviesHeader(
-            onProfileClick = onProfileClick,
-            onOpenCollections = onOpenCollections,
-            onSearchClick = onSearchClick,
-            onPluginsClick = onPluginsClick,
-            hasPlugins = state.installedPlugins.isNotEmpty(),
-        )
+        // On TV the TvNetflixTopNav in StreamCloudApp already provides the header
+        // (with "StreamCloud" title + tabs). Rendering MoviesHeader here too
+        // causes the double "StreamCloud" text visible in the top-left corner.
+        if (!isTv) {
+            MoviesHeader(
+                onProfileClick = onProfileClick,
+                onOpenCollections = onOpenCollections,
+                onSearchClick = onSearchClick,
+                onPluginsClick = onPluginsClick,
+                hasPlugins = state.installedPlugins.isNotEmpty(),
+            )
+        }
     }
     } // MoviesThemeWrapper
 }
