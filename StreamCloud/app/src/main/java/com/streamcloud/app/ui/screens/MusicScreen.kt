@@ -34,6 +34,8 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +112,7 @@ fun MusicScreen(
     onProfileClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     onSearchWithQuery: (String) -> Unit = {},
+    tvNavFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
     val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
@@ -422,6 +425,7 @@ fun MusicScreen(
                     onSearchClick = onSearchClick,
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                     djLoading = djQuickMixLoading || djStarting,
+                    tvNavFocusRequester = tvNavFocusRequester,
                     onDjClick = {
                         if (!djQuickMixLoading && !djStarting) {
                             djQuickMixLoading = true
@@ -794,6 +798,7 @@ private fun MusicHeader(
     djLoading: Boolean = false,
     onDjClick: () -> Unit = {},
     onDjLongClick: () -> Unit = {},
+    tvNavFocusRequester: FocusRequester? = null,
 ) {
     Row(
         modifier = Modifier
@@ -816,6 +821,7 @@ private fun MusicHeader(
             MusicHeaderAction(
                 icon = Icons.Default.Search,
                 contentDescription = "Search music",
+                focusRequester = tvNavFocusRequester,
                 onClick = onSearchClick,
             )
             MusicHeaderAction(
@@ -845,6 +851,7 @@ private fun MusicHeaderAction(
     icon: ImageVector,
     contentDescription: String,
     loading: Boolean = false,
+    focusRequester: FocusRequester? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -861,6 +868,7 @@ private fun MusicHeaderAction(
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
+            .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
             .tvFocusBorder(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .actionGesture(),

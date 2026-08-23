@@ -342,6 +342,8 @@ fun StreamCloudApp() {
         // Netflix-style TV nav: track which item last had startup focus so Up-from-hero focuses nav
         var firstMovieFocused by remember { mutableStateOf(false) }
         LaunchedEffect(currentRoute) { firstMovieFocused = false }
+        // Incremented whenever the nav bar regains focus so MoviesScreen can scroll back to top.
+        var navScrollToTopVersion by remember { mutableStateOf(0) }
         Row(
             Modifier
                 .fillMaxSize()
@@ -352,10 +354,12 @@ fun StreamCloudApp() {
                         when {
                             event.key == Key.Menu -> {
                                 try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
+                                navScrollToTopVersion++
                                 true
                             }
                             event.key == Key.DirectionUp && firstMovieFocused -> {
                                 try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
+                                navScrollToTopVersion++
                                 true
                             }
                             else -> false
@@ -451,6 +455,7 @@ fun StreamCloudApp() {
                         initialFocusRequester = firstMovieCardFocus,
                         initialFocusEnabled = !showProfilePicker,
                         tvNavHeroFocus = tvNavHeroFocus,
+                        navScrollToTopVersion = navScrollToTopVersion,
                         onFirstMovieFocusedChanged = { firstMovieFocused = it },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
@@ -812,6 +817,7 @@ fun StreamCloudApp() {
                 }
                 composable(Tab.Music.route)    {
                     MusicScreen(
+                        tvNavFocusRequester = tvNavHeroFocus,
                         onArtistClick = { url, thumb ->
                             val u = URLEncoder.encode(url, "UTF-8")
                             val t = URLEncoder.encode(thumb.orEmpty(), "UTF-8")
@@ -920,6 +926,7 @@ fun StreamCloudApp() {
                 }
                 composable(Tab.Library.route)  {
                     LibraryScreen(
+                        tvNavFocusRequester = tvNavHeroFocus,
                         onOpenPlaylist = { id, title ->
                             val i = URLEncoder.encode(id, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
@@ -1210,6 +1217,7 @@ fun StreamCloudApp() {
                             onOpenPlugins     = { nav.navigate("plugins") },
                             onOpenCollections = { nav.navigate("collections") },
                             onSwitchProfile   = { showProfilePicker = true },
+                            tvNavFocusRequester = tvNavHeroFocus,
                         )
                     }
                 }
