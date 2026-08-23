@@ -135,10 +135,10 @@ jobs:
             - **D-pad Down from the nav bar** now jumps straight into content on every tab: Movies hero, Music Search button, Library first toggle, Settings first row
             - **Hero scroll restoration** — pressing Menu or D-pad Up from content scrolls the Movies list back to the top
             - **Nuvio-style hero** — content peeks below the fold so the page feels immediately alive
-            - **Movie detail carousels** — Cast, Trailers, Seasons, and Episodes rows are now fully D-pad navigable (tvFocusGroup + throttle); cast members, trailer cards, and "More Like This" tiles all show focus borders
-            - **View All card on every category row** — a poster-shaped focusable card sits at the end of each TMDB, Stremio, and CloudStream row on TV so you can reach View All without leaving the row
-            - **Music tab** — pull-to-refresh disabled on TV (no touchscreen; remote can't trigger it)
-            - **Settings tab** — search bar hidden on TV; D-pad navigates directly to settings rows
+            - **Movie detail carousels** — Cast, Trailers, Seasons, and Episodes rows are now fully D-pad navigable; cast members, trailer cards, and "More Like This" tiles all show focus borders
+            - **View All card on every category row** — compact focusable card at the end of each TMDB, Stremio, and CloudStream row on TV
+            - **Music tab** — pull-to-refresh fully disabled on TV (plain Box, no nested scroll connection)
+            - **Settings tab** — search bar hidden on TV; D-pad Down from nav lands on the first settings row
 
             Compiled and packaged by GitHub Actions.
           files: StreamCloud/artifacts/StreamCloud-release.apk
