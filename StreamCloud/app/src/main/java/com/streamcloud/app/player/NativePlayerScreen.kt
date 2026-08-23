@@ -491,7 +491,7 @@ fun NativePlayerScreen(
     // On TV, retry focus request so the Compose key-event Box captures D-pad before
     // any child View (e.g. PlayerView) steals it.
     LaunchedEffect(Unit) {
-        if (isTv) repeat(5) { delay(150); try { playerFocusRequester.requestFocus() } catch (_: Exception) {} }
+        if (isTv) { delay(300); try { playerFocusRequester.requestFocus() } catch (_: Exception) {} }
     }
 
     var locked            by remember { mutableStateOf(false) }
@@ -524,9 +524,13 @@ fun NativePlayerScreen(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val p = player.value ?: return@onPreviewKeyEvent false
                 when (event.key) {
-                    Key.DirectionCenter  -> if (!controlsVisible) { if (p.isPlaying) p.pause() else p.play(); bumpInteraction(); true } else false
-                    Key.DirectionRight   -> if (!controlsVisible) { p.seekTo((p.currentPosition + 10_000L).coerceAtMost(p.duration.coerceAtLeast(0L))); bumpInteraction(); true } else false
-                    Key.DirectionLeft    -> if (!controlsVisible) { p.seekTo((p.currentPosition - 10_000L).coerceAtLeast(0L)); bumpInteraction(); true } else false
+                    // When controls are hidden: D-pad seeks/plays-pauses and we consume.
+                    // When controls are visible: let the focused button handle the event
+                    // but still call bumpInteraction so the controls don't auto-hide
+                    // mid-interaction.
+                    Key.DirectionCenter  -> if (!controlsVisible) { if (p.isPlaying) p.pause() else p.play(); bumpInteraction(); true } else { bumpInteraction(); false }
+                    Key.DirectionRight   -> if (!controlsVisible) { p.seekTo((p.currentPosition + 10_000L).coerceAtMost(p.duration.coerceAtLeast(0L))); bumpInteraction(); true } else { bumpInteraction(); false }
+                    Key.DirectionLeft    -> if (!controlsVisible) { p.seekTo((p.currentPosition - 10_000L).coerceAtLeast(0L)); bumpInteraction(); true } else { bumpInteraction(); false }
                     Key.DirectionUp, Key.DirectionDown -> { bumpInteraction(); false }
                     Key.MediaPlayPause   -> { if (p.isPlaying) p.pause() else p.play(); bumpInteraction(); true }
                     Key.MediaPlay        -> { p.play(); bumpInteraction(); true }
@@ -740,9 +744,13 @@ fun NativePlayerScreen(
                     if (!locked && !anyDeviceCasting) {
                         com.streamcloud.app.cast.CastButton(showDialog = showCastDialog, onShowDialogChange = { showCastDialog = it })
                     }
-                    PlayerCapsuleIcon(if (locked) Icons.Default.LockOpen else Icons.Default.Lock,
-                        if (locked) "Unlock" else "Lock controls") { locked = !locked; bumpInteraction() }
-                    if (!locked) PlayerCapsuleIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+                    // Lock and back capsule buttons are not needed on TV — D-pad back
+                    // navigates away and locking controls is a touch-centric feature.
+                    if (!isTv) {
+                        PlayerCapsuleIcon(if (locked) Icons.Default.LockOpen else Icons.Default.Lock,
+                            if (locked) "Unlock" else "Lock controls") { locked = !locked; bumpInteraction() }
+                        if (!locked) PlayerCapsuleIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+                    }
                 }
 
                 if (!locked) {
@@ -1348,70 +1356,150 @@ private fun SourcesPickerSheet(
     onPick: (PlayerSource) -> Unit, onDismiss: () -> Unit,
     onRefresh: (() -> Unit)? = null, nuvioScanning: Boolean = false,
 ) {
+    val isTv           = LocalUiFormFactor.current == UiFormFactor.Tv
     val safeSources    = remember(sources) { sources.distinctBy { it.id } }
     val addonFilters   = remember(safeSources) { listOf("All") + safeSources.map { it.addonName }.distinct() }
     var activeFilter   by remember(safeSources) { mutableStateOf("All") }
     val filtered = remember(activeFilter, safeSources) {
         if (activeFilter == "All") safeSources else safeSources.filter { it.addonName == activeFilter }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF111111), scrimColor = Color.Black.copy(alpha = 0.7f)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onRefresh?.invoke() }, enabled = onRefresh != null && !nuvioScanning) {
-                    if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                    else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
-                }
-                Text("Streams", color = Color.White, style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f).padding(start = 8.dp))
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
-            }
-            AnimatedVisibility(visible = nuvioScanning) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.08f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White.copy(alpha = 0.7f), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Scanning Nuvio providers…", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            // Per-addon error banner
-            val currentAddonError = if (activeFilter != "All") sourceErrors[activeFilter] else null
-            if (currentAddonError != null) {
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(currentAddonError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            androidx.compose.foundation.lazy.LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+    val currentAddonError = if (activeFilter != "All") sourceErrors[activeFilter] else null
+
+    if (isTv) {
+        // TV: Nuvio-style full-screen dark overlay — centred card, full height,
+        // same filter chips + source list but with proper D-pad navigation.
+        BackHandler(onBack = onDismiss)
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.82f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxHeight(0.88f)
+                    .fillMaxWidth(0.70f)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xFF111111))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                items(addonFilters, key = { it }) { name ->
-                    SourceFilterChip(name, name == activeFilter, sourceErrors.containsKey(name) && name != "All") { activeFilter = name }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { onRefresh?.invoke() }, enabled = onRefresh != null && !nuvioScanning) {
+                        if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
+                    }
+                    Text("Streams", color = Color.White, style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f).padding(start = 8.dp))
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
+                }
+                AnimatedVisibility(visible = nuvioScanning) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.08f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White.copy(alpha = 0.7f), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Scanning Nuvio providers…", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (currentAddonError != null) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(currentAddonError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    modifier = Modifier.tvFocusGroup(),
+                ) {
+                    items(addonFilters, key = { it }) { name ->
+                        SourceFilterChip(name, name == activeFilter, sourceErrors.containsKey(name) && name != "All") { activeFilter = name }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                androidx.compose.foundation.lazy.LazyColumn(
+                    Modifier.fillMaxWidth().weight(1f).tvFocusGroup(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                ) {
+                    items(filtered, key = { it.id }) { src ->
+                        StreamPickerRow(src = src, selected = src.id == selectedSourceId, onClick = { onPick(src) })
+                    }
+                    if (filtered.isEmpty()) {
+                        item {
+                            Text(when {
+                                nuvioScanning -> "Scanning for streams…"
+                                currentAddonError != null -> "No streams — $activeFilter returned an error."
+                                else -> "No streams from $activeFilter."
+                            }, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(20.dp))
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            androidx.compose.foundation.lazy.LazyColumn(
-                Modifier.fillMaxWidth().heightIn(max = 460.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 24.dp),
-            ) {
-                items(filtered, key = { it.id }) { src ->
-                    StreamPickerRow(src = src, selected = src.id == selectedSourceId, onClick = { onPick(src) })
+        }
+    } else {
+        ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF111111), scrimColor = Color.Black.copy(alpha = 0.7f)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { onRefresh?.invoke() }, enabled = onRefresh != null && !nuvioScanning) {
+                        if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
+                    }
+                    Text("Streams", color = Color.White, style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f).padding(start = 8.dp))
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
                 }
-                if (filtered.isEmpty()) {
-                    item {
-                        Text(when {
-                            nuvioScanning -> "Scanning for streams…"
-                            currentAddonError != null -> "No streams — $activeFilter returned an error."
-                            else -> "No streams from $activeFilter."
-                        }, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(20.dp))
+                AnimatedVisibility(visible = nuvioScanning) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.08f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White.copy(alpha = 0.7f), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Scanning Nuvio providers…", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                // Per-addon error banner
+                if (currentAddonError != null) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(currentAddonError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                ) {
+                    items(addonFilters, key = { it }) { name ->
+                        SourceFilterChip(name, name == activeFilter, sourceErrors.containsKey(name) && name != "All") { activeFilter = name }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                androidx.compose.foundation.lazy.LazyColumn(
+                    Modifier.fillMaxWidth().heightIn(max = 460.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                ) {
+                    items(filtered, key = { it.id }) { src ->
+                        StreamPickerRow(src = src, selected = src.id == selectedSourceId, onClick = { onPick(src) })
+                    }
+                    if (filtered.isEmpty()) {
+                        item {
+                            Text(when {
+                                nuvioScanning -> "Scanning for streams…"
+                                currentAddonError != null -> "No streams — $activeFilter returned an error."
+                                else -> "No streams from $activeFilter."
+                            }, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(20.dp))
+                        }
                     }
                 }
             }
