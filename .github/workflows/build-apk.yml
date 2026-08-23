@@ -130,38 +130,31 @@ jobs:
           name: StreamCloud V${{ github.run_number }}
           body: |
             ## StreamCloud V${{ github.run_number }}
-            
-                ### Bug fixes
-                - **Crash when browsing movie collections** — fixed a rare crash that occurred when the same title appeared more than once in a catalog or collection grid
-                - **"Who's Watching" remote unresponsive** — D-pad now works immediately when the profile-picker loads on TV; no touch needed first
-                - **Stream picker back button hidden on TV** — the ← button is no longer shown on the stream-selection screen; remote Back navigates away and D-pad focus lands in the source list on open
-            
-                ### Android TV remote improvements
-                - **D-pad Down from the nav bar** now jumps straight into content on every tab: Movies hero, Music Search button, Library first toggle, Settings first row
-                - **Hero scroll restoration** — pressing Menu or D-pad Up from content scrolls the Movies list back to the top
-                - **Nuvio-style hero** — content peeks below the fold so the page feels immediately alive
-                - **Movie detail carousels** — Cast, Trailers, Seasons, and Episodes rows are now fully D-pad navigable; cast members, trailer cards, and "More Like This" tiles all show focus borders
-                - **View All card on every category row** — compact focusable card at the end of each TMDB, Stremio, and CloudStream row on TV
-                - **Music tab** — pull-to-refresh fully disabled on TV (plain Box, no nested scroll connection)
-                - **Settings tab** — search bar hidden on TV; D-pad Down from nav lands on the first settings row
-            
-                ### Player
-                - **Source picker redesigned for TV** — full-height right-side panel; video/backdrop stays visible on the left, sources list occupies the right 58% of the screen with D-pad-navigable filter chips and stream rows
-                - **D-pad seek guard** — directional keys no longer fire through an open sheet; source picker, speed, subtitles, and audio overlays each own D-pad focus exclusively while open
-                - **Controls stay visible during navigation** — D-pad presses while the overlay is showing now bump the auto-hide timer, so controls don't vanish mid-interaction
-                - **Lock and back capsule buttons hidden on TV** — remote Back handles navigation; the lock gesture is touch-only
-                - **Clock fades with controls** — on-screen clock is wrapped in AnimatedVisibility so it appears and hides with the rest of the overlay
-            
-                ### Settings
-                - **Focus borders on all interactive rows** — navigation rows, toggle rows, Spotify account row, YouTube Music account row, updater row, and the inline TMDB / Stremio / CloudStream service toggles all show the TV white-border focus indicator
-            
-                ### Search
-                - **Card rails now fully D-pad navigable** — search result rows (TMDB Movies, Series, CloudStream, Stremio) converted to LazyRow; held Left/Right no longer intercepted by the outer column, so the remote scrolls smoothly through cards
-                - **Text field auto-focus skipped on TV** — keyboard no longer pops up when opening Search on a TV remote
-            
-                ### Profile picker
-                - **TV-friendly interaction** — single D-pad Centre selects the profile; long-press opens edit mode; pencil icon and Done button hidden on TV
-            
-                Compiled and packaged by GitHub Actions.
+
+            ### What's new
+            - **Search keyboard stays open on TV** — the keyboard no longer closes every time new results load while you're still typing
+            - **Titles now show under every search result card** — movie and show names appear below each thumbnail so you know what every result is
+            - **Crash fix when browsing collections** — fixed a crash when the same title appeared more than once in a catalog or collection grid
+            - **"Who's Watching" D-pad works immediately** — the remote responds straight away on the profile picker without needing a touch first
+            - **Stream picker back button hidden on TV** — the ← button is gone from the source-selection screen; remote Back navigates away and D-pad focus lands in the source list on open
+
+            ### Android TV remote improvements
+            - **D-pad Down from the nav bar** now jumps straight into content on every tab: Movies hero, Music Search button, Library first toggle, Settings first row
+            - **Movie detail carousels** — Cast, Trailers, Seasons, and Episodes rows fully D-pad navigable; focus borders on all interactive cards
+            - **Source picker redesigned for TV** — full-height right-side panel; backdrop stays visible on the left, source list on the right with D-pad-navigable filter chips and rows
+            - **D-pad seek guard** — directional keys no longer fire through an open sheet (source picker, speed, subtitles, audio)
+            - **Controls stay visible during navigation** — D-pad presses bump the auto-hide timer so controls don't vanish mid-interaction
+            - **Lock and back capsule buttons hidden on TV** — remote Back handles navigation
+            - **Clock fades with controls** — wrapped in AnimatedVisibility
+            - **Card rails fully D-pad navigable** — search result rows converted to LazyRow; held Left/Right scrolls smoothly through cards
+            - **Text field auto-focus skipped on TV** — keyboard no longer pops up when opening Search
+
+            ### Settings
+            - **Focus borders on all interactive rows** — nav rows, toggle rows, account rows, updater row, and inline service toggles all show the TV white-border focus indicator
+
+            ### Profile picker
+            - **TV-friendly interaction** — single D-pad Centre selects; long-press opens edit; pencil icon and Done button hidden on TV
+
+            Compiled and packaged by GitHub Actions.
           files: StreamCloud/artifacts/StreamCloud-release.apk
           fail_on_unmatched_files: true
