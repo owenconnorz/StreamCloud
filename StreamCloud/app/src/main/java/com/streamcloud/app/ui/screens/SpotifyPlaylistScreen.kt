@@ -41,6 +41,7 @@ private fun YtTrack.asYtmSong() = YtmSong(
     videoId        = url.substringAfter("v=").substringBefore("&").ifBlank { url.substringAfterLast("/") },
     title          = title,
     artist         = uploader,
+    album          = null,
     thumbnail      = thumbnail,
     durationSeconds = durationSec,
     isVideo        = isVideo,
