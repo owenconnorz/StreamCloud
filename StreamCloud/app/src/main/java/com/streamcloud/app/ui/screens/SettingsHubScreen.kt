@@ -171,7 +171,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var eqPreset            by remember { mutableStateOf("flat") }
     var bassBoost           by remember { mutableStateOf(false) }
     var enabledCollections  by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var uiMode              by remember { mutableStateOf("Auto") }
     var themeMode           by remember { mutableStateOf("dark") }
     var colorPalette        by remember { mutableStateOf("default") }
     var highRefreshRate     by remember { mutableStateOf(true) }
@@ -250,7 +249,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     var showCollectionsDialog   by remember { mutableStateOf(false) }
     var showNavOrderDialog      by remember { mutableStateOf(false) }
     var showAboutDialog         by remember { mutableStateOf(false) }
-    var showUiModeDialog        by remember { mutableStateOf(false) }
     var showAiDialog            by remember { mutableStateOf(false) }
     var showBackendDialog       by remember { mutableStateOf(false) }
     var showCrossfadeDialog     by remember { mutableStateOf(false) }
@@ -292,7 +290,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
         eqEnabled           = sl.settings.eqEnabled.first()
         eqPreset            = sl.settings.eqPreset.first()
         bassBoost           = sl.settings.bassBoost.first()
-        uiMode              = sl.settings.uiMode.first()
         themeMode           = sl.settings.theme.first()
         colorPalette        = sl.settings.colorPalette.first()
         highRefreshRate     = sl.settings.highRefreshRate.first()
@@ -525,13 +522,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                         subtitle = "Force the display to run at its highest supported rate (e.g. 120 Hz)",
                         checked = highRefreshRate,
                         onChange = { highRefreshRate = it; scope.launch { sl.settings.setHighRefreshRate(it) } },
-                    )
-                    SettingDivider()
-                    SettingNav(
-                        icon = Icons.Default.BrightnessHigh, tint = ColourAppearance,
-                        title = "Device layout",
-                        subtitle = "Override form factor · Mobile / Tablet / TV",
-                        onClick = { showUiModeDialog = true },
                     )
                 }
                 Spacer(Modifier.height(16.dp))
@@ -2103,13 +2093,6 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
             onDismiss = { showSubtitleLangDialog = false },
         )
     }
-    if (showUiModeDialog) {
-        UiModeDialog(
-            current = uiMode,
-            onPick = { uiMode = it; scope.launch { sl.settings.setUiMode(it) }; showUiModeDialog = false },
-            onDismiss = { showUiModeDialog = false },
-        )
-    }
     if (showVideoCachePicker) {
         CacheSizeSheet(
             title = "Max cache size",
@@ -3201,42 +3184,6 @@ private fun AboutDialog(onDismiss: () -> Unit) {
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
-}
-
-@Composable
-private fun UiModeDialog(current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
-    val options = listOf(
-        Triple("Auto",   "Auto-detect",   "Phone, tablet or TV based on the device"),
-        Triple("Mobile", "Mobile",        "Compact phone layout"),
-        Triple("Tablet", "Tablet",        "Wider canvas, slightly larger text"),
-        Triple("Tv",     "TV / Leanback", "Largest text, designed for D-pad / remote"),
-    )
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Layout / device") },
-        text = {
-            Column {
-                options.forEach { (id, label, sub) ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onPick(id) }
-                            .padding(horizontal = 8.dp, vertical = 12.dp),
-                    ) {
-                        RadioButton(selected = current.equals(id, ignoreCase = true), onClick = { onPick(id) })
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(label, style = MaterialTheme.typography.titleMedium)
-                            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
 }
 

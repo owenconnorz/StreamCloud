@@ -139,14 +139,12 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     val albumArtAccent  by AlbumArtThemeBus.accent.collectAsState()
     val albumArtSecond  by AlbumArtThemeBus.accentSecondary.collectAsState()
     val hasArtwork      by AlbumArtThemeBus.hasArtwork.collectAsState()
-    val uiModeStr       by sl.settings.uiMode.collectAsState(initial = "Auto")
     val themeMode       by sl.settings.theme.collectAsState(initial = "dark")
     val colorPaletteId  by sl.settings.colorPalette.collectAsState(initial = "default")
     val isSystemDark = isSystemInDarkTheme()
 
-    val formFactor = remember(uiModeStr, context) {
-        UiModeOverride.fromStorage(uiModeStr).resolve(context)
-    }
+    // Always auto-detect — no manual override allowed.
+    val formFactor = remember(context) { detectFormFactor(context) }
 
     val useDark = when (themeMode) {
         "light"  -> false
