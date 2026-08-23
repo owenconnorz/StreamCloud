@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -294,16 +295,19 @@ fun StreamPickerOverlay(
                         )
                 )
 
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .statusBarsPadding()
-                        .padding(4.dp)
-                        .focusRequester(firstPickerFocus)
-                        .tvFocusBorder(RoundedCornerShape(50)),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                // Back button hidden on TV — remote Back navigates away;
+                // focus goes to the source list anchor instead.
+                if (!isTv) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .statusBarsPadding()
+                            .padding(4.dp)
+                            .tvFocusBorder(RoundedCornerShape(50)),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                    }
                 }
 
                 IconButton(
@@ -382,6 +386,13 @@ fun StreamPickerOverlay(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxSize().tvFocusGroup(),
             ) {
+                // TV: invisible anchor so D-pad navigates straight into streams on open.
+                if (isTv) {
+                    item(key = "tv-focus-anchor") {
+                        Box(Modifier.size(1.dp).focusRequester(firstPickerFocus).focusable())
+                    }
+                }
+
                 visibleGroups.forEach { (key, addonName, groupState) ->
                     // When still loading: show header + progress bar
                     // When done with streams: show header + streams
