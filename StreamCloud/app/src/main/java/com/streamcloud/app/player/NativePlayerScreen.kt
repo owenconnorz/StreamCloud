@@ -523,6 +523,8 @@ fun NativePlayerScreen(
             // the overlay is hidden so that visible controls can still be operated.
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                // Any overlay sheet owns D-pad focus — don't intercept.
+                if (showSourcesSheet || showSpeedSheet || showSubsSheet || showAudioSheet || showSubtitleStyle) return@onPreviewKeyEvent false
                 val p = player.value ?: return@onPreviewKeyEvent false
                 when (event.key) {
                     // When controls are hidden: D-pad seeks/plays-pauses and we consume.
@@ -1367,19 +1369,27 @@ private fun SourcesPickerSheet(
     val currentAddonError = if (activeFilter != "All") sourceErrors[activeFilter] else null
 
     if (isTv) {
-        // TV: Nuvio-style full-screen dark overlay — centred card, full height,
-        // same filter chips + source list but with proper D-pad navigation.
+        // TV: Nuvio-style right-side panel — the video/backdrop stays visible on
+        // the left, and a full-height source card slides in from the right.
         BackHandler(onBack = onDismiss)
-        Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.82f)),
-            contentAlignment = Alignment.Center,
+        Row(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.55f)),
         ) {
+            // Left: transparent dismiss area — video shows through the tinted overlay.
+            Box(
+                Modifier
+                    .weight(0.42f)
+                    .fillMaxHeight()
+                    .clickable(onClick = onDismiss),
+            )
+            // Right: source list panel.
             Column(
                 Modifier
-                    .fillMaxHeight(0.88f)
-                    .fillMaxWidth(0.70f)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF111111))
+                    .weight(0.58f)
+                    .fillMaxHeight()
+                    .background(Color(0xFF0E0E0E))
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

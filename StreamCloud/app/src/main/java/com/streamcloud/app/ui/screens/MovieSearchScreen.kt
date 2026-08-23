@@ -289,7 +289,9 @@ private fun CombinedResultsList(
             top = padding.calculateTopPadding() + 8.dp,
             bottom = 32.dp,
         ),
-        modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(),
+        // verticalOnly = true so held Left/Right fall through to the nested LazyRows
+        // (NuvioSection card rails) instead of being consumed by this outer column.
+        modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(verticalOnly = true),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         // ── Series (TMDB TV) ──────────────────────────────────────────────
