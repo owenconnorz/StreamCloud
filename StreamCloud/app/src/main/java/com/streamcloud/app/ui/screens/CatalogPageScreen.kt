@@ -160,7 +160,7 @@ fun CatalogPageScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (isTmdb) {
-                items(tmdbItems, key = { "tmdb_${it.id}" }) { m ->
+                items(tmdbItems.distinctBy { it.id }, key = { "tmdb_${it.id}" }) { m ->
                     GridPosterTmdb(m) { onMovieClick(m.id) }
                 }
             } else if (isStremio) {

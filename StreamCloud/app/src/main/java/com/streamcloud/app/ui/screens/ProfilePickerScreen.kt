@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +66,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -203,6 +208,15 @@ private fun ProfileGridView(
     onDone: () -> Unit,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    // TV: no element has focus when the screen loads — request it on a tiny invisible
+    // anchor so the D-pad immediately works (same pattern as the player + search screens).
+    val anchorFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(isTv) {
+        if (isTv) {
+            delay(150)
+            try { anchorFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
     Column(
         Modifier
             .fillMaxSize()
@@ -217,6 +231,7 @@ private fun ProfileGridView(
             color = Color.White,
         )
         Spacer(Modifier.height(36.dp))
+        if (isTv) Box(Modifier.size(1.dp).focusRequester(anchorFocusRequester).focusable())
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),

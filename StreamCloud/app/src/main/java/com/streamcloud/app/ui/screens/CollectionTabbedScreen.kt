@@ -193,7 +193,7 @@ private sealed class TabbedItem {
     abstract val key: String
 
     data class Tmdb(val movie: TmdbMovie, val isTv: Boolean) : TabbedItem() {
-        override val key get() = "tmdb_${movie.id}"
+        override val key get() = "tmdb_${movie.id}_${if (isTv) "tv" else "mv"}"
     }
     data class Stremio(val meta: StremioMetaPreview, val addonId: String, val contentType: String) : TabbedItem() {
         override val key get() = "stremio_${meta.id}"
