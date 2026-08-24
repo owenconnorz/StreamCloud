@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CancellationException
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.LibraryResult
@@ -155,6 +156,19 @@ class MusicPlaybackService : MediaLibraryService() {
             .build()
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            // Start as soon as enough audio is available for a smooth first beat. Keep Media3's
+            // generous steady-state buffer and rebuffer thresholds so this only improves the
+            // initial tap-to-audio delay rather than trading playback stability for speed.
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        50_000,
+                        50_000,
+                        750,
+                        2_000,
+                    )
+                    .build(),
+            )
             .setAudioAttributes(musicAudioAttrs, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
