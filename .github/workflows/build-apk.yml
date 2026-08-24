@@ -3,9 +3,6 @@ name: Build StreamCloud Android APK
 on:
   push:
     branches: [ main, master ]
-    paths:
-      - 'StreamCloud/**'
-      - '.github/workflows/build-apk.yml'
   pull_request:
     branches: [ main, master ]
     paths:
