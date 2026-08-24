@@ -83,12 +83,18 @@ fun GlobalNowPlayingSheet(
             if (value == SheetValue.Hidden) !innerScrolledState.value else true
         },
     )
+    // Keep the sheet composed until its native hide animation completes. This
+    // lets a swipe-down visibly settle back to the mini-player rather than
+    // removing the full player in the same frame.
+    val minimizePlayer: () -> Unit = {
+        scope.launch {
+            sheetState.hide()
+            open = false
+        }
+    }
 
     ModalBottomSheet(
-        onDismissRequest = {
-            scope.launch { sheetState.hide() }
-            open = false
-        },
+        onDismissRequest = minimizePlayer,
         sheetState = sheetState,
         containerColor = Color(0xFF0E0E0E),
         scrimColor = Color.Black.copy(alpha = 0.6f),
@@ -99,10 +105,7 @@ fun GlobalNowPlayingSheet(
         GlobalNowPlayingContent(
             controller = c,
             npScrollState = npScrollState,
-            onClose = {
-                scope.launch { sheetState.hide() }
-                open = false
-            },
+            onClose = minimizePlayer,
             onOpenSettings = onOpenSettings,
             onOpenArtistSearch = onOpenArtistSearch,
         )

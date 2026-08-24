@@ -34,7 +34,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -149,8 +151,15 @@ fun GlobalMiniPlayer(
     }
 
     val swipeOffsetX = remember { Animatable(0f) }
+    val swipeOffsetY = remember { Animatable(0f) }
     var liveDragX by remember { mutableStateOf(0f) }
     var liveDragY by remember { mutableStateOf(0f) }
+    val verticalOffset = swipeOffsetY.value + liveDragY
+    // A short upward drag previews the expanded player without stretching the
+    // compact layout all the way to full-screen. The sheet then completes the
+    // visual handoff once the expand threshold is reached.
+    val expandProgress = (-verticalOffset / 240f).coerceIn(0f, 1f)
+    val dismissProgress = (verticalOffset / 200f).coerceIn(0f, 1f)
 
     AnimatedVisibility(
         visible = title != null,
@@ -163,10 +172,32 @@ fun GlobalMiniPlayer(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp)
-                .offset { IntOffset((swipeOffsetX.value + liveDragX).roundToInt(), liveDragY.roundToInt()) }
+                .offset {
+                    IntOffset(
+                        (swipeOffsetX.value + liveDragX).roundToInt(),
+                        verticalOffset.roundToInt(),
+                    )
+                }
+                .graphicsLayer {
+                    // Match the responsive feel of YouTube Music: the mini-player
+                    // lifts, opens up, and fades into the full player as it is dragged.
+                    scaleX = 1f + (expandProgress * 0.04f) - (dismissProgress * 0.05f)
+                    scaleY = 1f + (expandProgress * 0.18f) - (dismissProgress * 0.10f)
+                    alpha = 1f - (expandProgress * 0.65f) - (dismissProgress * 0.40f)
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                }
                 .clip(RoundedCornerShape(20.dp))
                 .background(bgColor)
-                .clickable(onClick = onExpand)
+                .clickable {
+                    scope.launch {
+                        swipeOffsetY.animateTo(-240f, tween(140))
+                        onExpand()
+                        // Give the now-playing sheet one frame to cover the final
+                        // compact-player pose before resetting it underneath.
+                        delay(32)
+                        swipeOffsetY.snapTo(0f)
+                    }
+                }
                 .pointerInput(controller) {
                     while (true) {
                         var totalX = 0f
@@ -189,9 +220,10 @@ fun GlobalMiniPlayer(
                                 if (dirLocked && isHorizontal) {
                                     liveDragX = totalX.coerceIn(-280f, 280f)
                                     change.consume()
-                                } else if (dirLocked && !isHorizontal && totalY > 0f) {
-                                    // Provide visual feedback while swiping down
-                                    liveDragY = totalY.coerceIn(0f, 200f)
+                                } else if (dirLocked && !isHorizontal) {
+                                    // Both vertical directions follow the finger:
+                                    // up previews expansion; down previews dismissal.
+                                    liveDragY = totalY.coerceIn(-240f, 200f)
                                     change.consume()
                                 }
                             }
@@ -213,14 +245,24 @@ fun GlobalMiniPlayer(
                                 swipeOffsetX.animateTo(0f, tween(220))
                             }
                             MiniPlayerSwipeAction.SnapBack -> swipeOffsetX.animateTo(0f, spring())
-                            MiniPlayerSwipeAction.Expand   -> onExpand()
+                            MiniPlayerSwipeAction.Expand   -> {
+                                swipeOffsetY.animateTo(-240f, tween(140))
+                                onExpand()
+                                delay(32)
+                                swipeOffsetY.snapTo(0f)
+                            }
                             MiniPlayerSwipeAction.Dismiss  -> {
                                 // Swipe-down: stop playback and hide the mini-player
+                                swipeOffsetY.animateTo(200f, tween(160))
                                 controller?.stop()
                                 controller?.clearMediaItems()
                                 title = null
+                                swipeOffsetY.snapTo(0f)
                             }
-                            MiniPlayerSwipeAction.None     -> swipeOffsetX.snapTo(0f)
+                            MiniPlayerSwipeAction.None     -> {
+                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.68f))
+                                swipeOffsetY.animateTo(0f, spring(dampingRatio = 0.68f))
+                            }
                         }
                     }
                 }
