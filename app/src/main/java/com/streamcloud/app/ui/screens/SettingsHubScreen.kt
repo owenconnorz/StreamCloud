@@ -1,0 +1,4293 @@
+package com.streamcloud.app.ui.screens
+
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Reorder
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Brightness6
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FitScreen
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import com.streamcloud.app.ui.theme.AllMoviesThemes
+import com.streamcloud.app.ui.theme.MoviesThemePicker
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.streamcloud.app.BuildConfig
+import com.streamcloud.app.data.AppLogger
+import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.downloads.DownloadCaches
+import com.streamcloud.app.data.util.ThumbnailCache
+import com.streamcloud.app.data.collections.HomeCollections
+import com.streamcloud.app.data.plugins.InstalledPlugin
+import com.streamcloud.app.data.stremio.StremioCatalogMeta
+import com.streamcloud.app.data.plugins.PinnedCsSection
+import com.streamcloud.app.data.plugins.PluginRepository
+import com.streamcloud.app.data.plugins.PluginRuntime
+import com.streamcloud.app.data.updater.UpdateChecker
+import com.streamcloud.app.data.updater.UpdateInfo
+import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
+import kotlinx.coroutines.flow.first
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import com.streamcloud.app.data.nuvio.NuvioAccountService
+import com.streamcloud.app.data.nuvio.NuvioPullResult
+import androidx.compose.ui.window.Dialog
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.streamcloud.app.data.discord.DiscordRpcService
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.material.icons.filled.Dashboard
+
+private val HubIconBg  = Color(0xFF1B2D52)
+private val HubIconFg  = Color(0xFF5B8DEF)
+
+private val ColourAppearance = Color(0xFF5B8DEF)
+private val ColourAccount    = Color(0xFF4CAF88)
+private val ColourPlayer     = Color(0xFFB49BFF)
+private val ColourAi         = Color(0xFFFFD479)
+private val ColourContent    = Color(0xFFFF9B5E)
+private val ColourPrivacy    = Color(0xFFF2AFBC)
+private val ColourStorage    = Color(0xFFA9C96C)
+private val ColourSystem     = Color(0xFF8E9CBE)
+private val ColourSonos      = Color(0xFF56C8D8)
+
+private enum class SettingsPage {
+    SystemUpdate, Appearance, PlayerAudio, Account,
+    ListenTogether, Content, Privacy,
+    Storage, BackupRestore, About, Logs, HomeLayout
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsHubScreen(
+    onOpenPlugins: () -> Unit,
+    onOpenCollections: () -> Unit = {},
+    onSwitchProfile: () -> Unit = {},
+    onOpenDownloads: () -> Unit = {},
+    onSubPageChanged: (Boolean) -> Unit = {},
+    backRequest: Int = 0,
+    tvNavFocusRequester: FocusRequester? = null,
+) {
+    val context = LocalContext.current
+    val sl      = remember { ServiceLocator.get(context) }
+    val pluginRepo = remember { PluginRepository(context.applicationContext) }
+    val scope   = rememberCoroutineScope()
+
+
+    var backendUrl          by remember { mutableStateOf("") }
+    var provider            by remember { mutableStateOf("") }
+    var model               by remember { mutableStateOf("") }
+    var nsfw                by remember { mutableStateOf(false) }
+    var videoQuality        by remember { mutableStateOf("auto") }
+    var audioQuality        by remember { mutableStateOf("high") }
+    var extLinks            by remember { mutableStateOf(true) }
+    var autoplay            by remember { mutableStateOf(true) }
+    var subs                by remember { mutableStateOf(true) }
+    var dlWifi              by remember { mutableStateOf(true) }
+    var hfToken             by remember { mutableStateOf("") }
+    var dynamicColor        by remember { mutableStateOf(false) }
+    var eqEnabled           by remember { mutableStateOf(false) }
+    var eqPreset            by remember { mutableStateOf("flat") }
+    var bassBoost           by remember { mutableStateOf(false) }
+    var enabledCollections  by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var themeMode           by remember { mutableStateOf("dark") }
+    var colorPalette        by remember { mutableStateOf("default") }
+    var highRefreshRate     by remember { mutableStateOf(true) }
+    var newMiniPlayer       by remember { mutableStateOf(true) }
+    var pureBlackMiniPlayer by remember { mutableStateOf(false) }
+    var dynamicMiniTheme    by remember { mutableStateOf(true) }
+    var navLabels           by remember { mutableStateOf(true) }
+    var navLiquidGlass      by remember { mutableStateOf(false) }
+    var newPlayerDesign     by remember { mutableStateOf(true) }
+    var skipSilence         by remember { mutableStateOf(false) }
+    var keepScreenOn        by remember { mutableStateOf(false) }
+    var persistentQueue     by remember { mutableStateOf(true) }
+    var crossfadeDuration   by remember { mutableStateOf("0") }
+    var listenHistory       by remember { mutableStateOf(true) }
+    var pauseListenHistory  by remember { mutableStateOf(false) }
+    var safeSearch          by remember { mutableStateOf(false) }
+    var explicitContent     by remember { mutableStateOf(true) }
+    var contentLanguage     by remember { mutableStateOf("en") }
+    var contentCountry      by remember { mutableStateOf("US") }
+    var lyricsSource        by remember { mutableStateOf("lrclib") }
+    var syncedLyrics        by remember { mutableStateOf(true) }
+    var loudnessNorm        by remember { mutableStateOf(false) }
+    var canvasEnabled       by remember { mutableStateOf(false) }
+    var posterStyle         by remember { mutableStateOf("portrait") }
+    var moviesTheme         by remember { mutableStateOf("violet") }
+    var pluginsCacheBytes   by remember { mutableStateOf(0L) }
+    var smartTrimmer        by remember { mutableStateOf(false) }
+    var videoCacheMaxMb     by remember { mutableStateOf("unlimited") }
+    var imageCacheMaxMb     by remember { mutableStateOf("unlimited") }
+    var posterCacheMaxCount by remember { mutableStateOf("1024") }
+    var videoCacheSizeBytes by remember { mutableStateOf(0L) }
+    var imageCacheSizeBytes by remember { mutableStateOf(0L) }
+    var dlContentSizeBytes  by remember { mutableStateOf(0L) }
+    var introDbApiKey       by remember { mutableStateOf("") }
+    var subtitleSource      by remember { mutableStateOf("any") }
+    var parentalGuideOn     by remember { mutableStateOf(true) }
+    var holdToSpeedOn       by remember { mutableStateOf(false) }
+    var holdToSpeedVal      by remember { mutableStateOf("2.0") }
+    var showIntroKeyDialog  by remember { mutableStateOf(false) }
+    var showSubSourceDialog by remember { mutableStateOf(false) }
+    var showHoldSpeedDialog by remember { mutableStateOf(false) }
+    var adultLockEnabled    by remember { mutableStateOf(false) }
+    var traktUsername       by remember { mutableStateOf("") }
+    var traktClientId       by remember { mutableStateOf("") }
+    var simklToken          by remember { mutableStateOf("") }
+    var simklClientId       by remember { mutableStateOf("") }
+    var showTraktDialog     by remember { mutableStateOf(false) }
+    var showSimklDialog     by remember { mutableStateOf(false) }
+    var showDiscordDialog   by remember { mutableStateOf(false) }
+
+    var discordToken          by remember { mutableStateOf("") }
+    var discordRpcEnabled     by remember { mutableStateOf(false) }
+    var discordAppName        by remember { mutableStateOf("StreamCloud") }
+    var discordShowTitle      by remember { mutableStateOf(true) }
+    var discordShowArtist     by remember { mutableStateOf(true) }
+    var discordShowTimestamps  by remember { mutableStateOf(true) }
+    var discordTsMode         by remember { mutableStateOf("elapsed") }
+    var discordShowArt        by remember { mutableStateOf(true) }
+    var discordClearPause     by remember { mutableStateOf(false) }
+    var discordShowButton     by remember { mutableStateOf(false) }
+    var discordActType        by remember { mutableStateOf("2") }
+
+    val discordLoginLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        // Refresh token from DataStore after the WebView login activity closes.
+        scope.launch {
+            discordToken = sl.settings.discordToken.first()
+        }
+    }
+
+
+    var showQualityVideoDialog  by remember { mutableStateOf(false) }
+    var showQualityAudioDialog  by remember { mutableStateOf(false) }
+    var showEqDialog            by remember { mutableStateOf(false) }
+    var showCollectionsDialog   by remember { mutableStateOf(false) }
+    var showNavOrderDialog      by remember { mutableStateOf(false) }
+    var showAboutDialog         by remember { mutableStateOf(false) }
+    var showAiDialog            by remember { mutableStateOf(false) }
+    var showBackendDialog       by remember { mutableStateOf(false) }
+    var showCrossfadeDialog     by remember { mutableStateOf(false) }
+    var showLanguageDialog      by remember { mutableStateOf(false) }
+    var showCountryDialog       by remember { mutableStateOf(false) }
+    var showLyricsSourceDialog  by remember { mutableStateOf(false) }
+    var showVideoCachePicker  by remember { mutableStateOf(false) }
+    var showImageCachePicker  by remember { mutableStateOf(false) }
+    var showPosterCachePicker by remember { mutableStateOf(false) }
+
+    var seekIncrement          by remember { mutableStateOf("10") }
+    var defaultSpeed           by remember { mutableStateOf("1.0") }
+    var preferredAudioLang     by remember { mutableStateOf("en") }
+    var preferredSubtitleLang  by remember { mutableStateOf("en") }
+    var hwDecoding             by remember { mutableStateOf(true) }
+    var pipEnabled             by remember { mutableStateOf(true) }
+    var gestureVolume          by remember { mutableStateOf(true) }
+    var gestureBrightness      by remember { mutableStateOf(true) }
+    var resumePlayback         by remember { mutableStateOf(true) }
+    var autoplayBestStream     by remember { mutableStateOf(false) }
+    var showSeekDialog         by remember { mutableStateOf(false) }
+    var showDefaultSpeedDialog by remember { mutableStateOf(false) }
+    var showAudioLangDialog    by remember { mutableStateOf(false) }
+    var showSubtitleLangDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        backendUrl          = sl.settings.backendUrl.first()
+        provider            = sl.settings.aiProvider.first()
+        model               = sl.settings.aiModel.first()
+        nsfw                = sl.settings.nsfwEnabled.first()
+        videoQuality        = sl.settings.videoQuality.first()
+        audioQuality        = sl.settings.audioQuality.first()
+        extLinks            = sl.settings.externalLinksInBrowser.first()
+        autoplay            = sl.settings.autoplayNext.first()
+        subs                = sl.settings.subtitlesEnabled.first()
+        dlWifi              = sl.settings.downloadOverWifiOnly.first()
+        hfToken             = sl.settings.hfToken.first()
+        dynamicColor        = sl.settings.dynamicColor.first()
+        eqEnabled           = sl.settings.eqEnabled.first()
+        eqPreset            = sl.settings.eqPreset.first()
+        bassBoost           = sl.settings.bassBoost.first()
+        themeMode           = sl.settings.theme.first()
+        colorPalette        = sl.settings.colorPalette.first()
+        highRefreshRate     = sl.settings.highRefreshRate.first()
+        newMiniPlayer       = sl.settings.newMiniPlayerDesign.first()
+        pureBlackMiniPlayer = sl.settings.pureBlackMiniPlayer.first()
+        dynamicMiniTheme    = sl.settings.dynamicMiniPlayerTheme.first()
+        navLabels           = sl.settings.navLabels.first()
+        navLiquidGlass      = sl.settings.navLiquidGlass.first()
+        newPlayerDesign     = sl.settings.newPlayerDesign.first()
+        skipSilence         = sl.settings.skipSilence.first()
+        keepScreenOn        = sl.settings.keepScreenOn.first()
+        persistentQueue     = sl.settings.persistentQueue.first()
+        crossfadeDuration   = sl.settings.crossfadeDuration.first()
+        listenHistory       = sl.settings.listenHistoryEnabled.first()
+        pauseListenHistory  = sl.settings.pauseListenHistory.first()
+        lyricsSource        = sl.settings.lyricsSource.first()
+        syncedLyrics        = sl.settings.syncedLyrics.first()
+        loudnessNorm        = sl.settings.loudnessNormalization.first()
+        canvasEnabled       = sl.settings.canvasEnabled.first()
+        posterStyle         = sl.settings.posterStyle.first()
+        moviesTheme         = sl.settings.moviesTheme.first()
+        safeSearch          = sl.settings.safeSearch.first()
+        explicitContent     = sl.settings.explicitContent.first()
+        contentLanguage     = sl.settings.contentLanguage.first()
+        contentCountry      = sl.settings.contentCountry.first()
+        val csv = sl.settings.homeCollectionsCsv.first()
+        enabledCollections  = when {
+            csv == "_none_"     -> emptySet()
+            csv.isNullOrBlank() -> HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
+            else                -> csv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        }
+        pluginsCacheBytes   = pluginRepo.pluginsCacheSize()
+        smartTrimmer        = sl.settings.smartTrimmer.first()
+        videoCacheMaxMb     = sl.settings.videoCacheMaxMb.first()
+        imageCacheMaxMb     = sl.settings.imageCacheMaxMb.first()
+        posterCacheMaxCount = sl.settings.posterCacheMaxCount.first()
+        introDbApiKey       = sl.settings.introDbApiKey.first()
+        subtitleSource      = sl.settings.subtitleSource.first()
+        parentalGuideOn     = sl.settings.parentalGuideEnabled.first()
+        holdToSpeedOn       = sl.settings.holdToSpeedEnabled.first()
+        holdToSpeedVal      = sl.settings.holdToSpeedValue.first()
+        adultLockEnabled    = sl.settings.adultLockEnabled.first()
+        traktUsername       = sl.settings.traktUsername.first()
+        traktClientId       = sl.settings.traktClientId.first()
+        simklToken          = sl.settings.simklAccessToken.first()
+        simklClientId       = sl.settings.simklClientId.first()
+        discordToken        = sl.settings.discordToken.first()
+        discordRpcEnabled   = sl.settings.discordRpcEnabled.first()
+        discordAppName      = sl.settings.discordRpcAppName.first()
+        discordShowTitle    = sl.settings.discordRpcShowTitle.first()
+        discordShowArtist   = sl.settings.discordRpcShowArtist.first()
+        discordShowTimestamps = sl.settings.discordRpcShowTimestamps.first()
+        discordTsMode       = sl.settings.discordRpcTsMode.first()
+        discordShowArt      = sl.settings.discordRpcShowArt.first()
+        discordClearPause   = sl.settings.discordRpcClearPause.first()
+        discordShowButton   = sl.settings.discordRpcShowButton.first()
+        discordActType        = sl.settings.discordRpcActType.first()
+        seekIncrement         = sl.settings.seekIncrementSeconds.first()
+        defaultSpeed          = sl.settings.defaultPlaybackSpeed.first()
+        preferredAudioLang    = sl.settings.preferredAudioLang.first()
+        preferredSubtitleLang = sl.settings.preferredSubtitleLang.first()
+        hwDecoding            = sl.settings.hardwareDecodingEnabled.first()
+        pipEnabled            = sl.settings.pipEnabled.first()
+        gestureVolume         = sl.settings.gestureVolumeEnabled.first()
+        gestureBrightness     = sl.settings.gestureBrightnessEnabled.first()
+        resumePlayback        = sl.settings.resumePlayback.first()
+        autoplayBestStream    = sl.settings.autoplayBestStream.first()
+    }
+
+
+    val discordRpcStatus by DiscordRpcService.status.collectAsState()
+    val discordRpcError  by DiscordRpcService.errorMessage.collectAsState()
+
+    var currentPage by remember { mutableStateOf<SettingsPage?>(null) }
+    var handledBackRequest by remember { mutableStateOf(backRequest) }
+
+    BackHandler(enabled = currentPage != null) { currentPage = null }
+    LaunchedEffect(currentPage) {
+        onSubPageChanged(currentPage != null)
+    }
+    LaunchedEffect(backRequest) {
+        if (backRequest != handledBackRequest) {
+            handledBackRequest = backRequest
+            currentPage = null
+        }
+    }
+
+
+    AnimatedContent(
+        targetState = currentPage,
+        transitionSpec = {
+            if (targetState != null) {
+                slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+            } else {
+                slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+            }
+        },
+        label = "settings_page",
+    ) { page ->
+        when (page) {
+
+
+            null -> SettingsHubList(
+                onNavigate          = { currentPage = it },
+                onOpenPlugins       = onOpenPlugins,
+                onOpenCollections   = onOpenCollections,
+                onSwitchProfile     = onSwitchProfile,
+                onOpenDownloads     = onOpenDownloads,
+                tvNavFocusRequester = tvNavFocusRequester,
+            )
+
+
+            SettingsPage.SystemUpdate -> SubPageScaffold(
+                title = "System update",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    UpdaterRow()
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.Link, tint = ColourSystem,
+                        title = "Open supported links",
+                        subtitle = "Set StreamCloud as default for supported URLs",
+                        onClick = {
+                            runCatching {
+                                val intent = Intent(android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            }
+                        },
+                    )
+                }
+            }
+
+
+            SettingsPage.Appearance -> SubPageScaffold(
+                title = "Appearance",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
+                    ) {
+                        Text(
+                            "Theme Mode",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            data class TM(val id: String, val label: String, val bg: Color, val useLightIcon: Boolean)
+                            listOf(
+                                TM("system", "Auto",  Color(0xFF2C2826), true),
+                                TM("light",  "Light", Color(0xFFF5F0EE), false),
+                                TM("dark",   "Dark",  Color(0xFF1A1210), true),
+                                TM("black",  "Black", Color.Black,       true),
+                            ).forEach { tm ->
+                                ThemeModeItem(
+                                    id = tm.id, label = tm.label, bg = tm.bg,
+                                    useLightIcon = tm.useLightIcon,
+                                    selected = themeMode == tm.id,
+                                    accent = MaterialTheme.colorScheme.primary,
+                                    onClick = {
+                                        themeMode = tm.id
+                                        scope.launch { sl.settings.setTheme(tm.id) }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    SettingDivider()
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
+                    ) {
+                        Text(
+                            "Color Palette",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            PaletteDynamicItem(
+                                selected = colorPalette == "dynamic",
+                                accent   = MaterialTheme.colorScheme.primary,
+                                outline  = MaterialTheme.colorScheme.outlineVariant,
+                                onClick  = {
+                                    colorPalette = "dynamic"; dynamicColor = true
+                                    scope.launch {
+                                        sl.settings.setColorPalette("dynamic")
+                                        sl.settings.setDynamicColor(true)
+                                    }
+                                },
+                            )
+                            listOf(
+                                Triple("default", Color(0xFF8B6E6A), Color(0xFFC97B6C)),
+                                Triple("warm",    Color(0xFFE8B87A), Color(0xFFD4824A)),
+                                Triple("coral",   Color(0xFFE8A0A0), Color(0xFFD45858)),
+                                Triple("violet",  Color(0xFFB8A0DC), Color(0xFF7B54C2)),
+                                Triple("blue",    Color(0xFF8AB4E8), Color(0xFF3B6CAC)),
+                                Triple("indigo",  Color(0xFF8888CC), Color(0xFF3B3B9C)),
+                            ).forEach { (id, topC, bottomC) ->
+                                PaletteItem(
+                                    topColor = topC, bottomColor = bottomC,
+                                    selected = colorPalette == id,
+                                    accent   = MaterialTheme.colorScheme.primary,
+                                    outline  = MaterialTheme.colorScheme.outlineVariant,
+                                    onClick  = {
+                                        colorPalette = id
+                                        if (dynamicColor) {
+                                            dynamicColor = false
+                                            scope.launch { sl.settings.setDynamicColor(false) }
+                                        }
+                                        scope.launch { sl.settings.setColorPalette(id) }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SettingToggle(
+                        icon = Icons.Default.Speed, tint = ColourAppearance,
+                        title = "Enable high refresh rate",
+                        subtitle = "Force the display to run at its highest supported rate (e.g. 120 Hz)",
+                        checked = highRefreshRate,
+                        onChange = { highRefreshRate = it; scope.launch { sl.settings.setHighRefreshRate(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie posters")
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
+                    ) {
+                        Text(
+                            "Poster style",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            listOf("portrait" to "Portrait", "landscape" to "Landscape", "auto" to "Auto").forEach { (id, label) ->
+                                FilterChip(
+                                    selected = posterStyle == id,
+                                    onClick = { posterStyle = id; scope.launch { sl.settings.setPosterStyle(id) } },
+                                    label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie theme")
+                    MoviesThemePicker(
+                        selected = moviesTheme,
+                        onSelect = { id ->
+                            moviesTheme = id
+                            scope.launch { sl.settings.setMoviesTheme(id) }
+                        },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Mini-player")
+                    SettingToggle(
+                        icon = Icons.Default.AspectRatio, tint = ColourAppearance,
+                        title = "New mini player design",
+                        checked = newMiniPlayer,
+                        onChange = { newMiniPlayer = it; scope.launch { sl.settings.setNewMiniPlayerDesign(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.DarkMode, tint = ColourAppearance,
+                        title = "Pure black mini-player",
+                        checked = pureBlackMiniPlayer,
+                        onChange = { pureBlackMiniPlayer = it; scope.launch { sl.settings.setPureBlackMiniPlayer(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Palette, tint = ColourAppearance,
+                        title = "Dynamic theme",
+                        subtitle = "Tint the mini-player background and progress ring with album art colours",
+                        checked = dynamicMiniTheme,
+                        onChange = { dynamicMiniTheme = it; scope.launch { sl.settings.setDynamicMiniPlayerTheme(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Visibility, tint = ColourAppearance,
+                        title = "Navigation labels",
+                        subtitle = "Show text labels below icons in the navigation bar",
+                        checked = navLabels,
+                        onChange = { navLabels = it; scope.launch { sl.settings.setNavLabels(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Layers, tint = ColourAppearance,
+                        title = "Liquid glass navigation bar",
+                        subtitle = "Frosted-glass blur behind the navigation pill (like Nuvio)",
+                        checked = navLiquidGlass,
+                        onChange = { navLiquidGlass = it; scope.launch { sl.settings.setNavLiquidGlass(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Player")
+                    SettingToggle(
+                        icon = Icons.Default.Palette, tint = ColourAppearance,
+                        title = "New player design",
+                        checked = newPlayerDesign,
+                        onChange = { newPlayerDesign = it; scope.launch { sl.settings.setNewPlayerDesign(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.PlayCircle, tint = Color(0xFF1ED760),
+                        title = "Spotify Canvas",
+                        subtitle = "Show a short looping video behind the now-playing screen",
+                        checked = canvasEnabled,
+                        onChange = { canvasEnabled = it; scope.launch { sl.settings.setCanvasEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Reorder, tint = ColourAppearance,
+                        title = "Navigation bar",
+                        subtitle = "Reorder tabs",
+                        onClick = { showNavOrderDialog = true },
+                    )
+                }
+            }
+
+
+            SettingsPage.PlayerAudio -> SubPageScaffold(
+                title = "Player and audio",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.HighQuality, tint = ColourPlayer,
+                        title = "Default video quality",
+                        value = videoQuality.replaceFirstChar { it.uppercase() } +
+                            if (videoQuality.matches(Regex("\\d+"))) "p" else "",
+                        onClick = { showQualityVideoDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Audio quality",
+                        value = audioQuality.replaceFirstChar { it.uppercase() },
+                        onClick = { showQualityAudioDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.PlayCircle, tint = ColourPlayer,
+                        title = "Autoplay next",
+                        subtitle = "Continue with the next song / episode automatically",
+                        checked = autoplay,
+                        onChange = { autoplay = it; scope.launch { sl.settings.setAutoplayNext(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Bolt, tint = ColourPlayer,
+                        title = "Auto-play best stream",
+                        subtitle = "Skip the source picker — instantly play the highest quality stream found",
+                        checked = autoplayBestStream,
+                        onChange = { autoplayBestStream = it; scope.launch { sl.settings.setAutoplayBestStream(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.VolumeOff, tint = ColourPlayer,
+                        title = "Skip silence",
+                        subtitle = "Automatically skip silent parts in tracks",
+                        checked = skipSilence,
+                        onChange = { skipSilence = it; scope.launch { sl.settings.setSkipSilence(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.BrightnessHigh, tint = ColourPlayer,
+                        title = "Keep screen on",
+                        subtitle = "Prevent screen from turning off while playing",
+                        checked = keepScreenOn,
+                        onChange = { keepScreenOn = it; scope.launch { sl.settings.setKeepScreenOn(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.QueueMusic, tint = ColourPlayer,
+                        title = "Persistent queue",
+                        subtitle = "Restore your queue when you reopen the app",
+                        checked = persistentQueue,
+                        onChange = { persistentQueue = it; scope.launch { sl.settings.setPersistentQueue(it) } },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Crossfade",
+                        value = if (crossfadeDuration == "0") "Off" else "${crossfadeDuration}s",
+                        onClick = { showCrossfadeDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Subtitles",
+                        subtitle = "Show subtitles when available",
+                        checked = subs,
+                        onChange = { subs = it; scope.launch { sl.settings.setSubtitlesEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Subtitle source preference",
+                        value = when (subtitleSource) {
+                            "internal" -> "Internal only"
+                            "external" -> "External only"
+                            else       -> "Any"
+                        },
+                        onClick = { showSubSourceDialog = true },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Skip Intro / Outro")
+                    SettingNav(
+                        icon = Icons.Default.Speed, tint = ColourPlayer,
+                        title = "IntroDB API Key",
+                        subtitle = if (introDbApiKey.isBlank()) "Optional — increases rate limits" else "Key saved",
+                        onClick = { showIntroKeyDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.VisibilityOff, tint = ColourPlayer,
+                        title = "Parental guide overlay",
+                        subtitle = "Show content warnings for ~6 s at video start",
+                        checked = parentalGuideOn,
+                        onChange = { parentalGuideOn = it; scope.launch { sl.settings.setParentalGuideEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Speed, tint = ColourPlayer,
+                        title = "Hold-to-Speed",
+                        subtitle = "Hold a button in the player to temporarily boost speed",
+                        checked = holdToSpeedOn,
+                        onChange = { holdToSpeedOn = it; scope.launch { sl.settings.setHoldToSpeedEnabled(it) } },
+                    )
+                    if (holdToSpeedOn) {
+                        SettingDivider()
+                        SettingNav(
+                            icon = Icons.Default.Speed, tint = ColourPlayer,
+                            title = "Hold speed",
+                            value = "${holdToSpeedVal}x",
+                            onClick = { showHoldSpeedDialog = true },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Equalizer")
+                    SettingToggle(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Equalizer",
+                        subtitle = if (eqEnabled) "On · ${eqPreset.replaceFirstChar { it.uppercase() }} preset" else "Off",
+                        checked = eqEnabled,
+                        onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
+                    )
+                    if (eqEnabled) {
+                        SettingDivider()
+                        SettingNav(
+                            icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                            title = "EQ preset",
+                            value = eqPreset.replaceFirstChar { it.uppercase() },
+                            onClick = { showEqDialog = true },
+                        )
+                    }
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Loudness normalization",
+                        subtitle = "Reduce volume differences between tracks",
+                        checked = loudnessNorm,
+                        onChange = { loudnessNorm = it; scope.launch { sl.settings.setLoudnessNormalization(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Bass boost",
+                        subtitle = "Adds extra low-end punch",
+                        checked = bassBoost,
+                        onChange = { bassBoost = it; scope.launch { sl.settings.setBassBoost(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Lyrics")
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Lyrics source",
+                        value = when (lyricsSource) {
+                            "musixmatch" -> "Musixmatch"
+                            "genius"     -> "Genius"
+                            else         -> "LRCLib"
+                        },
+                        onClick = { showLyricsSourceDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Synchronized lyrics",
+                        subtitle = "Show time-synced scrolling lyrics when available",
+                        checked = syncedLyrics,
+                        onChange = { syncedLyrics = it; scope.launch { sl.settings.setSyncedLyrics(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Video Player")
+                    SettingNav(
+                        icon = Icons.Default.FastForward, tint = ColourPlayer,
+                        title = "Seek increment",
+                        subtitle = "Seconds skipped by double-tap and seek buttons",
+                        value = "${seekIncrement}s",
+                        onClick = { showSeekDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Speed, tint = ColourPlayer,
+                        title = "Default playback speed",
+                        subtitle = "Speed applied when opening a video",
+                        value = "${defaultSpeed}×",
+                        onClick = { showDefaultSpeedDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Restore, tint = ColourPlayer,
+                        title = "Resume from last position",
+                        subtitle = "Continue where you left off when reopening a video",
+                        checked = resumePlayback,
+                        onChange = { resumePlayback = it; scope.launch { sl.settings.setResumePlayback(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Bolt, tint = ColourPlayer,
+                        title = "Hardware video decoding",
+                        subtitle = "Use hardware decoder for smoother playback",
+                        checked = hwDecoding,
+                        onChange = { hwDecoding = it; scope.launch { sl.settings.setHardwareDecodingEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.FitScreen, tint = ColourPlayer,
+                        title = "Picture in Picture",
+                        subtitle = "Float video in a small window when leaving the player",
+                        checked = pipEnabled,
+                        onChange = { pipEnabled = it; scope.launch { sl.settings.setPipEnabled(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Gestures")
+                    SettingToggle(
+                        icon = Icons.Default.VolumeUp, tint = ColourPlayer,
+                        title = "Volume gesture",
+                        subtitle = "Swipe up/down on the left side of the player",
+                        checked = gestureVolume,
+                        onChange = { gestureVolume = it; scope.launch { sl.settings.setGestureVolumeEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Brightness6, tint = ColourPlayer,
+                        title = "Brightness gesture",
+                        subtitle = "Swipe up/down on the right side of the player",
+                        checked = gestureBrightness,
+                        onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Track Preferences")
+                    SettingNav(
+                        icon = Icons.Default.Language, tint = ColourPlayer,
+                        title = "Preferred audio language",
+                        subtitle = "Auto-select audio track matching this language",
+                        value = langDisplayName(preferredAudioLang),
+                        onClick = { showAudioLangDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Preferred subtitle language",
+                        subtitle = "Auto-select subtitle track matching this language",
+                        value = langDisplayName(preferredSubtitleLang),
+                        onClick = { showSubtitleLangDialog = true },
+                    )
+                }
+            }
+
+
+            SettingsPage.Account -> SubPageScaffold(
+                title = "Account",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.Group, tint = ColourSystem,
+                        title = "Profiles",
+                        subtitle = "Switch or manage profiles",
+                        onClick = onSwitchProfile,
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    NuvioAccountRow()
+                    SettingDivider()
+                    YtMusicAccountRow()
+                    SettingDivider()
+                    SpotifyAccountRow()
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    // Trakt.tv
+                    if (traktUsername.isNotBlank()) {
+                        SettingNav(
+                            icon = Icons.Default.Check, tint = Color(0xFFED1C24),
+                            title = "Trakt.tv",
+                            subtitle = "Signed in as @$traktUsername",
+                            onClick = { showTraktDialog = true },
+                        )
+                    } else {
+                        SettingNav(
+                            icon = Icons.Default.Login, tint = Color(0xFFED1C24),
+                            title = "Connect Trakt.tv",
+                            subtitle = "Sync watch history and scrobble movies/shows",
+                            onClick = { showTraktDialog = true },
+                        )
+                    }
+                    SettingDivider()
+                    // Simkl
+                    if (simklToken.isNotBlank()) {
+                        SettingNav(
+                            icon = Icons.Default.Check, tint = Color(0xFF0087D7),
+                            title = "Simkl",
+                            subtitle = "Connected",
+                            onClick = { showSimklDialog = true },
+                        )
+                    } else {
+                        SettingNav(
+                            icon = Icons.Default.Login, tint = Color(0xFF0087D7),
+                            title = "Connect Simkl",
+                            subtitle = "Track watched movies and TV shows",
+                            onClick = { showSimklDialog = true },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    val rpcSubtitle = when {
+                        discordToken.isBlank() -> "Not configured"
+                        !discordRpcEnabled -> "Disabled"
+                        discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTED -> "Connected"
+                        discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTING -> "Connecting…"
+                        discordRpcStatus == DiscordRpcService.RpcStatus.ERROR ->
+                            discordRpcError.ifBlank { "Connection error" }
+                        else -> "Disconnected"
+                    }
+                    SettingNav(
+                        icon = Icons.Default.Chat,
+                        tint = Color(0xFF5865F2),
+                        title = "Discord Rich Presence",
+                        subtitle = rpcSubtitle,
+                        onClick = { showDiscordDialog = true },
+                    )
+                }
+
+                // ── Trakt.tv dialog ──────────────────────────────────────────────────────
+                if (showTraktDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showTraktDialog = false },
+                        title = { Text("Trakt.tv") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (traktUsername.isNotBlank()) {
+                                    Text("Signed in as @$traktUsername")
+                                } else {
+                                    Text("Enter your Trakt client ID (from trakt.tv/oauth/applications/new), then follow the device auth steps.")
+                                    OutlinedTextField(
+                                        value = traktClientId,
+                                        onValueChange = { traktClientId = it },
+                                        label = { Text("Client ID") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            if (traktUsername.isNotBlank()) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        sl.settings.clearTraktSession()
+                                        traktUsername = ""
+                                    }
+                                    showTraktDialog = false
+                                }) { Text("Sign out") }
+                            } else {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        sl.settings.setTraktClientId(traktClientId)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Client ID saved. Device auth will be available in a future update.",
+                                            android.widget.Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                    showTraktDialog = false
+                                }) { Text("Save") }
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showTraktDialog = false }) { Text("Cancel") }
+                        },
+                    )
+                }
+
+                // ── Simkl dialog ─────────────────────────────────────────────────────────
+                if (showSimklDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showSimklDialog = false },
+                        title = { Text("Simkl") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (simklToken.isNotBlank()) {
+                                    Text("Connected to Simkl.")
+                                } else {
+                                    Text("Enter your Simkl client ID (from simkl.com/settings/developer).")
+                                    OutlinedTextField(
+                                        value = simklClientId,
+                                        onValueChange = { simklClientId = it },
+                                        label = { Text("Client ID") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            if (simklToken.isNotBlank()) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        sl.settings.clearSimklSession()
+                                        simklToken = ""
+                                    }
+                                    showSimklDialog = false
+                                }) { Text("Disconnect") }
+                            } else {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        sl.settings.setSimklClientId(simklClientId)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Client ID saved.",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                    showSimklDialog = false
+                                }) { Text("Save") }
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showSimklDialog = false }) { Text("Cancel") }
+                        },
+                    )
+                }
+
+                // ── Discord Rich Presence dialog ──────────────────────────────────────────
+                if (showDiscordDialog) {
+                    Dialog(onDismissRequest = { showDiscordDialog = false }) {
+                        Surface(
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 6.dp,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                Modifier
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(24.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    "Discord Rich Presence",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                )
+
+                                // ── Account row ───────────────────────────────────────────
+                                if (discordToken.isBlank()) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            discordLoginLauncher.launch(
+                                                Intent(context, com.streamcloud.app.ui.account.DiscordLoginActivity::class.java),
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(Icons.Default.Login, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Login with Discord")
+                                    }
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                "Account connected",
+                                                style = MaterialTheme.typography.titleSmall,
+                                            )
+                                            Text(
+                                                "Tap to switch accounts",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                discordToken = ""
+                                                scope.launch { sl.settings.setDiscordToken("") }
+                                                DiscordRpcService.stop()
+                                            },
+                                        ) { Text("Log out") }
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            discordLoginLauncher.launch(
+                                                Intent(context, com.streamcloud.app.ui.account.DiscordLoginActivity::class.java),
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(Icons.Default.Login, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Switch account")
+                                    }
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordRpcEnabled = !discordRpcEnabled }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            "Enable Discord RPC",
+                                            style = MaterialTheme.typography.titleMedium,
+                                        )
+                                        Text(
+                                            "Show your music status on your profile",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = discordRpcEnabled,
+                                        onCheckedChange = { discordRpcEnabled = it },
+                                    )
+                                }
+                                HorizontalDivider()
+                                Text(
+                                    "Display",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                OutlinedTextField(
+                                    value = discordAppName,
+                                    onValueChange = { discordAppName = it },
+                                    label = { Text("App name") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Text(
+                                    "Activity type",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                listOf("2" to "Listening", "0" to "Playing", "3" to "Watching")
+                                    .forEach { (value, label) ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { discordActType = value }
+                                                .padding(vertical = 2.dp),
+                                        ) {
+                                            RadioButton(
+                                                selected = discordActType == value,
+                                                onClick = { discordActType = value },
+                                            )
+                                            Text(label, Modifier.padding(start = 4.dp))
+                                        }
+                                    }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowTitle = !discordShowTitle }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Text("Show song title", Modifier.weight(1f))
+                                    Switch(
+                                        checked = discordShowTitle,
+                                        onCheckedChange = { discordShowTitle = it },
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowArtist = !discordShowArtist }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Text("Show artist name", Modifier.weight(1f))
+                                    Switch(
+                                        checked = discordShowArtist,
+                                        onCheckedChange = { discordShowArtist = it },
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowArt = !discordShowArt }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Text("Show album artwork", Modifier.weight(1f))
+                                    Switch(
+                                        checked = discordShowArt,
+                                        onCheckedChange = { discordShowArt = it },
+                                    )
+                                }
+                                HorizontalDivider()
+                                Text(
+                                    "Timestamps",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowTimestamps = !discordShowTimestamps }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Text("Show timestamps", Modifier.weight(1f))
+                                    Switch(
+                                        checked = discordShowTimestamps,
+                                        onCheckedChange = { discordShowTimestamps = it },
+                                    )
+                                }
+                                if (discordShowTimestamps) {
+                                    listOf(
+                                        "elapsed"   to "Elapsed (time since start)",
+                                        "remaining" to "Remaining (time until end)",
+                                        "bar"       to "Progress bar (start + end)",
+                                    ).forEach { (value, label) ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { discordTsMode = value }
+                                                .padding(vertical = 2.dp),
+                                        ) {
+                                            RadioButton(
+                                                selected = discordTsMode == value,
+                                                onClick = { discordTsMode = value },
+                                            )
+                                            Text(label, Modifier.padding(start = 4.dp))
+                                        }
+                                    }
+                                }
+                                HorizontalDivider()
+                                Text(
+                                    "Behaviour",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordClearPause = !discordClearPause }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Clear status when paused")
+                                        Text(
+                                            "Remove presence when music stops",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = discordClearPause,
+                                        onCheckedChange = { discordClearPause = it },
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { discordShowButton = !discordShowButton }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Show \"Listen on YT Music\" button")
+                                        Text(
+                                            "Adds a clickable link to your presence",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = discordShowButton,
+                                        onCheckedChange = { discordShowButton = it },
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    TextButton(onClick = { showDiscordDialog = false }) {
+                                        Text("Cancel")
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                sl.settings.setDiscordToken(discordToken)
+                                                sl.settings.setDiscordRpcEnabled(discordRpcEnabled)
+                                                sl.settings.setDiscordRpcAppName(discordAppName)
+                                                sl.settings.setDiscordRpcShowTitle(discordShowTitle)
+                                                sl.settings.setDiscordRpcShowArtist(discordShowArtist)
+                                                sl.settings.setDiscordRpcShowTimestamps(discordShowTimestamps)
+                                                sl.settings.setDiscordRpcTsMode(discordTsMode)
+                                                sl.settings.setDiscordRpcShowArt(discordShowArt)
+                                                sl.settings.setDiscordRpcClearPause(discordClearPause)
+                                                sl.settings.setDiscordRpcShowButton(discordShowButton)
+                                                sl.settings.setDiscordRpcActType(discordActType)
+                                            }
+                                            val cfg = DiscordRpcService.RpcConfig(
+                                                appName = discordAppName,
+                                                activityType = discordActType.toIntOrNull() ?: 2,
+                                                showTitle = discordShowTitle,
+                                                showArtist = discordShowArtist,
+                                                showArtwork = discordShowArt,
+                                                showTimestamps = discordShowTimestamps,
+                                                timestampMode = discordTsMode,
+                                                clearOnPause = discordClearPause,
+                                                showButton = discordShowButton,
+                                            )
+                                            if (discordRpcEnabled && discordToken.isNotBlank()) {
+                                                DiscordRpcService.start(context, discordToken, cfg)
+                                            } else {
+                                                DiscordRpcService.stop()
+                                            }
+                                            showDiscordDialog = false
+                                        },
+                                    ) { Text("Save") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            SettingsPage.ListenTogether -> SubPageScaffold(
+                title = "Listen Together",
+                onBack = { currentPage = null },
+            ) {
+                ListenTogetherPage()
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.Group, tint = ColourSonos,
+                        title = "Cast to Sonos speaker",
+                        subtitle = "Stream the current track to a Sonos device on your network",
+                        onClick = {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Open the player then tap the cast icon to choose a Sonos device",
+                                android.widget.Toast.LENGTH_LONG,
+                            ).show()
+                        },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.Chat, tint = Color(0xFF7289DA),
+                        title = "Discord community",
+                        subtitle = "Join the StreamCloud server",
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse("https://discord.gg/"))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        },
+                    )
+                }
+            }
+
+
+            SettingsPage.Content -> SubPageScaffold(
+                title = "Content",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.Translate, tint = ColourContent,
+                        title = "Content language",
+                        value = contentLanguage.uppercase(),
+                        onClick = { showLanguageDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Public, tint = ColourContent,
+                        title = "Content country",
+                        value = contentCountry.uppercase(),
+                        onClick = { showCountryDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Block, tint = ColourContent,
+                        title = "Explicit content",
+                        subtitle = "Show songs and videos with explicit lyrics",
+                        checked = explicitContent,
+                        onChange = { explicitContent = it; scope.launch { sl.settings.setExplicitContent(it) } },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Language, tint = ColourContent,
+                        title = "Backend URL",
+                        subtitle = backendUrl.ifBlank { "Not set" },
+                        onClick = { showBackendDialog = true },
+                    )
+                }
+            }
+
+
+            SettingsPage.Privacy -> SubPageScaffold(
+                title = "Privacy",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SettingToggle(
+                        icon = Icons.Default.History, tint = ColourPrivacy,
+                        title = "Enable listening history",
+                        subtitle = "Track the songs you play",
+                        checked = listenHistory,
+                        onChange = { listenHistory = it; scope.launch { sl.settings.setListenHistoryEnabled(it) } },
+                    )
+                    if (listenHistory) {
+                        SettingDivider()
+                        SettingToggle(
+                            icon = Icons.Default.History, tint = ColourPrivacy,
+                            title = "Pause listening history",
+                            subtitle = "Temporarily stop recording new plays",
+                            checked = pauseListenHistory,
+                            onChange = { pauseListenHistory = it; scope.launch { sl.settings.setPauseListenHistory(it) } },
+                        )
+                        SettingDivider()
+                        SettingNav(
+                            icon = Icons.Default.DeleteSweep, tint = ColourPrivacy,
+                            title = "Clear listening history",
+                            subtitle = "Remove all recently played tracks",
+                            onClick = {
+                                scope.launch {
+                                    com.streamcloud.app.data.library.LibraryDb.get(context).tracks().clearRecent()
+                                    android.widget.Toast.makeText(context, "Listening history cleared", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                        )
+                    }
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Shield, tint = ColourPrivacy,
+                        title = "Safe search",
+                        subtitle = "Filter explicit search results",
+                        checked = safeSearch,
+                        onChange = { safeSearch = it; scope.launch { sl.settings.setSafeSearch(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Lock, tint = ColourPrivacy,
+                        title = "Adult tab PIN lock",
+                        subtitle = "Require PIN to open the Adult tab (uses your safe-mode PIN)",
+                        checked = adultLockEnabled,
+                        onChange = {
+                            adultLockEnabled = it
+                            scope.launch { sl.settings.setAdultLockEnabled(it) }
+                        },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.OpenInBrowser, tint = ColourPrivacy,
+                        title = "Open external links in browser",
+                        subtitle = "Otherwise opens inside an in-app webview",
+                        checked = extLinks,
+                        onChange = { extLinks = it; scope.launch { sl.settings.setExternalLinksInBrowser(it) } },
+                    )
+                }
+            }
+
+
+            SettingsPage.Storage -> SubPageScaffold(
+                title = "Storage",
+                onBack = { currentPage = null },
+            ) {
+                LaunchedEffect(Unit) {
+                    withContext(Dispatchers.IO) {
+                        videoCacheSizeBytes = DownloadCaches.playerCacheSizeBytes(context)
+                        imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
+                        dlContentSizeBytes  = DownloadCaches.downloadCacheSizeBytes(context)
+                    }
+                }
+
+                // ── Smart Trimmer ────────────────────────────────────────────
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .clickable {
+                            smartTrimmer = !smartTrimmer
+                            scope.launch { sl.settings.setSmartTrimmer(smartTrimmer) }
+                        }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Smart Trimmer",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = smartTrimmer,
+                            onCheckedChange = {
+                                smartTrimmer = it
+                                scope.launch { sl.settings.setSmartTrimmer(it) }
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Smart trimmer dynamically manages the image cache and video cache, pruning old entries to save disk space.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── Downloaded content ────────────────────────────────────────
+                SettingsGroup {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBox(Icons.Default.Download, ColourStorage)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Downloaded content", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Text(formatBytes(dlContentSizeBytes) + " used", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    DownloadCaches.clearDownloadCache(context)
+                                    dlContentSizeBytes = DownloadCaches.downloadCacheSizeBytes(context)
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                    ) {
+                        Text("Clear all downloads", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── Video Cache ───────────────────────────────────────────────
+                SettingsGroup {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBox(Icons.Default.PlayCircle, ColourStorage)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Video Cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Text(formatBytes(videoCacheSizeBytes) + " used", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showVideoCachePicker = true }.padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Max cache size", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(4.dp))
+                            CacheChip(cacheMbToLabel(videoCacheMaxMb))
+                        }
+                        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    DownloadCaches.releasePlayerCache()
+                                    File(context.cacheDir, "exoplayer").walkTopDown().filter { it.isFile }.forEach { it.delete() }
+                                    videoCacheSizeBytes = DownloadCaches.playerCacheSizeBytes(context)
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                    ) {
+                        Text("Clear video cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── Image Cache ───────────────────────────────────────────────
+                val imgMaxBytes = cacheMbToBytes(imageCacheMaxMb)
+                SettingsGroup {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBox(Icons.Default.Image, ColourStorage)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Image Cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Text(
+                                if (imgMaxBytes > 0) formatBytes(imageCacheSizeBytes) + " / " + cacheMbToLabel(imageCacheMaxMb)
+                                else formatBytes(imageCacheSizeBytes) + " used",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (imgMaxBytes > 0) {
+                        val progress = (imageCacheSizeBytes.toFloat() / imgMaxBytes).coerceIn(0f, 1f)
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(3.dp).clip(RoundedCornerShape(2.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        )
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showImageCachePicker = true }.padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Max cache size", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(4.dp))
+                            CacheChip(cacheMbToLabel(imageCacheMaxMb))
+                        }
+                        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    ThumbnailCache.clear(context)
+                                    imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                    ) {
+                        Text("Clear image cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── Poster Cache ──────────────────────────────────────────────
+                SettingsGroup {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBox(Icons.Default.Layers, ColourStorage)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Poster Cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            val posterMax = posterCacheMaxCount.toLongOrNull() ?: 0L
+                            Text(
+                                if (posterMax > 0) "/ $posterMax items" else "In-memory",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showPosterCachePicker = true }.padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Max cache size", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(4.dp))
+                            CacheChip(posterCountToLabel(posterCacheMaxCount))
+                        }
+                        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                    }
+                    SettingDivider()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    ThumbnailCache.clear(context)
+                                    imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                    ) {
+                        Text("Clear poster cache", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+                // ── App cache & Wi-Fi toggle ──────────────────────────────────
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.DeleteSweep, tint = ColourStorage,
+                        title = "Clear app cache",
+                        subtitle = "Free up temporary files",
+                        onClick = {
+                            scope.launch {
+                                pluginRepo.clearAppCache()
+                                pluginsCacheBytes = pluginRepo.pluginsCacheSize()
+                            }
+                        },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Wifi, tint = ColourStorage,
+                        title = "Download over Wi-Fi only",
+                        subtitle = "Avoid using mobile data for downloads",
+                        checked = dlWifi,
+                        onChange = { dlWifi = it; scope.launch { sl.settings.setDownloadOverWifiOnly(it) } },
+                    )
+                }
+            }
+
+
+            SettingsPage.BackupRestore -> SubPageScaffold(
+                title = "Backup and restore",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.CloudUpload, tint = ColourStorage,
+                        title = "Export library",
+                        subtitle = "Save your liked songs, playlists and settings to a file",
+                        onClick = {
+                            android.widget.Toast.makeText(context, "Backup & restore coming soon", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Download, tint = ColourStorage,
+                        title = "Import library",
+                        subtitle = "Restore from a previously exported backup file",
+                        onClick = {
+                            android.widget.Toast.makeText(context, "Backup & restore coming soon", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                }
+            }
+
+
+            SettingsPage.About -> SubPageScaffold(
+                title = "About",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    UpdaterRow()
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Link, tint = ColourSystem,
+                        title = "Open supported links",
+                        subtitle = "Set StreamCloud as default for supported URLs",
+                        onClick = {
+                            runCatching {
+                                val intent = Intent(android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            }
+                        },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(HubIconBg),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Default.MusicNote, null, tint = HubIconFg, modifier = Modifier.size(28.dp))
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text(
+                                "StreamCloud",
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                "Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.VERSION_CODE}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.Favorite,
+                        tint = Color(0xFFF96854),
+                        title = "Support development",
+                        subtitle = "patreon.com/c/owenconnorstreamcloud",
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW,
+                                    Uri.parse("https://www.patreon.com/c/owenconnorstreamcloud")),
+                            )
+                        },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SettingNav(
+                        icon = Icons.Default.Cloud, tint = ColourSystem,
+                        title = "Source code",
+                        subtitle = "github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}",
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW,
+                                    Uri.parse("https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}")),
+                            )
+                        },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.BugReport, tint = ColourSystem,
+                        title = "Report a bug",
+                        subtitle = "Open a GitHub issue",
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW,
+                                    Uri.parse("https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/issues/new")),
+                            )
+                        },
+                    )
+                }
+            }
+
+
+            SettingsPage.Logs -> LogsPage(onBack = { currentPage = null })
+
+            SettingsPage.HomeLayout -> SubPageScaffold(
+                title = "Home Layout",
+                onBack = { currentPage = null },
+            ) {
+                HomeLayoutPage(sl = sl, pluginRepo = pluginRepo)
+            }
+
+        }
+    }
+
+
+    if (showQualityVideoDialog) {
+        QualityDialog(
+            title = "Default video quality",
+            options = listOf(
+                "auto" to "Auto (recommended)",
+                "1080" to "1080p", "720" to "720p", "480" to "480p",
+            ),
+            selected = videoQuality,
+            onSelect = { videoQuality = it; scope.launch { sl.settings.setVideoQuality(it) }; showQualityVideoDialog = false },
+            onDismiss = { showQualityVideoDialog = false },
+        )
+    }
+    if (showQualityAudioDialog) {
+        QualityDialog(
+            title = "Audio quality",
+            options = listOf(
+                "high" to "High (best available)", "medium" to "Medium", "low" to "Low (data saver)",
+            ),
+            selected = audioQuality,
+            onSelect = { audioQuality = it; scope.launch { sl.settings.setAudioQuality(it) }; showQualityAudioDialog = false },
+            onDismiss = { showQualityAudioDialog = false },
+        )
+    }
+    if (showEqDialog) {
+        QualityDialog(
+            title = "Equalizer preset",
+            options = listOf(
+                "flat" to "Flat (no change)", "pop" to "Pop", "rock" to "Rock",
+                "jazz" to "Jazz", "bass" to "Bass booster", "vocal" to "Vocal",
+            ),
+            selected = eqPreset,
+            onSelect = { eqPreset = it; scope.launch { sl.settings.setEqPreset(it) }; showEqDialog = false },
+            onDismiss = { showEqDialog = false },
+        )
+    }
+    if (showAiDialog) {
+        QualityDialog(
+            title = "AI provider",
+            options = listOf(
+                "openai"    to "OpenAI · gpt-5.1",
+                "anthropic" to "Anthropic · Claude Sonnet 4.5",
+                "gemini"    to "Google · Gemini 2.5 Pro",
+            ),
+            selected = provider,
+            onSelect = { p ->
+                provider = p
+                model = when (p) {
+                    "openai"    -> "gpt-5.1"
+                    "anthropic" -> "claude-sonnet-4-5-20250929"
+                    else        -> "gemini-2.5-pro"
+                }
+                scope.launch { sl.settings.setAiProvider(p); sl.settings.setAiModel(model) }
+                showAiDialog = false
+            },
+            onDismiss = { showAiDialog = false },
+        )
+    }
+    if (showBackendDialog) {
+        BackendDialog(
+            initialUrl = backendUrl, initialToken = hfToken,
+            onSave = { url, token ->
+                backendUrl = url; hfToken = token
+                scope.launch { sl.settings.setBackendUrl(url.trim().trimEnd('/')); sl.settings.setHfToken(token.trim()) }
+                showBackendDialog = false
+            },
+            onDismiss = { showBackendDialog = false },
+        )
+    }
+    if (showCollectionsDialog) {
+        CollectionsDialog(
+            enabled = enabledCollections,
+            onToggle = { id, on -> enabledCollections = if (on) enabledCollections + id else enabledCollections - id },
+            onSave = {
+                val ordered = HomeCollections.ALL.map { it.id }.filter { it in enabledCollections }
+                scope.launch { sl.settings.setHomeCollections(ordered) }
+                showCollectionsDialog = false
+            },
+            onDismiss = { showCollectionsDialog = false },
+        )
+    }
+    if (showNavOrderDialog) {
+        NavOrderDialog(onDismiss = { showNavOrderDialog = false })
+    }
+    if (showAboutDialog) {
+        AboutDialog(onDismiss = { showAboutDialog = false })
+    }
+    if (showCrossfadeDialog) {
+        QualityDialog(
+            title = "Crossfade duration",
+            options = listOf("0" to "Off", "3" to "3 seconds", "5" to "5 seconds", "8" to "8 seconds"),
+            selected = crossfadeDuration,
+            onSelect = { crossfadeDuration = it; scope.launch { sl.settings.setCrossfadeDuration(it) }; showCrossfadeDialog = false },
+            onDismiss = { showCrossfadeDialog = false },
+        )
+    }
+    if (showLanguageDialog) {
+        QualityDialog(
+            title = "Content language",
+            options = listOf(
+                "en" to "English", "es" to "Spanish", "fr" to "French", "de" to "German",
+                "pt" to "Portuguese", "ja" to "Japanese", "ko" to "Korean",
+                "zh" to "Chinese", "ar" to "Arabic", "hi" to "Hindi",
+            ),
+            selected = contentLanguage,
+            onSelect = { contentLanguage = it; scope.launch { sl.settings.setContentLanguage(it) }; showLanguageDialog = false },
+            onDismiss = { showLanguageDialog = false },
+        )
+    }
+    if (showCountryDialog) {
+        QualityDialog(
+            title = "Content country",
+            options = listOf(
+                "US" to "United States", "GB" to "United Kingdom", "AU" to "Australia",
+                "CA" to "Canada", "DE" to "Germany", "FR" to "France", "ES" to "Spain",
+                "BR" to "Brazil", "IN" to "India", "JP" to "Japan",
+                "KR" to "South Korea", "ZA" to "South Africa",
+            ),
+            selected = contentCountry,
+            onSelect = { contentCountry = it; scope.launch { sl.settings.setContentCountry(it) }; showCountryDialog = false },
+            onDismiss = { showCountryDialog = false },
+        )
+    }
+    if (showLyricsSourceDialog) {
+        QualityDialog(
+            title = "Lyrics source",
+            options = listOf(
+                "lrclib"     to "LRCLib (default, free)",
+                "musixmatch" to "Musixmatch",
+                "genius"     to "Genius",
+            ),
+            selected = lyricsSource,
+            onSelect = { lyricsSource = it; scope.launch { sl.settings.setLyricsSource(it) }; showLyricsSourceDialog = false },
+            onDismiss = { showLyricsSourceDialog = false },
+        )
+    }
+    if (showSeekDialog) {
+        QualityDialog(
+            title = "Seek increment",
+            options = listOf(
+                "5"  to "5 seconds",
+                "10" to "10 seconds (default)",
+                "15" to "15 seconds",
+                "30" to "30 seconds",
+            ),
+            selected = seekIncrement,
+            onSelect = { seekIncrement = it; scope.launch { sl.settings.setSeekIncrementSeconds(it) }; showSeekDialog = false },
+            onDismiss = { showSeekDialog = false },
+        )
+    }
+    if (showDefaultSpeedDialog) {
+        QualityDialog(
+            title = "Default playback speed",
+            options = listOf(
+                "0.5"  to "0.5×",
+                "0.75" to "0.75×",
+                "1.0"  to "1.0× (normal)",
+                "1.25" to "1.25×",
+                "1.5"  to "1.5×",
+                "1.75" to "1.75×",
+                "2.0"  to "2.0×",
+            ),
+            selected = defaultSpeed,
+            onSelect = { defaultSpeed = it; scope.launch { sl.settings.setDefaultPlaybackSpeed(it) }; showDefaultSpeedDialog = false },
+            onDismiss = { showDefaultSpeedDialog = false },
+        )
+    }
+    if (showAudioLangDialog) {
+        QualityDialog(
+            title = "Preferred audio language",
+            options = listOf(
+                "en" to "English",
+                "es" to "Spanish",
+                "fr" to "French",
+                "de" to "German",
+                "pt" to "Portuguese",
+                "it" to "Italian",
+                "ja" to "Japanese",
+                "ko" to "Korean",
+                "zh" to "Chinese",
+                "ar" to "Arabic",
+                "hi" to "Hindi",
+                "ru" to "Russian",
+            ),
+            selected = preferredAudioLang,
+            onSelect = { preferredAudioLang = it; scope.launch { sl.settings.setPreferredAudioLang(it) }; showAudioLangDialog = false },
+            onDismiss = { showAudioLangDialog = false },
+        )
+    }
+    if (showSubtitleLangDialog) {
+        QualityDialog(
+            title = "Preferred subtitle language",
+            options = listOf(
+                "en" to "English",
+                "es" to "Spanish",
+                "fr" to "French",
+                "de" to "German",
+                "pt" to "Portuguese",
+                "it" to "Italian",
+                "ja" to "Japanese",
+                "ko" to "Korean",
+                "zh" to "Chinese",
+                "ar" to "Arabic",
+                "hi" to "Hindi",
+                "ru" to "Russian",
+            ),
+            selected = preferredSubtitleLang,
+            onSelect = { preferredSubtitleLang = it; scope.launch { sl.settings.setPreferredSubtitleLang(it) }; showSubtitleLangDialog = false },
+            onDismiss = { showSubtitleLangDialog = false },
+        )
+    }
+    if (showVideoCachePicker) {
+        CacheSizeSheet(
+            title = "Max cache size",
+            options = listOf(
+                "disable" to "Disable",
+                "128" to "128 MB",
+                "256" to "256 MB",
+                "512" to "512 MB",
+                "1024" to "1 GB",
+                "2048" to "2 GB",
+                "4096" to "4 GB",
+                "8192" to "8 GB",
+                "unlimited" to "Unlimited",
+            ),
+            selected = videoCacheMaxMb,
+            onSelect = { v ->
+                videoCacheMaxMb = v
+                scope.launch {
+                    sl.settings.setVideoCacheMaxMb(v)
+                    val maxBytes = cacheMbToBytes(v).takeIf { it > 0 } ?: (8L * 1024 * 1024 * 1024)
+                    DownloadCaches.playerCacheMaxBytes = maxBytes
+                    DownloadCaches.releasePlayerCache()
+                }
+                showVideoCachePicker = false
+            },
+            onDismiss = { showVideoCachePicker = false },
+        )
+    }
+    if (showImageCachePicker) {
+        CacheSizeSheet(
+            title = "Max cache size",
+            options = listOf(
+                "disable" to "Disable",
+                "128" to "128 MB",
+                "256" to "256 MB",
+                "512" to "512 MB",
+                "1024" to "1 GB",
+                "2048" to "2 GB",
+                "4096" to "4 GB",
+                "8192" to "8 GB",
+                "unlimited" to "Unlimited",
+            ),
+            selected = imageCacheMaxMb,
+            onSelect = { v ->
+                imageCacheMaxMb = v
+                scope.launch {
+                    sl.settings.setImageCacheMaxMb(v)
+                    val maxBytes = cacheMbToBytes(v).takeIf { it > 0 } ?: Long.MAX_VALUE
+                    withContext(Dispatchers.IO) { ThumbnailCache.setMaxDiskBytes(context, maxBytes) }
+                    imageCacheSizeBytes = ThumbnailCache.cacheSizeBytes(context)
+                }
+                showImageCachePicker = false
+            },
+            onDismiss = { showImageCachePicker = false },
+        )
+    }
+    if (showPosterCachePicker) {
+        CacheSizeSheet(
+            title = "Max cache size",
+            options = listOf(
+                "disable" to "Disable",
+                "64" to "64 items",
+                "128" to "128 items",
+                "256" to "256 items",
+                "512" to "512 items",
+                "1024" to "1024 items",
+            ),
+            selected = posterCacheMaxCount,
+            onSelect = { v ->
+                posterCacheMaxCount = v
+                scope.launch { sl.settings.setPosterCacheMaxCount(v) }
+                showPosterCachePicker = false
+            },
+            onDismiss = { showPosterCachePicker = false },
+        )
+    }
+}
+
+@Composable
+private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}, onOpenDownloads: () -> Unit = {}, tvNavFocusRequester: FocusRequester? = null) {
+    val context = LocalContext.current
+    val checker = remember { UpdateChecker(context.applicationContext) }
+    var updateLabel by remember { mutableStateOf<String?>(null) }
+    val errorCount by AppLogger.errorCount.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+
+    LaunchedEffect(Unit) {
+        runCatching {
+            val info = checker.fetchLatest(includeOlder = false)
+            if (info?.isNewerThanInstalled == true) updateLabel = info.title
+        }
+    }
+
+    // ── Section / item model ────────────────────────────────────────────────
+    data class HubItem(
+        val icon: ImageVector,
+        val title: String,
+        val subtitle: String,
+        val iconTint: Color,
+        val badge: String? = null,
+        val badgeError: Boolean = false,
+        val onClick: () -> Unit,
+    )
+    data class HubSection(val label: String, val items: List<HubItem>)
+
+    val sections = listOf(
+        HubSection("ACCOUNT", listOf(
+            HubItem(Icons.Default.Group,  "Switch Profile", "Change to a different profile",       ColourAccount, onClick = onSwitchProfile),
+            HubItem(Icons.Default.Person, "Account",        "Account and sync status",             ColourAccount, onClick = { onNavigate(SettingsPage.Account) }),
+        )),
+        HubSection("MUSIC", listOf(
+            HubItem(Icons.Default.PlayArrow, "Player and audio", "Playback, equaliser, crossfade, quality",  ColourPlayer, onClick = { onNavigate(SettingsPage.PlayerAudio) }),
+            HubItem(Icons.Default.Group,     "Listen Together",  "Sync playback with friends",               ColourSonos,  onClick = { onNavigate(SettingsPage.ListenTogether) }),
+        )),
+        HubSection("MOVIES", listOf(
+            HubItem(Icons.Default.Extension,  "Plugins & Addons", "Manage stream sources and addons",        ColourAi,      onClick = onOpenPlugins),
+            HubItem(Icons.Default.Dashboard,  "Home Layout",        "Reorder and toggle home screen rows",     ColourContent, onClick = { onNavigate(SettingsPage.HomeLayout) }),
+            HubItem(Icons.Default.Layers,     "Collections",       "Manage collections and folders",          ColourSystem,  onClick = onOpenCollections),
+            HubItem(Icons.Default.Download,   "Downloads",         "Manage downloaded movies and episodes",   ColourStorage, onClick = onOpenDownloads),
+        )),
+        HubSection("GENERAL", listOf(
+            HubItem(Icons.Default.Palette,     "Appearance",         "Theme, colours, navigation, display",       ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }),
+            HubItem(Icons.Default.Shield,      "Privacy",            "Safe search, history, explicit content",    ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }),
+            HubItem(Icons.Default.Public,      "Content",            "Language, region, subtitles, parental",     ColourContent,    onClick = { onNavigate(SettingsPage.Content) }),
+            HubItem(Icons.Default.Storage,     "Storage",            "Cache management and storage usage",        ColourStorage,    onClick = { onNavigate(SettingsPage.Storage) }),
+            HubItem(Icons.Default.CloudUpload, "Backup and restore", "Back up or restore your app data",          ColourSystem,     onClick = { onNavigate(SettingsPage.BackupRestore) }),
+        )),
+        HubSection("ABOUT", listOf(
+            HubItem(
+                Icons.Default.BugReport, "App logs",
+                subtitle    = "Bug reports and error logs",
+                iconTint    = ColourSystem,
+                badge       = if (errorCount > 0) "$errorCount error${if (errorCount == 1) "" else "s"}" else null,
+                badgeError  = errorCount > 0,
+                onClick     = { onNavigate(SettingsPage.Logs) },
+            ),
+            HubItem(Icons.Default.Info,         "About",         "Version info and app details",                         ColourSystem, onClick = { onNavigate(SettingsPage.About) }),
+            HubItem(Icons.Default.SystemUpdate, "System update", updateLabel?.let { "Update available: $it" } ?: "Check for updates",
+                iconTint = ColourSystem,
+                badge    = updateLabel?.let { "Update" },
+                onClick  = { onNavigate(SettingsPage.SystemUpdate) },
+            ),
+        )),
+    )
+
+    val filtered = if (searchQuery.isBlank()) sections else {
+        val q = searchQuery.trim().lowercase()
+        sections.mapNotNull { section ->
+            val matching = section.items.filter {
+                it.title.lowercase().contains(q) || it.subtitle.lowercase().contains(q)
+            }
+            if (matching.isEmpty()) null else section.copy(items = matching)
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 100.dp),
+    ) {
+        // ── Title ──────────────────────────────────────────────────────────
+        item {
+            Text(
+                "Settings",
+                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 14.dp),
+            )
+        }
+        // ── Search bar — hidden on TV (no keyboard; D-pad navigates rows directly).
+        if (!isTv) item {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = {
+                    Text("Search settings…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // TV nav D-pad Down entry point — focuses the search bar so the user can
+                    // filter settings or press Down again to reach individual setting rows.
+                    .let { if (tvNavFocusRequester != null) it.focusRequester(tvNavFocusRequester) else it }
+                    .padding(bottom = 22.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor   = MaterialTheme.colorScheme.outlineVariant,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedContainerColor   = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+            )
+        }
+        // ── Sections ───────────────────────────────────────────────────────
+        filtered.forEachIndexed { sectionIdx, section ->
+            item(key = "lbl:${section.label}") {
+                Text(
+                    section.label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight    = FontWeight.Bold,
+                        letterSpacing = 0.9.sp,
+                    ),
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
+                )
+            }
+            item(key = "grp:${section.label}") {
+                SettingsGroup {
+                    section.items.forEachIndexed { idx, it ->
+                        HubRow(
+                            icon       = it.icon,
+                            title      = it.title,
+                            subtitle   = it.subtitle,
+                            badge      = it.badge,
+                            badgeError = it.badgeError,
+                            iconTint   = it.iconTint,
+                            onClick    = it.onClick,
+                            modifier   = if (sectionIdx == 0 && idx == 0 && isTv && tvNavFocusRequester != null)
+                                Modifier.focusRequester(tvNavFocusRequester) else Modifier,
+                        )
+                        if (idx < section.items.lastIndex) SettingDivider()
+                    }
+                }
+                Spacer(Modifier.height(22.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun HubRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    badge: String? = null,
+    badgeError: Boolean = false,
+    iconTint: Color = HubIconFg,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+    ) {
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(
+                    if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.errorContainer
+                    else Color(0xFF2C2C2E)
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.error else iconTint,
+                modifier = Modifier.size(21.dp),
+            )
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (!subtitle.isNullOrBlank() && badge.isNullOrBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!badge.isNullOrBlank()) {
+                Text(
+                    badge,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (badgeError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        Icon(
+            Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun SubPageScaffold(
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                )
+            }
+        }
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(start = 4.dp, bottom = 20.dp),
+            )
+            content()
+            Spacer(Modifier.height(48.dp))
+        }
+    }
+}
+
+@Composable
+private fun ThemeModeItem(
+    id: String,
+    label: String,
+    bg: Color,
+    useLightIcon: Boolean,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    val iconTint = if (useLightIcon) Color.White else Color(0xFF1A1210)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Box(
+            Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(bg)
+                .border(
+                    width = if (selected) 2.5.dp else 1.dp,
+                    color = if (selected) accent else Color.White.copy(alpha = 0.18f),
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            when (id) {
+                "system", "light" -> Icon(Icons.Default.BrightnessHigh, label, tint = iconTint, modifier = Modifier.size(22.dp))
+                "dark"            -> Icon(Icons.Default.DarkMode, label, tint = iconTint, modifier = Modifier.size(22.dp))
+                else              -> {}
+            }
+            if (selected) {
+                Box(
+                    Modifier
+                        .size(16.dp)
+                        .align(Alignment.BottomEnd)
+                        .clip(CircleShape)
+                        .background(accent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(10.dp))
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun PaletteItem(
+    topColor: Color,
+    bottomColor: Color,
+    selected: Boolean,
+    accent: Color,
+    outline: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(50.dp)
+            .clip(CircleShape)
+            .border(
+                width = if (selected) 2.5.dp else 1.dp,
+                color = if (selected) accent else outline.copy(alpha = 0.5f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+    ) {
+        Column(Modifier.fillMaxSize().clip(CircleShape)) {
+            Box(Modifier.weight(1f).fillMaxWidth().background(topColor))
+            Box(Modifier.weight(1f).fillMaxWidth().background(bottomColor))
+        }
+        if (selected) {
+            Box(
+                Modifier
+                    .size(16.dp)
+                    .align(Alignment.BottomEnd)
+                    .clip(CircleShape)
+                    .background(accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(10.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PaletteDynamicItem(
+    selected: Boolean,
+    accent: Color,
+    outline: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(50.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(
+                width = if (selected) 2.5.dp else 1.dp,
+                color = if (selected) accent else outline.copy(alpha = 0.5f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Default.Palette, "Dynamic", tint = accent, modifier = Modifier.size(22.dp))
+        if (selected) {
+            Box(
+                Modifier
+                    .size(16.dp)
+                    .align(Alignment.BottomEnd)
+                    .clip(CircleShape)
+                    .background(accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(10.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubSectionLabel(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 2.dp),
+    )
+}
+
+@Composable
+private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        content = content,
+    )
+}
+
+@Composable
+private fun SettingDivider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 72.dp)
+            .height(0.5.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+    )
+}
+
+@Composable
+private fun IconBox(icon: ImageVector, tint: Color) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(tint.copy(alpha = 0.16f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun SettingNav(
+    icon: ImageVector,
+    tint: Color,
+    title: String,
+    subtitle: String? = null,
+    value: String? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+    ) {
+        IconBox(icon, tint)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+        if (!value.isNullOrBlank()) {
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 4.dp),
+            )
+        }
+        Icon(
+            Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
+private fun SettingToggle(
+    icon: ImageVector,
+    tint: Color,
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .clickable { onChange(!checked) }
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+    ) {
+        IconBox(icon, tint)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+@Composable
+private fun SpotifyAccountRow() {
+    val context  = LocalContext.current
+    val sl       = remember(context) { ServiceLocator.get(context) }
+    val cookie   by sl.settings.spotifyCookie.collectAsState(initial = "")
+    val userName by sl.settings.spotifyUserName.collectAsState(initial = "")
+    val signedIn = cookie.isNotBlank()
+    val scope    = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .clickable(enabled = !signedIn) {
+                context.startActivity(
+                    Intent(context, com.streamcloud.app.ui.account.SpotifyLoginActivity::class.java),
+                )
+            }
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(if (signedIn) Icons.Default.Logout else Icons.Default.Login, Color(0xFF1ED760))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "Spotify" else "Log in to Spotify",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) userName.ifBlank { "Logged in" }
+                else "Required for Spotify Canvas looping videos",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            if (signedIn) {
+                val status = com.streamcloud.app.data.spotify.SpotifyCanvasRepository.lastStatus
+                if (status != "—") {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (status.contains("OK")) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                        maxLines = 2,
+                    )
+                }
+            }
+        }
+        if (signedIn) {
+            TextButton(onClick = {
+                scope.launch {
+                    sl.settings.clearSpotifyAccount()
+                    com.streamcloud.app.data.spotify.SpotifyCanvasRepository.setSpotifyCookie(null)
+                    runCatching { android.webkit.CookieManager.getInstance().removeAllCookies(null) }
+                }
+            }) { Text("Log out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun YtMusicAccountRow() {
+    val context = LocalContext.current
+    val sl      = remember(context) { ServiceLocator.get(context) }
+    val cookie   by sl.settings.ytMusicCookie.collectAsState(initial = "")
+    val userName by sl.settings.ytMusicUserName.collectAsState(initial = "")
+    val signedIn = cookie.isNotBlank()
+    val scope   = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .clickable(enabled = !signedIn) {
+                context.startActivity(
+                    Intent(context, com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java),
+                )
+            }
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(if (signedIn) Icons.Default.Logout else Icons.Default.Login, ColourAccount)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "YouTube Music" else "Sign in to YouTube Music",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) userName.ifBlank { "Signed in" }
+                else "Personalised mixes, recommendations and library",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        if (signedIn) {
+            TextButton(onClick = {
+                scope.launch {
+                    sl.settings.clearYtMusicAccount()
+                    com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = ""
+                    runCatching { android.webkit.CookieManager.getInstance().removeAllCookies(null) }
+                }
+            }) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun UpdaterRow() {
+    val context    = LocalContext.current
+    val scope      = rememberCoroutineScope()
+    val checker    = remember { UpdateChecker(context.applicationContext) }
+    var checking   by remember { mutableStateOf(false) }
+    var status     by remember { mutableStateOf<String?>(null) }
+    var update     by remember { mutableStateOf<UpdateInfo?>(null) }
+    var downloading by remember { mutableStateOf(false) }
+    var progress   by remember { mutableStateOf(0f) }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .clickable(enabled = !checking && !downloading) {
+                checking = true; status = null; update = null
+                scope.launch {
+                    try {
+                        val info = checker.fetchLatest(includeOlder = false)
+                        update = info
+                        status = if (info == null) "You're on the latest build."
+                                 else "${info.title} available · ${formatBytes(info.sizeBytes)}"
+                    } catch (e: Exception) {
+                        status = "Check failed: ${e.message}"
+                    } finally {
+                        checking = false
+                    }
+                }
+            }
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+    ) {
+        IconBox(Icons.Default.SystemUpdate, ColourSystem)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Check for updates",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                status ?: "v${BuildConfig.VERSION_NAME} · Tap to check",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (downloading) {
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            }
+        }
+        when {
+            checking || downloading -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            update?.isNewerThanInstalled == true -> Button(
+                onClick = {
+                    val info = update ?: return@Button
+                    downloading = true; progress = 0f
+                    scope.launch {
+                        try {
+                            val apk = checker.downloadApk(info) { progress = it }
+                            checker.launchInstaller(apk)
+                            status = "Launching installer…"
+                        } catch (e: Exception) {
+                            status = "Download failed: ${e.message}"
+                        } finally {
+                            downloading = false
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(10.dp),
+            ) { Text("Install") }
+            else -> Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun QualityDialog(
+    title: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { (value, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(value) }
+                            .padding(vertical = 10.dp),
+                    ) {
+                        RadioButton(selected = selected == value, onClick = { onSelect(value) })
+                        Spacer(Modifier.width(8.dp))
+                        Text(label, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun BackendDialog(
+    initialUrl: String,
+    initialToken: String,
+    onSave: (url: String, token: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var url   by remember { mutableStateOf(initialUrl) }
+    var token by remember { mutableStateOf(initialToken) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Backend & HuggingFace") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = url, onValueChange = { url = it },
+                    label = { Text("Backend URL") },
+                    supportingText = { Text("Your StreamCloud FastAPI deployment.") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                )
+                OutlinedTextField(
+                    value = token, onValueChange = { token = it },
+                    label = { Text("HuggingFace token") },
+                    supportingText = { Text("NSFW image gen + image editing.") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(url, token) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun CollectionsDialog(
+    enabled: Set<String>,
+    onToggle: (String, Boolean) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Home collections") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "Pick which rows show on the Movies tab.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                HomeCollections.ALL.forEach { c ->
+                    val checked = c.id in enabled
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggle(c.id, !checked) }
+                            .padding(vertical = 4.dp),
+                    ) {
+                        Text(c.emoji, modifier = Modifier.padding(horizontal = 4.dp),
+                            style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(c.title, style = MaterialTheme.typography.titleMedium)
+                            Text(c.subtitle, style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Checkbox(checked = checked, onCheckedChange = { onToggle(c.id, it) })
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onSave) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun NavOrderDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val sl      = remember(context) { ServiceLocator.get(context) }
+    val scope   = rememberCoroutineScope()
+
+    data class NavItem(
+        val id: String,
+        val label: String,
+        val icon: ImageVector,
+        val enabled: Boolean = true,
+    )
+
+    // All possible tabs — always shown so the user can enable any of them
+    val all = remember {
+        listOf(
+            NavItem("music",       "Music",       Icons.Default.MusicNote),
+            NavItem("library",     "Library",     Icons.Default.FormatListBulleted),
+            NavItem("movies",      "Movies",      Icons.Default.PlayArrow),
+            NavItem("local_files", "Local Files", Icons.Default.Folder),
+            NavItem("live_tv",     "Live TV",     Icons.Default.LiveTv),
+            NavItem("adult",       "Adult",       Icons.Default.Visibility),
+        )
+    }
+    val byId = all.associateBy { it.id }
+    var order by remember { mutableStateOf(all) }
+
+    LaunchedEffect(Unit) {
+        val csv     = sl.settings.navTabOrderCsv.first()
+        val savedHiddenCsv = sl.settings.navHiddenTabsCsv.first()
+        // On fresh install (null) default local_files and live_tv to hidden
+        val hidden  = if (savedHiddenCsv == null) {
+            setOf("local_files", "live_tv")
+        } else {
+            savedHiddenCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        }
+        val nsfw    = sl.settings.nsfwEnabled.first()
+        val adultIds = setOf("adult")
+        val saved   = csv?.split(",")?.mapNotNull { byId[it.trim()] } ?: emptyList()
+        val remaining = all.filter { it.id !in saved.map { s -> s.id } }
+        order = (saved + remaining).distinctBy { it.id }.map { item ->
+            item.copy(
+                enabled = item.id !in hidden &&
+                          (item.id !in adultIds || nsfw)
+            )
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Navigation bar") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "Toggle tabs on/off and drag to reorder. Settings is always pinned at the end.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+                order.forEachIndexed { index, item ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (item.enabled) MaterialTheme.colorScheme.surfaceContainerHigh
+                                else MaterialTheme.colorScheme.surfaceContainerLow
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Icon(
+                            item.icon, null,
+                            tint = if (item.enabled) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            item.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f),
+                            color = if (item.enabled) MaterialTheme.colorScheme.onSurface
+                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                        )
+                        Switch(
+                            checked = item.enabled,
+                            onCheckedChange = { on ->
+                                order = order.map { if (it.id == item.id) it.copy(enabled = on) else it }
+                            },
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        IconButton(
+                            onClick = {
+                                if (index > 0) order = order.toMutableList().apply {
+                                    val t = this[index]; this[index] = this[index - 1]; this[index - 1] = t
+                                }
+                            },
+                            enabled = index > 0,
+                            modifier = Modifier.size(36.dp),
+                        ) { Icon(Icons.Default.ArrowUpward, "Move up", Modifier.size(18.dp)) }
+                        IconButton(
+                            onClick = {
+                                if (index < order.lastIndex) order = order.toMutableList().apply {
+                                    val t = this[index]; this[index] = this[index + 1]; this[index + 1] = t
+                                }
+                            },
+                            enabled = index < order.lastIndex,
+                            modifier = Modifier.size(36.dp),
+                        ) { Icon(Icons.Default.ArrowDownward, "Move down", Modifier.size(18.dp)) }
+                    }
+                }
+                // Static "Settings" row — always pinned at the end, cannot be moved or disabled
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Settings, null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Settings",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "Always shown",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                scope.launch {
+                    val hiddenIds = order.filter { !it.enabled }.map { it.id }
+                    val adultOn   = order.any { it.id == "adult" && it.enabled }
+                    sl.settings.setNavTabOrder(order.map { it.id })
+                    sl.settings.setNavHiddenTabs(hiddenIds.joinToString(","))
+                    sl.settings.setNsfwEnabled(adultOn)
+                    onDismiss()
+                }
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun AboutDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("About StreamCloud") },
+        text = {
+            Column {
+                Text("Version ${BuildConfig.VERSION_NAME} · code ${BuildConfig.VERSION_CODE}", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(12.dp))
+                TextButton(onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}")))
+                }) { Text("Source code (GitHub)") }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun LogsPage(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val entries by AppLogger.entriesFlow.collectAsState()
+    val errorCount by AppLogger.errorCount.collectAsState()
+
+    val errorColor  = MaterialTheme.colorScheme.error
+    val warnColor   = Color(0xFFFFB74D)
+    val infoColor   = MaterialTheme.colorScheme.onSurfaceVariant
+
+    fun levelColor(level: AppLogger.Level) = when (level) {
+        AppLogger.Level.ERROR -> errorColor
+        AppLogger.Level.WARN  -> warnColor
+        AppLogger.Level.INFO  -> infoColor
+    }
+
+    fun levelLabel(level: AppLogger.Level) = when (level) {
+        AppLogger.Level.ERROR -> "E"
+        AppLogger.Level.WARN  -> "W"
+        AppLogger.Level.INFO  -> "I"
+    }
+
+    val sdf = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            if (entries.isNotEmpty()) {
+                TextButton(onClick = {
+                    val text = AppLogger.formatAll()
+                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("StreamCloud logs", text))
+                    android.widget.Toast.makeText(context, "Copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Copy all")
+                }
+                TextButton(
+                    onClick = { AppLogger.clear() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Icon(Icons.Default.DeleteSweep, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Clear")
+                }
+            }
+        }
+
+        Row(
+            Modifier.padding(start = 20.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "App logs",
+                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            if (errorCount > 0) {
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        "$errorCount",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
+        }
+
+        if (entries.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.Check,
+                        null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(48.dp),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "No log entries yet",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                items(entries) { entry ->
+                    val lc = levelColor(entry.level)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                when (entry.level) {
+                                    AppLogger.Level.ERROR -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                                    AppLogger.Level.WARN  -> Color(0xFFFFB74D).copy(alpha = 0.08f)
+                                    AppLogger.Level.INFO  -> MaterialTheme.colorScheme.surfaceContainerHigh
+                                }
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text(
+                            levelLabel(entry.level),
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+                            color = lc,
+                            modifier = Modifier.width(14.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    entry.tag,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = lc,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    sdf.format(java.util.Date(entry.timeMs)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                )
+                            }
+                            Text(
+                                entry.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun cacheMbToBytes(mb: String): Long = when (mb) {
+    "disable"   -> -1L
+    "unlimited" -> 0L
+    else        -> (mb.toLongOrNull() ?: 0L) * 1024L * 1024L
+}
+
+private fun cacheMbToLabel(mb: String): String = when (mb) {
+    "disable"   -> "Disable"
+    "unlimited" -> "Unlimited"
+    "128"       -> "128 MB"
+    "256"       -> "256 MB"
+    "512"       -> "512 MB"
+    "1024"      -> "1 GB"
+    "2048"      -> "2 GB"
+    "4096"      -> "4 GB"
+    "8192"      -> "8 GB"
+    else        -> mb
+}
+
+private fun posterCountToLabel(count: String): String = when (count) {
+    "disable" -> "Disable"
+    else      -> count.toLongOrNull()?.let { "$it items" } ?: count
+}
+
+@Composable
+private fun CacheChip(label: String) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CacheSizeSheet(
+    title: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        dragHandle = {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp, bottom = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
+                )
+            }
+        },
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 16.dp),
+        )
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.navigationBarsPadding(),
+        ) {
+            items(options) { (value, label) ->
+                val isSelected = value == selected
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(50.dp))
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        )
+                        .clickable { onSelect(value) }
+                        .padding(vertical = 14.dp, horizontal = 20.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (isSelected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / 1048576.0)
+    bytes >= 1024        -> String.format("%.0f KB", bytes / 1024.0)
+    else                 -> "$bytes B"
+}
+
+@Composable
+@Suppress("LocalVariableName")
+private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // ── Layout toggles ─────────────────────────────────────────────────────
+    var showHero       by remember { mutableStateOf(true) }
+    var hideUnreleased by remember { mutableStateOf(false) }
+    var hideUnderline  by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        showHero       = sl.settings.showHeroSection.first()
+        hideUnreleased = sl.settings.hideUnreleasedContent.first()
+        hideUnderline  = sl.settings.hideCatalogUnderline.first()
+    }
+
+    // ── TMDB reorder state ─────────────────────────────────────────────────
+    var tmdbEnabledIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val tmdbOrdered = remember { mutableStateListOf<com.streamcloud.app.data.collections.HomeCollection>() }
+    var dragging       by remember { mutableStateOf(false) }
+    var dragIdx        by remember { mutableIntStateOf(-1) }
+    var accY           by remember { mutableFloatStateOf(0f) }
+    var itemHeightPx   by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        val csv = sl.settings.homeCollectionsCsv.first()
+        val enabledSet = when {
+            csv == "_none_"     -> emptySet()
+            csv.isNullOrBlank() -> HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
+            else                -> csv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        }
+        tmdbEnabledIds = enabledSet
+        val enabledInOrder = when {
+            csv == "_none_"     -> emptyList()
+            csv.isNullOrBlank() -> HomeCollections.ALL.filter { it.defaultEnabled }
+            else                -> csv.split(",").mapNotNull { id -> HomeCollections.byId(id.trim()) }
+        }
+        val disabledItems = HomeCollections.ALL.filter { it.id !in enabledSet }
+        tmdbOrdered.clear()
+        tmdbOrdered.addAll(enabledInOrder + disabledItems)
+    }
+
+    fun saveTmdbOrder() {
+        val enabledInOrder = tmdbOrdered.filter { it.id in tmdbEnabledIds }.map { it.id }
+        scope.launch { sl.settings.setHomeCollections(enabledInOrder) }
+    }
+
+    // ── CloudStream state ──────────────────────────────────────────────────
+    val installedPlugins by pluginRepo.installed.collectAsState(initial = emptyList())
+    var pinnedSections   by remember { mutableStateOf<List<PinnedCsSection>>(emptyList()) }
+    var sectionsMap      by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+    var csLoadingSet     by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    LaunchedEffect(Unit) { pinnedSections = sl.settings.csHomeSections.first() }
+    LaunchedEffect(installedPlugins) {
+        installedPlugins.forEach { plugin ->
+            if (sectionsMap.containsKey(plugin.internalName)) return@forEach
+            csLoadingSet = csLoadingSet + plugin.internalName
+            scope.launch {
+                val names = runCatching {
+                    PluginRuntime.home(context, plugin.filePath)
+                }.getOrDefault(emptyList()).map { it.first }
+                sectionsMap = sectionsMap + (plugin.internalName to names)
+                csLoadingSet = csLoadingSet - plugin.internalName
+            }
+        }
+    }
+
+    fun toggleCsSection(plugin: InstalledPlugin, sectionName: String, enabled: Boolean) {
+        val updated = if (enabled)
+            pinnedSections + PinnedCsSection(plugin.internalName, plugin.name, sectionName)
+        else
+            pinnedSections.filterNot { it.pluginInternalName == plugin.internalName && it.sectionName == sectionName }
+        pinnedSections = updated
+        scope.launch { sl.settings.setCsHomeSections(updated) }
+    }
+
+    // ── Stremio state ──────────────────────────────────────────────────────
+    val stremioRepo       = remember { sl.stremio }
+    val stremioAddons     by sl.stremio.addons.collectAsState(initial = emptyList())
+    var stremioDisabledKeys  by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var stremioCatalogsMap   by remember { mutableStateOf<Map<String, List<StremioCatalogMeta>>>(emptyMap()) }
+    var stremioLoadingSet    by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    LaunchedEffect(Unit) {
+        val csv = sl.settings.stremioDisabledCatalogsCsv.first()
+        stremioDisabledKeys = csv?.takeIf { it.isNotBlank() }?.split(",")?.map { it.trim() }?.toSet() ?: emptySet()
+    }
+    LaunchedEffect(stremioAddons) {
+        stremioAddons.forEach { addon ->
+            if (stremioCatalogsMap.containsKey(addon.id)) return@forEach
+            stremioLoadingSet = stremioLoadingSet + addon.id
+            scope.launch {
+                val metas = runCatching { stremioRepo.fetchCatalogMetas(addon) }.getOrDefault(emptyList())
+                stremioCatalogsMap = stremioCatalogsMap + (addon.id to metas)
+                stremioLoadingSet = stremioLoadingSet - addon.id
+            }
+        }
+    }
+
+    // ── Stremio flat-list reorder state ───────────────────────────────────
+    val stremioFlat    = remember { mutableStateListOf<Pair<String, StremioCatalogMeta>>() }
+    var stremioDragging  by remember { mutableStateOf(false) }
+    var stremioDragIdx   by remember { mutableIntStateOf(-1) }
+    var stremioAccY      by remember { mutableFloatStateOf(0f) }
+    var stremioItemH     by remember { mutableFloatStateOf(0f) }
+
+    val stremioAllLoaded = stremioAddons.isNotEmpty() &&
+        stremioAddons.all { stremioCatalogsMap.containsKey(it.id) }
+
+    LaunchedEffect(stremioAllLoaded, stremioCatalogsMap.size) {
+        if (!stremioAllLoaded || stremioDragging) return@LaunchedEffect
+        val csv        = sl.settings.stremioCatalogOrderCsv.first()
+        val orderedKeys = csv?.takeIf { it.isNotBlank() }?.split(",")?.map { it.trim() } ?: emptyList()
+        val allItems   = stremioAddons.flatMap { addon ->
+            (stremioCatalogsMap[addon.id] ?: emptyList()).map { meta -> Pair(addon.name, meta) }
+        }
+        val sorted = if (orderedKeys.isEmpty()) allItems else {
+            val byKey = allItems.associateBy { it.second.rowKey }
+            orderedKeys.mapNotNull { byKey[it] } + allItems.filter { it.second.rowKey !in orderedKeys.toSet() }
+        }
+        stremioFlat.clear()
+        stremioFlat.addAll(sorted)
+    }
+
+    fun saveStremioOrder() {
+        scope.launch { sl.settings.setStremioCatalogOrder(stremioFlat.map { it.second.rowKey }) }
+    }
+
+    // ── CS pinned-sections reorder state ──────────────────────────────────
+    val csPinnedOrdered = remember { mutableStateListOf<PinnedCsSection>() }
+    var csDragging  by remember { mutableStateOf(false) }
+    var csDragIdx   by remember { mutableIntStateOf(-1) }
+    var csAccY      by remember { mutableFloatStateOf(0f) }
+    var csItemH     by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(pinnedSections) {
+        if (!csDragging) {
+            csPinnedOrdered.clear()
+            csPinnedOrdered.addAll(pinnedSections)
+        }
+    }
+
+    // ── Local section-header helper ────────────────────────────────────────
+    @Composable
+    fun SectionHeader(label: String, trailingText: String? = null, onTrailing: (() -> Unit)? = null) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            if (trailingText != null && onTrailing != null) {
+                Text(
+                    trailingText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable(onClick = onTrailing)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+
+    // ── Summary card ───────────────────────────────────────────────────────
+    val visibleCount = if (tmdbOrdered.isEmpty()) 0 else tmdbOrdered.count { it.id in tmdbEnabledIds }
+    val totalCount   = tmdbOrdered.size
+    SettingsGroup {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
+            Text(
+                "Keep Home focused",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "$visibleCount of $totalCount catalogs visible",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Open a catalog only when you need to rename or reorder it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    // ══ HOME LAYOUT toggles ════════════════════════════════════════════════
+    SectionHeader("HOME LAYOUT")
+    SettingsGroup {
+        SettingToggle(
+            icon     = Icons.Default.PlayCircle,
+            tint     = MaterialTheme.colorScheme.secondary,
+            title    = "Show Hero Section",
+            subtitle = "Display hero carousel at top of home.",
+            checked  = showHero,
+            onChange = { v -> showHero = v; scope.launch { sl.settings.setShowHeroSection(v) } },
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+        SettingToggle(
+            icon     = Icons.Default.PlayCircle,
+            tint     = MaterialTheme.colorScheme.secondary,
+            title    = "Hide Unreleased Content",
+            subtitle = "Hide movies and shows that haven't been released yet.",
+            checked  = hideUnreleased,
+            onChange = { v -> hideUnreleased = v; scope.launch { sl.settings.setHideUnreleasedContent(v) } },
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+        SettingToggle(
+            icon     = Icons.Default.PlayCircle,
+            tint     = MaterialTheme.colorScheme.secondary,
+            title    = "Hide Catalog Underline",
+            subtitle = "Remove the accent line under catalog and collection titles throughout the app.",
+            checked  = hideUnderline,
+            onChange = { v -> hideUnderline = v; scope.launch { sl.settings.setHideCatalogUnderline(v) } },
+        )
+    }
+
+    // ══ CATALOGS & COLLECTIONS ═════════════════════════════════════════════
+    SectionHeader(
+        label       = "CATALOGS & COLLECTIONS",
+        trailingText = "Reset to Default",
+        onTrailing  = {
+            val defaultSet = HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }.toSet()
+            tmdbEnabledIds = defaultSet
+            tmdbOrdered.clear()
+            tmdbOrdered.addAll(HomeCollections.ALL)
+            scope.launch { sl.settings.setHomeCollections(HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }) }
+        },
+    )
+
+    // TMDB rows — toggle + drag-to-reorder
+    SettingsGroup {
+        tmdbOrdered.forEachIndexed { i, collection ->
+            if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+            val enabled = collection.id in tmdbEnabledIds
+            val toggleTmdb: () -> Unit = {
+                val updated = if (enabled) tmdbEnabledIds - collection.id else tmdbEnabledIds + collection.id
+                tmdbEnabledIds = updated
+                scope.launch { sl.settings.setHomeCollections(tmdbOrdered.filter { it.id in updated }.map { it.id }) }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(if (dragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.Transparent)
+                    .onGloballyPositioned { if (itemHeightPx == 0f) itemHeightPx = it.size.height.toFloat() }
+                    .padding(end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // ── Toggle area: inner row is clickable, isolated from the drag handle ──
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .tvFocusBorder(RoundedCornerShape(12.dp))
+                        .clickable(onClick = toggleTmdb)
+                        .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(collection.title,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurface)
+                        Text(if (enabled) "TMDB • Visible" else "TMDB • Hidden",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = enabled, onCheckedChange = null,
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
+                }
+                // ── Drag handle: separate from the toggle area ──────────────────────
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Default.Reorder, "Drag to reorder",
+                    tint = if (dragIdx == i) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(22.dp).pointerInput(collection.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { _ ->
+                                val idx = tmdbOrdered.indexOf(collection)
+                                if (idx >= 0) { dragging = true; dragIdx = idx; accY = 0f }
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume(); accY += dragAmount.y
+                                val thr = (itemHeightPx + 10.dp.toPx()).coerceAtLeast(72f)
+                                while (accY > thr / 2f && dragIdx < tmdbOrdered.size - 1) {
+                                    tmdbOrdered.add(dragIdx + 1, tmdbOrdered.removeAt(dragIdx)); dragIdx++; accY -= thr
+                                }
+                                while (accY < -thr / 2f && dragIdx > 0) {
+                                    tmdbOrdered.add(dragIdx - 1, tmdbOrdered.removeAt(dragIdx)); dragIdx--; accY += thr
+                                }
+                            },
+                            onDragEnd    = { saveTmdbOrder(); dragging = false; dragIdx = -1 },
+                            onDragCancel = { dragging = false; dragIdx = -1 },
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    // ══ Stremio — flat list with toggle + drag-to-reorder ═════════════════
+    if (stremioAddons.isNotEmpty()) {
+        SectionHeader("STREMIO CATALOGS")
+        when {
+            stremioAddons.any { it.id in stremioLoadingSet } ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Loading catalogs…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            stremioFlat.isEmpty() ->
+                Text("No home catalogs available.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 10.dp))
+            else -> SettingsGroup {
+                stremioFlat.forEachIndexed { i, (addonName, meta) ->
+                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                    val enabled = meta.rowKey !in stremioDisabledKeys
+                    val toggleStremio: () -> Unit = {
+                        val updated = if (enabled) stremioDisabledKeys + meta.rowKey else stremioDisabledKeys - meta.rowKey
+                        stremioDisabledKeys = updated
+                        scope.launch { sl.settings.setStremioDisabledCatalogs(updated) }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (stremioDragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.Transparent)
+                            .onGloballyPositioned { if (stremioItemH == 0f) stremioItemH = it.size.height.toFloat() }
+                            .padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .tvFocusBorder(RoundedCornerShape(12.dp))
+                                .clickable(onClick = toggleStremio)
+                                .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(meta.catalogName,
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                    color = MaterialTheme.colorScheme.onSurface)
+                                Text("$addonName • ${if (enabled) "Visible" else "Hidden"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = enabled, onCheckedChange = null,
+                                colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Default.Reorder, "Drag to reorder",
+                            tint = if (stremioDragIdx == i) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(22.dp).pointerInput(meta.rowKey) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { _ ->
+                                        val idx = stremioFlat.indexOfFirst { it.second.rowKey == meta.rowKey }
+                                        if (idx >= 0) { stremioDragging = true; stremioDragIdx = idx; stremioAccY = 0f }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume(); stremioAccY += dragAmount.y
+                                        val thr = (stremioItemH + 10.dp.toPx()).coerceAtLeast(72f)
+                                        while (stremioAccY > thr / 2f && stremioDragIdx < stremioFlat.size - 1) {
+                                            stremioFlat.add(stremioDragIdx + 1, stremioFlat.removeAt(stremioDragIdx)); stremioDragIdx++; stremioAccY -= thr
+                                        }
+                                        while (stremioAccY < -thr / 2f && stremioDragIdx > 0) {
+                                            stremioFlat.add(stremioDragIdx - 1, stremioFlat.removeAt(stremioDragIdx)); stremioDragIdx--; stremioAccY += thr
+                                        }
+                                    },
+                                    onDragEnd    = { saveStremioOrder(); stremioDragging = false; stremioDragIdx = -1 },
+                                    onDragCancel = { stremioDragging = false; stremioDragIdx = -1 },
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // ══ CloudStream — pinned flat list (drag) + per-plugin toggle ══════════
+    if (installedPlugins.isNotEmpty()) {
+        SectionHeader("CLOUDSTREAM SECTIONS")
+
+        // Flat reorderable list of enabled (pinned) sections
+        if (csPinnedOrdered.isNotEmpty()) {
+            SettingsGroup {
+                csPinnedOrdered.forEachIndexed { i, pinned ->
+                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                    val toggleCs: () -> Unit = {
+                        val plugin = installedPlugins.firstOrNull { it.internalName == pinned.pluginInternalName }
+                        if (plugin != null) toggleCsSection(plugin, pinned.sectionName, false)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (csDragIdx == i) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.Transparent)
+                            .onGloballyPositioned { if (csItemH == 0f) csItemH = it.size.height.toFloat() }
+                            .padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .tvFocusBorder(RoundedCornerShape(12.dp))
+                                .clickable(onClick = toggleCs)
+                                .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(pinned.sectionName,
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                    color = MaterialTheme.colorScheme.onSurface)
+                                Text("${pinned.pluginDisplayName} • Visible",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = true, onCheckedChange = null,
+                                colors = SwitchDefaults.colors(checkedThumbColor = Color.White,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Color.White))
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Default.Reorder, "Drag to reorder",
+                            tint = if (csDragIdx == i) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(22.dp).pointerInput(pinned.pluginInternalName + pinned.sectionName) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { _ ->
+                                        val idx = csPinnedOrdered.indexOfFirst {
+                                            it.pluginInternalName == pinned.pluginInternalName && it.sectionName == pinned.sectionName
+                                        }
+                                        if (idx >= 0) { csDragging = true; csDragIdx = idx; csAccY = 0f }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume(); csAccY += dragAmount.y
+                                        val thr = (csItemH + 10.dp.toPx()).coerceAtLeast(72f)
+                                        while (csAccY > thr / 2f && csDragIdx < csPinnedOrdered.size - 1) {
+                                            csPinnedOrdered.add(csDragIdx + 1, csPinnedOrdered.removeAt(csDragIdx)); csDragIdx++; csAccY -= thr
+                                        }
+                                        while (csAccY < -thr / 2f && csDragIdx > 0) {
+                                            csPinnedOrdered.add(csDragIdx - 1, csPinnedOrdered.removeAt(csDragIdx)); csDragIdx--; csAccY += thr
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        pinnedSections = csPinnedOrdered.toList()
+                                        scope.launch { sl.settings.setCsHomeSections(pinnedSections) }
+                                        csDragging = false; csDragIdx = -1
+                                    },
+                                    onDragCancel = { csDragging = false; csDragIdx = -1 },
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // Per-plugin list for toggling un-pinned sections ON
+        installedPlugins.forEach { plugin ->
+            val sections   = sectionsMap[plugin.internalName]
+            val loading    = plugin.internalName in csLoadingSet
+            val unpinned   = sections?.filter { sName ->
+                pinnedSections.none { it.pluginInternalName == plugin.internalName && it.sectionName == sName }
+            } ?: emptyList()
+            if (loading || unpinned.isNotEmpty()) {
+                SettingsGroup {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Extension, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(plugin.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    when {
+                        loading -> Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Text("Loading sections…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        else -> unpinned.forEachIndexed { idx, sectionName ->
+                            if (idx > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                            SettingToggle(
+                                icon = Icons.Default.PlayCircle, tint = MaterialTheme.colorScheme.secondary,
+                                title = sectionName, checked = false,
+                                onChange = { if (it) toggleCsSection(plugin, sectionName, true) },
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+
+    Spacer(Modifier.height(32.dp))
+}
+
+private val ColourNuvio = Color(0xFF6C5CE7)
+
+@Composable
+private fun NuvioAccountRow() {
+    val context  = LocalContext.current
+    val sl       = remember(context) { ServiceLocator.get(context) }
+    val scope    = rememberCoroutineScope()
+    val nuvioSvc = remember(context) { NuvioAccountService.get(context) }
+
+    val accessToken by sl.settings.nuvioAccessToken.collectAsState(initial = "")
+    val email       by sl.settings.nuvioEmail.collectAsState(initial = "")
+    val signedIn    = accessToken.isNotBlank()
+
+    var showDialog   by remember { mutableStateOf(false) }
+    var emailInput   by remember { mutableStateOf("") }
+    var passInput    by remember { mutableStateOf("") }
+    var showPass     by remember { mutableStateOf(false) }
+    var busy         by remember { mutableStateOf(false) }
+    var errorMsg     by remember { mutableStateOf("") }
+    var syncStatus   by remember { mutableStateOf("") }
+
+    // Auto-pull from cloud whenever we have a valid token (once per composition lifetime)
+    var didAutoSync by remember { mutableStateOf(false) }
+    LaunchedEffect(accessToken) {
+        if (accessToken.isNotBlank() && !didAutoSync) {
+            didAutoSync = true
+            syncStatus  = "Syncing from cloud…"
+            val r = runCatching { nuvioSvc.syncPull(accessToken) }
+            syncStatus  = r.fold(
+                onSuccess = { p ->
+                    val total = p.watchProgress + p.library + p.collections + p.watchedItems
+                    if (total > 0)
+                        buildString {
+                            append("↓ Synced ")
+                            if (p.watchProgress > 0) append("${p.watchProgress} in-progress · ")
+                            if (p.library > 0)       append("${p.library} saved · ")
+                            if (p.collections > 0)   append("${p.collections} collections · ")
+                            if (p.addons > 0)        append("${p.addons} addons · ")
+                            if (p.plugins > 0)       append("${p.plugins} plugins · ")
+                        }.trimEnd(' ', '·')
+                    else ""
+                },
+                onFailure = { "" },
+            )
+        }
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { if (signedIn) syncStatus = "Syncing…" else showDialog = true }
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(if (signedIn) Icons.Default.CloudUpload else Icons.Default.Cloud, ColourNuvio)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "Nuvio" else "Sign in to Nuvio",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) email.ifBlank { "Signed in" }
+                else "Sync plugins, addons, watch progress and watchlist",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            if (syncStatus.isNotBlank()) {
+                Text(
+                    syncStatus,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (syncStatus.startsWith("Sync")) MaterialTheme.colorScheme.primary
+                            else if (syncStatus.startsWith("Error")) MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                            else MaterialTheme.colorScheme.secondary,
+                    maxLines = 2,
+                )
+            }
+        }
+        if (signedIn) {
+            TextButton(onClick = {
+                scope.launch {
+                    syncStatus = "Syncing…"
+                    val push = runCatching { nuvioSvc.syncAll(accessToken) }
+                    val pull = runCatching { nuvioSvc.syncPull(accessToken) }
+                    syncStatus = when {
+                        push.isSuccess && pull.isSuccess -> {
+                            val up   = push.getOrThrow()
+                            val down = pull.getOrThrow()
+                            buildString {
+                                append("Synced ✓  ")
+                                append("↑${up.watchProgress} ↓${down.watchProgress} watched · ")
+                                append("↑${up.library} ↓${down.library} saved")
+                                if (down.collections > 0) append(" · ${down.collections} collections")
+                                if (up.plugins + down.plugins > 0) append(" · ${up.plugins + down.plugins} plugins")
+                                if (up.addons + down.addons > 0)   append(" · ${up.addons + down.addons} addons")
+                            }
+                        }
+                        push.isSuccess -> "Pushed ✓  (pull unavailable)"
+                        pull.isSuccess -> {
+                            val down = pull.getOrThrow()
+                            "Pulled ✓  ${down.watchProgress} watched · ${down.library} saved · ${down.collections} collections"
+                        }
+                        else -> "Error: ${push.exceptionOrNull()?.message?.take(60)}"
+                    }
+                }
+            }) { Text("Sync ↕") }
+            TextButton(onClick = {
+                scope.launch {
+                    nuvioSvc.signOut(accessToken)
+                    sl.settings.clearNuvioSession()
+                    syncStatus = ""
+                }
+            }) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) { showDialog = false; errorMsg = "" } },
+            title = { Text("Sign in to Nuvio") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Enter your Nuvio account credentials to sync plugins, addons, and watch history across devices.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = emailInput,
+                        onValueChange = { emailInput = it; errorMsg = "" },
+                        label = { Text("Email") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Email,
+                            imeAction = ImeAction.Next,
+                        ),
+                        enabled = !busy,
+                    )
+                    OutlinedTextField(
+                        value = passInput,
+                        onValueChange = { passInput = it; errorMsg = "" },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                            imeAction = ImeAction.Done,
+                        ),
+                        trailingIcon = {
+                            IconButton(onClick = { showPass = !showPass }) {
+                                Icon(
+                                    if (showPass) Icons.Default.Visibility else Icons.Default.VolumeOff,
+                                    contentDescription = if (showPass) "Hide password" else "Show password",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        },
+                        enabled = !busy,
+                    )
+                    if (errorMsg.isNotBlank()) {
+                        Text(
+                            errorMsg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    if (busy) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (emailInput.isBlank() || passInput.isBlank()) {
+                            errorMsg = "Email and password are required"
+                            return@TextButton
+                        }
+                        busy = true; errorMsg = ""
+                        scope.launch {
+                            val result = nuvioSvc.signIn(emailInput.trim(), passInput)
+                            busy = false
+                            result.fold(
+                                onSuccess = { session ->
+                                    val userEmail = session.user?.email ?: emailInput.trim()
+                                    val userId = session.user?.id ?: ""
+                                    sl.settings.setNuvioSession(
+                                        session.access_token,
+                                        session.refresh_token,
+                                        userEmail,
+                                        userId,
+                                    )
+                                    showDialog = false
+                                    emailInput = ""; passInput = ""; errorMsg = ""
+                                    syncStatus = "Syncing your data…"
+                                    // Immediately pull cloud data so home screen shows it
+                                    scope.launch {
+                                        val push = runCatching { nuvioSvc.syncAll(session.access_token) }
+                                        val pull = runCatching { nuvioSvc.syncPull(session.access_token) }
+                                        syncStatus = when {
+                                            pull.isSuccess -> {
+                                                val d = pull.getOrThrow()
+                                                buildString {
+                                                    append("Synced ✓  ")
+                                                    if (d.watchProgress > 0) append("${d.watchProgress} watching · ")
+                                                    if (d.library > 0)       append("${d.library} saved · ")
+                                                    if (d.collections > 0)   append("${d.collections} collections · ")
+                                                    if (d.addons > 0)        append("${d.addons} addons · ")
+                                                    if (d.plugins > 0)       append("${d.plugins} plugins · ")
+                                                }.trimEnd(' ', '·').ifBlank { "Synced ✓" }
+                                            }
+                                            push.isSuccess -> "Signed in ✓  (tap Sync ↕ to refresh)"
+                                            else -> "Signed in ✓"
+                                        }
+                                        didAutoSync = true
+                                    }
+                                },
+                                onFailure = { errorMsg = it.message ?: "Sign in failed" },
+                            )
+                        }
+                    },
+                    enabled = !busy,
+                ) { Text("Sign in") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false; errorMsg = "" }, enabled = !busy) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+private fun langDisplayName(code: String): String = when (code) {
+    "en" -> "English"
+    "es" -> "Spanish"
+    "fr" -> "French"
+    "de" -> "German"
+    "pt" -> "Portuguese"
+    "it" -> "Italian"
+    "ja" -> "Japanese"
+    "ko" -> "Korean"
+    "zh" -> "Chinese"
+    "ar" -> "Arabic"
+    "hi" -> "Hindi"
+    "ru" -> "Russian"
+    else -> code.uppercase()
+}
