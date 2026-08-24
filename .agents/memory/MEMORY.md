@@ -1,6 +1,7 @@
 - [Extractor toolchain compatibility](youtube-extractor-compatibility.md) — Keep maintained extractors within the Android SDK and Kotlin metadata baseline used by the app.
 - [Android KAPT source isolation](android-kapt-source-isolation.md) — Isolate new provider resolver models when KAPT duplicates existing model classes during CI.
 - [GitHub Android source path](github-android-source-path.md) — The Actions build and path filter use the repository’s nested `StreamCloud/` tree.
+- [GitHub push path](github-push-path.md) — When this checkout lacks a usable GitHub origin, publish verified commits through the installed GitHub connection API.
 - [Android Auto voice playback](android-auto-voice-playback.md) — Resolve Media3 voice search metadata to a real playable item before returning it to the car.
 - [DJ narration behavior](dj-narration-behavior.md) — DJ narration is mandatory for intros and automatic transitions; voice style remains configurable.
 - [YouTube stream URL persistence](yt-stream-url-persistence.md) — Persist signed URLs only until expiry and evict them on every CDN rejection.
