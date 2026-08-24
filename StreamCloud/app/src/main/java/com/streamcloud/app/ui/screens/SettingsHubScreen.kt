@@ -1849,6 +1849,21 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
                     SettingNav(
+                        icon = Icons.Default.Favorite,
+                        tint = Color(0xFFF96854),
+                        title = "Support development",
+                        subtitle = "patreon.com/c/owenconnorstreamcloud",
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW,
+                                    Uri.parse("https://www.patreon.com/c/owenconnorstreamcloud")),
+                            )
+                        },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SettingNav(
                         icon = Icons.Default.Cloud, tint = ColourSystem,
                         title = "Source code",
                         subtitle = "github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}",
