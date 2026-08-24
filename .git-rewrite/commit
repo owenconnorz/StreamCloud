@@ -1,0 +1,16 @@
+tree f79fb94e950a142848cbf018d51dd29841b6913c
+parent 46fc4c15ed0be76534f075e93673fb6b8d6faf95
+parent f9a5d13b6d6b14ef0a85994703b5ee8f5c3a3a88
+author owenconnor98 <20215046-owenconnor98@users.noreply.replit.com> 1779357755 +0000
+committer owenconnor98 <20215046-owenconnor98@users.noreply.replit.com> 1779357755 +0000
+
+Implement Metrolist-equivalent download functionality for consistent audio quality
+
+Add format persistence to database, optimize download URLs, and improve quality selection.
+
+Replit-Commit-Author: Agent
+Replit-Commit-Session-Id: a183ba02-4bce-4876-adaf-a63821a67ff8
+Replit-Commit-Checkpoint-Type: full_checkpoint
+Replit-Commit-Event-Id: 5268f348-24b3-4d36-9bb2-c4a5a1e24c54
+Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/3ba8c68a-5209-427d-98b0-525c8db37c04/a183ba02-4bce-4876-adaf-a63821a67ff8/pwTIAwz
+Replit-Helium-Checkpoint-Created: true
