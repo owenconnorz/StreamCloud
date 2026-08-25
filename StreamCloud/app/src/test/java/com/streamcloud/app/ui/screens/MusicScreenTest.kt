@@ -26,4 +26,26 @@ class MusicScreenTest {
             labels,
         )
     }
+
+    @Test
+    fun homeFailureSummaryNamesEachUnavailableSource() {
+        assertEquals(
+            "YouTube Music: Sign in required\nYouTube fallback: Network unavailable",
+            buildMusicHomeFailureSummary(
+                ytMusicFailure = "Sign in required",
+                fallbackFailure = "Network unavailable",
+            ),
+        )
+    }
+
+    @Test
+    fun homeFailureSummaryIsAbsentWhenBothSourcesLoaded() {
+        assertEquals(
+            null,
+            buildMusicHomeFailureSummary(
+                ytMusicFailure = null,
+                fallbackFailure = null,
+            ),
+        )
+    }
 }

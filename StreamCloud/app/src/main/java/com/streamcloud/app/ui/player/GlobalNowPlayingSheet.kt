@@ -3,13 +3,20 @@ package com.streamcloud.app.ui.player
 import android.content.Context
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,13 +29,16 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.audio.PlaybackBus
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 @OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
@@ -57,12 +67,22 @@ fun GlobalNowPlayingSheet(
     if (!open) return
 
     var controller by remember { mutableStateOf<Player?>(null) }
-    LaunchedEffect(Unit) {
+    var connectionError by remember { mutableStateOf<String?>(null) }
+    var connectionAttempt by remember { mutableStateOf(0) }
+    LaunchedEffect(open, connectionAttempt) {
+        if (!open) return@LaunchedEffect
+        controller = null
+        connectionError = null
         controller = runCatching {
-            MusicController.get(context.applicationContext)
-        }.getOrNull()
+            withTimeout(8_000L) {
+                MusicController.get(context.applicationContext)
+            }
+        }.getOrElse { error ->
+            connectionError = error.message
+                ?: "The media controls did not become ready. Try again."
+            null
+        }
     }
-    val c = controller ?: return
 
     // Hoisted scroll state — shared between the sheet (for dismiss guard) and NowPlayingShell
     val npScrollState = rememberScrollState()
@@ -102,13 +122,60 @@ fun GlobalNowPlayingSheet(
         contentWindowInsets = { WindowInsets(0) },
         modifier = Modifier.fillMaxSize(),
     ) {
-        GlobalNowPlayingContent(
-            controller = c,
-            npScrollState = npScrollState,
-            onClose = minimizePlayer,
-            onOpenSettings = onOpenSettings,
-            onOpenArtistSearch = onOpenArtistSearch,
-        )
+        val connectedController = controller
+        if (connectedController != null) {
+            GlobalNowPlayingContent(
+                controller = connectedController,
+                npScrollState = npScrollState,
+                onClose = minimizePlayer,
+                onOpenSettings = onOpenSettings,
+                onOpenArtistSearch = onOpenArtistSearch,
+            )
+        } else {
+            NowPlayingConnectionState(
+                error = connectionError,
+                onRetry = { connectionAttempt++ },
+            )
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingConnectionState(
+    error: String?,
+    onRetry: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        if (error == null) {
+            CircularProgressIndicator(modifier = Modifier.size(42.dp))
+            Text(
+                "Connecting player controls…",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(top = 18.dp),
+            )
+        } else {
+            Text(
+                "Player controls couldn't connect",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                error,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Button(onClick = onRetry, modifier = Modifier.padding(top = 20.dp)) {
+                Text("Retry player")
+            }
+        }
     }
 }
 

@@ -421,6 +421,18 @@ fun MusicScreen(
     }
 
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val hasYtHomeContent = state.ytHome.sections.any { section ->
+        when (section) {
+            is HomeSection.PlaylistRail -> section.items.isNotEmpty()
+            is HomeSection.SongRail -> section.items.isNotEmpty()
+            is HomeSection.MoodChips -> false
+        }
+    }
+    val hasRemoteHomeContent = hasYtHomeContent || state.homeFeed.isNotEmpty()
+    val homeFailureSummary = buildMusicHomeFailureSummary(
+        ytMusicFailure = state.ytHome.failureReason,
+        fallbackFailure = state.homeFeedFailure,
+    )
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
     LaunchedEffect(state.ytHomeLoading, state.homeLoading) {
@@ -432,8 +444,7 @@ fun MusicScreen(
         isRefreshing = isRefreshing,
         onRefresh = {
             isRefreshing = true
-            vm.loadYtHome()
-            vm.loadHomeFeed()
+            vm.reloadHome()
         },
         state = pullRefreshState,
         modifier = Modifier
@@ -454,7 +465,13 @@ fun MusicScreen(
                     onSearchClick = onSearchClick,
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                     djLoading = djQuickMixLoading || djStarting,
-                    tvNavFocusRequester = tvNavFocusRequester,
+                    // When no remote music is available, the recovery action below is the
+                    // most useful landing point from the TV nav bar.
+                    tvNavFocusRequester = if (isTv && !hasRemoteHomeContent) {
+                        null
+                    } else {
+                        tvNavFocusRequester
+                    },
                     onDjClick = {
                         if (!djQuickMixLoading && !djStarting) {
                             showDj = true
@@ -496,8 +513,14 @@ fun MusicScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = { playerError = null; vm.search(query) }) {
-                            Text("Dismiss")
+                        TextButton(
+                            onClick = {
+                                playerError = null
+                                vm.clearError()
+                                if (query.isBlank()) vm.reloadHome() else vm.search(query)
+                            },
+                        ) {
+                            Text("Retry")
                         }
                     }
                 }
@@ -595,7 +618,7 @@ fun MusicScreen(
 
 
 
-                if (state.ytHome.sections.isEmpty() && state.homeFeed.isNotEmpty()) {
+                if (!hasYtHomeContent && state.homeFeed.isNotEmpty()) {
                     item { SectionTitle("Trending today") }
                     item {
                         LazyRow(
@@ -632,30 +655,18 @@ fun MusicScreen(
                             }
                         )
                     }
-                } else if ((state.ytHomeLoading && state.ytHome.sections.isEmpty()) || state.homeLoading) {
+                }
+                if (!hasRemoteHomeContent) {
                     item {
-                        Box(
-                            Modifier.fillMaxWidth().padding(40.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { CircularProgressIndicator() }
-                    }
-                } else {
-                    item {
-                        Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(
-                                Modifier.size(96.dp).clip(CircleShape).background(
-                                    Brush.linearGradient(
-                                        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)
-                                    )
-                                ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(40.dp))
-                            }
-                            Spacer(Modifier.height(16.dp))
-                            Text("Tap a vibe or search", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
-                            Text("Stream from YouTube · audio only", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        MusicHomeRecoveryState(
+                            loading = state.ytHomeLoading || state.homeLoading,
+                            failureSummary = homeFailureSummary,
+                            onReload = {
+                                isRefreshing = true
+                                vm.reloadHome()
+                            },
+                            focusRequester = if (isTv) tvNavFocusRequester else null,
+                        )
                     }
                 }
             }
@@ -808,6 +819,98 @@ private fun MusicRefreshBox(
             modifier = modifier,
             content = content,
         )
+    }
+}
+
+internal fun buildMusicHomeFailureSummary(
+    ytMusicFailure: String?,
+    fallbackFailure: String?,
+): String? {
+    val failures = buildList {
+        ytMusicFailure?.takeIf(String::isNotBlank)?.let {
+            add("YouTube Music: $it")
+        }
+        fallbackFailure?.takeIf(String::isNotBlank)?.let {
+            add("YouTube fallback: $it")
+        }
+    }
+    return failures.takeIf { it.isNotEmpty() }?.joinToString(separator = "\n")
+}
+
+@Composable
+private fun MusicHomeRecoveryState(
+    loading: Boolean,
+    failureSummary: String?,
+    onReload: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary),
+                    ),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(38.dp),
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(40.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            if (loading) "Loading music…" else "Music needs a refresh",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Text(
+            failureSummary
+                ?: "Reload, search, or sign in to YouTube Music on this TV to keep listening.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (failureSummary != null) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = onReload,
+            modifier = Modifier
+                .let { base ->
+                    if (focusRequester != null) base.focusRequester(focusRequester) else base
+                }
+                .tvFocusBorder(RoundedCornerShape(24.dp)),
+        ) {
+            Text("Reload music")
+        }
+        if (failureSummary != null) {
+            Text(
+                "If this is a separate TV device, sign in to YouTube Music here and try again.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
     }
 }
 

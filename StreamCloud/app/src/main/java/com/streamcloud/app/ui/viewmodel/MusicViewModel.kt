@@ -20,12 +20,14 @@ import com.streamcloud.app.data.newpipe.YtArtist
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.ytmusic.YtMusicHomeFeed
 import com.streamcloud.app.data.ytmusic.YtMusicHomeRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class SearchMode { All, Songs, Videos, Albums, Artists }
@@ -35,6 +37,7 @@ data class MusicState(
     val homeFeed: List<YtTrack> = emptyList(),
     val loading: Boolean = false,
     val homeLoading: Boolean = false,
+    val homeFeedFailure: String? = null,
     val error: String? = null,
     val nowPlayingUrl: String? = null,
     val nowPlayingTrack: YtTrack? = null,
@@ -83,6 +86,8 @@ class MusicViewModel(context: Context) : ViewModel() {
     private val followedArtistsDao: FollowedArtistDao = LibraryDb.get(context).followedArtists()
     private val settings = com.streamcloud.app.data.ServiceLocator.get(context).settings
     private var sleepJob: Job? = null
+    private var ytHomeJob: Job? = null
+    private var homeFeedJob: Job? = null
 
     private fun primeTracks(tracks: Iterable<YtTrack>) {
         com.streamcloud.app.data.ytmusic.YtMusicStreamResolver.prime(
@@ -143,12 +148,32 @@ class MusicViewModel(context: Context) : ViewModel() {
     }
 
     fun loadYtHome() {
-        viewModelScope.launch {
+        ytHomeJob?.cancel()
+        ytHomeJob = viewModelScope.launch {
             _state.update { it.copy(ytHomeLoading = true) }
-            val cookie = com.streamcloud.app.data.ServiceLocator.get(appContext)
-                .settings.ytMusicCookie.first()
-            val feed = YtMusicHomeRepository.load(cookie)
-            _state.update { it.copy(ytHome = feed, ytHomeLoading = false) }
+            val feed = try {
+                val cookie = com.streamcloud.app.data.ServiceLocator.get(appContext)
+                    .settings.ytMusicCookie.first()
+                YtMusicHomeRepository.load(cookie)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Log.w("MusicViewModel", "loadYtHome failed: ${error.message}", error)
+                YtMusicHomeFeed(
+                    failureReason = error.message ?: "Couldn't connect to YouTube Music.",
+                )
+            }
+            if (!isActive) return@launch
+            _state.update { current ->
+                // Do not erase a feed the user can still browse when a background refresh fails.
+                val keepExistingFeed = feed.sections.isEmpty() &&
+                    feed.failureReason != null &&
+                    current.ytHome.sections.isNotEmpty()
+                current.copy(
+                    ytHome = if (keepExistingFeed) current.ytHome else feed,
+                    ytHomeLoading = false,
+                )
+            }
             // Resolve the first visible songs while the user browses, not after the tap.
             // The resolver shares its cache with the playback service, so this turns common
             // home-feed starts into a cache hit without delaying the screen render.
@@ -164,17 +189,47 @@ class MusicViewModel(context: Context) : ViewModel() {
     }
 
     fun loadHomeFeed() {
-        viewModelScope.launch {
-            _state.update { it.copy(homeLoading = true) }
+        homeFeedJob?.cancel()
+        homeFeedJob = viewModelScope.launch {
+            _state.update { it.copy(homeLoading = true, homeFeedFailure = null) }
             try {
                 val feed = NewPipeRepository.homeFeed()
-                _state.update { it.copy(homeFeed = feed, homeLoading = false) }
+                if (!isActive) return@launch
+                _state.update {
+                    it.copy(
+                        homeFeed = feed,
+                        homeLoading = false,
+                        homeFeedFailure = if (feed.isEmpty()) {
+                            "No songs were returned by the YouTube fallback."
+                        } else {
+                            null
+                        },
+                    )
+                }
                 primeTracks(feed)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("MusicViewModel", "loadHomeFeed failed: ${e.message}", e)
-                _state.update { it.copy(homeLoading = false) }
+                if (!isActive) return@launch
+                _state.update {
+                    it.copy(
+                        homeLoading = false,
+                        homeFeedFailure = e.message ?: "Couldn't load the YouTube fallback.",
+                    )
+                }
             }
         }
+    }
+
+    /** Re-runs both independent home sources for touch refresh and TV retry actions. */
+    fun reloadHome() {
+        loadYtHome()
+        loadHomeFeed()
+    }
+
+    fun clearError() {
+        _state.update { it.copy(error = null) }
     }
 
     fun setSearchMode(mode: SearchMode) {

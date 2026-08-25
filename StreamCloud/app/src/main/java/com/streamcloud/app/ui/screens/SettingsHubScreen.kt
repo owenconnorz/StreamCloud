@@ -112,6 +112,7 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.updater.UpdateChecker
 import com.streamcloud.app.data.updater.UpdateInfo
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import kotlinx.coroutines.flow.first
@@ -153,7 +154,15 @@ private enum class SettingsPage {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit = {}, onSwitchProfile: () -> Unit = {}, onOpenDownloads: () -> Unit = {}, tvNavFocusRequester: FocusRequester? = null) {
+fun SettingsHubScreen(
+    onOpenPlugins: () -> Unit,
+    onOpenCollections: () -> Unit = {},
+    onSwitchProfile: () -> Unit = {},
+    onOpenDownloads: () -> Unit = {},
+    onSubPageChanged: (Boolean) -> Unit = {},
+    backRequest: Int = 0,
+    tvNavFocusRequester: FocusRequester? = null,
+) {
     val context = LocalContext.current
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
@@ -369,8 +378,18 @@ fun SettingsHubScreen(onOpenPlugins: () -> Unit, onOpenCollections: () -> Unit =
     val discordRpcError  by DiscordRpcService.errorMessage.collectAsState()
 
     var currentPage by remember { mutableStateOf<SettingsPage?>(null) }
+    var handledBackRequest by remember { mutableStateOf(backRequest) }
 
     BackHandler(enabled = currentPage != null) { currentPage = null }
+    LaunchedEffect(currentPage) {
+        onSubPageChanged(currentPage != null)
+    }
+    LaunchedEffect(backRequest) {
+        if (backRequest != handledBackRequest) {
+            handledBackRequest = backRequest
+            currentPage = null
+        }
+    }
 
 
     AnimatedContent(
@@ -2274,7 +2293,8 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
+            .statusBarsPadding()
+            .tvFocusGroup(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 100.dp),
     ) {
         // ── Title ──────────────────────────────────────────────────────────
@@ -2302,8 +2322,8 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    // TV nav D-pad Down entry point — focuses the search bar so the user can
-                    // filter settings or press Down again to reach individual setting rows.
+                    // Phone/tablet search owns the entry focus when visible. TV attaches the
+                    // same requester to the first real setting row below.
                     .let { if (tvNavFocusRequester != null) it.focusRequester(tvNavFocusRequester) else it }
                     .padding(bottom = 22.dp),
                 colors = OutlinedTextFieldDefaults.colors(

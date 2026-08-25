@@ -143,7 +143,14 @@ fun MoviesScreen(
     val firstStremioRowKey = state.stremioRows
         .firstOrNull { it.items.isNotEmpty() }
         ?.rowKey
+    val hasBrowseContent = state.continueWatching.isNotEmpty() ||
+        firstCollectionRowId != null ||
+        firstStremioRowKey != null ||
+        (state.showHeroSection && state.heroBanner.isNotEmpty()) ||
+        state.pinnedCollections.any { it.folders.isNotEmpty() } ||
+        state.csPluginRows.any { it.items.isNotEmpty() }
     val startupFocusTarget = when {
+        state.error != null || !hasBrowseContent -> "recovery"
         state.continueWatching.isNotEmpty() -> "continue"
         firstCollectionRowId != null -> "collection"
         firstStremioRowKey != null -> "stremio"
@@ -151,8 +158,15 @@ fun MoviesScreen(
         else -> null
     }
     var startupFocusRequested by remember { mutableStateOf(false) }
+    var recoveryHeldStartupFocus by remember { mutableStateOf(false) }
 
     LaunchedEffect(isTv, initialFocusEnabled, startupFocusTarget) {
+        if (startupFocusTarget != "recovery" && recoveryHeldStartupFocus) {
+            // The loading/error retry card can disappear as content arrives. Give the first
+            // durable card or hero a fresh focus handoff instead of leaving the remote stranded.
+            startupFocusRequested = false
+            recoveryHeldStartupFocus = false
+        }
         if (
             !isTv ||
             !initialFocusEnabled ||
@@ -167,9 +181,10 @@ fun MoviesScreen(
         // the node is attached and requestFocus() succeeds (up to ~2 s).
         repeat(10) {
             kotlinx.coroutines.delay(200L)
-            val ok = runCatching { initialFocusRequester.requestFocus() }.isSuccess
+            val ok = runCatching { initialFocusRequester.requestFocus() }.getOrDefault(false)
             if (ok) {
                 startupFocusRequested = true
+                recoveryHeldStartupFocus = startupFocusTarget == "recovery"
                 return@LaunchedEffect
             }
         }
@@ -239,9 +254,34 @@ fun MoviesScreen(
                 }
                 state.error?.let {
                     item {
-                        Text(
-                            it, color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(20.dp),
+                        MoviesRecoveryCard(
+                            title = "Movies couldn't load",
+                            detail = it,
+                            action = "Retry",
+                            onAction = vm::loadDiscover,
+                            initialFocusRequester = if (startupFocusTarget == "recovery") {
+                                initialFocusRequester
+                            } else {
+                                null
+                            },
+                            navFocusRequester = tvNavHeroFocus,
+                        )
+                    }
+                }
+                if (state.loading && !hasBrowseContent && state.error == null) {
+                    item {
+                        MoviesRecoveryCard(
+                            title = "Loading movies…",
+                            detail = "Fetching your movie collections. You can retry if this takes too long.",
+                            action = "Reload",
+                            onAction = vm::loadDiscover,
+                            initialFocusRequester = if (startupFocusTarget == "recovery") {
+                                initialFocusRequester
+                            } else {
+                                null
+                            },
+                            navFocusRequester = tvNavHeroFocus,
+                            showProgress = true,
                         )
                     }
                 }
@@ -606,13 +646,19 @@ fun MoviesScreen(
                         }
                     }
                 }
-                if (state.collections.isEmpty() && state.stremioRows.isEmpty() && !state.loading) {
+                if (!hasBrowseContent && !state.loading && state.error == null) {
                     item {
-                        Text(
-                            "No collections enabled. Open Settings → Home collections to pick rows, or install a Stremio addon.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(20.dp),
+                        MoviesRecoveryCard(
+                            title = "No movie collections yet",
+                            detail = "Choose Home collections in Settings or install a Stremio addon, then reload.",
+                            action = "Reload movies",
+                            onAction = vm::loadDiscover,
+                            initialFocusRequester = if (startupFocusTarget == "recovery") {
+                                initialFocusRequester
+                            } else {
+                                null
+                            },
+                            navFocusRequester = tvNavHeroFocus,
                         )
                     }
                 }
@@ -853,6 +899,54 @@ private fun HeroPager(
                 }
             }
             Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun MoviesRecoveryCard(
+    title: String,
+    detail: String,
+    action: String,
+    onAction: () -> Unit,
+    initialFocusRequester: FocusRequester? = null,
+    navFocusRequester: FocusRequester? = null,
+    showProgress: Boolean = false,
+) {
+    var actionModifier = Modifier
+    if (initialFocusRequester != null) {
+        actionModifier = actionModifier.focusRequester(initialFocusRequester)
+    }
+    if (navFocusRequester != null) {
+        actionModifier = actionModifier.focusRequester(navFocusRequester)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 28.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (showProgress) {
+            CircularProgressIndicator(modifier = Modifier.padding(bottom = 16.dp))
+        }
+        Text(
+            title,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Text(
+            detail,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Button(
+            onClick = onAction,
+            modifier = actionModifier
+                .padding(top = 18.dp)
+                .tvFocusBorder(RoundedCornerShape(24.dp)),
+        ) {
+            Text(action)
         }
     }
 }

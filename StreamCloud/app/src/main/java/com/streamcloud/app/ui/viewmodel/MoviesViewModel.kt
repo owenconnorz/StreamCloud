@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 const val SOURCE_BUILTIN = "builtin"
@@ -131,6 +132,7 @@ class MoviesViewModel(
 
     /** In-memory cache: query → (movies, tvShows). Cleared when VM is cleared. */
     private val tmdbCache = HashMap<String, Pair<List<TmdbMovie>, List<TmdbMovie>>>()
+    private var discoverJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -231,7 +233,8 @@ class MoviesViewModel(
     }
 
     fun loadDiscover() {
-        viewModelScope.launch {
+        discoverJob?.cancel()
+        discoverJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             try {
                 val key = sl.tmdbApiKey
@@ -256,9 +259,13 @@ class MoviesViewModel(
                     }
                 }.awaitAll().filterNotNull()
 
+                if (!isActive) return@launch
                 applyCollectionRows(rows, loading = false)
                 refreshStremioRows(_state.value.installedStremioAddons)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!isActive) return@launch
                 _state.update { it.copy(error = "Failed to load: ${e.message}", loading = false) }
             }
         }

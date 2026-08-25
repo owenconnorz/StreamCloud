@@ -78,7 +78,19 @@ object YtMusicHomeRepository {
                     token = page.findContinuationToken()
                 }
             }
-            YtMusicHomeFeed(sections = sections)
+            val hasPlayableRail = sections.any {
+                when (it) {
+                    is HomeSection.PlaylistRail -> it.items.isNotEmpty()
+                    is HomeSection.SongRail -> it.items.isNotEmpty()
+                    is HomeSection.MoodChips -> false
+                }
+            }
+            YtMusicHomeFeed(
+                sections = sections,
+                failureReason = if (hasPlayableRail) null else {
+                    "YouTube Music returned no playable sections."
+                },
+            )
         } catch (e: Throwable) {
             Log.w(TAG, "home feed crashed", e)
             YtMusicHomeFeed(failureReason = e.message)

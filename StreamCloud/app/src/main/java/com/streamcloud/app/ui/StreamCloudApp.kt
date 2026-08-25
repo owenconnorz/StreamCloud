@@ -154,6 +154,8 @@ fun StreamCloudApp() {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+    var settingsHasSubPage by remember { mutableStateOf(false) }
+    var settingsBackRequest by remember { mutableStateOf(0) }
     val isMediaRoute = currentRoute != null && (
         currentRoute == Tab.Movies.route ||
         currentRoute.startsWith("cloudstream") ||
@@ -361,14 +363,18 @@ fun StreamCloudApp() {
                     if (isTv && showRail && event.type == KeyEventType.KeyDown) {
                         when {
                             event.key == Key.Menu -> {
-                                try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
-                                navScrollToTopVersion++
-                                true
+                                val moved = runCatching {
+                                    firstTvNavFocus.requestFocus()
+                                }.getOrDefault(false)
+                                if (moved) navScrollToTopVersion++
+                                moved
                             }
                             event.key == Key.DirectionUp && firstMovieFocused -> {
-                                try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
-                                navScrollToTopVersion++
-                                true
+                                val moved = runCatching {
+                                    firstTvNavFocus.requestFocus()
+                                }.getOrDefault(false)
+                                if (moved) navScrollToTopVersion++
+                                moved
                             }
                             else -> false
                         }
@@ -405,12 +411,10 @@ fun StreamCloudApp() {
                     .fillMaxSize()
                     .hazeSource(hazeState)
                     .nestedScroll(navScrollConnection)
-                    .pointerInput(swipeableTabs, currentRoute) {
-                        // Only activate on main tab screens (not sub-screens / settings)
-                        if (currentRoute == null ||
-                            swipeableTabs.none { it.route == currentRoute }) return@pointerInput
-
+                    .pointerInput(swipeableTabs, currentRoute, settingsHasSubPage) {
                         val edgePx = 52.dp.toPx()
+                        val isRootTab = swipeableTabs.any { it.route == currentRoute } &&
+                            !(currentRoute == Tab.Settings.route && settingsHasSubPage)
 
                         awaitEachGesture {
                             // Wait for first finger down — don't require it to be unconsumed
@@ -440,6 +444,20 @@ fun StreamCloudApp() {
                             if (kotlin.math.abs(dx) < kotlin.math.abs(dy) * 2f) return@awaitEachGesture
                             if (kotlin.math.abs(dx) < 72.dp.toPx()) return@awaitEachGesture
 
+                            // A right-edge swipe is always a one-level back gesture
+                            // while inside a nested destination. Do this before any
+                            // tab handling so playlists, details, searches, and
+                            // settings sub-pages cannot jump to a tab home.
+                            if (!isRootTab && dx > 0f) {
+                                if (currentRoute == Tab.Settings.route && settingsHasSubPage) {
+                                    settingsBackRequest++
+                                } else if (nav.previousBackStackEntry != null) {
+                                    nav.popBackStack()
+                                }
+                                return@awaitEachGesture
+                            }
+
+                            if (!isRootTab) return@awaitEachGesture
                             val idx = swipeableTabs.indexOfFirst { it.route == currentRoute }
                             if (idx < 0) return@awaitEachGesture
 
@@ -1225,6 +1243,8 @@ fun StreamCloudApp() {
                             onOpenPlugins     = { nav.navigate("plugins") },
                             onOpenCollections = { nav.navigate("collections") },
                             onSwitchProfile   = { showProfilePicker = true },
+                            onSubPageChanged  = { settingsHasSubPage = it },
+                            backRequest       = settingsBackRequest,
                             tvNavFocusRequester = tvNavHeroFocus,
                         )
                     }
@@ -1473,11 +1493,12 @@ private fun TvNetflixTopNav(
                         if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                         when (event.key) {
                             Key.DirectionDown -> {
-                                // Try direct requester first (crosses NavHost focus boundary).
-                                // Fall back to spatial search if the hero isn't attached yet.
-                                try { contentFocusRequester.requestFocus() }
-                                catch (_: Exception) { focusManager.moveFocus(FocusDirection.Down) }
-                                true
+                                // Cross the NavHost focus boundary directly when possible.
+                                // When a screen has no hero/primary control yet, fall back to
+                                // spatial navigation and do not consume a failed move.
+                                runCatching {
+                                    contentFocusRequester.requestFocus()
+                                }.getOrDefault(false) || focusManager.moveFocus(FocusDirection.Down)
                             }
                             // Nothing focusable above the nav bar — consume Up.
                             Key.DirectionUp -> true

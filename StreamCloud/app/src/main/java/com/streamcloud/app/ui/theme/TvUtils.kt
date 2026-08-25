@@ -123,10 +123,10 @@ fun Modifier.tvDpadRepeatThrottle(
         }
 
         lastRepeatAt[0] = now
+        // Let a boundary press fall through when Compose cannot find another
+        // focus target. Parent surfaces can then handle the handoff (for
+        // example, returning from a rail to the top TV navigation) instead of
+        // trapping the remote at the edge of a nested list.
         focusManager.moveFocus(direction)
-        // Repeated D-pad events must never fall through to a LazyColumn when
-        // focus reaches an edge. Otherwise the focus search and list scrolling
-        // run together, causing skipped rows and noticeable input lag.
-        true
     }
 }
