@@ -49,6 +49,9 @@ import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.launch
 
+internal fun shouldExpandMusicSearchBar(initialQuery: String): Boolean =
+    initialQuery.isNotBlank()
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MusicSearchScreen(
@@ -69,8 +72,11 @@ fun MusicSearchScreen(
     var showAllSongs    by remember { mutableStateOf(false) }
     var showAllArtists  by remember { mutableStateOf(false) }
     var showAllAlbums   by remember { mutableStateOf(false) }
-    // Collapsed top bar: starts expanded if opening with an initial query
-    var searchBarVisible by remember { mutableStateOf(initialQuery.isNotBlank()) }
+    // All layouts start compact; tapping the search icon reveals the text field.
+    // A navigation handoff that supplied a query opens the field immediately.
+    var searchBarVisible by remember(initialQuery) {
+        mutableStateOf(shouldExpandMusicSearchBar(initialQuery))
+    }
 
     // Reset view-all when query changes
     LaunchedEffect(query) { showAllSongs = false; showAllArtists = false; showAllAlbums = false }

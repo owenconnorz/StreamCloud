@@ -1,23 +1,10 @@
 package com.streamcloud.app.ui.screens
 
 import com.streamcloud.app.data.ytmusic.MoodChip
-import com.streamcloud.app.ui.theme.UiFormFactor
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MusicScreenTest {
-
-    @Test
-    fun mobileMusicHomeUsesInlineSearch() {
-        assertTrue(isInlineMusicSearch(UiFormFactor.Mobile))
-    }
-
-    @Test
-    fun largerMusicLayoutsKeepSearchAsHeaderAction() {
-        assertEquals(false, isInlineMusicSearch(UiFormFactor.Tablet))
-        assertEquals(false, isInlineMusicSearch(UiFormFactor.Tv))
-    }
 
     @Test
     fun quickChipsKeepRemoteLabelsAndFillMissingCategories() {

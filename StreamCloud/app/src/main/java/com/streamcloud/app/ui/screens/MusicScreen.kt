@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -92,9 +91,6 @@ internal fun buildMusicQuickChips(remoteChips: List<MoodChip>): List<MoodChip> =
         .distinctBy { it.label.trim().lowercase() }
         .take(8)
 
-internal fun isInlineMusicSearch(formFactor: UiFormFactor): Boolean =
-    formFactor == UiFormFactor.Mobile
-
 private const val DJ_ANNOUNCEMENT_INTERVAL = 2
 
 private data class PendingDjAnnouncement(
@@ -151,9 +147,6 @@ fun MusicScreen(
         DjVoicePreset.entries.firstOrNull { it.name == djVoicePresetName } ?: DjVoicePreset.BrightHost
     }
     val djNarrator = remember(context) { DjNarrator(context.applicationContext) }
-    val formFactor = LocalUiFormFactor.current
-    val isMobile = isInlineMusicSearch(formFactor)
-    val mobileSearchFocusRequester = remember { FocusRequester() }
     val quickChips = remember(state.ytHome.sections) {
         buildMusicQuickChips(
             state.ytHome.sections
@@ -184,17 +177,6 @@ fun MusicScreen(
     var pendingDjAnnouncement by remember { mutableStateOf<PendingDjAnnouncement?>(null) }
     val currentDjSession = rememberUpdatedState(activeDjSession)
     val currentDjVoicePreset = rememberUpdatedState(djVoicePreset)
-
-    LaunchedEffect(isMobile) {
-        if (isMobile) runCatching { mobileSearchFocusRequester.requestFocus() }
-    }
-    LaunchedEffect(query) {
-        vm.fetchSuggestions(query)
-        if (query.length >= 2) {
-            kotlinx.coroutines.delay(400)
-            vm.search(query)
-        }
-    }
 
     fun cancelDjAnnouncement() {
         // This also cancels an initial introduction. It is safe when nothing is speaking and
@@ -462,15 +444,8 @@ fun MusicScreen(
         ) {
             item {
                 MusicHeader(
-                    isMobile = isMobile,
-                    query = query,
-                    onQueryChange = { query = it },
-                    onSubmitSearch = { vm.search(it) },
-                    searchFocusRequester = mobileSearchFocusRequester,
                     quickChips = quickChips,
-                    onQuickChipClick = { label ->
-                        query = label
-                    },
+                    onQuickChipClick = onSearchWithQuery,
                     onProfileClick = onProfileClick,
                     onHistoryClick = { showHistory = true },
                     onSearchClick = onSearchClick,
@@ -566,7 +541,7 @@ fun MusicScreen(
                 state.ytHome.sections.forEachIndexed { idx, section ->
                     when (section) {
                         is HomeSection.MoodChips -> Unit
-                        is com.streamcloud.app.data.ytmusic.HomeSection.PlaylistRail -> {
+                        is HomeSection.PlaylistRail -> {
                             item(key = "yt_prail_title_$idx") { SectionTitle(section.title) }
                             item(key = "yt_prail_$idx") {
                                 LazyRow(
@@ -582,7 +557,7 @@ fun MusicScreen(
                                 }
                             }
                         }
-                        is com.streamcloud.app.data.ytmusic.HomeSection.SongRail -> {
+                        is HomeSection.SongRail -> {
                             item(key = "yt_srail_title_$idx") { SectionTitle(section.title) }
                             item(key = "yt_srail_${idx}") {
                                 BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -862,11 +837,6 @@ private fun playTrack(player: androidx.media3.common.Player, track: YtTrack, aud
 
 @Composable
 private fun MusicHeader(
-    isMobile: Boolean,
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onSubmitSearch: (String) -> Unit,
-    searchFocusRequester: FocusRequester,
     quickChips: List<MoodChip>,
     onQuickChipClick: (String) -> Unit,
     onProfileClick: () -> Unit,
@@ -882,64 +852,25 @@ private fun MusicHeader(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = if (isMobile) 12.dp else 20.dp, top = 8.dp, end = 4.dp, bottom = 4.dp),
+            .padding(start = 20.dp, top = 8.dp, end = 4.dp, bottom = 4.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (isMobile) {
-                TextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(searchFocusRequester),
-                    placeholder = {
-                        Text(
-                            "Search music",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = null)
-                    },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = { onQueryChange("") }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear search")
-                            }
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(
-                        onSearch = { onSubmitSearch(query) },
-                    ),
-                    shape = RoundedCornerShape(26.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                )
-            } else {
-                Text(
-                    "Music",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                MusicHeaderAction(
-                    icon = Icons.Default.Search,
-                    contentDescription = "Search music",
-                    focusRequester = tvNavFocusRequester,
-                    onClick = onSearchClick,
-                )
-            }
+            Text(
+                "Music",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            MusicHeaderAction(
+                icon = Icons.Default.Search,
+                contentDescription = "Search music",
+                focusRequester = tvNavFocusRequester,
+                onClick = onSearchClick,
+            )
             MusicHeaderAction(
                 icon = Icons.Default.AutoAwesome,
                 contentDescription = "Play a personalized StreamCloud DJ mix; hold for DJ options",
