@@ -91,6 +91,11 @@ internal fun buildMusicQuickChips(remoteChips: List<MoodChip>): List<MoodChip> =
         .distinctBy { it.label.trim().lowercase() }
         .take(8)
 
+internal fun buildCombinedMusicSuggestions(quickChips: List<MoodChip>): List<String> =
+    (quickChips.map { it.label } + SUGGESTIONS)
+        .filter { it.isNotBlank() }
+        .distinctBy { it.trim().lowercase() }
+
 private const val DJ_ANNOUNCEMENT_INTERVAL = 2
 
 private data class PendingDjAnnouncement(
@@ -444,8 +449,6 @@ fun MusicScreen(
         ) {
             item {
                 MusicHeader(
-                    quickChips = quickChips,
-                    onQuickChipClick = onSearchWithQuery,
                     onProfileClick = onProfileClick,
                     onHistoryClick = { showHistory = true },
                     onSearchClick = onSearchClick,
@@ -502,7 +505,12 @@ fun MusicScreen(
 
 
             if (query.isBlank()) {
-                item { SuggestionsRow(onPick = { query = it; vm.search(it) }) }
+                item {
+                    SuggestionsRow(
+                        quickChips = quickChips,
+                        onPick = { query = it; vm.search(it) },
+                    )
+                }
 
 
                 if (state.liked.isNotEmpty()) {
@@ -837,8 +845,6 @@ private fun playTrack(player: androidx.media3.common.Player, track: YtTrack, aud
 
 @Composable
 private fun MusicHeader(
-    quickChips: List<MoodChip>,
-    onQuickChipClick: (String) -> Unit,
     onProfileClick: () -> Unit,
     onHistoryClick: () -> Unit,
     onSearchClick: () -> Unit = {},
@@ -887,12 +893,6 @@ private fun MusicHeader(
                 icon = Icons.Default.TrendingUp,
                 contentDescription = "Trending",
                 onClick = onTrendingClick,
-            )
-        }
-        if (quickChips.isNotEmpty()) {
-            YtMoodChipRow(
-                chips = quickChips,
-                onChipClick = onQuickChipClick,
             )
         }
     }
@@ -1094,14 +1094,17 @@ private fun SuggestionListRow(text: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SuggestionsRow(onPick: (String) -> Unit) {
+private fun SuggestionsRow(
+    quickChips: List<MoodChip>,
+    onPick: (String) -> Unit,
+) {
     Column {
         SectionTitle("Trending searches")
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(SUGGESTIONS) { s ->
+            items(buildCombinedMusicSuggestions(quickChips)) { s ->
                 SuggestionChip(label = s, onClick = { onPick(s) })
             }
         }
@@ -1444,24 +1447,6 @@ private fun LibraryRow(
             null,
             tint = MaterialTheme.colorScheme.primary,
         )
-    }
-}
-
-@Composable
-private fun YtMoodChipRow(
-    chips: List<com.streamcloud.app.data.ytmusic.MoodChip>,
-    onChipClick: (String) -> Unit = {},
-) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(chips, key = { "chip_${it.label}" }) { chip ->
-            AssistChip(
-                onClick = { onChipClick(chip.label) },
-                label = { Text(chip.label) },
-            )
-        }
     }
 }
 
