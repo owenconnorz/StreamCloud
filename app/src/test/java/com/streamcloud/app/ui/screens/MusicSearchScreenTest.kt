@@ -1,6 +1,5 @@
 package com.streamcloud.app.ui.screens
 
-import com.streamcloud.app.ui.theme.UiFormFactor
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -8,18 +7,17 @@ import org.junit.Test
 class MusicSearchScreenTest {
 
     @Test
-    fun phoneSearchOpensAsAnEditableField() {
-        assertTrue(shouldExpandMusicSearchBar("", UiFormFactor.Mobile))
+    fun phoneSearchStartsWithCompactSearchAction() {
+        assertFalse(shouldExpandMusicSearchBar(""))
     }
 
     @Test
-    fun largerLayoutsKeepCompactSearchWithoutHandoffQuery() {
-        assertFalse(shouldExpandMusicSearchBar("", UiFormFactor.Tablet))
-        assertFalse(shouldExpandMusicSearchBar("", UiFormFactor.Tv))
+    fun compactSearchStaysHiddenWithoutHandoffQuery() {
+        assertFalse(shouldExpandMusicSearchBar(""))
     }
 
     @Test
     fun handoffQueryAlwaysOpensTheField() {
-        assertTrue(shouldExpandMusicSearchBar("late night jazz", UiFormFactor.Tv))
+        assertTrue(shouldExpandMusicSearchBar("late night jazz"))
     }
 }
