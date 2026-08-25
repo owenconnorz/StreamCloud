@@ -181,7 +181,10 @@ fun MoviesScreen(
         // the node is attached and requestFocus() succeeds (up to ~2 s).
         repeat(10) {
             kotlinx.coroutines.delay(200L)
-            val ok = runCatching { initialFocusRequester.requestFocus() }.getOrDefault(false)
+            val ok = runCatching {
+                initialFocusRequester.requestFocus()
+                true
+            }.getOrDefault(false)
             if (ok) {
                 startupFocusRequested = true
                 recoveryHeldStartupFocus = startupFocusTarget == "recovery"
@@ -913,7 +916,7 @@ private fun MoviesRecoveryCard(
     navFocusRequester: FocusRequester? = null,
     showProgress: Boolean = false,
 ) {
-    var actionModifier = Modifier
+    var actionModifier: Modifier = Modifier
     if (initialFocusRequester != null) {
         actionModifier = actionModifier.focusRequester(initialFocusRequester)
     }

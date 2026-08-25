@@ -365,6 +365,7 @@ fun StreamCloudApp() {
                             event.key == Key.Menu -> {
                                 val moved = runCatching {
                                     firstTvNavFocus.requestFocus()
+                                    true
                                 }.getOrDefault(false)
                                 if (moved) navScrollToTopVersion++
                                 moved
@@ -372,6 +373,7 @@ fun StreamCloudApp() {
                             event.key == Key.DirectionUp && firstMovieFocused -> {
                                 val moved = runCatching {
                                     firstTvNavFocus.requestFocus()
+                                    true
                                 }.getOrDefault(false)
                                 if (moved) navScrollToTopVersion++
                                 moved
@@ -1498,6 +1500,7 @@ private fun TvNetflixTopNav(
                                 // spatial navigation and do not consume a failed move.
                                 runCatching {
                                     contentFocusRequester.requestFocus()
+                                    true
                                 }.getOrDefault(false) || focusManager.moveFocus(FocusDirection.Down)
                             }
                             // Nothing focusable above the nav bar — consume Up.
