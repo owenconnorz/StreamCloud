@@ -44,13 +44,17 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.components.SongRowMenu
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.launch
 
-internal fun shouldExpandMusicSearchBar(initialQuery: String): Boolean =
-    initialQuery.isNotBlank()
+internal fun shouldExpandMusicSearchBar(
+    initialQuery: String,
+    formFactor: UiFormFactor,
+): Boolean = initialQuery.isNotBlank() || formFactor == UiFormFactor.Mobile
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,16 +70,17 @@ fun MusicSearchScreen(
     val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
     val state by vm.state.collectAsState()
     val searchHistory by sl.settings.musicSearchHistory.collectAsState(initial = emptyList())
+    val formFactor = LocalUiFormFactor.current
     var query by remember { mutableStateOf(initialQuery) }
 
     // "View all" toggles per section
     var showAllSongs    by remember { mutableStateOf(false) }
     var showAllArtists  by remember { mutableStateOf(false) }
     var showAllAlbums   by remember { mutableStateOf(false) }
-    // All layouts start compact; tapping the search icon reveals the text field.
-    // A navigation handoff that supplied a query opens the field immediately.
-    var searchBarVisible by remember(initialQuery) {
-        mutableStateOf(shouldExpandMusicSearchBar(initialQuery))
+    // Phones open directly into text entry from the Music home search action.
+    // Larger layouts stay compact unless a navigation handoff supplied a query.
+    var searchBarVisible by remember(initialQuery, formFactor) {
+        mutableStateOf(shouldExpandMusicSearchBar(initialQuery, formFactor))
     }
 
     // Reset view-all when query changes
