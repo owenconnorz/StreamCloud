@@ -186,7 +186,7 @@ private fun RedGifsPostCard(item: AdultItem, isActive: Boolean = false, onPlayCl
                 tmdbId    = wid,
                 title     = item.title,
                 posterUrl = item.thumbnail,
-                mediaType = "reddit",
+                mediaType = "redgifs",
                 csPlugin  = "redgifs",
                 csUrl     = item.streamUrl ?: item.previewImage ?: "",
             ))

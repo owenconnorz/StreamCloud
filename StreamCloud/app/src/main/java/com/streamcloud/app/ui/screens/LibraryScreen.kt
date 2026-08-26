@@ -102,6 +102,7 @@ fun LibraryScreen(
     onPlayLocalFile: (filePath: String, title: String, tmdbId: Long, mediaType: String) -> Unit = { _, _, _, _ -> },
     onTvClick: (Long) -> Unit = {},
     onCsClick: (plugin: String, url: String, title: String, poster: String?) -> Unit = { _, _, _, _ -> },
+    onDirectMediaClick: (url: String, title: String) -> Unit = { _, _ -> },
     tvNavFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
@@ -460,6 +461,7 @@ fun LibraryScreen(
                                         when (entry.mediaType) {
                                             "tv" -> onTvClick(entry.tmdbId)
                                             "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
+                                            "reddit", "redgifs" -> onDirectMediaClick(entry.csUrl, entry.title)
                                             else -> onMovieClick(entry.tmdbId)
                                         }
                                     }

@@ -1003,6 +1003,13 @@ fun StreamCloudApp() {
                             val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("cs-detail/$p/$u/$n/$po")
                         },
+                         onDirectMediaClick = { itemUrl, itemName ->
+                             if (itemUrl.isNotBlank()) {
+                                 val u = URLEncoder.encode(itemUrl, "UTF-8")
+                                 val n = URLEncoder.encode(itemName, "UTF-8")
+                                 nav.navigate("player/url/$u/$n")
+                             }
+                         },
                     )
                 }
                 composable(
