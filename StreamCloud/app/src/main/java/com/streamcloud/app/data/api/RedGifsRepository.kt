@@ -31,8 +31,13 @@ object RedGifsRepository {
             .url("$BASE/v2/auth/temporary")
             .header("User-Agent", USER_AGENT)
             .build()
-        val body = client.newCall(req).execute().body?.string()
-            ?: throw Exception("Empty token response")
+        val body = client.newCall(req).execute().use { response ->
+            val value = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw Exception("RedGifs token error ${response.code}")
+            }
+            value.takeIf(String::isNotBlank) ?: throw Exception("Empty token response")
+        }
         val token = JSONObject(body).getString("token")
         cachedToken  = token
         tokenExpiry  = now + 50 * 60 * 1000L // 50-minute cache (tokens last 1h)
@@ -40,30 +45,43 @@ object RedGifsRepository {
     }
 
     suspend fun fetchTrending(page: Int = 1, count: Int = 20): Pair<List<AdultItem>, Boolean> =
-        doFetch("$BASE/v2/gifs/trending?count=$count&page=$page", page)
+        doFetch("$BASE/v2/gifs/search?order=top7&count=$count&page=$page&type=g", page)
 
     suspend fun fetchTag(tag: String, page: Int = 1, count: Int = 20): Pair<List<AdultItem>, Boolean> {
         val encoded = URLEncoder.encode(tag, "UTF-8")
-        return doFetch("$BASE/v2/gifs/search?search_text=$encoded&count=$count&page=$page", page)
+        return doFetch(
+            "$BASE/v2/gifs/search?type=g&order=trending&count=$count&page=$page&tags=$encoded",
+            page,
+        )
     }
 
     private suspend fun doFetch(url: String, page: Int): Pair<List<AdultItem>, Boolean> =
         withContext(Dispatchers.IO) {
-            val tok = getToken()
-            val req = Request.Builder()
-                .url(url)
-                .header("Authorization", "Bearer $tok")
-                .header("User-Agent", USER_AGENT)
-                .build()
+            fun request(token: String) = client.newCall(
+                Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Bearer $token")
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "application/json")
+                    .header("Referer", "https://www.redgifs.com/")
+                    .build(),
+            ).execute()
 
-            val resp = client.newCall(req).execute()
-            val bodyStr = resp.body?.string() ?: throw Exception("Empty response")
-            if (!resp.isSuccessful) {
-                if (resp.code == 401) cachedToken = null
-                throw Exception("RedGifs API error ${resp.code}")
+            var response = request(getToken())
+            if (response.code == 401) {
+                response.close()
+                cachedToken = null
+                tokenExpiry = 0L
+                response = request(getToken())
             }
-
-            val json      = JSONObject(bodyStr)
+            val bodyStr = response.use { resp ->
+                val value = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    throw Exception("RedGifs API error ${resp.code}")
+                }
+                value.takeIf(String::isNotBlank) ?: throw Exception("Empty response")
+            }
+            val json = JSONObject(bodyStr)
             val gifsArr   = json.optJSONArray("gifs") ?: return@withContext emptyList<AdultItem>() to false
             val totalPages = json.optInt("pages", 1)
             val hasMore   = page < totalPages

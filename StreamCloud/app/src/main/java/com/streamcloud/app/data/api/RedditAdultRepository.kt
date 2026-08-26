@@ -1,18 +1,16 @@
 package com.streamcloud.app.data.api
 
-import android.util.Base64
-import com.streamcloud.app.data.network.Net
+import android.webkit.CookieManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
-import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
-import org.json.JSONObject
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.util.concurrent.TimeUnit
 
 /** Thrown when a subreddit is private or quarantined. */
@@ -42,22 +40,12 @@ data class AdultItem(
 enum class AdultSource(val label: String) {
     Eporner("Eporner"),
     Reddit("Reddit"),
-    Redtube("PornHub"),
     RedGifs("RedGifs"),
 }
 
 object RedditAdultRepository {
 
-    // ── Reddit OAuth2 client credentials (same app used in AioWeb) ──────────
-    private const val CLIENT_ID     = "KvLG0eQTdPDIf_Buo-gkww"
-    private const val CLIENT_SECRET = "BCRKFdWhHJ_Ckifv-guBVixUfQA__w"
     private const val USER_AGENT    = "android:com.streamcloud.app:v1.0.0 (by /u/streamcloud_app)"
-    /** Replit backend URL — proxies Reddit API from a server IP to bypass residential IP restrictions. */
-    private const val BACKEND_BASE  = "https://3ba8c68a-5209-427d-98b0-525c8db37c04-00-2k42ymh9izy12.picard.replit.dev:8000"
-
-    // In-memory token cache — same pattern as AioWeb's cachedToken
-    @Volatile private var cachedToken: String? = null
-    @Volatile private var tokenExpiry: Long    = 0L
 
     // Dedicated Json parser: coerceInputValues handles null for non-nullable fields
     // (Reddit sometimes sends "is_gallery": null, "is_video": null, etc.)
@@ -77,89 +65,80 @@ object RedditAdultRepository {
             .build()
     }
 
-    /** Fetch (or return cached) an application-only Bearer token. */
-    private suspend fun getAccessToken(): String = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-        cachedToken?.takeIf { tokenExpiry > now }?.let { return@withContext it }
-
-        val credentials = Base64.encodeToString(
-            "$CLIENT_ID:$CLIENT_SECRET".toByteArray(Charsets.UTF_8),
-            Base64.NO_WRAP,
-        )
-        val body = FormBody.Builder()
-            .add("grant_type", "client_credentials")
-            .build()
-        val request = Request.Builder()
-            .url("https://www.reddit.com/api/v1/access_token")
-            .post(body)
-            .header("Authorization", "Basic $credentials")
-            .header("User-Agent", USER_AGENT)
-            .build()
-
-        val response     = oauthClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: throw Exception("Empty token response")
-        if (!response.isSuccessful) throw Exception("Token fetch failed: ${response.code}")
-
-        val json      = JSONObject(responseBody)
-        val token     = json.getString("access_token")
-        val expiresIn = json.optLong("expires_in", 3600L)
-
-        cachedToken = token
-        tokenExpiry = now + (expiresIn * 1000L) - 60_000L  // expire 1 min early
-        token
-    }
-
-    /** Fetch a page of posts via the Replit backend proxy.
-     *  The proxy runs on a server IP — Reddit returns full listings there,
-     *  whereas residential/mobile IPs often receive empty children arrays. */
+    /** Fetch a page using the authenticated WebView cookie jar, with old.reddit as a fallback. */
     suspend fun fetch(
         subreddit: String,
         sort: String = "hot",
         after: String? = null,
     ): Pair<List<AdultItem>, String?> {
         val clean = subreddit.removePrefix("r/").trim()
-        val url   = buildString {
-            append("$BACKEND_BASE/reddit/r/$clean/$sort?limit=50")
-            if (after != null) append("&after=$after")
-        }
+        require(clean.matches(Regex("[A-Za-z0-9_]+"))) { "Invalid subreddit" }
+        val safeSort = sort.takeIf { it in setOf("hot", "new", "top", "rising") } ?: "hot"
 
         return withContext(Dispatchers.IO) {
-            val request = Request.Builder()
-                .url(url)
-                .get()
-                .build()  // No auth header — backend handles Reddit OAuth
-
-            var response = oauthClient.newCall(request).execute()
-            if (response.code in 500..599) {
-                response.body?.string()
-                response = oauthClient.newCall(request).execute()
-            }
-            when (response.code) {
-                401, 403 -> throw RedditAuthRequiredException("r/$clean is private or quarantined.")
-                404      -> throw RedditAuthRequiredException("r/$clean was not found.")
-                429      -> throw RedditRateLimitException("Reddit rate limit. Please wait a moment.")
-                else     -> if (!response.isSuccessful) {
-                    val errBody = response.body?.string()?.take(200).orEmpty()
-                    throw Exception("Proxy error ${response.code}: $errBody")
+            val cookie = runCatching {
+                CookieManager.getInstance().getCookie("https://www.reddit.com")
+            }.getOrNull().orEmpty()
+            val endpoints = listOf("https://www.reddit.com", "https://old.reddit.com")
+            var lastCode = 0
+            var lastMessage = "No Reddit endpoint responded"
+            for (base in endpoints) {
+                val url = "$base/r/$clean/$safeSort.json".toHttpUrl().newBuilder()
+                    .addQueryParameter("limit", "50")
+                    .addQueryParameter("raw_json", "1")
+                    .addQueryParameter("include_over_18", "on")
+                    .apply { after?.let { addQueryParameter("after", it) } }
+                    .build()
+                val request = Request.Builder()
+                    .url(url)
+                    .get()
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "application/json")
+                    .apply {
+                        if (cookie.isNotBlank()) header("Cookie", cookie)
+                    }
+                    .build()
+                oauthClient.newCall(request).execute().use { response ->
+                    lastCode = response.code
+                    val bodyStr = response.body?.string().orEmpty()
+                    if (response.isSuccessful && bodyStr.isNotBlank()) {
+                        return@withContext parseListing(clean, bodyStr)
+                    }
+                    lastMessage = bodyStr.take(160).ifBlank { response.message }
+                    if (response.code == 429) {
+                        throw RedditRateLimitException("Reddit rate limit. Please wait a moment.")
+                    }
                 }
             }
-
-            val bodyStr  = response.body?.string() ?: throw Exception("Empty response from proxy")
-            val listing  = redditJson.decodeFromString<RedditListing>(bodyStr)
-            val children = listing.data?.children.orEmpty()
-            val validData = children.mapNotNull { it.data }
-            val items     = validData.mapNotNull { post ->
-                try { post.toAdultItem() } catch (_: Exception) { null }
+            when (lastCode) {
+                401, 403 -> throw RedditAuthRequiredException(
+                    if (cookie.isBlank()) {
+                        "Reddit requires sign-in to load r/$clean."
+                    } else {
+                        "Reddit denied r/$clean. Sign in again or try another subreddit."
+                    },
+                )
+                404 -> throw RedditAuthRequiredException("r/$clean was not found.")
+                else -> throw Exception("Reddit HTTP $lastCode: $lastMessage")
             }
-            if (items.isEmpty()) {
-                val apiCount  = children.size
-                val parsed    = validData.size
-                if (apiCount == 0) throw Exception("r/$clean: proxy returned 0 posts")
-                if (parsed == 0)   throw Exception("r/$clean: $apiCount posts received but 0 parsed")
-                throw Exception("r/$clean: $apiCount received, $parsed parsed, 0 passed filter (text/link only)")
-            }
-            items to listing.data?.after
         }
+    }
+
+    private fun parseListing(clean: String, bodyStr: String): Pair<List<AdultItem>, String?> {
+        val listing = redditJson.decodeFromString<RedditListing>(bodyStr)
+        val children = listing.data?.children.orEmpty()
+        val validData = children.mapNotNull { it.data }
+        val items = validData.mapNotNull { post ->
+            try { post.toAdultItem() } catch (_: Exception) { null }
+        }
+        if (items.isEmpty()) {
+            val apiCount = children.size
+            val parsed = validData.size
+            if (apiCount == 0) throw Exception("r/$clean returned 0 posts")
+            if (parsed == 0) throw Exception("r/$clean: $apiCount posts received but 0 parsed")
+            throw Exception("r/$clean: $apiCount received, $parsed parsed, 0 media posts")
+        }
+        return items to listing.data?.after
     }
 
     // ── Post → AdultItem mapping (unchanged from before) ───────────────────

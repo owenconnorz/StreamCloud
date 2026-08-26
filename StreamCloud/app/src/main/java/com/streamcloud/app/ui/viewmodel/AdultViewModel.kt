@@ -10,7 +10,6 @@ import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerApi
 import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.api.RedditAdultRepository
-import com.streamcloud.app.data.api.RedtubeRepository
 import com.streamcloud.app.data.api.RedditAuthRequiredException
 import com.streamcloud.app.data.api.RedditRateLimitException
 import com.streamcloud.app.data.api.RedGifsRepository
@@ -105,16 +104,18 @@ class AdultViewModel(
             }
         }
         viewModelScope.launch {
-            val savedSource = try {
-                AdultSource.valueOf(settings.adultSource.first())
-            } catch (_: Exception) {
-                AdultSource.Eporner
+            val savedSourceName = settings.adultSource.first()
+            val savedSource = runCatching {
+                AdultSource.valueOf(savedSourceName)
+            }.getOrElse {
+                AdultSource.Eporner.also {
+                    settings.setAdultSource(AdultSource.Eporner.name)
+                }
             }
             _state.update { it.copy(source = savedSource) }
             when (savedSource) {
                 AdultSource.Reddit  -> fetchRedditPage(replace = true)
                 AdultSource.RedGifs -> fetchRedGifsPage(replace = true)
-                AdultSource.Redtube -> fetchRedtubePage(replace = true)
                 else -> {
                     fetchPage(query = "", page = 1, order = "most-popular", replaceItems = true, isInitial = true)
                     loadCategories()
@@ -155,12 +156,6 @@ class AdultViewModel(
                 _state.update { it.copy(currentRedGifsTag = "trending", currentPage = 1) }
                 fetchRedGifsPage(replace = true)
             }
-            AdultSource.Redtube -> {
-                currentQuery = ""
-                _state.update { it.copy(currentPage = 1) }
-                fetchRedtubePage(replace = true)
-            }
-            else -> {}
         }
     }
 
@@ -200,6 +195,21 @@ class AdultViewModel(
         }
     }
 
+    fun completeRedditLogin(username: String) {
+        viewModelScope.launch {
+            settings.setRedditUsername(username)
+            redditAfter = null
+            _state.update {
+                it.copy(
+                    redditUsername = username,
+                    redditNeedsAuth = false,
+                    error = null,
+                )
+            }
+            fetchRedditPage(replace = true)
+        }
+    }
+
     /** Reload the current feed with a fresh randomised sort order for varied content. */
     fun refresh() {
         when (_state.value.source) {
@@ -210,10 +220,6 @@ class AdultViewModel(
             AdultSource.RedGifs -> {
                 _state.update { it.copy(currentPage = 1) }
                 fetchRedGifsPage(replace = true)
-            }
-            AdultSource.Redtube -> {
-                _state.update { it.copy(currentPage = 1) }
-                fetchRedtubePage(replace = true)
             }
             else -> {
                 val newOrder = SORT_ORDERS.filterNot { it == currentOrder }.random()
@@ -235,11 +241,6 @@ class AdultViewModel(
         if (_state.value.source == AdultSource.RedGifs) {
             if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
             fetchRedGifsPage(replace = false)
-            return
-        }
-        if (_state.value.source == AdultSource.Redtube) {
-            if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
-            fetchRedtubePage(replace = false)
             return
         }
         if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
@@ -567,45 +568,6 @@ class AdultViewModel(
                     .enqueue(req)
             } catch (e: Exception) {
                 _state.update { it.copy(error = "Download failed: ${e.message}") }
-            }
-        }
-    }
-
-    // ── PornHub (Redtube) ──────────────────────────────────────────────────────
-
-    private fun fetchRedtubePage(replace: Boolean) {
-        if (_state.value.loading || (_state.value.loadingMore && !replace)) return
-        loadMoreJob?.cancel()
-        loadMoreJob = viewModelScope.launch {
-            val page = if (replace) 1 else _state.value.currentPage + 1
-            if (replace) {
-                _state.update { it.copy(loading = true, error = null) }
-            } else {
-                _state.update { it.copy(loadingMore = true) }
-            }
-            try {
-                val items = RedtubeRepository.search(query = currentQuery, page = page)
-                val hasMore = items.isNotEmpty()
-                if (replace) {
-                    _state.update {
-                        it.copy(items = items, loading = false, hasMore = hasMore, currentPage = page)
-                    }
-                } else {
-                    val existingIds = _state.value.items.map { it.id }.toHashSet()
-                    val deduped = items.filterNot { existingIds.contains(it.id) }
-                    _state.update {
-                        it.copy(
-                            items       = it.items + deduped,
-                            loadingMore = false,
-                            hasMore     = deduped.isNotEmpty(),
-                            currentPage = page,
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(loading = false, loadingMore = false, error = "PornHub unavailable: ${e.message}")
-                }
             }
         }
     }

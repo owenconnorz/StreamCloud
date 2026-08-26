@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +66,18 @@ fun RedditFeedView(
 ) {
     val state by vm.state.collectAsState()
     val items = state.items
+    var showLogin by rememberSaveable { mutableStateOf(false) }
+
+    if (showLogin) {
+        RedditLoginScreen(
+            onLoginSuccess = { username ->
+                showLogin = false
+                vm.completeRedditLogin(username)
+            },
+            onBack = { showLogin = false },
+        )
+        return
+    }
 
     val subLabels = remember(customSubs) {
         val preset = RedditAdultSubs.PRESETS.map { it.first }
@@ -74,7 +87,8 @@ fun RedditFeedView(
     if (state.redditNeedsAuth && items.isEmpty()) {
         SubredditUnavailablePrompt(
             subreddit = state.currentSubreddit,
-            onRetry   = { vm.setSubreddit("nsfw") },
+            onRetry   = { vm.refresh() },
+            onSignIn  = { showLogin = true },
             modifier  = modifier,
         )
         return
@@ -196,12 +210,12 @@ fun RedditFeedView(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "r/${state.currentSubreddit} is quarantined",
+                        "Reddit sign-in required",
                         modifier = Modifier.weight(1f),
                         style    = MaterialTheme.typography.bodySmall,
                         color    = MaterialTheme.colorScheme.onErrorContainer,
                     )
-                    TextButton(onClick = { vm.setSubreddit("nsfw") }) { Text("Go to r/nsfw") }
+                    TextButton(onClick = { showLogin = true }) { Text("Sign in") }
                 }
             }
         }
@@ -454,6 +468,7 @@ private fun redditWatchlistId(postId: String): Long =
 private fun SubredditUnavailablePrompt(
     subreddit: String,
     onRetry: () -> Unit,
+    onSignIn: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -472,20 +487,20 @@ private fun SubredditUnavailablePrompt(
                 modifier = Modifier.size(64.dp),
             )
             Text(
-                "r/$subreddit unavailable",
+                "Sign in to load r/$subreddit",
                 color      = Color.White,
                 style      = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign  = TextAlign.Center,
             )
             Text(
-                "This subreddit is private, quarantined, or not found. Try another one.",
+                "Reddit blocks anonymous NSFW feeds. Sign in securely in Reddit, then StreamCloud will retry using that session.",
                 color     = Color.White.copy(alpha = 0.7f),
                 style     = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
             )
             Button(
-                onClick = onRetry,
+                onClick = onSignIn,
                 colors  = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFFFF4500),
                     contentColor   = Color.White,
@@ -494,8 +509,9 @@ private fun SubredditUnavailablePrompt(
             ) {
                 Icon(Icons.Default.Add, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Go to r/nsfw", fontWeight = FontWeight.SemiBold)
+                Text("Sign in to Reddit", fontWeight = FontWeight.SemiBold)
             }
+            TextButton(onClick = onRetry) { Text("Try again") }
         }
     }
 }

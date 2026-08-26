@@ -139,7 +139,7 @@ fun AdultScreen(
         }
 
         // ── Source switcher tabs: Eporner / Reddit ───────────────────────
-        val sources = listOf(AdultSource.Eporner, AdultSource.Redtube, AdultSource.Reddit, AdultSource.RedGifs)
+        val sources = listOf(AdultSource.Eporner, AdultSource.Reddit, AdultSource.RedGifs)
         val selectedTabIndex = sources.indexOfFirst { it == state.source }.coerceAtLeast(0)
         TabRow(
             selectedTabIndex = selectedTabIndex,
