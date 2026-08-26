@@ -13,7 +13,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -182,72 +182,90 @@ fun GlobalMiniPlayer(
                 }
                 .clip(RoundedCornerShape(20.dp))
                 .background(bgColor)
+                .pointerInput(controller) {
+                    var totalX = 0f
+                    var totalY = 0f
+                    var dirLocked = false
+                    var isHorizontal = false
+
+                    detectDragGestures(
+                        onDragStart = {
+                            totalX = 0f
+                            totalY = 0f
+                            dirLocked = false
+                            isHorizontal = false
+                            liveDragX = 0f
+                            liveDragY = 0f
+                        },
+                        onDragCancel = {
+                            launch {
+                                liveDragX = 0f
+                                liveDragY = 0f
+                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.72f))
+                                swipeOffsetY.animateTo(0f, spring(dampingRatio = 0.72f))
+                            }
+                        },
+                        onDragEnd = {
+                            launch {
+                                swipeOffsetX.snapTo(liveDragX)
+                                swipeOffsetY.snapTo(liveDragY)
+                                liveDragX = 0f
+                                liveDragY = 0f
+                                when (resolveMiniPlayerSwipeAction(dirLocked, isHorizontal, totalX, totalY)) {
+                                    MiniPlayerSwipeAction.SeekNext -> {
+                                        swipeOffsetX.animateTo(-90f, tween(100))
+                                        controller?.seekToNextMediaItem()
+                                        swipeOffsetX.snapTo(90f)
+                                        swipeOffsetX.animateTo(0f, tween(220))
+                                    }
+                                    MiniPlayerSwipeAction.SeekPrev -> {
+                                        swipeOffsetX.animateTo(90f, tween(100))
+                                        controller?.seekToPreviousMediaItem()
+                                        swipeOffsetX.snapTo(-90f)
+                                        swipeOffsetX.animateTo(0f, tween(220))
+                                    }
+                                    MiniPlayerSwipeAction.SnapBack ->
+                                        swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.72f))
+                                    MiniPlayerSwipeAction.Expand -> {
+                                        swipeOffsetY.animateTo(-240f, tween(140))
+                                        onExpand()
+                                        swipeOffsetY.snapTo(0f)
+                                    }
+                                    MiniPlayerSwipeAction.Dismiss -> {
+                                        swipeOffsetY.animateTo(240f, tween(160))
+                                        onDismiss()
+                                    }
+                                    MiniPlayerSwipeAction.None -> {
+                                        swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.72f))
+                                        swipeOffsetY.animateTo(0f, spring(dampingRatio = 0.72f))
+                                    }
+                                }
+                            }
+                        },
+                        onDrag = { change, dragAmount ->
+                            totalX += dragAmount.x
+                            totalY += dragAmount.y
+                            if (!dirLocked &&
+                                (abs(totalX) >= viewConfiguration.touchSlop ||
+                                    abs(totalY) >= viewConfiguration.touchSlop)
+                            ) {
+                                isHorizontal = abs(totalX) > abs(totalY)
+                                dirLocked = true
+                            }
+                            if (dirLocked && isHorizontal) {
+                                liveDragX = totalX.coerceIn(-280f, 280f)
+                                change.consume()
+                            } else if (dirLocked) {
+                                // Update directly from every pointer delta. Keeping this
+                                // as plain Compose state makes the card stay under the thumb.
+                                liveDragY = totalY.coerceIn(-240f, 240f)
+                                change.consume()
+                            }
+                        },
+                    )
+                }
                 .clickable {
                     onExpand()
-                }
-                .pointerInput(controller) {
-                    while (true) {
-                        var totalX = 0f
-                        var totalY = 0f
-                        var dirLocked = false
-                        var isHorizontal = false
-                        awaitPointerEventScope {
-                            awaitFirstDown(requireUnconsumed = false)
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull() ?: break
-                                if (!change.pressed) break
-                                val pos = change.position - change.previousPosition
-                                totalX += pos.x
-                                totalY += pos.y
-                                if (!dirLocked && (abs(totalX) > 16f || abs(totalY) > 16f)) {
-                                    isHorizontal = abs(totalX) > abs(totalY)
-                                    dirLocked = true
-                                }
-                                if (dirLocked && isHorizontal) {
-                                    liveDragX = totalX.coerceIn(-280f, 280f)
-                                    change.consume()
-                                } else if (dirLocked) {
-                                    liveDragY = totalY.coerceIn(-240f, 240f)
-                                    change.consume()
-                                }
-                            }
-                        }
-                        swipeOffsetX.snapTo(liveDragX)
-                        swipeOffsetY.snapTo(liveDragY)
-                        liveDragX = 0f
-                        liveDragY = 0f
-                        when (resolveMiniPlayerSwipeAction(dirLocked, isHorizontal, totalX, totalY)) {
-                            MiniPlayerSwipeAction.SeekNext -> {
-                                swipeOffsetX.animateTo(-90f, tween(100))
-                                controller?.seekToNextMediaItem()
-                                swipeOffsetX.snapTo(90f)
-                                swipeOffsetX.animateTo(0f, tween(220))
-                            }
-                            MiniPlayerSwipeAction.SeekPrev -> {
-                                swipeOffsetX.animateTo(90f, tween(100))
-                                controller?.seekToPreviousMediaItem()
-                                swipeOffsetX.snapTo(-90f)
-                                swipeOffsetX.animateTo(0f, tween(220))
-                            }
-                            MiniPlayerSwipeAction.SnapBack -> swipeOffsetX.animateTo(0f, spring())
-                            MiniPlayerSwipeAction.Expand   -> {
-                                swipeOffsetY.animateTo(-240f, tween(180))
-                                onExpand()
-                                // The sheet now owns the expanded state. Reset the
-                                // mini-player so it is ready when the sheet closes.
-                                swipeOffsetY.snapTo(0f)
-                            }
-                            MiniPlayerSwipeAction.Dismiss -> {
-                                swipeOffsetY.animateTo(240f, tween(180))
-                                onDismiss()
-                            }
-                            MiniPlayerSwipeAction.None     -> {
-                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.68f))
-                                swipeOffsetY.animateTo(0f, spring(dampingRatio = 0.68f))
-                            }
-                        }
-                    }
                 }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
