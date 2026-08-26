@@ -111,15 +111,21 @@ fun CloudStreamDetailScreen(
     val context = LocalContext.current
     val repo = remember { PluginRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
-    val watchlistDao = remember { LibraryDb.get(context.applicationContext).watchlist() }
-    val watchedDao = remember { LibraryDb.get(context.applicationContext).watchedMovies() }
+    val libraryDb = remember { LibraryDb.get(context.applicationContext) }
+    val watchlistDao = libraryDb.watchlist()
+    val watchedDao = libraryDb.watchedMovies()
     val syntheticId = remember(pluginInternalName, url) {
         val h = (pluginInternalName + "|" + url).hashCode().toLong()
         if (h < 0L) h else -(h + 1L)
     }
-    val isWatchlisted by watchlistDao.isWatchlisted(syntheticId).collectAsState(initial = false)
+    val isDefaultWatchlisted by watchlistDao.isWatchlisted(syntheticId).collectAsState(initial = false)
+    val isCustomWatchlisted by libraryDb.movieWatchlists()
+        .isInAnyWatchlist(syntheticId)
+        .collectAsState(initial = false)
+    val isWatchlisted = isDefaultWatchlisted || isCustomWatchlisted
     val isWatched by watchedDao.isWatched(syntheticId).collectAsState(initial = false)
     var actionsExpanded by remember { mutableStateOf(false) }
+    var watchlistPickerEntry by remember { mutableStateOf<WatchlistEntity?>(null) }
 
     var state by remember { mutableStateOf<CsDetailState>(CsDetailState.Loading) }
     var sourcesState by remember { mutableStateOf<SourcesState>(SourcesState.Idle) }
@@ -242,22 +248,14 @@ fun CloudStreamDetailScreen(
                 onPlayMovie       = { resolveAndPlay((s.response as MovieLoadResponse).dataUrl, null) },
                 onPlayEpisode     = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
                 onToggleWatchlist = {
-                    scope.launch {
-                        if (isWatchlisted) {
-                            watchlistDao.remove(syntheticId)
-                        } else {
-                            watchlistDao.add(
-                                WatchlistEntity(
-                                    tmdbId    = syntheticId,
-                                    title     = s.response.name.ifBlank { initialTitle },
-                                    posterUrl = s.response.posterUrl ?: initialPoster,
-                                    mediaType = "cloudstream",
-                                    csPlugin  = pluginInternalName,
-                                    csUrl     = url,
-                                )
-                            )
-                        }
-                    }
+                    watchlistPickerEntry = WatchlistEntity(
+                        tmdbId = syntheticId,
+                        title = s.response.name.ifBlank { initialTitle },
+                        posterUrl = s.response.posterUrl ?: initialPoster,
+                        mediaType = "cloudstream",
+                        csPlugin = pluginInternalName,
+                        csUrl = url,
+                    )
                 },
                 onToggleWatched = {
                     scope.launch {
@@ -296,6 +294,13 @@ fun CloudStreamDetailScreen(
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+
+    watchlistPickerEntry?.let { entry ->
+        MovieWatchlistPickerDialog(
+            entry = entry,
+            onDismiss = { watchlistPickerEntry = null },
         )
     }
 }
