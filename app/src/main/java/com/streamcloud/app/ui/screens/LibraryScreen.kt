@@ -40,6 +40,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -65,8 +67,12 @@ import androidx.compose.material.icons.filled.Share
 import com.streamcloud.app.data.downloads.MovieDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.MovieDownloadEntity
+import com.streamcloud.app.data.library.MovieWatchlistEntity
+import com.streamcloud.app.data.library.MovieWatchlistItemEntity
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.library.WatchlistEntity
+import com.streamcloud.app.data.library.moveMovieWatchlistItems
+import com.streamcloud.app.data.library.toWatchlistEntity
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtmLibraryArtist
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
@@ -79,6 +85,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 
 private enum class LibTab(val label: String) {
     Playlists("Playlists"),
@@ -91,12 +99,16 @@ private enum class LibTab(val label: String) {
 @Composable
 fun LibraryScreen(
     onOpenPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
+    onOpenSpotifyPlaylist: (id: String, title: String) -> Unit = { _, _ -> },
     onOpenArtist: (channelUrl: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
     onMovieClick: (Long) -> Unit = {},
     onPlayLocalFile: (filePath: String, title: String, tmdbId: Long, mediaType: String) -> Unit = { _, _, _, _ -> },
     onTvClick: (Long) -> Unit = {},
     onCsClick: (plugin: String, url: String, title: String, poster: String?) -> Unit = { _, _, _, _ -> },
+    onDirectMediaClick: (url: String, title: String) -> Unit = { _, _ -> },
+    onAdultProviderClick: (provider: String, url: String, title: String) -> Unit = { _, _, _ -> },
+    tvNavFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
@@ -104,6 +116,7 @@ fun LibraryScreen(
     val dao = remember { LibraryDb.get(context).tracks() }
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
+    val spotifyCookie by sl.settings.spotifyCookie.collectAsState(initial = "")
     val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
     val playlistThumbs = remember(playlistThumbsJson) {
         playlistThumbsJson
@@ -134,6 +147,8 @@ fun LibraryScreen(
 
     var ytLibrary by remember { mutableStateOf(com.streamcloud.app.data.ytmusic.YtMusicLibrary()) }
     var ytLoading by remember { mutableStateOf(false) }
+    var spotifyPlaylists by remember { mutableStateOf<List<com.streamcloud.app.data.spotify.SpotifyPlaylist>>(emptyList()) }
+    var spotifyLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(ytCookie) {
         if (ytCookie.isBlank()) {
@@ -183,6 +198,13 @@ fun LibraryScreen(
         }
     }
 
+    LaunchedEffect(spotifyCookie) {
+        if (spotifyCookie.isBlank()) { spotifyPlaylists = emptyList(); return@LaunchedEffect }
+        spotifyLoading = true
+        spotifyPlaylists = com.streamcloud.app.data.spotify.SpotifyPlaylistRepository.getPlaylists(spotifyCookie)
+        spotifyLoading = false
+    }
+
     val combined by remember(dao) {
         combine(dao.liked(), dao.recent(), dao.downloaded(), dao.mostPlayed()) { l, r, d, mp ->
             arrayOf(l, r, d, mp)
@@ -190,6 +212,23 @@ fun LibraryScreen(
     }.collectAsState(initial = arrayOf<List<TrackEntity>>(emptyList(), emptyList(), emptyList(), emptyList()))
 
     val liked = combined[0]; val recent = combined[1]; val downloaded = combined[2]; val mostPlayed = combined[3]
+
+    LaunchedEffect(ytLibrary.likedSongs) {
+        com.streamcloud.app.data.ytmusic.YtMusicStreamResolver.prime(
+            ytLibrary.likedSongs.map(YtmSong::videoId),
+        )
+    }
+
+    LaunchedEffect(liked, recent, downloaded, mostPlayed) {
+        val visibleLibrarySongs = (liked + recent + downloaded + mostPlayed)
+            .asSequence()
+            .map(TrackEntity::toYtmSong)
+            .filter { it.videoId.length == 11 }
+            .toList()
+        com.streamcloud.app.data.ytmusic.YtMusicStreamResolver.prime(
+            visibleLibrarySongs.map(YtmSong::videoId),
+        )
+    }
 
     var tab by remember { mutableStateOf(LibTab.Playlists) }
     var openTile by remember { mutableStateOf<String?>(null) }
@@ -237,15 +276,19 @@ fun LibraryScreen(
                 modifier = Modifier.weight(1f),
             )
             Row(
+                modifier = Modifier.tvFocusGroup(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                listOf("Music" to Icons.Default.MusicNote, "Movies" to Icons.Default.Movie).forEach { (label, icon) ->
+                listOf("Music" to Icons.Default.MusicNote, "Movies" to Icons.Default.Movie).forEachIndexed { idx, (label, icon) ->
                     val selected = sectionMode == label
                     Box(
                         Modifier
                             .size(36.dp)
                             .clip(CircleShape)
+                            // First toggle button is the D-pad Down entry point from the TV nav bar.
+                            .let { if (tvNavFocusRequester != null && idx == 0) it.focusRequester(tvNavFocusRequester) else it }
+                            .tvFocusBorder(CircleShape)
                             .background(
                                 if (selected) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.surfaceVariant
@@ -271,7 +314,8 @@ fun LibraryScreen(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 16.dp)
+                    .tvFocusGroup(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 listOf("Watchlist", "Downloaded").forEach { label ->
@@ -309,7 +353,7 @@ fun LibraryScreen(
                 } else {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(if (isTv) 5 else 3),
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().tvFocusGroup(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -318,6 +362,7 @@ fun LibraryScreen(
                             Column(
                                 Modifier
                                     .clip(RoundedCornerShape(10.dp))
+                                    .tvFocusBorder(RoundedCornerShape(10.dp))
                                     .combinedClickable(
                                         onClick = {
                                             if (entry.status == "done" && !entry.filePath.isNullOrBlank()) {
@@ -387,65 +432,20 @@ fun LibraryScreen(
                     }
                 }
             } else {
-                if (watchlistItems.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.Movie, null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                modifier = Modifier.size(64.dp))
-                            Spacer(Modifier.height(14.dp))
-                            Text("No saved movies yet",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(4.dp))
-                            Text("Bookmark a movie or show to see it here",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                style = MaterialTheme.typography.bodyMedium)
+                MovieWatchlistsLibrarySection(
+                    defaultItems = watchlistItems,
+                    isTv = isTv,
+                    onOpen = { entry ->
+                        when (entry.mediaType) {
+                            "tv" -> onTvClick(entry.tmdbId)
+                            "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
+                            "reddit", "redgifs" -> onDirectMediaClick(entry.csUrl, entry.title)
+                            "eporner", "pornhub" ->
+                                onAdultProviderClick(entry.mediaType, entry.csUrl, entry.title)
+                            else -> onMovieClick(entry.tmdbId)
                         }
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(if (isTv) 5 else 3),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        items(watchlistItems, key = { "wl_${it.tmdbId}" }) { entry ->
-                            Column(
-                                Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        when (entry.mediaType) {
-                                            "tv" -> onTvClick(entry.tmdbId)
-                                            "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
-                                            else -> onMovieClick(entry.tmdbId)
-                                        }
-                                    }
-                            ) {
-                                AsyncImage(
-                                    model = entry.posterUrl,
-                                    contentDescription = entry.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(2f / 3f)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    entry.title,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-                }
+                    },
+                )
             }
         } else {
 
@@ -542,7 +542,7 @@ fun LibraryScreen(
             Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(gridColumns),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().tvFocusGroup(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 16.dp),
                 verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 16.dp),
@@ -578,6 +578,62 @@ fun LibraryScreen(
                         }
                         items(ytLibrary.playlists, key = { "yp_${it.id}" }) { pl ->
                             YtPlaylistTile(pl, customThumb = playlistThumbs[pl.id]) { onOpenPlaylist(pl.id, pl.title) }
+                        }
+                        // ── Spotify playlists ──────────────────────────────────
+                        if (spotifyCookie.isNotBlank()) {
+                            if (spotifyLoading) {
+                                item(span = { GridItemSpan(gridColumns) }) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = androidx.compose.ui.graphics.Color(0xFF1DB954),
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(
+                                            "Loading Spotify playlists…",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            } else if (spotifyPlaylists.isNotEmpty()) {
+                                item(span = { GridItemSpan(gridColumns) }) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .size(20.dp)
+                                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(androidx.compose.ui.graphics.Color(0xFF1DB954)),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                androidx.compose.material.icons.Icons.Default.MusicNote,
+                                                contentDescription = null,
+                                                tint = androidx.compose.ui.graphics.Color.White,
+                                                modifier = Modifier.size(12.dp),
+                                            )
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "Spotify",
+                                            style = MaterialTheme.typography.titleSmall.copy(
+                                                fontWeight = FontWeight.Bold,
+                                            ),
+                                            color = MaterialTheme.colorScheme.onBackground,
+                                        )
+                                    }
+                                }
+                                items(spotifyPlaylists, key = { "sp_${it.id}" }) { pl ->
+                                    SpotifyPlaylistTile(pl) { onOpenSpotifyPlaylist(pl.id, pl.name) }
+                                }
+                            }
                         }
                     }
                     LibTab.Albums -> {
@@ -742,6 +798,354 @@ fun LibraryScreen(
     }
 }
 
+@Composable
+private fun MovieWatchlistsLibrarySection(
+    defaultItems: List<WatchlistEntity>,
+    isTv: Boolean,
+    onOpen: (WatchlistEntity) -> Unit,
+) {
+    val context = LocalContext.current
+    val db = remember(context) { LibraryDb.get(context.applicationContext) }
+    val dao = db.movieWatchlists()
+    val scope = rememberCoroutineScope()
+    val customLists by dao.all().collectAsState(initial = emptyList())
+    var activeListId by remember { mutableStateOf<Long?>(null) }
+    var customItems by remember { mutableStateOf<List<MovieWatchlistItemEntity>>(emptyList()) }
+    var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var showMoveDialog by remember { mutableStateOf(false) }
+    var deleteList by remember { mutableStateOf<MovieWatchlistEntity?>(null) }
+
+    LaunchedEffect(activeListId) {
+        val id = activeListId
+        selectedIds = emptySet()
+        selectionMode = false
+        if (id == null) {
+            customItems = emptyList()
+        } else {
+            dao.items(id).collect { customItems = it }
+        }
+    }
+
+    val entries = if (activeListId == null) defaultItems else customItems.map { it.toWatchlistEntity() }
+    val activeName = customLists.firstOrNull { it.id == activeListId }?.name ?: "Watchlist"
+
+    Column(Modifier.fillMaxSize()) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).tvFocusGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            item {
+                FilterChip(
+                    selected = activeListId == null,
+                    onClick = { activeListId = null },
+                    label = { Text("Watchlist") },
+                )
+            }
+            items(customLists, key = { "movie_list_${it.id}" }) { list ->
+                FilterChip(
+                    selected = activeListId == list.id,
+                    onClick = { activeListId = list.id },
+                    label = { Text(list.name, maxLines = 1) },
+                )
+            }
+            item {
+                IconButton(
+                    onClick = { showCreateDialog = true },
+                    modifier = Modifier.tvFocusBorder(CircleShape),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Create movie watchlist")
+                }
+            }
+            if (activeListId != null) {
+                item {
+                    IconButton(
+                        onClick = {
+                            deleteList = customLists.firstOrNull { it.id == activeListId }
+                        },
+                        modifier = Modifier.tvFocusBorder(CircleShape),
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete $activeName",
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (entries.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    if (!selectionMode && selectedIds.isEmpty()) activeName else "${selectedIds.size} selected",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (selectedIds.isEmpty()) {
+                    TextButton(
+                        onClick = { selectionMode = !selectionMode },
+                    ) { Text(if (selectionMode) "Cancel" else "Select") }
+                }
+                TextButton(
+                    onClick = {
+                        selectionMode = true
+                        selectedIds = if (selectedIds.size == entries.size) {
+                            emptySet()
+                        } else {
+                            entries.mapTo(mutableSetOf()) { it.tmdbId }
+                        }
+                    },
+                ) { Text(if (selectedIds.size == entries.size) "Clear all" else "Select all") }
+                if (selectedIds.isNotEmpty()) {
+                    TextButton(onClick = { showMoveDialog = true }) { Text("Move") }
+                    TextButton(
+                        onClick = {
+                            val ids = selectedIds.toList()
+                            scope.launch {
+                                if (activeListId == null) ids.forEach { db.watchlist().remove(it) }
+                                else dao.removeItems(activeListId!!, ids)
+                                selectedIds = emptySet()
+                                selectionMode = false
+                            }
+                        },
+                    ) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                    IconButton(onClick = {
+                        selectedIds = emptySet()
+                        selectionMode = false
+                    }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear selection")
+                    }
+                }
+            }
+        }
+
+        if (entries.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.Movie,
+                        null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.size(64.dp),
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        if (activeListId == null) "No saved movies yet" else "$activeName is empty",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (activeListId == null) "Bookmark a movie or show to see it here"
+                        else "Move movies here or choose this list when saving",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(if (isTv) 5 else 3),
+                modifier = Modifier.fillMaxSize().tvFocusGroup(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(entries, key = { "movie_wl_${activeListId ?: 0}_${it.tmdbId}" }) { entry ->
+                    val selected = entry.tmdbId in selectedIds
+                    Column(
+                        Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .tvFocusBorder(RoundedCornerShape(10.dp))
+                            .combinedClickable(
+                                onClick = {
+                                    if (selectionMode || selectedIds.isNotEmpty()) {
+                                        selectedIds = selectedIds.toggleMovie(entry.tmdbId)
+                                    } else {
+                                        onOpen(entry)
+                                    }
+                                },
+                                onLongClick = {
+                                    selectionMode = true
+                                    selectedIds = selectedIds.toggleMovie(entry.tmdbId)
+                                },
+                            ),
+                    ) {
+                        Box {
+                            AsyncImage(
+                                model = entry.posterUrl,
+                                contentDescription = entry.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(2f / 3f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                            )
+                            if (selected) {
+                                Box(
+                                    Modifier
+                                        .matchParentSize()
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)),
+                                )
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Selected",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(28.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            entry.title,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCreateDialog) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            title = { Text("Create movie watchlist") },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Watchlist name") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = name.isNotBlank(),
+                    onClick = {
+                        val trimmed = name.trim()
+                        scope.launch {
+                            activeListId = dao.create(MovieWatchlistEntity(name = trimmed))
+                            showCreateDialog = false
+                        }
+                    },
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (showMoveDialog) {
+        AlertDialog(
+            onDismissRequest = { showMoveDialog = false },
+            title = { Text("Move to watchlist") },
+            text = {
+                Column {
+                    if (activeListId != null) {
+                        ListItem(
+                            headlineContent = { Text("Watchlist") },
+                            modifier = Modifier
+                                .tvFocusBorder(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    moveMovieEntries(
+                                        entries, selectedIds, activeListId, null, db,
+                                        scope = scope,
+                                        onFinished = {
+                                            selectedIds = emptySet()
+                                            selectionMode = false
+                                            showMoveDialog = false
+                                        },
+                                    )
+                                },
+                        )
+                    }
+                    customLists.filter { it.id != activeListId }.forEach { list ->
+                        ListItem(
+                            headlineContent = { Text(list.name) },
+                            modifier = Modifier
+                                .tvFocusBorder(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    moveMovieEntries(
+                                        entries, selectedIds, activeListId, list.id, db,
+                                        scope = scope,
+                                        onFinished = {
+                                            selectedIds = emptySet()
+                                            selectionMode = false
+                                            showMoveDialog = false
+                                        },
+                                    )
+                                },
+                        )
+                    }
+                    if (customLists.none { it.id != activeListId } && activeListId == null) {
+                        Text("Create another watchlist before moving these movies.")
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showMoveDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    deleteList?.let { list ->
+        AlertDialog(
+            onDismissRequest = { deleteList = null },
+            title = { Text("Delete ${list.name}?") },
+            text = { Text("Movies in this watchlist will not be removed from other watchlists.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            dao.delete(list.id)
+                            activeListId = null
+                            deleteList = null
+                        }
+                    },
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteList = null }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+private fun moveMovieEntries(
+    entries: List<WatchlistEntity>,
+    selectedIds: Set<Long>,
+    sourceListId: Long?,
+    destinationListId: Long?,
+    db: LibraryDb,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onFinished: () -> Unit,
+) {
+    scope.launch {
+        val moving = entries.filter { it.tmdbId in selectedIds }
+        db.moveMovieWatchlistItems(moving, sourceListId, destinationListId)
+        onFinished()
+    }
+}
+
+private fun Set<Long>.toggleMovie(id: Long): Set<Long> =
+    if (id in this) this - id else this + id
+
 private fun openInSamsungMyFiles(context: android.content.Context, filePath: String) {
     val samsungPkg = "com.sec.android.app.myfiles"
     val moviesDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MOVIES)
@@ -853,6 +1257,7 @@ private fun LibTile(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
+            .tvFocusBorder(RoundedCornerShape(20.dp))
             .clickable(onClick = onClick),
     ) {
         Box(
@@ -1648,6 +2053,70 @@ private fun CreatePlaylistTile(onClick: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun SpotifyPlaylistTile(
+    pl: com.streamcloud.app.data.spotify.SpotifyPlaylist,
+    onClick: () -> Unit,
+) {
+    Column(Modifier.clickable(onClick = onClick)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!pl.imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = pl.imageUrl,
+                    contentDescription = pl.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    Icons.Default.PlaylistPlay,
+                    contentDescription = pl.name,
+                    tint = androidx.compose.ui.graphics.Color(0xFF1DB954),
+                    modifier = Modifier.size(48.dp),
+                )
+            }
+            // Spotify green badge in top-right corner
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(20.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(androidx.compose.ui.graphics.Color(0xFF1DB954)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            pl.name,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            "${pl.trackCount} songs",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
         )
     }
 }

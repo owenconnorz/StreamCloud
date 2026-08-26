@@ -306,6 +306,7 @@ fun StreamCloudApp() {
     // Mini player is hidden on Settings, Plugins, and Adult routes
     val isSettingsOrAdult = currentRoute == Tab.Settings.route ||
         currentRoute == "plugins" || currentRoute == "plugin-picker" ||
+        currentRoute == "reddit-login" ||
         currentRoute == Tab.Adult.route
     val showMiniPlayer = currentRoute != null && !isMediaRoute && !isSettingsOrAdult
 
@@ -363,14 +364,20 @@ fun StreamCloudApp() {
                     if (isTv && showRail && event.type == KeyEventType.KeyDown) {
                         when {
                             event.key == Key.Menu -> {
-                                try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
-                                navScrollToTopVersion++
-                                true
+                                val moved = runCatching {
+                                    firstTvNavFocus.requestFocus()
+                                    true
+                                }.getOrDefault(false)
+                                if (moved) navScrollToTopVersion++
+                                moved
                             }
                             event.key == Key.DirectionUp && firstMovieFocused -> {
-                                try { firstTvNavFocus.requestFocus() } catch (_: Exception) {}
-                                navScrollToTopVersion++
-                                true
+                                val moved = runCatching {
+                                    firstTvNavFocus.requestFocus()
+                                    true
+                                }.getOrDefault(false)
+                                if (moved) navScrollToTopVersion++
+                                moved
                             }
                             else -> false
                         }
@@ -997,6 +1004,29 @@ fun StreamCloudApp() {
                             val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("cs-detail/$p/$u/$n/$po")
                         },
+                         onDirectMediaClick = { itemUrl, itemName ->
+                             if (itemUrl.isNotBlank()) {
+                                 val u = URLEncoder.encode(itemUrl, "UTF-8")
+                                 val n = URLEncoder.encode(itemName, "UTF-8")
+                                 nav.navigate("player/url/$u/$n")
+                             }
+                         },
+                         onAdultProviderClick = { provider, itemUrl, itemName ->
+                             if (itemUrl.isNotBlank()) {
+                                 val playbackId = if (provider == "pornhub") {
+                                     val id = itemUrl.substringAfter("viewkey=", "")
+                                         .substringBefore('&')
+                                         .ifBlank { itemUrl.substringAfterLast('/') }
+                                     "pornhub://$id"
+                                 } else {
+                                     "saved"
+                                 }
+                                 val v = URLEncoder.encode(playbackId, "UTF-8")
+                                 val e = URLEncoder.encode(itemUrl, "UTF-8")
+                                 val t = URLEncoder.encode(itemName, "UTF-8")
+                                 nav.navigate("player/eporner/$v/$e/$t")
+                             }
+                         },
                     )
                 }
                 composable(
@@ -1035,12 +1065,15 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(Tab.Adult.route) {
-                    AdultScreen(onPlay = { videoId, embed, title ->
-                        val v = URLEncoder.encode(videoId, "UTF-8")
-                        val e = URLEncoder.encode(embed, "UTF-8")
-                        val t = URLEncoder.encode(title, "UTF-8")
-                        nav.navigate("player/eporner/$v/$e/$t")
-                    })
+                    AdultScreen(
+                        onPlay = { videoId, embed, title ->
+                            val v = URLEncoder.encode(videoId, "UTF-8")
+                            val e = URLEncoder.encode(embed, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/eporner/$v/$e/$t")
+                        },
+                        onOpenRedditLogin = { nav.navigate("reddit-login") },
+                    )
                 }
 
 
@@ -1056,27 +1089,40 @@ fun StreamCloudApp() {
                     val id    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8")
                     val embed = URLDecoder.decode(entry.arguments!!.getString("embed")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    var resolved by remember(id, embed) {
-                        mutableStateOf<com.streamcloud.app.data.api.EpornerResolvedPlayback?>(null)
+                    var resolvedUrl by remember(id, embed) { mutableStateOf<String?>(null) }
+                    var resolvedHeaders by remember(id, embed) {
+                        mutableStateOf<Map<String, String>>(emptyMap())
                     }
                     var resolveError by remember(id, embed) { mutableStateOf<String?>(null) }
                     var resolveAttempt by remember(id, embed) { mutableStateOf(0) }
                     LaunchedEffect(id, embed, resolveAttempt) {
-                        resolved = null
+                        resolvedUrl = null
+                        resolvedHeaders = emptyMap()
                         resolveError = null
-                        runCatching { com.streamcloud.app.data.api.EpornerPlaybackResolver.resolve(id, embed) }
-                            .onSuccess { resolved = it }
+                        runCatching {
+                            if (id.startsWith("pornhub://")) {
+                                com.streamcloud.app.data.api.PornhubPlaybackResolver.resolve(id, embed)
+                                    .let { it.url to it.headers }
+                            } else {
+                                com.streamcloud.app.data.api.EpornerPlaybackResolver.resolve(id, embed)
+                                    .let { it.url to it.headers }
+                            }
+                        }
+                            .onSuccess {
+                                resolvedUrl = it.first
+                                resolvedHeaders = it.second
+                            }
                             .onFailure {
                                 resolveError = it.message
                                     ?.takeIf(String::isNotBlank)
-                                    ?: "Eporner could not prepare this video."
+                                    ?: "This provider could not prepare the video."
                             }
                     }
-                    if (resolved != null) {
+                    if (resolvedUrl != null) {
                         NativePlayerScreen(
-                            streamUrl = resolved!!.url,
+                            streamUrl = resolvedUrl!!,
                             title = title,
-                            headers = resolved!!.headers,
+                            headers = resolvedHeaders,
                             onBack = { nav.popBackStack() },
                         )
                     } else if (resolveError != null) {
@@ -1088,7 +1134,7 @@ fun StreamCloudApp() {
                             verticalArrangement = Arrangement.Center,
                         ) {
                             Text(
-                                "This Eporner video could not be prepared.",
+                                "This video could not be prepared.",
                                 style = MaterialTheme.typography.titleMedium,
                                 textAlign = TextAlign.Center,
                             )
@@ -1239,6 +1285,7 @@ fun StreamCloudApp() {
                             onOpenPlugins     = { nav.navigate("plugins") },
                             onOpenCollections = { nav.navigate("collections") },
                             onSwitchProfile   = { showProfilePicker = true },
+                            onOpenRedditLogin = { nav.navigate("reddit-login") },
                             onSubPageChanged  = { settingsHasSubPage = it },
                             backRequest       = settingsBackRequest,
                             tvNavFocusRequester = tvNavHeroFocus,
@@ -1249,6 +1296,18 @@ fun StreamCloudApp() {
                     com.streamcloud.app.ui.theme.StaticAppTheme {
                         PluginsScreen(onBack = { nav.popBackStack() })
                     }
+                }
+                composable("reddit-login") {
+                    val loginScope = rememberCoroutineScope()
+                    com.streamcloud.app.ui.screens.adult.RedditLoginScreen(
+                        onLoginSuccess = { username ->
+                            loginScope.launch {
+                                sl.settings.setRedditUsername(username)
+                                nav.popBackStack()
+                            }
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
                 }
             }
                     }
@@ -1489,11 +1548,13 @@ private fun TvNetflixTopNav(
                         if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                         when (event.key) {
                             Key.DirectionDown -> {
-                                // Try direct requester first (crosses NavHost focus boundary).
-                                // Fall back to spatial search if the hero isn't attached yet.
-                                try { contentFocusRequester.requestFocus() }
-                                catch (_: Exception) { focusManager.moveFocus(FocusDirection.Down) }
-                                true
+                                // Cross the NavHost focus boundary directly when possible.
+                                // When a screen has no hero/primary control yet, fall back to
+                                // spatial navigation and do not consume a failed move.
+                                runCatching {
+                                    contentFocusRequester.requestFocus()
+                                    true
+                                }.getOrDefault(false) || focusManager.moveFocus(FocusDirection.Down)
                             }
                             // Nothing focusable above the nav bar — consume Up.
                             Key.DirectionUp -> true
