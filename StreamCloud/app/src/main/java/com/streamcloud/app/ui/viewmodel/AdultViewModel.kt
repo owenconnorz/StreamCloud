@@ -13,10 +13,12 @@ import com.streamcloud.app.data.api.RedditAdultRepository
 import com.streamcloud.app.data.api.RedditAuthRequiredException
 import com.streamcloud.app.data.api.RedditRateLimitException
 import com.streamcloud.app.data.api.RedGifsRepository
+import com.streamcloud.app.data.api.PornhubRepository
 import com.streamcloud.app.data.library.AdultHistoryEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.network.Net
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -116,6 +118,7 @@ class AdultViewModel(
             when (savedSource) {
                 AdultSource.Reddit  -> fetchRedditPage(replace = true)
                 AdultSource.RedGifs -> fetchRedGifsPage(replace = true)
+                AdultSource.Pornhub -> fetchPornhubPage(replace = true)
                 else -> {
                     fetchPage(query = "", page = 1, order = "most-popular", replaceItems = true, isInitial = true)
                     loadCategories()
@@ -156,10 +159,24 @@ class AdultViewModel(
                 _state.update { it.copy(currentRedGifsTag = "trending", currentPage = 1) }
                 fetchRedGifsPage(replace = true)
             }
+            AdultSource.Pornhub -> {
+                currentQuery = ""
+                _state.update { it.copy(currentPage = 1) }
+                fetchPornhubPage(replace = true)
+            }
         }
     }
 
     fun search(query: String) {
+        if (_state.value.source == AdultSource.Pornhub) {
+            currentQuery = query.trim()
+            searchJob?.cancel()
+            searchJob = viewModelScope.launch {
+                delay(300L)
+                fetchPornhubPage(replace = true)
+            }
+            return
+        }
         if (_state.value.source != AdultSource.Eporner) return
         val q = query.trim()
         currentQuery = q
@@ -221,6 +238,10 @@ class AdultViewModel(
                 _state.update { it.copy(currentPage = 1) }
                 fetchRedGifsPage(replace = true)
             }
+            AdultSource.Pornhub -> {
+                _state.update { it.copy(currentPage = 1) }
+                fetchPornhubPage(replace = true)
+            }
             else -> {
                 val newOrder = SORT_ORDERS.filterNot { it == currentOrder }.random()
                 currentOrder = newOrder
@@ -241,6 +262,11 @@ class AdultViewModel(
         if (_state.value.source == AdultSource.RedGifs) {
             if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
             fetchRedGifsPage(replace = false)
+            return
+        }
+        if (_state.value.source == AdultSource.Pornhub) {
+            if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
+            fetchPornhubPage(replace = false)
             return
         }
         if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
@@ -507,6 +533,62 @@ class AdultViewModel(
         }
     }
 
+    private fun fetchPornhubPage(replace: Boolean) {
+        if (!replace && (_state.value.loading || _state.value.loadingMore)) return
+        loadMoreJob?.cancel()
+        loadMoreJob = viewModelScope.launch {
+            val page = if (replace) 1 else _state.value.currentPage + 1
+            val requestedQuery = currentQuery
+            if (replace) {
+                _state.update { it.copy(loading = true, error = null) }
+            } else {
+                _state.update { it.copy(loadingMore = true) }
+            }
+            try {
+                val result = PornhubRepository.fetch(requestedQuery, page)
+                if (_state.value.source != AdultSource.Pornhub || currentQuery != requestedQuery) {
+                    return@launch
+                }
+                if (replace) {
+                    _state.update {
+                        it.copy(
+                            items = result.items,
+                            loading = false,
+                            hasMore = result.hasMore,
+                            currentPage = page,
+                            error = if (result.items.isEmpty()) "Pornhub returned no videos." else null,
+                        )
+                    }
+                } else {
+                    val existingIds = _state.value.items.map { it.id }.toHashSet()
+                    val deduped = result.items.filterNot { existingIds.contains(it.id) }
+                    _state.update {
+                        it.copy(
+                            items = it.items + deduped,
+                            loadingMore = false,
+                            hasMore = result.hasMore && deduped.isNotEmpty(),
+                            currentPage = page,
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (_state.value.source != AdultSource.Pornhub || currentQuery != requestedQuery) {
+                    return@launch
+                }
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        loadingMore = false,
+                        error = e.message?.takeIf(String::isNotBlank)
+                            ?: "Pornhub is unavailable right now.",
+                    )
+                }
+            }
+        }
+    }
+
 
     // ── Age gate & lock ────────────────────────────────────────────────────────
 
@@ -546,9 +628,24 @@ class AdultViewModel(
     fun downloadVideo(item: AdultItem) {
         viewModelScope.launch {
             try {
+                val pornhubPlayback = if (item.source == AdultSource.Pornhub) {
+                    PornhubRepository.resolve(
+                        item.id,
+                        item.embedUrl.orEmpty(),
+                        preferProgressive = true,
+                    )
+                } else {
+                    null
+                }
                 val url: String = when {
                     item.source == AdultSource.Eporner && item.epornerId != null ->
                         resolveStreamUrl(item.id, item.embedUrl.orEmpty())
+                    item.source == AdultSource.Pornhub ->
+                        pornhubPlayback!!.url.also {
+                            require(!it.substringBefore('?').endsWith(".m3u8", ignoreCase = true)) {
+                                "Pornhub did not provide a downloadable MP4 for this video."
+                            }
+                        }
                     item.streamUrl?.startsWith("http") == true -> item.streamUrl!!
                     item.embedUrl?.startsWith("http") == true  -> item.embedUrl!!
                     else -> return@launch
@@ -564,6 +661,7 @@ class AdultViewModel(
                         android.app.DownloadManager.Request.NETWORK_WIFI or
                         android.app.DownloadManager.Request.NETWORK_MOBILE,
                     )
+                pornhubPlayback?.headers?.forEach(req::addRequestHeader)
                 (appContext.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)
                     .enqueue(req)
             } catch (e: Exception) {
