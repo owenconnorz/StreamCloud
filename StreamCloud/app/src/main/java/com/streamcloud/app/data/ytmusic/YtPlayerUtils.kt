@@ -278,13 +278,61 @@ object YtPlayerUtils {
     private val poTokenGenerator = PoTokenGenerator()
 
     @Volatile var appContext: Context? = null
-    @Volatile var ytMusicCookie: String = ""
+    private val webSessionStateLock = Any()
+    @Volatile private var storedYtMusicCookie: String = ""
+    var ytMusicCookie: String
+        get() = storedYtMusicCookie
+        set(value) {
+            synchronized(webSessionStateLock) {
+                storedYtMusicCookie = value
+            }
+        }
     @Volatile var contentLanguage: String = "en"
     @Volatile var contentCountry:  String = "US"
 
     // Public so MusicPlaybackService can include X-Goog-Visitor-Id in CDN requests for PoToken validation.
-    @Volatile var cachedVisitorData: String? = null
+    @Volatile private var storedVisitorData: String? = null
+    var cachedVisitorData: String?
+        get() = storedVisitorData
+        private set(value) {
+            synchronized(webSessionStateLock) {
+                storedVisitorData = value
+            }
+        }
     @Volatile private var visitorDataFetchedAt: Long = 0L
+
+    data class WebSessionSnapshot(
+        val cookie: String,
+        val visitorData: String?,
+        val fingerprint: String,
+    ) {
+        fun cdnHeaders(hasPoToken: Boolean): Map<String, String> = buildMap {
+            if (cookie.isNotBlank()) put("Cookie", cookie)
+            put("Origin", "https://music.youtube.com")
+            put("Referer", "https://music.youtube.com/")
+            visitorData?.takeIf(String::isNotBlank)?.let {
+                put("X-Goog-Visitor-Id", it)
+            }
+            if (hasPoToken) {
+                put("Sec-Fetch-Dest", "audio")
+                put("Sec-Fetch-Mode", "cors")
+                put("Sec-Fetch-Site", "cross-site")
+            }
+        }
+    }
+
+    fun currentWebSessionSnapshot(): WebSessionSnapshot? = synchronized(webSessionStateLock) {
+        val cookie = storedYtMusicCookie
+        val visitor = storedVisitorData?.takeIf(String::isNotBlank)
+        if (cookie.isBlank() && visitor == null) return@synchronized null
+        WebSessionSnapshot(
+            cookie = cookie,
+            visitorData = visitor,
+            fingerprint = YtStreamIdentity.fingerprint("$cookie\n${visitor.orEmpty()}"),
+        )
+    }
+
+    fun currentWebSessionFingerprint(): String? = currentWebSessionSnapshot()?.fingerprint
 
     private fun ensureVisitorData() {
         val now = System.currentTimeMillis()
@@ -395,6 +443,7 @@ object YtPlayerUtils {
         val contentLength: Long?,
         val loudnessDb: Double?,
         val expiresInSeconds: Long,
+        val sessionFingerprint: String? = null,
     )
 
     data class AudioStreamInfo(
@@ -465,9 +514,23 @@ object YtPlayerUtils {
 
             // Only PoToken-backed web clients need visitor data. Anonymous fallbacks do not
             // trigger that preparation unless the main WEB_REMIX route has already failed.
-            if (client.useWebPoTokens && !visitorDataPreparedForWebFallback) {
+            val needsSessionSnapshot =
+                client.useWebPoTokens || client.useWebAuth || client.requiresAuth
+            if (needsSessionSnapshot && !visitorDataPreparedForWebFallback) {
                 ensureVisitorData()
                 visitorDataPreparedForWebFallback = true
+            }
+            val webSessionSnapshot = if (needsSessionSnapshot) {
+                currentWebSessionSnapshot()
+            } else {
+                null
+            }
+            if (needsSessionSnapshot && webSessionSnapshot == null) {
+                AppLogger.w(
+                    TAG,
+                    "[${client.label}] $videoId — session snapshot unavailable, skipping bound client",
+                )
+                continue
             }
 
             // Generate PoToken for web clients that require it (WEB_REMIX, TVHTML5).
@@ -479,7 +542,7 @@ object YtPlayerUtils {
             // WEB_REMIX in the same resolution attempt.
             var poTokenResult: com.streamcloud.app.data.ytmusic.potoken.PoTokenResult? = null
             if (client.useWebPoTokens) {
-                val sessionId = cachedVisitorData
+                val sessionId = webSessionSnapshot?.visitorData
                 if (sessionId == null) {
                     AppLogger.w(TAG, "[${client.label}] skipped — visitorData unavailable (PoToken needs session)")
                     recordClientFailure(client.label)
@@ -516,7 +579,15 @@ object YtPlayerUtils {
                 YtNSigDescrambler.warmUp()
             }
 
-            val result = tryClient(client, videoId, preferItag, preferHighQuality, poTokenResult?.playerRequestPoToken, sonosSafe)
+            val result = tryClient(
+                client = client,
+                videoId = videoId,
+                preferItag = preferItag,
+                preferHighQuality = preferHighQuality,
+                poToken = poTokenResult?.playerRequestPoToken,
+                sonosSafe = sonosSafe,
+                webSessionSnapshot = webSessionSnapshot,
+            )
             when (result) {
                 is ClientResult.Success -> {
                     // Apply n-transform for clients that need it — same set as Metrolist's
@@ -569,6 +640,7 @@ object YtPlayerUtils {
                             url = candidateUrl,
                             userAgent = client.userAgent,
                             requiresWebSessionHeaders = requiresWebSessionHeaders,
+                            webSessionSnapshot = webSessionSnapshot,
                         )
                     ) {
                         recordClientSuccess(client.label)
@@ -581,6 +653,11 @@ object YtPlayerUtils {
                         return@withContext result.info.copy(
                             url = candidateUrl,
                             requiresWebSessionHeaders = requiresWebSessionHeaders,
+                            sessionFingerprint = if (requiresWebSessionHeaders) {
+                                webSessionSnapshot?.fingerprint
+                            } else {
+                                null
+                            },
                         )
                     } else {
                         AppLogger.w(TAG, "[${client.label}] $videoId — URL failed range validation, trying next client")
@@ -684,6 +761,10 @@ object YtPlayerUtils {
         }
     }
 
+    fun recordCdnFailure(label: String) {
+        recordClientFailure(label)
+    }
+
     private const val POTOKEN_WARMUP_VIDEO_ID = "jNQXAC9IVRw"
     private const val WARM_UP_TTL_MS = 6L * 60L * 60L * 1_000L
     private const val CLIENT_FAILURE_THRESHOLD = 2
@@ -727,7 +808,7 @@ object YtPlayerUtils {
 
         for (client in clients) {
             try {
-                val root = fetchPlayerResponse(client, videoId, null) ?: continue
+                val root = fetchPlayerResponse(client, videoId, null, null) ?: continue
                 val streamingData = root["streamingData"]?.jsonObject ?: continue
 
                 val muxedFormats = streamingData["formats"]?.jsonArray
@@ -831,9 +912,10 @@ object YtPlayerUtils {
         preferHighQuality: Boolean,
         poToken: String?,
         sonosSafe: Boolean = false,
+        webSessionSnapshot: WebSessionSnapshot? = null,
     ): ClientResult {
         return try {
-            val root = fetchPlayerResponse(client, videoId, poToken)
+            val root = fetchPlayerResponse(client, videoId, poToken, webSessionSnapshot)
                 ?: return ClientResult.Error(null)
 
             val playabilityStatusObj = root["playabilityStatus"]?.jsonObject
@@ -930,11 +1012,16 @@ object YtPlayerUtils {
         client: ClientConfig,
         videoId: String,
         poToken: String?,
+        webSessionSnapshot: WebSessionSnapshot?,
     ): JsonObject? {
         val embedUrl = client.embedUrlTemplate?.replace("%VIDEO_ID%", videoId)
         val requestOrigin = if (client.playerUrl.contains("music.youtube.com"))
             "https://music.youtube.com" else "https://www.youtube.com"
-        val vd = cachedVisitorData
+        val vd = if (webSessionSnapshot != null) {
+            webSessionSnapshot.visitorData
+        } else {
+            cachedVisitorData
+        }
 
         val body = buildJsonObject {
             putJsonObject("context") {
@@ -997,7 +1084,7 @@ object YtPlayerUtils {
 
         if (vd != null) reqBuilder.header("X-Goog-Visitor-Id", vd)
 
-        val cookie = ytMusicCookie
+        val cookie = webSessionSnapshot?.cookie ?: ytMusicCookie
         if (cookie.isNotBlank() && client.supportsAuth) {
             reqBuilder.header("Cookie", cookie)
             reqBuilder.header("Origin", requestOrigin)
@@ -1061,6 +1148,7 @@ object YtPlayerUtils {
         url: String,
         userAgent: String,
         requiresWebSessionHeaders: Boolean,
+        webSessionSnapshot: WebSessionSnapshot?,
     ): Boolean {
         return try {
             val builder = Request.Builder()
@@ -1069,18 +1157,14 @@ object YtPlayerUtils {
                 .header("User-Agent", userAgent)
                 .header("Range", "bytes=0-1")
             if (requiresWebSessionHeaders) {
-                ytMusicCookie.takeIf { it.isNotBlank() }?.let { cookie ->
-                    builder.header("Cookie", cookie)
-                        .header("Origin", "https://music.youtube.com")
-                        .header("Referer", "https://music.youtube.com/")
-                }
-                cachedVisitorData?.let { visitor ->
-                    builder.header("X-Goog-Visitor-Id", visitor)
-                }
-                if (url.contains("pot=")) {
-                    builder.header("Sec-Fetch-Dest", "audio")
-                        .header("Sec-Fetch-Mode", "cors")
-                        .header("Sec-Fetch-Site", "cross-site")
+                webSessionSnapshot
+                    ?.cdnHeaders(hasPoToken = url.contains("pot="))
+                    ?.forEach { (name, value) ->
+                        builder.header(name, value)
+                    }
+                if (webSessionSnapshot == null) {
+                    AppLogger.w(TAG, "stream range probe skipped — web session snapshot unavailable")
+                    return false
                 }
             }
             http.newCall(builder.build()).execute().use { response ->

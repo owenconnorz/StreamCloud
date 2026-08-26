@@ -73,7 +73,7 @@ object YtMusicStreamResolver {
     ): StreamUrlCache.Entry {
         require(videoId.isNotBlank()) { "A YouTube video ID is required." }
 
-        StreamUrlCache.getEntry(videoId)
+        StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint())
             ?.takeIf { entry ->
                 excludedClientLabels.isEmpty() || entry.clientLabel !in excludedClientLabels
             }
@@ -116,7 +116,7 @@ object YtMusicStreamResolver {
         }
 
     private suspend fun resolveForPrefetch(videoId: String): StreamUrlCache.Entry {
-        StreamUrlCache.getEntry(videoId)?.let { return it }
+        StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint())?.let { return it }
         return resolveShared(videoId, speculative = true)
     }
 
@@ -183,7 +183,7 @@ object YtMusicStreamResolver {
         excludedClientLabels: Set<String>,
         generation: Long,
     ): StreamUrlCache.Entry {
-        StreamUrlCache.getEntry(videoId)
+        StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint())
             ?.takeIf { entry ->
                 excludedClientLabels.isEmpty() || entry.clientLabel !in excludedClientLabels
             }
@@ -205,6 +205,7 @@ object YtMusicStreamResolver {
             expiryMs = expiryMs,
             clientLabel = info.clientLabel,
             requiresWebSessionHeaders = info.requiresWebSessionHeaders,
+            sessionFingerprint = info.sessionFingerprint,
         )
         // A foreground recovery/promotion may have superseded this resolver while an underlying
         // extractor ignored cancellation. Generation validation and cache publication share the
@@ -247,6 +248,7 @@ object YtMusicStreamResolver {
                 expiryMs = entry.expiryMs,
                 clientLabel = entry.clientLabel,
                 requiresWebSessionHeaders = entry.requiresWebSessionHeaders,
+                sessionFingerprint = entry.sessionFingerprint,
             )
         }
     }
@@ -290,7 +292,7 @@ object YtMusicStreamResolver {
     }
 
     private fun schedulePrefetch(videoId: String, priority: PrefetchPriority): Boolean {
-        if (StreamUrlCache.getEntry(videoId) != null) return false
+        if (StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint()) != null) return false
         if (queuedPrefetchPriorities.putIfAbsent(videoId, priority) != null) return false
         val budget = when (priority) {
             PrefetchPriority.VISIBLE_LIST -> MAX_VISIBLE_LIST_PREFETCH

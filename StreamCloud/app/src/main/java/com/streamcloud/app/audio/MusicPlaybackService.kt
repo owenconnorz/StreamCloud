@@ -48,6 +48,7 @@ import com.streamcloud.app.data.ytmusic.YtMusicHomeRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.data.ytmusic.YtMusicStreamResolver
+import com.streamcloud.app.data.ytmusic.YtStreamIdentity
 import com.streamcloud.app.data.ytmusic.PlaybackLatencyTrace
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
@@ -112,7 +113,6 @@ class MusicPlaybackService : MediaLibraryService() {
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
     @Volatile private var ytHomeFeed: YtMusicHomeFeed = YtMusicHomeFeed()
 
-    @Volatile private var ytMusicCookieForStream: String = ""
     @Volatile private var isCurrentLiked: Boolean = false
     /**
      * A GVS URL can be invalidated by YouTube even though its `expire=` value is hours away, or
@@ -120,8 +120,12 @@ class MusicPlaybackService : MediaLibraryService() {
      * cached URL just repeats the failure. Track one automatic refresh per song and remember the
      * rejecting Innertube client so the resolver selects the next client.
      */
-    private val youtubeStreamRetriedVideoIds = ConcurrentHashMap.newKeySet<String>()
-    private val rejectedYouTubeClientByVideoId = ConcurrentHashMap<String, String>()
+    private val youtubeStreamRecoveryAttempts = ConcurrentHashMap<String, Int>()
+    private val rejectedYouTubeClientsByVideoId =
+        ConcurrentHashMap<String, MutableSet<String>>()
+    private val rejectedStreamFingerprintsByVideoId =
+        ConcurrentHashMap<String, MutableSet<String>>()
+    private val loggedCdn403Fingerprints = ConcurrentHashMap.newKeySet<String>()
     /**
      * A 403 means an Innertube URL was accepted by the player API but rejected by the CDN. On the
      * automatic recovery path, use an independent maintained extractor before trying more URLs from
@@ -134,6 +138,8 @@ class MusicPlaybackService : MediaLibraryService() {
         val url: String,
         val userAgent: String,
         val requiresWebSessionHeaders: Boolean,
+        val sessionFingerprint: String? = null,
+        val webSessionHeaders: Map<String, String> = emptyMap(),
     )
 
 
@@ -268,8 +274,9 @@ class MusicPlaybackService : MediaLibraryService() {
                         mediaItem?.let { item ->
                             youtubeVideoId(item.mediaId)?.let { videoId ->
                                 // A newly started track gets its own one-shot 403 recovery budget.
-                                youtubeStreamRetriedVideoIds.remove(videoId)
-                                rejectedYouTubeClientByVideoId.remove(videoId)
+                                youtubeStreamRecoveryAttempts.remove(videoId)
+                                rejectedYouTubeClientsByVideoId.remove(videoId)
+                                rejectedStreamFingerprintsByVideoId.remove(videoId)
                                 preferMaintainedExtractorVideoIds.remove(videoId)
                             }
                         }
@@ -482,7 +489,6 @@ class MusicPlaybackService : MediaLibraryService() {
 
         ioScope.launch {
             sl.settings.ytMusicCookie.collectLatest { cookie ->
-                ytMusicCookieForStream = cookie
                 YtPlayerUtils.ytMusicCookie = cookie
                 if (cookie.isNotBlank()) {
                     // Keep account/library hydration away from the cold player startup window.
@@ -540,7 +546,6 @@ class MusicPlaybackService : MediaLibraryService() {
             .readTimeout(60, TimeUnit.SECONDS)
             .addNetworkInterceptor { chain ->
                 val req = chain.request()
-                val cookie = ytMusicCookieForStream
                 val host = req.url.host
                 val builder = req.newBuilder()
                 val streamSessionMarker = req.header(STREAM_WEB_SESSION_HEADER)
@@ -556,43 +561,9 @@ class MusicPlaybackService : MediaLibraryService() {
                     else -> req.header("User-Agent").orEmpty().startsWith("Mozilla/")
                 }
 
-                val hasPot = req.url.queryParameter("pot") != null
                 // This header tells the in-app interceptor which profile to apply. It must never
                 // reach YouTube's CDN as an actual HTTP header.
                 builder.removeHeader(STREAM_WEB_SESSION_HEADER)
-
-                if (cookie.isNotBlank() && useWebSessionHeaders) {
-                    when {
-                        // music.youtube.com API requests — always send cookie + browser headers.
-                        host.endsWith("music.youtube.com") -> {
-                            builder.header("Cookie", cookie)
-                                   .header("Origin", "https://music.youtube.com")
-                                   .header("Referer", "https://music.youtube.com/")
-                        }
-                        // Googlevideo.com URLs created by WEB_REMIX/TVHTML5 are tied to the
-                        // browser session that generated their PoToken. Anonymous app-client
-                        // URLs deliberately skip this block: mixing a browser cookie/visitor
-                        // session with an ANDROID_VR or TESTSUITE URL can cause a CDN 403.
-                        host.contains("googlevideo.com") -> {
-                            builder.header("Cookie", cookie)
-                                   .header("Origin", "https://music.youtube.com")
-                                   .header("Referer", "https://music.youtube.com/")
-                            if (hasPot) {
-                                builder.header("Sec-Fetch-Dest", "audio")
-                                       .header("Sec-Fetch-Mode", "cors")
-                                       .header("Sec-Fetch-Site", "cross-site")
-                            }
-                        }
-                    }
-                }
-
-                // X-Goog-Visitor-Id is meaningful only for the same web/PoToken session that
-                // created the URL. Sending it to anonymous Android-client streams can conflict
-                // with their signed client context.
-                val vd = YtPlayerUtils.cachedVisitorData
-                if (useWebSessionHeaders && vd != null) {
-                    builder.header("X-Goog-Visitor-Id", vd)
-                }
 
                 val response = chain.proceed(builder.build())
 
@@ -600,10 +571,16 @@ class MusicPlaybackService : MediaLibraryService() {
                 // (e.g. "Video unavailable", IP mismatch, missing auth) which is invisible from
                 // the ExoPlayer error alone.
                 if (response.code == 403 && host.contains("googlevideo.com")) {
-                    val body = response.peekBody(400).string().take(300)
-                    val sessionProfile = if (useWebSessionHeaders) "web" else "anonymous"
-                    AppLogger.e(TAG, "CDN 403 ($sessionProfile client) body: $body")
-                    AppLogger.e(TAG, "CDN 403 url: ${req.url.toString().take(120)}")
+                    val fingerprint = YtStreamIdentity.fingerprint(req.url.toString())
+                    if (loggedCdn403Fingerprints.add(fingerprint)) {
+                        val body = response.peekBody(400).string().take(300)
+                        val sessionProfile = if (useWebSessionHeaders) "web" else "anonymous"
+                        AppLogger.e(
+                            TAG,
+                            "CDN 403 ($sessionProfile client) fingerprint=$fingerprint body: $body",
+                        )
+                        AppLogger.e(TAG, "CDN 403 fingerprint=$fingerprint host=${req.url.host}")
+                    }
                 }
 
                 response
@@ -675,7 +652,7 @@ class MusicPlaybackService : MediaLibraryService() {
                     "User-Agent" to stream.userAgent,
                     STREAM_WEB_SESSION_HEADER to
                         if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
-                )
+                ) + stream.webSessionHeaders
             )
             .build()
     }
@@ -684,24 +661,37 @@ class MusicPlaybackService : MediaLibraryService() {
     private fun resolveStreamUrl(videoId: String, watchUrl: String): ResolvedStream {
         val now = System.currentTimeMillis()
 
-        val rejectedClient = rejectedYouTubeClientByVideoId[videoId]
+        val rejectedClients = rejectedYouTubeClientsByVideoId[videoId]?.toSet().orEmpty()
+        val rejectedFingerprints =
+            rejectedStreamFingerprintsByVideoId[videoId]?.toSet().orEmpty()
         val preferMaintainedExtractor = videoId in preferMaintainedExtractorVideoIds
-        StreamUrlCache.getEntry(videoId)?.takeIf { entry ->
+        StreamUrlCache.getEntry(
+            videoId,
+            YtPlayerUtils.currentWebSessionFingerprint(),
+        )?.takeIf { entry ->
             // Never resurrect the exact client that just returned a CDN 403.
-            rejectedClient == null || entry.clientLabel != rejectedClient
+            entry.clientLabel !in rejectedClients &&
+                YtStreamIdentity.fingerprint(entry.url) !in rejectedFingerprints
         }?.let { entry ->
-            val ttl = StreamUrlCache.ttlSeconds(videoId) ?: 0
+            val ttl = ((entry.expiryMs - now) / 1_000L).coerceAtLeast(0L)
             Log.d(TAG, "StreamUrlCache hit for $videoId (ttl=${ttl}s)")
+            val webHeaders = webSessionHeadersFor(entry)
+            if (webHeaders == null) {
+                StreamUrlCache.remove(videoId)
+                AppLogger.w(TAG, "Discarded $videoId because its web session changed before playback")
+                return resolveStreamUrl(videoId, watchUrl)
+            }
             return ResolvedStream(
                 url = entry.url,
                 userAgent = entry.userAgent,
                 requiresWebSessionHeaders = entry.requiresWebSessionHeaders,
+                sessionFingerprint = entry.sessionFingerprint,
+                webSessionHeaders = webHeaders,
             )
         }
 
         if (preferMaintainedExtractor) {
-            resolveMaintainedExtractorStream(videoId, now)?.let { stream ->
-                rejectedYouTubeClientByVideoId.remove(videoId)
+            resolveMaintainedExtractorStream(videoId, now, rejectedFingerprints)?.let { stream ->
                 preferMaintainedExtractorVideoIds.remove(videoId)
                 return stream
             }
@@ -717,34 +707,60 @@ class MusicPlaybackService : MediaLibraryService() {
             runCatching {
                 YtMusicStreamResolver.resolveInnertube(
                     videoId = videoId,
-                    excludedClientLabels = rejectedClient?.let(::setOf).orEmpty(),
+                    excludedClientLabels = rejectedClients,
                 )
             }
         }
         val entry = innertubeResult.getOrNull()
         if (entry != null) {
-            rejectedYouTubeClientByVideoId.remove(videoId)
+            val fingerprint = YtStreamIdentity.fingerprint(entry.url)
+            if (fingerprint in rejectedFingerprints) {
+                StreamUrlCache.remove(videoId)
+                entry.clientLabel?.takeIf(String::isNotBlank)?.let { client ->
+                    rejectedYouTubeClientsByVideoId
+                        .computeIfAbsent(videoId) { ConcurrentHashMap.newKeySet() }
+                        .add(client)
+                    YtPlayerUtils.recordCdnFailure(client)
+                }
+                AppLogger.w(
+                    TAG,
+                    "Rejected duplicate refreshed stream for $videoId fingerprint=$fingerprint",
+                )
+                return resolveStreamUrl(videoId, watchUrl)
+            }
             AppLogger.i(
                 TAG,
                 "Innertube resolved $videoId via ${entry.clientLabel} " +
-                    "(cached ${(entry.expiryMs - now) / 1000}s)",
+                    "(cached ${(entry.expiryMs - now) / 1000}s, fingerprint=$fingerprint)",
             )
+            val webHeaders = webSessionHeadersFor(entry)
+            if (webHeaders == null) {
+                StreamUrlCache.remove(videoId)
+                AppLogger.w(TAG, "Discarded fresh $videoId URL because its web session changed")
+                return resolveStreamUrl(videoId, watchUrl)
+            }
             return ResolvedStream(
                 url = entry.url,
                 userAgent = entry.userAgent,
                 requiresWebSessionHeaders = entry.requiresWebSessionHeaders,
+                sessionFingerprint = entry.sessionFingerprint,
+                webSessionHeaders = webHeaders,
             )
         }
         AppLogger.w(TAG, "Innertube failed for $videoId: ${innertubeResult.exceptionOrNull()?.message}")
 
-        resolveMaintainedExtractorStream(videoId, now)?.let { return it }
+        resolveMaintainedExtractorStream(videoId, now, rejectedFingerprints)?.let { return it }
 
         val err = "Innertube, PipePipe, and BravePipe all failed to resolve stream for $videoId"
         AppLogger.e(TAG, err, innertubeResult.exceptionOrNull())
         error(err)
     }
 
-    private fun resolveMaintainedExtractorStream(videoId: String, now: Long): ResolvedStream? {
+    private fun resolveMaintainedExtractorStream(
+        videoId: String,
+        now: Long,
+        rejectedFingerprints: Set<String> = emptySet(),
+    ): ResolvedStream? {
         val watchUrl = "https://www.youtube.com/watch?v=$videoId"
         val extracted = runBlocking(Dispatchers.IO) {
             runCatching { NewPipeRepository.resolveVerifiedAudioStream(watchUrl) }
@@ -752,6 +768,15 @@ class MusicPlaybackService : MediaLibraryService() {
             AppLogger.w(TAG, "Maintained extractor failed for $videoId: ${error.message}")
             return null
         } ?: return null
+        val fingerprint = YtStreamIdentity.fingerprint(extracted.url)
+        if (fingerprint in rejectedFingerprints) {
+            AppLogger.w(
+                TAG,
+                "${extracted.resolverLabel} returned rejected duplicate for $videoId " +
+                    "fingerprint=$fingerprint",
+            )
+            return null
+        }
 
         StreamUrlCache.put(
             videoId = videoId,
@@ -760,12 +785,24 @@ class MusicPlaybackService : MediaLibraryService() {
             expiryMs = now + 3_600_000L,
             clientLabel = extracted.resolverLabel,
         )
-        AppLogger.i(TAG, "${extracted.resolverLabel} fallback resolved $videoId after range validation")
+        AppLogger.i(
+            TAG,
+            "${extracted.resolverLabel} fallback resolved $videoId after range validation " +
+                "fingerprint=$fingerprint",
+        )
         return ResolvedStream(
             url = extracted.url,
             userAgent = extracted.userAgent,
             requiresWebSessionHeaders = false,
+            sessionFingerprint = null,
         )
+    }
+
+    private fun webSessionHeadersFor(entry: StreamUrlCache.Entry): Map<String, String>? {
+        if (!entry.requiresWebSessionHeaders) return emptyMap()
+        val snapshot = YtPlayerUtils.currentWebSessionSnapshot()
+        if (snapshot == null || snapshot.fingerprint != entry.sessionFingerprint) return null
+        return snapshot.cdnHeaders(hasPoToken = entry.url.contains("pot="))
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
@@ -1483,27 +1520,43 @@ class MusicPlaybackService : MediaLibraryService() {
     /**
      * A YouTube CDN URL is signed for the Innertube client that minted it. Google can reject the
      * URL with 403 before `expire=` when that client is gated or its session token is invalidated.
-     * Refresh once with the next compatible client rather than allowing ExoPlayer to keep using
-     * the invalid cached URL.
+     * Refresh through a bounded number of distinct client generations rather than allowing
+     * ExoPlayer to keep using the invalid cached URL.
      */
     private fun retryWithFreshYoutubeStream(error: androidx.media3.common.PlaybackException): Boolean {
         val rangeReadFailure = isYoutubeRangeReadFailure(error)
         if (!isYoutubeCdn403(error) && !rangeReadFailure) return false
 
         val videoId = youtubeVideoId(exoPlayer.currentMediaItem?.mediaId) ?: return false
-        if (!youtubeStreamRetriedVideoIds.add(videoId)) {
+        val recoveryAttempt = youtubeStreamRecoveryAttempts.merge(videoId, 1) { previous, _ ->
+            previous + 1
+        } ?: 1
+        if (recoveryAttempt > MAX_YOUTUBE_STREAM_RECOVERIES) {
             AppLogger.w(
                 TAG,
-                "YouTube stream read failed for $videoId after automatic refresh; not retrying again",
+                "YouTube stream read failed for $videoId after " +
+                    "$MAX_YOUTUBE_STREAM_RECOVERIES distinct refreshes; not retrying again",
             )
             return false
         }
 
         val rejected = StreamUrlCache.remove(videoId)
-        rejected?.clientLabel?.takeIf { it.isNotBlank() }?.let { client ->
-            rejectedYouTubeClientByVideoId[videoId] = client
+        rejected?.url?.let(YtStreamIdentity::fingerprint)?.let { fingerprint ->
+            rejectedStreamFingerprintsByVideoId
+                .computeIfAbsent(videoId) { ConcurrentHashMap.newKeySet() }
+                .add(fingerprint)
         }
-        preferMaintainedExtractorVideoIds.add(videoId)
+        rejected?.clientLabel?.takeIf { it.isNotBlank() }?.let { client ->
+            rejectedYouTubeClientsByVideoId
+                .computeIfAbsent(videoId) { ConcurrentHashMap.newKeySet() }
+                .add(client)
+            YtPlayerUtils.recordCdnFailure(client)
+        }
+        if (recoveryAttempt == 1) {
+            preferMaintainedExtractorVideoIds.add(videoId)
+        } else {
+            preferMaintainedExtractorVideoIds.remove(videoId)
+        }
         // A POSITION_OUT_OF_RANGE error can be caused by a stale partial cache span. Do not carry
         // its byte position into the newly resolved URL; the fresh stream must start at byte zero.
         val resumePosition = if (rangeReadFailure) 0L else exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -1529,7 +1582,7 @@ class MusicPlaybackService : MediaLibraryService() {
             "YouTube ${if (rangeReadFailure) "range read failure" else "CDN 403"} for $videoId; " +
                 "discarded ${rejected?.clientLabel ?: "uncached"} URL and stale " +
                 "${if (preservesCompletedDownload) "player" else "player/download"} cache data; " +
-                "trying the independent extractor chain",
+                "trying recovery generation $recoveryAttempt/$MAX_YOUTUBE_STREAM_RECOVERIES",
         )
 
         // ResolvingDataSource invokes resolveStreamUrl() on prepare. It sees the removed cache
@@ -1635,6 +1688,7 @@ class MusicPlaybackService : MediaLibraryService() {
         private const val AUTHENTICATED_LIBRARY_SYNC_DELAY_MS = 5_000L
         private const val STREAM_WEB_SESSION_HEADER = "X-StreamCloud-Web-Session"
         private const val STREAM_WEB_SESSION_VALUE = "1"
+        private const val MAX_YOUTUBE_STREAM_RECOVERIES = 2
         const val ROOT_ID        = "streamcloud_root"
         const val HOME_ID        = "streamcloud_home"
         const val LIBRARY_ID     = "streamcloud_library"

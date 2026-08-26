@@ -13,6 +13,7 @@ object StreamUrlCache {
     private const val EXPIRY_KEY = "expiryMs"
     private const val CLIENT_LABEL_KEY = "clientLabel"
     private const val WEB_SESSION_HEADERS_KEY = "requiresWebSessionHeaders"
+    private const val SESSION_FINGERPRINT_KEY = "sessionFingerprint"
 
     data class Entry(
         val url: String,
@@ -26,6 +27,8 @@ object StreamUrlCache {
          * streams must be requested without browser-session headers.
          */
         val requiresWebSessionHeaders: Boolean = false,
+        /** Non-secret hash of the cookie/visitor state that minted this web-bound URL. */
+        val sessionFingerprint: String? = null,
     )
 
     private val cache = ConcurrentHashMap<String, Entry>()
@@ -61,12 +64,18 @@ object StreamUrlCache {
 
 
 
-    fun getEntry(videoId: String): Entry? {
+    fun getEntry(videoId: String, expectedSessionFingerprint: String? = null): Entry? {
         val entry = cache[videoId]
             ?: preferences?.getString(videoId, null)
                 ?.let(::decode)
                 ?.also { cache[videoId] = it }
             ?: return null
+        if (entry.requiresWebSessionHeaders &&
+            (expectedSessionFingerprint == null || entry.sessionFingerprint != expectedSessionFingerprint)
+        ) {
+            discard(videoId)
+            return null
+        }
         return entry.takeIf { System.currentTimeMillis() < it.expiryMs }
             ?: run {
                 discard(videoId)
@@ -85,6 +94,7 @@ object StreamUrlCache {
         expiryMs: Long,
         clientLabel: String? = null,
         requiresWebSessionHeaders: Boolean = false,
+        sessionFingerprint: String? = null,
     ) {
         val entry = Entry(
             url = url,
@@ -92,6 +102,7 @@ object StreamUrlCache {
             expiryMs = expiryMs,
             clientLabel = clientLabel,
             requiresWebSessionHeaders = requiresWebSessionHeaders,
+            sessionFingerprint = sessionFingerprint,
         )
         cache[videoId] = entry
         if (expiryMs > System.currentTimeMillis()) {
@@ -131,6 +142,7 @@ object StreamUrlCache {
         .put(EXPIRY_KEY, entry.expiryMs)
         .put(CLIENT_LABEL_KEY, entry.clientLabel)
         .put(WEB_SESSION_HEADERS_KEY, entry.requiresWebSessionHeaders)
+        .put(SESSION_FINGERPRINT_KEY, entry.sessionFingerprint)
         .toString()
 
     private fun decode(value: String): Entry? = runCatching {
@@ -142,6 +154,8 @@ object StreamUrlCache {
                 clientLabel = json.optString(CLIENT_LABEL_KEY)
                     .takeUnless { it.isBlank() || it == "null" },
                 requiresWebSessionHeaders = json.optBoolean(WEB_SESSION_HEADERS_KEY),
+                sessionFingerprint = json.optString(SESSION_FINGERPRINT_KEY)
+                    .takeUnless { it.isBlank() || it == "null" },
             )
         }
     }.getOrNull()
