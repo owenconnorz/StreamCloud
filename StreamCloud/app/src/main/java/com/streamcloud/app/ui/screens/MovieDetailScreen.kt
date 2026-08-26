@@ -432,11 +432,7 @@ fun MovieDetailScreen(
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             )
                         }
-                        AnimatedVisibility(
-                            visible = actionsExpanded,
-                            enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
-                            exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
-                        ) {
+                        if (isTv) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 MovieActionCircle(
                                     icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
@@ -449,11 +445,30 @@ fun MovieDetailScreen(
                                     active = isWatched,
                                 ) { toggleWatched() }
                             }
+                        } else {
+                            AnimatedVisibility(
+                                visible = actionsExpanded,
+                                enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
+                                exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
+                            ) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    MovieActionCircle(
+                                        icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                        active = inWatchlist,
+                                    ) {
+                                        movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
+                                    }
+                                    MovieActionCircle(
+                                        icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                                        active = isWatched,
+                                    ) { toggleWatched() }
+                                }
+                            }
+                            MovieActionCircle(
+                                icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
+                                active = false,
+                            ) { actionsExpanded = !actionsExpanded }
                         }
-                        MovieActionCircle(
-                            icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
-                            active = false,
-                        ) { actionsExpanded = !actionsExpanded }
                     }
                 } else {
                     Row(
@@ -472,12 +487,7 @@ fun MovieDetailScreen(
                                 modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
                             )
                         }
-                        AnimatedVisibility(
-                            visible = actionsExpanded,
-                            enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
-                            exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
-                        ) {
-                            val dlDone = downloadEntry?.status == "done"
+                        if (isTv) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 MovieActionCircle(
                                     icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
@@ -490,11 +500,30 @@ fun MovieDetailScreen(
                                     active = isWatched,
                                 ) { toggleWatched() }
                             }
+                        } else {
+                            AnimatedVisibility(
+                                visible = actionsExpanded,
+                                enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
+                                exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
+                            ) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    MovieActionCircle(
+                                        icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                        active = inWatchlist,
+                                    ) {
+                                        movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
+                                    }
+                                    MovieActionCircle(
+                                        icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                                        active = isWatched,
+                                    ) { toggleWatched() }
+                                }
+                            }
+                            MovieActionCircle(
+                                icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
+                                active = false,
+                            ) { actionsExpanded = !actionsExpanded }
                         }
-                        MovieActionCircle(
-                            icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
-                            active = false,
-                        ) { actionsExpanded = !actionsExpanded }
                     }
                 }
 
@@ -1189,6 +1218,7 @@ private fun MovieActionCircle(
         modifier = Modifier
             .size(52.dp)
             .clip(RoundedCornerShape(14.dp))
+            .tvFocusBorder(RoundedCornerShape(14.dp))
             .background(
                 if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
                 else MaterialTheme.colorScheme.surfaceVariant,

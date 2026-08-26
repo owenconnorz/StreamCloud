@@ -208,13 +208,17 @@ private fun ProfileGridView(
     onDone: () -> Unit,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    // TV: no element has focus when the screen loads — request it on a tiny invisible
-    // anchor so the D-pad immediately works (same pattern as the player + search screens).
-    val anchorFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(isTv) {
+    val initialFocusRequester = remember { FocusRequester() }
+    val initialFocusId = profiles.firstOrNull { it.id == activeId }?.id
+        ?: profiles.firstOrNull()?.id
+    LaunchedEffect(isTv, initialFocusId) {
         if (isTv) {
-            delay(150)
-            try { anchorFocusRequester.requestFocus() } catch (_: Exception) {}
+            repeat(10) {
+                if (runCatching { initialFocusRequester.requestFocus() }.isSuccess) {
+                    return@LaunchedEffect
+                }
+                delay(120)
+            }
         }
     }
     Column(
@@ -231,8 +235,6 @@ private fun ProfileGridView(
             color = Color.White,
         )
         Spacer(Modifier.height(36.dp))
-        if (isTv) Box(Modifier.size(1.dp).focusRequester(anchorFocusRequester).focusable())
-
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier
@@ -248,10 +250,16 @@ private fun ProfileGridView(
                     isActive = profile.id == activeId,
                     onSelect = { onSelect(profile) },
                     onEdit   = { onEdit(profile) },
+                    initialFocusRequester = if (isTv && profile.id == initialFocusId) {
+                        initialFocusRequester
+                    } else null,
                 )
             }
             item {
-                AddProfileItem(onClick = onAddNew)
+                AddProfileItem(
+                    onClick = onAddNew,
+                    initialFocusRequester = if (isTv && profiles.isEmpty()) initialFocusRequester else null,
+                )
             }
         }
 
@@ -282,6 +290,7 @@ private fun ProfileGridItem(
     isActive: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit,
+    initialFocusRequester: FocusRequester? = null,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(
@@ -294,6 +303,11 @@ private fun ProfileGridItem(
             Box(
                 Modifier
                     .size(120.dp)
+                    .then(
+                        if (initialFocusRequester != null) {
+                            Modifier.focusRequester(initialFocusRequester)
+                        } else Modifier
+                    )
                     .clip(CircleShape)
                     .then(
                         if (isActive)
@@ -349,16 +363,30 @@ private fun ProfileGridItem(
 }
 
 @Composable
-private fun AddProfileItem(onClick: () -> Unit) {
+private fun AddProfileItem(
+    onClick: () -> Unit,
+    initialFocusRequester: FocusRequester? = null,
+) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = if (isTv) Modifier else Modifier.clickable(onClick = onClick),
     ) {
         Box(
             Modifier
                 .size(120.dp)
+                .then(
+                    if (initialFocusRequester != null) {
+                        Modifier.focusRequester(initialFocusRequester)
+                    } else Modifier
+                )
                 .clip(CircleShape)
-                .background(Color(0xFF2A2A2E)),
+                .background(Color(0xFF2A2A2E))
+                .then(
+                    if (isTv) {
+                        Modifier.tvFocusBorder(CircleShape).combinedClickable(onClick = onClick)
+                    } else Modifier
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

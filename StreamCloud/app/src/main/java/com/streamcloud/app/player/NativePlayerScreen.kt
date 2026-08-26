@@ -489,10 +489,17 @@ fun NativePlayerScreen(
     // ── UI state ──────────────────────────────────────────────────────────
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val playerFocusRequester = remember { FocusRequester() }
-    // On TV, retry focus request so the Compose key-event Box captures D-pad before
-    // any child View (e.g. PlayerView) steals it.
-    LaunchedEffect(Unit) {
-        if (isTv) { delay(300); try { playerFocusRequester.requestFocus() } catch (_: Exception) {} }
+    val primaryPlaybackFocusRequester = remember { FocusRequester() }
+    // Keep TV focus on a visible control while controls are shown. When they
+    // auto-hide, return focus to the full-screen key target so a remote press
+    // can reveal the overlay again.
+    LaunchedEffect(isTv, controlsVisible) {
+        if (!isTv) return@LaunchedEffect
+        repeat(10) {
+            val requester = if (controlsVisible) primaryPlaybackFocusRequester else playerFocusRequester
+            if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
+            delay(120)
+        }
     }
 
     var locked            by remember { mutableStateOf(false) }
@@ -758,14 +765,15 @@ fun NativePlayerScreen(
 
                 if (!locked) {
                     // Centre playback buttons
-                    Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically,
+                    Row(Modifier.align(Alignment.Center).tvFocusGroup(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(56.dp)) {
                         OutlinedPlayIcon(Icons.Default.Replay10, "Rewind") {
                             ex?.seekTo((ex.currentPosition - (seekIncrementSec.toIntOrNull() ?: 10) * 1_000L).coerceAtLeast(0L))
                             bumpInteraction()
                         }
                         OutlinedPlayIcon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            if (isPlaying) "Pause" else "Play", big = true) {
+                            if (isPlaying) "Pause" else "Play", big = true,
+                            modifier = Modifier.focusRequester(primaryPlaybackFocusRequester)) {
                             ex ?: return@OutlinedPlayIcon
                             if (ex.isPlaying) ex.pause() else ex.play(); bumpInteraction()
                         }
@@ -786,7 +794,9 @@ fun NativePlayerScreen(
                                 activeTrackColor = MaterialTheme.colorScheme.primary,
                                 inactiveTrackColor = Color.White.copy(alpha = 0.30f),
                             ),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tvFocusBorder(RoundedCornerShape(8.dp)),
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             TimestampChip(formatTime(positionMs))
@@ -1570,9 +1580,9 @@ private fun StreamBadge(label: String, bg: Color) {
 
 @Composable
 private fun OutlinedPlayIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, contentDescription: String,
-    big: Boolean = false, onClick: () -> Unit) {
+    big: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val size = if (big) 84.dp else 60.dp; val iconSize = if (big) 48.dp else 32.dp
-    Box(Modifier.size(size).clip(CircleShape).tvFocusBorder(CircleShape).clickable(onClick = onClick),
+    Box(modifier.size(size).clip(CircleShape).tvFocusBorder(CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center) {
         Icon(icon, contentDescription, tint = Color.White, modifier = Modifier.size(iconSize))
     }
@@ -1608,7 +1618,7 @@ private fun PlayerToolbarPill(
     val speedLabel = if (currentSpeed % 1f == 0f) "${currentSpeed.toInt()}x" else "${currentSpeed}x"
     val scrollState = rememberScrollState()
     Row(Modifier.fillMaxWidth(if (isLandscape) 0.75f else 1f).clip(RoundedCornerShape(50))
-        .background(Color.Black.copy(alpha = 0.55f)).horizontalScroll(scrollState)
+        .background(Color.Black.copy(alpha = 0.55f)).horizontalScroll(scrollState).tvFocusGroup()
         .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(0.dp), verticalAlignment = Alignment.CenterVertically) {
         ToolbarItem(Icons.Default.AspectRatio, if (isFill) "Fill" else "Fit") { onFitClick() }
