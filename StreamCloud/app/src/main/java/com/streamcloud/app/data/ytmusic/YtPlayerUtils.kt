@@ -53,87 +53,50 @@ object YtPlayerUtils {
     )
 
     private val CLIENTS = listOf(
-
-        // ── REMOVAL NOTES ────────────────────────────────────────────────────────
-        // ANDROID_MUSIC:         music.youtube.com returns LOGIN_REQUIRED for all unauthenticated
-        //                        requests; browser cookies are also rejected (endpoint needs OAuth2).
-        // ANDROID_VR:            Returns "Sign in to confirm you're not a bot" on every unauthenticated
-        //                        request — bot-detection triggered before IOS even gets a chance.
-        // IOS / IPADOS:          Resolve successfully but CDN returns HTTP 403. YouTube enforces the
-        //                        'n' parameter for iOS clients; without JS descrambling the CDN
-        //                        rejects byte-fetches entirely. ANDROID (id=3) has the same problem.
-        // MOBILE (ANDROID id=3): 'n'-parameter CDN 403 same as IOS; also returns cipher-only streams
-        //                        when the STS fetch fails, making it unreliable.
-        // ANDROID_CREATOR:       Always returns "Please sign in" for unauthenticated requests;
-        //                        requires Android OAuth tokens the app does not hold.
-        // TVHTML5_SIMPLY_EMBEDDED: Returns "YouTube is no longer supported in this application or
-        //                        device" — permanently blocked by YouTube.
-        // ─────────────────────────────────────────────────────────────────────────
-
-        // #1 ANDROID_TESTSUITE — the only current client whose stream URLs bypass 'n'-parameter
-        // enforcement.  YouTube's CDN does not validate 'n' for this internal test client,
-        // so the URL is usable directly without JS-based descrambling.
-        ClientConfig(
-            label         = "ANDROID_TESTSUITE",
-            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName    = "ANDROID_TESTSUITE",
-            clientId      = "30",
-            clientVersion = "1.9",
-            userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "11",
-                "androidSdkVersion" to "30",
-            ),
-            supportsAuth = false,
-        ),
-
-        // #1b ANDROID_VR_MUSIC — ANDROID_VR (Oculus Quest 3) parameters sent to the
-        // music.youtube.com player endpoint.  This reaches the YouTube Music catalog
-        // (including music-exclusive tracks that ANDROID_TESTSUITE cannot access) while
-        // returning Android-style CDN URLs that do NOT require PoToken/web-client IP binding.
-        //
-        // CDN URL access is validated with a HEAD request (skipHeadValidation=false) before
-        // the URL is committed — the HEAD probe uses the same OkHttpClient (and therefore the
-        // same IPv4 source IP) as the player API call, so the ip= parameter in the URL always
-        // matches what the CDN sees.  This is the crucial difference from WEB_REMIX whose CDN
-        // URLs are also IP-bound but validated via PoToken (not HEAD), making them sensitive to
-        // CGNAT / multi-path IP inconsistencies.
-        ClientConfig(
-            label         = "ANDROID_VR_MUSIC",
-            playerUrl     = "https://music.youtube.com/youtubei/v1/player?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false",
-            clientName    = "ANDROID_VR",
-            clientId      = "28",
-            clientVersion = "1.61.48",
-            userAgent     = "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
-            extraClientFields = mapOf(
-                "osName"            to "Android",
-                "osVersion"         to "12",
-                "deviceMake"        to "Oculus",
-                "deviceModel"       to "Quest 3",
-                "androidSdkVersion" to "32",
-            ),
-            supportsAuth  = false,
-        ),
-
-        // #2 WEB_REMIX — YouTube Music web client with SAPISIDHASH + PoToken.
-        // useSignatureTimestamp=true matches Metrolist's YouTubeClient.WEB_REMIX config.
+        // This is the same active main/fallback client family and order as Metrolist. The
+        // client-specific StreamCloud request settings keep the resolver identity intact through
+        // the CDN request and its one-shot recovery path.
         ClientConfig(
             label                 = "WEB_REMIX",
             playerUrl             = "https://music.youtube.com/youtubei/v1/player?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdUo&prettyPrint=false",
             clientName            = "WEB_REMIX",
             clientId              = "67",
-            clientVersion         = "1.20260501.01.00",
+            clientVersion         = "1.20260213.01.00",
             userAgent             = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
             useWebAuth            = true,
             useWebPoTokens        = true,
             useSignatureTimestamp = true,
         ),
 
-        // (TVHTML5_SIMPLY_EMBEDDED removed — YouTube returns "no longer supported" permanently)
+        ClientConfig(
+            label         = "VISIONOS",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "VISIONOS",
+            clientId      = "101",
+            clientVersion = "0.1",
+            userAgent     = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+            extraClientFields = mapOf(
+                "osName"      to "visionOS",
+                "osVersion"   to "1.3.21O771",
+                "deviceMake"  to "Apple",
+                "deviceModel" to "RealityDevice14,1",
+            ),
+            supportsAuth = false,
+        ),
 
-        // #4 TVHTML5 — Smart TV UA; n-transform required.  useSignatureTimestamp=true and
-        // useWebPoTokens=true match Metrolist's YouTubeClient.TVHTML5 config.
+        ClientConfig(
+            label                 = "WEB_CREATOR",
+            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName            = "WEB_CREATOR",
+            clientId              = "62",
+            clientVersion         = "1.20260213.00.00",
+            userAgent             = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            requiresAuth          = true,
+            useWebAuth            = true,
+            useWebPoTokens        = true,
+            useSignatureTimestamp = true,
+        ),
+
         ClientConfig(
             label                 = "TVHTML5",
             playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -141,14 +104,11 @@ object YtPlayerUtils {
             clientId              = "7",
             clientVersion         = "7.20260213.00.00",
             userAgent             = "Mozilla/5.0(SMART-TV; Linux; Tizen 4.0.0.2) AppleWebkit/605.1.15 (KHTML, like Gecko) SamsungBrowser/9.2 TV Safari/605.1.15",
-            supportsAuth          = false,
+            requiresAuth          = true,
             useWebPoTokens        = true,
             useSignatureTimestamp = true,
         ),
 
-        // #5 ANDROID_VR (Oculus Quest 3, v1.43.32) — returns plain stream URLs with no
-        // signature cipher and no 'n' enforcement.  Comment in Metrolist: "uses non-adaptive
-        // bitrate, which fixes audio stuttering with YT Music; does not use AV1."
         ClientConfig(
             label         = "ANDROID_VR_1_43",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -162,11 +122,13 @@ object YtPlayerUtils {
                 "deviceMake"        to "Oculus",
                 "deviceModel"       to "Quest 3",
                 "androidSdkVersion" to "32",
+                "buildId"           to "SQ3A.220605.009.A1",
+                "cronetVersion"     to "107.0.5284.2",
+                "packageName"       to "com.google.android.apps.youtube.vr.oculus",
             ),
             supportsAuth  = false,
         ),
 
-        // #6 ANDROID_VR (Oculus Quest 3, v1.61.48) — same as above, newer version.
         ClientConfig(
             label         = "ANDROID_VR_1_61",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -180,16 +142,71 @@ object YtPlayerUtils {
                 "deviceMake"        to "Oculus",
                 "deviceModel"       to "Quest 3",
                 "androidSdkVersion" to "32",
+                "buildId"           to "SQ3A.220605.009.A1",
+                "cronetVersion"     to "132.0.6808.3",
+                "packageName"       to "com.google.android.apps.youtube.vr.oculus",
             ),
             supportsAuth  = false,
         ),
 
-        // (ANDROID_CREATOR removed — always returns "Please sign in"; needs Android OAuth not web cookie)
+        ClientConfig(
+            label                 = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName            = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientId              = "85",
+            clientVersion         = "2.0",
+            userAgent             = "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+            embedUrlTemplate      = "https://www.youtube.com/embed/%VIDEO_ID%",
+            useSignatureTimestamp = true,
+        ),
 
-        // #8 ANDROID_VR_NO_AUTH — bare ANDROID_VR without any extra context fields.
-        // Metrolist uses this as an additional fallback after the extended VR configs.
-        // Note: UA uses "Oculus Quest 3" (with "Oculus " prefix) unlike the extended configs.
-        // Returns plain CDN URLs — no n-transform required.
+        ClientConfig(
+            label         = "IOS",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "IOS",
+            clientId      = "5",
+            clientVersion = "21.03.1",
+            userAgent     = "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
+            extraClientFields = mapOf("osVersion" to "18.2.22C152"),
+        ),
+
+        ClientConfig(
+            label         = "IPADOS",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "IOS",
+            clientId      = "5",
+            clientVersion = "21.03.3",
+            userAgent     = "com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)",
+            extraClientFields = mapOf(
+                "osName"      to "iPadOS",
+                "osVersion"   to "17.7.10.21H450",
+                "deviceMake"  to "Apple",
+                "deviceModel" to "iPad7,6",
+                "packageName" to "com.google.ios.youtube",
+            ),
+            supportsAuth = false,
+        ),
+
+        ClientConfig(
+            label         = "ANDROID_CREATOR",
+            playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName    = "ANDROID_CREATOR",
+            clientId      = "14",
+            clientVersion = "25.03.101",
+            userAgent     = "com.google.android.apps.youtube.creator/25.03.101 (Linux; U; Android 15; en_US; Pixel 9 Pro Fold; Build/AP3A.241005.015.A2; Cronet/132.0.6779.0)",
+            extraClientFields = mapOf(
+                "osName"            to "Android",
+                "osVersion"         to "15",
+                "deviceMake"        to "Google",
+                "deviceModel"       to "Pixel 9 Pro Fold",
+                "androidSdkVersion" to "35",
+                "buildId"           to "AP3A.241005.015.A2",
+                "cronetVersion"     to "132.0.6779.0",
+                "packageName"       to "com.google.android.apps.youtube.creator",
+            ),
+            useSignatureTimestamp = true,
+        ),
+
         ClientConfig(
             label         = "ANDROID_VR_NO_AUTH",
             playerUrl     = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -200,39 +217,24 @@ object YtPlayerUtils {
             supportsAuth  = false,
         ),
 
-        // (IPADOS removed — CDN enforces 'n' parameter for iOS; stream URLs 403 at byte-fetch stage)
+        ClientConfig(
+            label                 = "MOBILE",
+            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+            clientName            = "ANDROID",
+            clientId              = "3",
+            clientVersion         = "21.03.38",
+            userAgent             = "com.google.android.youtube/21.03.38 (Linux; U; Android 14) gzip",
+            useSignatureTimestamp = true,
+        ),
 
-        // (MOBILE/ANDROID id=3 removed — same 'n'-param CDN 403 as IOS; returns cipher-only when STS unavailable)
-
-        // (IOS removed — CDN enforces 'n' parameter for iOS; same problem as IPADOS)
-
-        // #12 WEB — standard YouTube web client.  Placed at the end of the fallback chain,
-        // matching Metrolist's STREAM_FALLBACK_CLIENTS ordering.
-        // n-transform required; useWebAuth sends the SAPISIDHASH Authorization header.
-        // useSignatureTimestamp=true: without sts YouTube now returns cipher-only stream
-        // formats for WEB (same requirement as MOBILE/WEB_CREATOR).
         ClientConfig(
             label                 = "WEB",
             playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
             clientName            = "WEB",
             clientId              = "1",
             clientVersion         = "2.20260213.00.00",
-            userAgent             = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+            userAgent             = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
             useWebAuth            = true,
-            useSignatureTimestamp = true,
-        ),
-
-        // #13 WEB_CREATOR — YouTube Studio web client.  Last resort, matching Metrolist order.
-        // useSignatureTimestamp=true and requiresAuth=true match Metrolist's WEB_CREATOR config.
-        ClientConfig(
-            label                 = "WEB_CREATOR",
-            playerUrl             = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            clientName            = "WEB_CREATOR",
-            clientId              = "62",
-            clientVersion         = "1.20260213.00.00",
-            userAgent             = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
-            useWebAuth            = true,
-            requiresAuth          = true,
             useSignatureTimestamp = true,
         ),
     )
@@ -327,7 +329,7 @@ object YtPlayerUtils {
                 putJsonObject("context") {
                     putJsonObject("client") {
                         put("clientName", "WEB_REMIX")
-                        put("clientVersion", "1.20260501.01.00")
+                        put("clientVersion", "1.20260213.01.00")
                         put("hl", contentLanguage)
                         put("gl", contentCountry)
                     }
@@ -341,7 +343,7 @@ object YtPlayerUtils {
                 .header("Content-Type", "application/json")
                 .header("Origin", "https://music.youtube.com")
                 .header("X-YouTube-Client-Name", "67")
-                .header("X-YouTube-Client-Version", "1.20260501.01.00")
+                .header("X-YouTube-Client-Version", "1.20260213.01.00")
                 .build()
             http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
@@ -406,10 +408,8 @@ object YtPlayerUtils {
                 continue
             }
 
-            // Fast anonymous clients do not require visitor data. Fetching it before every
-            // resolve can add the visitor_id request plus its browse fallback (up to 23 seconds)
-            // to a normal song start, even when ANDROID_TESTSUITE succeeds immediately. Only
-            // prepare it when a PoToken-backed web fallback is actually reached.
+            // Only PoToken-backed web clients need visitor data. Anonymous fallbacks do not
+            // trigger that preparation unless the main WEB_REMIX route has already failed.
             if (client.useWebPoTokens && !visitorDataPreparedForWebFallback) {
                 ensureVisitorData()
                 visitorDataPreparedForWebFallback = true
@@ -420,10 +420,8 @@ object YtPlayerUtils {
             // the CDN URL — this is REQUIRED: without pot= the CDN always returns 403 for
             // WEB_REMIX streams (mirrors Metrolist YTPlayerUtils.kt line 294–302).
             //
-            // sessionId is read INSIDE the loop so it benefits from visitorData captured
-            // opportunistically from earlier clients' API responses (e.g. ANDROID_TESTSUITE
-            // returns "no streams" for music-exclusive tracks but its API response still
-            // carries responseContext.visitorData which we cache in fetchPlayerResponse).
+            // sessionId is read inside the loop so a previous client response can bootstrap
+            // WEB_REMIX in the same resolution attempt.
             var poTokenResult: com.streamcloud.app.data.ytmusic.potoken.PoTokenResult? = null
             if (client.useWebPoTokens) {
                 val sessionId = cachedVisitorData
@@ -505,14 +503,11 @@ object YtPlayerUtils {
 
                     // Validate fallback candidates with a HEAD request before committing to a URL.
                     //
-                    // The primary Android test client is deliberately handed straight to
-                    // ExoPlayer. Its first range read is the real health check and avoids adding
-                    // a second CDN round trip before every ordinary song start. A real CDN 403
-                    // still triggers the service's bounded independent-extractor recovery.
-                    //
-                    // Keep the fastest anonymous client probe-free for first-audio latency. Every
-                    // fallback, including WEB_REMIX, must prove its first byte-range request can
-                    // be read with the same resolver identity that Media3 will use.
+                    // Match Metrolist's primary-route behavior: WEB_REMIX goes directly to
+                    // ExoPlayer and its first byte-range read is the health check. A real CDN
+                    // rejection is evicted and retried through the independent fallback chain.
+                    // Every fallback must prove its first byte-range request is readable with the
+                    // same resolver identity that Media3 will use.
                     val requiresWebSessionHeaders =
                         client.useWebAuth || client.useWebPoTokens || client.requiresAuth
                     val skipRangeValidation = client.label == PRIMARY_FAST_START_CLIENT
@@ -558,22 +553,23 @@ object YtPlayerUtils {
         resolveAudioFormatInfo(videoId, sonosSafe = sonosSafe)?.url
 
     private fun playbackClientPriority(label: String): Int = when (label) {
-        // TESTSUITE is currently the only client in this chain whose URLs consistently bypass
-        // YouTube's n/PoToken CDN checks. VR clients can still unlock Music-exclusive tracks,
-        // so they remain the next fallback rather than being selected for every track first.
-        "ANDROID_TESTSUITE"       -> 0
-        "ANDROID_VR_MUSIC"        -> 1
-        "ANDROID_VR_1_61"         -> 2
-        "ANDROID_VR_NO_AUTH"      -> 3
-        "ANDROID_VR_1_43"         -> 4
-        "WEB_REMIX"               -> 5
-        "TVHTML5"                 -> 6
-        "WEB"                     -> 7
-        "WEB_CREATOR"             -> 8
-        else                       -> 50
+        "WEB_REMIX"                       -> 0
+        "VISIONOS"                        -> 1
+        "WEB_CREATOR"                     -> 2
+        "TVHTML5"                         -> 3
+        "ANDROID_VR_1_43"                -> 4
+        "ANDROID_VR_1_61"                -> 5
+        "TVHTML5_SIMPLY_EMBEDDED_PLAYER" -> 6
+        "IOS"                             -> 7
+        "IPADOS"                          -> 8
+        "ANDROID_CREATOR"                 -> 9
+        "ANDROID_VR_NO_AUTH"             -> 10
+        "MOBILE"                          -> 11
+        "WEB"                             -> 12
+        else                              -> 50
     }
 
-    private const val PRIMARY_FAST_START_CLIENT = "ANDROID_TESTSUITE"
+    private const val PRIMARY_FAST_START_CLIENT = "WEB_REMIX"
 
     // ── Music video detection + stream resolution ─────────────────────────────────────────────
 
@@ -604,11 +600,11 @@ object YtPlayerUtils {
         }
         var foundVisualTrack = false
         val clients = listOf(
-            "ANDROID_TESTSUITE",
+            "VISIONOS",
             "ANDROID_VR_1_43",
             "ANDROID_VR_1_61",
             "ANDROID_VR_NO_AUTH",
-            "ANDROID_VR_MUSIC",
+            "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
         ).mapNotNull { label -> CLIENTS.firstOrNull { it.label == label } }
 
         for (client in clients) {
@@ -904,9 +900,7 @@ object YtPlayerUtils {
             val parsed = json.parseToJsonElement(text).jsonObject
             // Opportunistically cache visitorData from any API response — even "no streams"
             // responses include responseContext.visitorData.  This bootstraps WEB_REMIX in
-            // the SAME resolveAudioFormatInfo() call without needing a separate fetch
-            // (e.g. ANDROID_TESTSUITE returns "no streams" for music-exclusive tracks but
-            // its response carries visitorData we can use for WEB_REMIX next).
+            // the same resolveAudioFormatInfo() call without a separate fetch.
             if (cachedVisitorData == null) {
                 val vd = parsed["responseContext"]?.jsonObject
                     ?.get("visitorData")?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
