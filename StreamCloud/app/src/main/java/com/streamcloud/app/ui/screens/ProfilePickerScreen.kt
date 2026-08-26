@@ -384,7 +384,7 @@ private fun AddProfileItem(
                 .background(Color(0xFF2A2A2E))
                 .then(
                     if (isTv) {
-                        Modifier.tvFocusBorder(CircleShape).combinedClickable(onClick = onClick)
+                        Modifier.tvFocusBorder(CircleShape).clickable(onClick = onClick)
                     } else Modifier
                 ),
             contentAlignment = Alignment.Center,
