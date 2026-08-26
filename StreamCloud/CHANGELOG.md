@@ -15,6 +15,12 @@
 - **Saved RedGifs and Reddit media reopen correctly** — saved direct media now goes straight to the native player instead of being mistaken for a TMDB movie and returning HTTP 404.
 - **Existing saved RedGifs entries remain compatible** — older entries saved with the previous source label are also handled.
 
+### Movie watchlists
+- **Organise saved movies and shows** — create separate named watchlists alongside the existing default Watchlist.
+- **Choose destinations when saving** — movie browsing, TMDB detail pages, and CloudStream detail pages now let you save an item to one or more watchlists.
+- **Move items in bulk** — select a movie with a long press or the Select action, use Select all when needed, then move or remove the selected items.
+- **Existing library data is preserved** — the new storage migration keeps saved movies and provider metadata intact, including CloudStream, Reddit, and RedGifs playback.
+
 ## Android TV and Music recovery
 
 ### What's new
