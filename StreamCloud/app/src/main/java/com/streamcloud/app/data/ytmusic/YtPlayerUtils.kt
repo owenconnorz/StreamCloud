@@ -22,6 +22,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
@@ -30,6 +31,12 @@ object YtPlayerUtils {
     private const val TAG = "YtPlayerUtils"
     private val warmUpMutex = Mutex()
     @Volatile private var lastWarmUpAtMs = 0L
+    private data class ClientHealth(
+        val consecutiveFailures: Int,
+        val cooldownUntilMs: Long,
+    )
+    private val clientHealth = ConcurrentHashMap<String, ClientHealth>()
+    @Volatile private var lastSuccessfulClientLabel: String? = null
 
     private data class ClientConfig(
         val label: String,
@@ -432,7 +439,7 @@ object YtPlayerUtils {
         val isLoggedIn = ytMusicCookie.isNotBlank()
         var visitorDataPreparedForWebFallback = false
 
-        for (client in CLIENTS.sortedBy { playbackClientPriority(it.label) }) {
+        for (client in orderedPlaybackClients()) {
             if (client.label in excludedClientLabels) {
                 AppLogger.i(TAG, "[${client.label}] skipped — previous stream URL was rejected by the CDN")
                 continue
@@ -461,11 +468,13 @@ object YtPlayerUtils {
                 val sessionId = cachedVisitorData
                 if (sessionId == null) {
                     AppLogger.w(TAG, "[${client.label}] skipped — visitorData unavailable (PoToken needs session)")
+                    recordClientFailure(client.label)
                     continue
                 }
                 val ctx = appContext
                 if (ctx == null) {
                     AppLogger.w(TAG, "[${client.label}] skipped — app context unavailable for PoToken")
+                    recordClientFailure(client.label)
                     continue
                 }
                 try {
@@ -478,6 +487,7 @@ object YtPlayerUtils {
                     // even if the player API returns a valid response.  Skip rather than
                     // caching a URL that ExoPlayer will reject.
                     AppLogger.w(TAG, "[${client.label}] skipped — PoToken unavailable (CDN would 403 without pot=)")
+                    recordClientFailure(client.label)
                     continue
                 }
                 Log.d(TAG, "[${client.label}] PoToken generated ok")
@@ -547,6 +557,7 @@ object YtPlayerUtils {
                             requiresWebSessionHeaders = requiresWebSessionHeaders,
                         )
                     ) {
+                        recordClientSuccess(client.label)
                         if (!requiresPreflight) {
                             AppLogger.i(
                                 TAG,
@@ -559,17 +570,25 @@ object YtPlayerUtils {
                         )
                     } else {
                         AppLogger.w(TAG, "[${client.label}] $videoId — URL failed range validation, trying next client")
+                        recordClientFailure(client.label)
                     }
                 }
-                is ClientResult.CipheredOnly ->
+                is ClientResult.CipheredOnly -> {
                     AppLogger.w(TAG, "[${client.label}] $videoId — ciphered only, trying next")
+                    recordClientFailure(client.label)
+                }
                 is ClientResult.NoStreams -> {
                     val why = result.reason?.let { " ($it)" } ?: ""
                     AppLogger.w(TAG, "[${client.label}] $videoId — no streams$why, trying next")
                     Log.d(TAG, "[${client.label}] no streams status=${result.status}")
+                    if (result.status.equals("OK", ignoreCase = true)) {
+                        recordClientFailure(client.label)
+                    }
                 }
-                is ClientResult.Error ->
+                is ClientResult.Error -> {
                     AppLogger.w(TAG, "[${client.label}] $videoId — error: ${result.cause?.message}")
+                    recordClientFailure(client.label)
+                }
             }
         }
         AppLogger.e(TAG, "All clients failed for $videoId")
@@ -583,8 +602,11 @@ object YtPlayerUtils {
         resolveAudioFormatInfo(videoId, sonosSafe = sonosSafe)?.url
 
     private fun playbackClientPriority(label: String): Int = when (label) {
-        "WEB_REMIX"                       -> 0
-        "VISIONOS"                        -> 1
+        // Current Metrolist scores the automatic VISIONOS_0_1 direct profile above WEB_REMIX.
+        // Try it first so normal songs avoid WebView/PoToken work; WEB_REMIX remains the stronger
+        // restricted-content fallback when the direct profile cannot serve a track.
+        "VISIONOS"                        -> 0
+        "WEB_REMIX"                       -> 1
         "WEB_CREATOR"                     -> 2
         "TVHTML5"                         -> 3
         "ANDROID_VR_1_43"                -> 4
@@ -599,8 +621,59 @@ object YtPlayerUtils {
         else                              -> 50
     }
 
+    /**
+     * Metrolist's current extractor scores candidates by runtime capability and recent health
+     * instead of restarting a fixed fallback chain for every song. Keep StreamCloud's independent
+     * request profiles, but promote the last profile that actually produced a playable URL and
+     * temporarily skip profiles that repeatedly fail. This avoids paying WEB_REMIX WebView/
+     * PoToken and stale-client timeout costs on every uncached track.
+     */
+    private fun orderedPlaybackClients(nowMs: Long = System.currentTimeMillis()): List<ClientConfig> {
+        clientHealth.entries.removeIf { (_, health) ->
+            health.cooldownUntilMs > 0L && health.cooldownUntilMs <= nowMs
+        }
+        val healthy = CLIENTS.filter { client ->
+            (clientHealth[client.label]?.cooldownUntilMs ?: 0L) <= nowMs
+        }
+        val candidates = healthy.ifEmpty { CLIENTS }
+        val preferred = lastSuccessfulClientLabel
+        return candidates.sortedWith(
+            compareBy<ClientConfig> { if (it.label == preferred) 0 else 1 }
+                .thenBy { playbackClientPriority(it.label) },
+        )
+    }
+
+    private fun recordClientSuccess(label: String) {
+        clientHealth.remove(label)
+        lastSuccessfulClientLabel = label
+    }
+
+    private fun recordClientFailure(label: String) {
+        val now = System.currentTimeMillis()
+        clientHealth.compute(label) { _, previous ->
+            val failures = (previous?.consecutiveFailures ?: 0) + 1
+            if (failures >= CLIENT_FAILURE_THRESHOLD) {
+                AppLogger.w(
+                    TAG,
+                    "[$label] cooled down for ${CLIENT_FAILURE_COOLDOWN_MS / 1_000}s after $failures failures",
+                )
+                ClientHealth(
+                    consecutiveFailures = 0,
+                    cooldownUntilMs = now + CLIENT_FAILURE_COOLDOWN_MS,
+                )
+            } else {
+                ClientHealth(
+                    consecutiveFailures = failures,
+                    cooldownUntilMs = 0L,
+                )
+            }
+        }
+    }
+
     private const val POTOKEN_WARMUP_VIDEO_ID = "jNQXAC9IVRw"
     private const val WARM_UP_TTL_MS = 6L * 60L * 60L * 1_000L
+    private const val CLIENT_FAILURE_THRESHOLD = 2
+    private const val CLIENT_FAILURE_COOLDOWN_MS = 5L * 60L * 1_000L
 
     // ── Music video detection + stream resolution ─────────────────────────────────────────────
 
