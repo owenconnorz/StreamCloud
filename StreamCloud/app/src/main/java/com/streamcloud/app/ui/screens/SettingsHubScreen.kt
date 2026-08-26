@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
@@ -147,7 +148,7 @@ private val ColourSystem     = Color(0xFF8E9CBE)
 private val ColourSonos      = Color(0xFF56C8D8)
 
 private enum class SettingsPage {
-    SystemUpdate, Appearance, PlayerAudio, Account,
+    SystemUpdate, Appearance, Playback, PlayerAudio, MovieSettings, MusicSettings, Account,
     ListenTogether, Content, Privacy,
     Storage, BackupRestore, About, Logs, HomeLayout
 }
@@ -416,6 +417,334 @@ fun SettingsHubScreen(
                 tvNavFocusRequester = tvNavFocusRequester,
             )
 
+            SettingsPage.Playback -> SubPageScaffold(
+                title = "Player & playback",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SubSectionLabel("Playback defaults")
+                    SettingNav(
+                        icon = Icons.Default.HighQuality, tint = ColourPlayer,
+                        title = "Default video quality",
+                        value = videoQuality.replaceFirstChar { it.uppercase() } +
+                            if (videoQuality.matches(Regex("\\d+"))) "p" else "",
+                        onClick = { showQualityVideoDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.PlayCircle, tint = ColourPlayer,
+                        title = "Autoplay next",
+                        subtitle = "Continue with the next song or episode automatically",
+                        checked = autoplay,
+                        onChange = { autoplay = it; scope.launch { sl.settings.setAutoplayNext(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Bolt, tint = ColourPlayer,
+                        title = "Auto-play best stream",
+                        subtitle = "Skip the source picker and play the best stream found",
+                        checked = autoplayBestStream,
+                        onChange = { autoplayBestStream = it; scope.launch { sl.settings.setAutoplayBestStream(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.BrightnessHigh, tint = ColourPlayer,
+                        title = "Keep screen on",
+                        subtitle = "Prevent the display from turning off while playing",
+                        checked = keepScreenOn,
+                        onChange = { keepScreenOn = it; scope.launch { sl.settings.setKeepScreenOn(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Video player")
+                    SettingNav(
+                        icon = Icons.Default.FastForward, tint = ColourPlayer,
+                        title = "Seek increment",
+                        value = "${seekIncrement}s",
+                        onClick = { showSeekDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Speed, tint = ColourPlayer,
+                        title = "Default playback speed",
+                        value = "${defaultSpeed}×",
+                        onClick = { showDefaultSpeedDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Restore, tint = ColourPlayer,
+                        title = "Resume from last position",
+                        checked = resumePlayback,
+                        onChange = { resumePlayback = it; scope.launch { sl.settings.setResumePlayback(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Bolt, tint = ColourPlayer,
+                        title = "Hardware video decoding",
+                        checked = hwDecoding,
+                        onChange = { hwDecoding = it; scope.launch { sl.settings.setHardwareDecodingEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.FitScreen, tint = ColourPlayer,
+                        title = "Picture in Picture",
+                        checked = pipEnabled,
+                        onChange = { pipEnabled = it; scope.launch { sl.settings.setPipEnabled(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Gestures")
+                    SettingToggle(
+                        icon = Icons.Default.VolumeUp, tint = ColourPlayer,
+                        title = "Volume gesture",
+                        subtitle = "Swipe up or down on the left side of the player",
+                        checked = gestureVolume,
+                        onChange = { gestureVolume = it; scope.launch { sl.settings.setGestureVolumeEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Brightness6, tint = ColourPlayer,
+                        title = "Brightness gesture",
+                        subtitle = "Swipe up or down on the right side of the player",
+                        checked = gestureBrightness,
+                        onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Track preferences")
+                    SettingNav(
+                        icon = Icons.Default.Language, tint = ColourPlayer,
+                        title = "Preferred audio language",
+                        value = langDisplayName(preferredAudioLang),
+                        onClick = { showAudioLangDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Preferred subtitle language",
+                        value = langDisplayName(preferredSubtitleLang),
+                        onClick = { showSubtitleLangDialog = true },
+                    )
+                }
+            }
+
+            SettingsPage.MovieSettings -> SubPageScaffold(
+                title = "Movie settings",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SubSectionLabel("Movie defaults")
+                    SettingNav(
+                        icon = Icons.Default.Translate, tint = ColourContent,
+                        title = "Content language",
+                        subtitle = "Preferred language for movie and show metadata",
+                        value = contentLanguage.uppercase(),
+                        onClick = { showLanguageDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Public, tint = ColourContent,
+                        title = "Content country",
+                        subtitle = "Region used for movie availability and metadata",
+                        value = contentCountry.uppercase(),
+                        onClick = { showCountryDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Subtitles, tint = ColourContent,
+                        title = "Subtitles",
+                        subtitle = "Show subtitles when available",
+                        checked = subs,
+                        onChange = { subs = it; scope.launch { sl.settings.setSubtitlesEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourContent,
+                        title = "Subtitle source preference",
+                        value = when (subtitleSource) {
+                            "internal" -> "Internal only"
+                            "external" -> "External only"
+                            else -> "Any"
+                        },
+                        onClick = { showSubSourceDialog = true },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie metadata and safety")
+                    SettingNav(
+                        icon = Icons.Default.Speed, tint = ColourContent,
+                        title = "IntroDB API key",
+                        subtitle = if (introDbApiKey.isBlank()) "Optional — increases rate limits" else "Key saved",
+                        onClick = { showIntroKeyDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.VisibilityOff, tint = ColourContent,
+                        title = "Parental guide overlay",
+                        subtitle = "Show content warnings for ~6 s at video start",
+                        checked = parentalGuideOn,
+                        onChange = { parentalGuideOn = it; scope.launch { sl.settings.setParentalGuideEnabled(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie player")
+                    SettingToggle(
+                        icon = Icons.Default.Speed, tint = ColourContent,
+                        title = "Hold-to-Speed",
+                        subtitle = "Hold a button in the player to temporarily boost speed",
+                        checked = holdToSpeedOn,
+                        onChange = { holdToSpeedOn = it; scope.launch { sl.settings.setHoldToSpeedEnabled(it) } },
+                    )
+                    if (holdToSpeedOn) {
+                        SettingDivider()
+                        SettingNav(
+                            icon = Icons.Default.Speed, tint = ColourContent,
+                            title = "Hold speed",
+                            value = "${holdToSpeedVal}x",
+                            onClick = { showHoldSpeedDialog = true },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie appearance")
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
+                    ) {
+                        Text(
+                            "Poster style",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            listOf("portrait" to "Portrait", "landscape" to "Landscape", "auto" to "Auto")
+                                .forEach { (id, label) ->
+                                    FilterChip(
+                                        selected = posterStyle == id,
+                                        onClick = {
+                                            posterStyle = id
+                                            scope.launch { sl.settings.setPosterStyle(id) }
+                                        },
+                                        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                                    )
+                                }
+                        }
+                    }
+                    SettingDivider()
+                    MoviesThemePicker(
+                        selected = moviesTheme,
+                        onSelect = { id ->
+                            moviesTheme = id
+                            scope.launch { sl.settings.setMoviesTheme(id) }
+                        },
+                    )
+                }
+            }
+
+            SettingsPage.MusicSettings -> SubPageScaffold(
+                title = "Music settings",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SubSectionLabel("Audio")
+                    SettingNav(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Audio quality",
+                        value = audioQuality.replaceFirstChar { it.uppercase() },
+                        onClick = { showQualityAudioDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.VolumeOff, tint = ColourPlayer,
+                        title = "Skip silence",
+                        subtitle = "Automatically skip silent parts in tracks",
+                        checked = skipSilence,
+                        onChange = { skipSilence = it; scope.launch { sl.settings.setSkipSilence(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.QueueMusic, tint = ColourPlayer,
+                        title = "Persistent queue",
+                        subtitle = "Restore your queue when you reopen the app",
+                        checked = persistentQueue,
+                        onChange = { persistentQueue = it; scope.launch { sl.settings.setPersistentQueue(it) } },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Crossfade",
+                        value = if (crossfadeDuration == "0") "Off" else "${crossfadeDuration}s",
+                        onClick = { showCrossfadeDialog = true },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Equalizer")
+                    SettingToggle(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Equalizer",
+                        subtitle = if (eqEnabled) "On · ${eqPreset.replaceFirstChar { it.uppercase() }} preset" else "Off",
+                        checked = eqEnabled,
+                        onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
+                    )
+                    if (eqEnabled) {
+                        SettingDivider()
+                        SettingNav(
+                            icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                            title = "EQ preset",
+                            value = eqPreset.replaceFirstChar { it.uppercase() },
+                            onClick = { showEqDialog = true },
+                        )
+                    }
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Loudness normalization",
+                        subtitle = "Reduce volume differences between tracks",
+                        checked = loudnessNorm,
+                        onChange = { loudnessNorm = it; scope.launch { sl.settings.setLoudnessNormalization(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Bass boost",
+                        subtitle = "Adds extra low-end punch",
+                        checked = bassBoost,
+                        onChange = { bassBoost = it; scope.launch { sl.settings.setBassBoost(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Lyrics")
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Lyrics source",
+                        value = when (lyricsSource) {
+                            "musixmatch" -> "Musixmatch"
+                            "genius" -> "Genius"
+                            else -> "LRCLib"
+                        },
+                        onClick = { showLyricsSourceDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Synchronized lyrics",
+                        subtitle = "Show time-synced scrolling lyrics when available",
+                        checked = syncedLyrics,
+                        onChange = { syncedLyrics = it; scope.launch { sl.settings.setSyncedLyrics(it) } },
+                    )
+                }
+            }
+
 
             SettingsPage.SystemUpdate -> SubPageScaffold(
                 title = "System update",
@@ -548,42 +877,6 @@ fun SettingsHubScreen(
                         subtitle = "Force the display to run at its highest supported rate (e.g. 120 Hz)",
                         checked = highRefreshRate,
                         onChange = { highRefreshRate = it; scope.launch { sl.settings.setHighRefreshRate(it) } },
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                SettingsGroup {
-                    SubSectionLabel("Movie posters")
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
-                    ) {
-                        Text(
-                            "Poster style",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            listOf("portrait" to "Portrait", "landscape" to "Landscape", "auto" to "Auto").forEach { (id, label) ->
-                                FilterChip(
-                                    selected = posterStyle == id,
-                                    onClick = { posterStyle = id; scope.launch { sl.settings.setPosterStyle(id) } },
-                                    label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                SettingsGroup {
-                    SubSectionLabel("Movie theme")
-                    MoviesThemePicker(
-                        selected = moviesTheme,
-                        onSelect = { id ->
-                            moviesTheme = id
-                            scope.launch { sl.settings.setMoviesTheme(id) }
-                        },
                     )
                 }
                 Spacer(Modifier.height(16.dp))
@@ -2248,10 +2541,12 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
             HubItem(Icons.Default.Person, "Account",        "Account and sync status",             ColourAccount, onClick = { onNavigate(SettingsPage.Account) }),
         )),
         HubSection("MUSIC", listOf(
-            HubItem(Icons.Default.PlayArrow, "Player and audio", "Playback, equaliser, crossfade, quality",  ColourPlayer, onClick = { onNavigate(SettingsPage.PlayerAudio) }),
+            HubItem(Icons.Default.MusicNote, "Music settings", "Audio quality, equaliser, lyrics and queue", ColourPlayer, onClick = { onNavigate(SettingsPage.MusicSettings) }),
+            HubItem(Icons.Default.PlayArrow, "Player & playback", "Video quality, controls and playback behaviour", ColourPlayer, onClick = { onNavigate(SettingsPage.Playback) }),
             HubItem(Icons.Default.Group,     "Listen Together",  "Sync playback with friends",               ColourSonos,  onClick = { onNavigate(SettingsPage.ListenTogether) }),
         )),
         HubSection("MOVIES", listOf(
+            HubItem(Icons.Default.Movie,      "Movie settings",  "Movie defaults, subtitles, metadata and appearance", ColourContent, onClick = { onNavigate(SettingsPage.MovieSettings) }),
             HubItem(Icons.Default.Extension,  "Plugins & Addons", "Manage stream sources and addons",        ColourAi,      onClick = onOpenPlugins),
             HubItem(Icons.Default.Dashboard,  "Home Layout",        "Reorder and toggle home screen rows",     ColourContent, onClick = { onNavigate(SettingsPage.HomeLayout) }),
             HubItem(Icons.Default.Layers,     "Collections",       "Manage collections and folders",          ColourSystem,  onClick = onOpenCollections),
@@ -2260,7 +2555,6 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         HubSection("GENERAL", listOf(
             HubItem(Icons.Default.Palette,     "Appearance",         "Theme, colours, navigation, display",       ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }),
             HubItem(Icons.Default.Shield,      "Privacy",            "Safe search, history, explicit content",    ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }),
-            HubItem(Icons.Default.Public,      "Content",            "Language, region, subtitles, parental",     ColourContent,    onClick = { onNavigate(SettingsPage.Content) }),
             HubItem(Icons.Default.Storage,     "Storage",            "Cache management and storage usage",        ColourStorage,    onClick = { onNavigate(SettingsPage.Storage) }),
             HubItem(Icons.Default.CloudUpload, "Backup and restore", "Back up or restore your app data",          ColourSystem,     onClick = { onNavigate(SettingsPage.BackupRestore) }),
         )),
