@@ -198,7 +198,7 @@ fun GlobalMiniPlayer(
                             liveDragY = 0f
                         },
                         onDragCancel = {
-                            launch {
+                            scope.launch {
                                 liveDragX = 0f
                                 liveDragY = 0f
                                 swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.72f))
@@ -206,7 +206,7 @@ fun GlobalMiniPlayer(
                             }
                         },
                         onDragEnd = {
-                            launch {
+                            scope.launch {
                                 swipeOffsetX.snapTo(liveDragX)
                                 swipeOffsetY.snapTo(liveDragY)
                                 liveDragX = 0f
