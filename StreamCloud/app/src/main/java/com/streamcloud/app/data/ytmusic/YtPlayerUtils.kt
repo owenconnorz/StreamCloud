@@ -6,6 +6,8 @@ import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.potoken.PoTokenGenerator
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -26,6 +28,8 @@ import kotlin.random.Random
 object YtPlayerUtils {
 
     private const val TAG = "YtPlayerUtils"
+    private val warmUpMutex = Mutex()
+    @Volatile private var lastWarmUpAtMs = 0L
 
     private data class ClientConfig(
         val label: String,
@@ -393,16 +397,29 @@ object YtPlayerUtils {
      * must remain tied to the track a listener actually chooses.
      */
     suspend fun warmUp() = withContext(Dispatchers.IO) {
-        ensureVisitorData()
-        YtNSigDescrambler.warmUp()
+        val now = System.currentTimeMillis()
+        if (lastWarmUpAtMs > 0 && now - lastWarmUpAtMs < WARM_UP_TTL_MS) {
+            return@withContext
+        }
+        warmUpMutex.withLock {
+            val lockedNow = System.currentTimeMillis()
+            if (lastWarmUpAtMs > 0 && lockedNow - lastWarmUpAtMs < WARM_UP_TTL_MS) {
+                return@withLock
+            }
+            ensureVisitorData()
+            YtNSigDescrambler.warmUp()
 
-        val sessionId = cachedVisitorData ?: return@withContext
-        val context = appContext ?: return@withContext
-        poTokenGenerator.warmUp(
-            context = context,
-            sessionId = sessionId,
-            warmUpVideoId = POTOKEN_WARMUP_VIDEO_ID,
-        )
+            val sessionId = cachedVisitorData
+            val context = appContext
+            if (sessionId != null && context != null) {
+                poTokenGenerator.warmUp(
+                    context = context,
+                    sessionId = sessionId,
+                    warmUpVideoId = POTOKEN_WARMUP_VIDEO_ID,
+                )
+            }
+            lastWarmUpAtMs = System.currentTimeMillis()
+        }
     }
 
     suspend fun resolveAudioFormatInfo(
@@ -518,26 +535,22 @@ object YtPlayerUtils {
 
                     AppLogger.i(TAG, "[${client.label}] resolved $videoId → itag=${result.info.itag} n-descrambled=$nDescrambled")
 
-                    // Validate fallback candidates with a HEAD request before committing to a URL.
-                    //
-                    // Match Metrolist's primary-route behavior: WEB_REMIX goes directly to
-                    // ExoPlayer and its first byte-range read is the health check. A real CDN
-                    // rejection is evicted and retried through the independent fallback chain.
-                    // Every fallback must prove its first byte-range request is readable with the
-                    // same resolver identity that Media3 will use.
+                    // Normal playback lets Media3's real first range read be the health check.
+                    // Sonos-safe resolution keeps the explicit preflight because the remote device
+                    // cannot use StreamCloud's in-player CDN rejection recovery.
                     val requiresWebSessionHeaders =
                         client.useWebAuth || client.useWebPoTokens || client.requiresAuth
-                    val skipRangeValidation = client.label == PRIMARY_FAST_START_CLIENT
-                    if (skipRangeValidation || validateStreamUrl(
+                    val requiresPreflight = sonosSafe
+                    if (!requiresPreflight || validateStreamUrl(
                             url = candidateUrl,
                             userAgent = client.userAgent,
                             requiresWebSessionHeaders = requiresWebSessionHeaders,
                         )
                     ) {
-                        if (skipRangeValidation) {
+                        if (!requiresPreflight) {
                             AppLogger.i(
                                 TAG,
-                                "[${client.label}] $videoId — skipping range validation, passing to ExoPlayer",
+                                "[${client.label}] $videoId — passing directly to Media3",
                             )
                         }
                         return@withContext result.info.copy(
@@ -586,8 +599,8 @@ object YtPlayerUtils {
         else                              -> 50
     }
 
-    private const val PRIMARY_FAST_START_CLIENT = "WEB_REMIX"
     private const val POTOKEN_WARMUP_VIDEO_ID = "jNQXAC9IVRw"
+    private const val WARM_UP_TTL_MS = 6L * 60L * 60L * 1_000L
 
     // ── Music video detection + stream resolution ─────────────────────────────────────────────
 

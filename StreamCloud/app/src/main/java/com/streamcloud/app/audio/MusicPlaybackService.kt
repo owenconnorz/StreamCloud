@@ -63,6 +63,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
@@ -427,10 +428,12 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
         ioScope.launch {
-            sl.settings.ytMusicCookie.collect { cookie ->
+            sl.settings.ytMusicCookie.collectLatest { cookie ->
                 ytMusicCookieForStream = cookie
                 YtPlayerUtils.ytMusicCookie = cookie
                 if (cookie.isNotBlank()) {
+                    // Keep account/library hydration away from the cold player startup window.
+                    delay(AUTHENTICATED_LIBRARY_SYNC_DELAY_MS)
                     ytLibrary = YtMusicLibraryRepository.sync(cookie)
                     ytHomeFeed = YtMusicHomeRepository.load(cookie)
                 }
@@ -1575,6 +1578,7 @@ class MusicPlaybackService : MediaLibraryService() {
         private const val BUFFERED_PREFETCH_TRACK_COUNT = 2
         private const val BUFFERED_PREFETCH_BYTES = 256L * 1024L
         private const val BUFFERED_PREFETCH_BUFFER_BYTES = 64 * 1024
+        private const val AUTHENTICATED_LIBRARY_SYNC_DELAY_MS = 5_000L
         private const val STREAM_WEB_SESSION_HEADER = "X-StreamCloud-Web-Session"
         private const val STREAM_WEB_SESSION_VALUE = "1"
         const val ROOT_ID        = "streamcloud_root"

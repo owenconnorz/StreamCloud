@@ -10,24 +10,20 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import com.streamcloud.app.audio.MusicController
-import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.downloads.MusicExoDownloadService
 import com.streamcloud.app.data.downloads.YtMusicDownloadUtil
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.TrackEntity
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(UnstableApi::class)
 object YtPlayback {
 
-    private const val TAG = "YtPlayback"
     const val EXTRA_VIDEO_ID = "videoId"
     const val EXTRA_WATCH_URL = "watchUrl"
     const val EXTRA_IS_MUSIC_VIDEO = "isMusicVideo"
@@ -62,32 +58,6 @@ object YtPlayback {
         YtMusicStreamResolver.prime(songs.map(YtmSong::videoId))
     }
 
-    /**
-     * Give the selected track's foreground request a brief head start before Media3 prepares.
-     * The timeout never blocks the normal data-source fallback path: if the resolver is slow or
-     * fails, prepare continues and consumes the same in-flight work or its recovery chain.
-     */
-    private suspend fun awaitForegroundStream(
-        videoId: String,
-        resolution: Deferred<Result<StreamUrlCache.Entry>>,
-    ) {
-        val result = withTimeoutOrNull(FOREGROUND_RESOLVE_HEAD_START_MS) {
-            resolution.await()
-        }
-        when {
-            result == null ->
-                AppLogger.i(TAG, "Foreground stream still resolving for $videoId; preparing Media3")
-            result.isSuccess ->
-                AppLogger.i(TAG, "Foreground stream ready for $videoId before prepare")
-            else ->
-                AppLogger.w(
-                    TAG,
-                    "Foreground stream failed for $videoId; keeping Media3 fallback: " +
-                        result.exceptionOrNull()?.message,
-                )
-        }
-    }
-
     private fun upsertTrack(context: Context, song: YtmSong, bumpPlayCount: Boolean) {
         val url = watchUrl(song.videoId)
         backgroundScope.launch {
@@ -112,16 +82,12 @@ object YtPlayback {
     suspend fun playSong(context: Context, song: YtmSong, withAutoRadio: Boolean = true) {
         // This is foreground work, not list prefetch. It shares its result with Media3 instead of
         // being cancelled and restarted when the data source promotes the selected item.
-        val streamResolution = YtMusicStreamResolver.primeForPlayback(song.videoId)
+        YtMusicStreamResolver.primeForPlayback(song.videoId)
         val item = buildMediaItem(song)
         upsertTrack(context, song, bumpPlayCount = true)
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
             controller.setMediaItem(item)
-        }
-        awaitForegroundStream(song.videoId, streamResolution)
-        withContext(Dispatchers.Main) {
-            val controller = MusicController.get(context.applicationContext)
             controller.prepare()
             controller.play()
         }
@@ -177,12 +143,13 @@ object YtPlayback {
 
     suspend fun playNext(context: Context, song: YtmSong) {
         val item = buildMediaItem(song)
-        var foregroundResolution: Deferred<Result<StreamUrlCache.Entry>>? = null
         val startsPlayback = withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
             if (controller.mediaItemCount == 0) {
-                foregroundResolution = YtMusicStreamResolver.primeForPlayback(song.videoId)
+                YtMusicStreamResolver.primeForPlayback(song.videoId)
                 controller.setMediaItem(item)
+                controller.prepare()
+                controller.play()
                 true
             } else {
                 val insertAt = (controller.currentMediaItemIndex + 1)
@@ -191,14 +158,7 @@ object YtPlayback {
                 false
             }
         }
-        if (startsPlayback) {
-            foregroundResolution?.let { awaitForegroundStream(song.videoId, it) }
-            withContext(Dispatchers.Main) {
-                val controller = MusicController.get(context.applicationContext)
-                controller.prepare()
-                controller.play()
-            }
-        } else {
+        if (!startsPlayback) {
             primeStreams(listOf(song))
         }
     }
@@ -206,26 +166,20 @@ object YtPlayback {
 
     suspend fun addToQueue(context: Context, song: YtmSong) {
         val item = buildMediaItem(song)
-        var foregroundResolution: Deferred<Result<StreamUrlCache.Entry>>? = null
         val startsPlayback = withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
             if (controller.mediaItemCount == 0) {
-                foregroundResolution = YtMusicStreamResolver.primeForPlayback(song.videoId)
+                YtMusicStreamResolver.primeForPlayback(song.videoId)
                 controller.setMediaItem(item)
+                controller.prepare()
+                controller.play()
                 true
             } else {
                 controller.addMediaItem(item)
                 false
             }
         }
-        if (startsPlayback) {
-            foregroundResolution?.let { awaitForegroundStream(song.videoId, it) }
-            withContext(Dispatchers.Main) {
-                val controller = MusicController.get(context.applicationContext)
-                controller.prepare()
-                controller.play()
-            }
-        } else {
+        if (!startsPlayback) {
             primeStreams(listOf(song))
         }
     }
@@ -235,31 +189,30 @@ object YtPlayback {
         if (songs.isEmpty()) return
         val safeStart = startIndex.coerceIn(0, songs.lastIndex)
         val activeSong = songs[safeStart]
-        val streamResolution = YtMusicStreamResolver.primeForPlayback(activeSong.videoId)
-        YtMusicStreamResolver.primeQueue(
-            videoIds = songs.drop(safeStart + 1).map(YtmSong::videoId),
-            currentIndex = 0,
-        )
+        YtMusicStreamResolver.primeForPlayback(activeSong.videoId)
 
 
         val allItems = songs.map { buildMediaItem(it) }
 
 
         upsertTrack(context, songs[safeStart], bumpPlayCount = true)
-        songs.indices.filter { it != safeStart }.forEach { i ->
-            upsertTrack(context, songs[i], bumpPlayCount = false)
-        }
-
-
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
             controller.setMediaItems(allItems, safeStart,  0L)
-        }
-        awaitForegroundStream(activeSong.videoId, streamResolution)
-        withContext(Dispatchers.Main) {
-            val controller = MusicController.get(context.applicationContext)
             controller.prepare()
             controller.play()
+        }
+        backgroundScope.launch {
+            // Let the selected track own the network/IO path first. Queue URL warming and
+            // non-selected library writes are useful only after playback has started preparing.
+            delay(QUEUE_WARMUP_DELAY_MS)
+            YtMusicStreamResolver.primeQueue(
+                videoIds = songs.drop(safeStart + 1).map(YtmSong::videoId),
+                currentIndex = 0,
+            )
+            songs.indices.filter { it != safeStart }.forEach { i ->
+                upsertTrack(context, songs[i], bumpPlayCount = false)
+            }
         }
     }
 
@@ -296,7 +249,7 @@ object YtPlayback {
         )
     }
 
-    private const val FOREGROUND_RESOLVE_HEAD_START_MS = 1_200L
+    private const val QUEUE_WARMUP_DELAY_MS = 2_000L
 
 
     fun removeDownload(context: Context, song: YtmSong) {

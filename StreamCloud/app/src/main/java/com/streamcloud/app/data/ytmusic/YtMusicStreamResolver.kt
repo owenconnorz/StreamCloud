@@ -64,7 +64,8 @@ object YtMusicStreamResolver {
     private val inFlightResolutions = ConcurrentHashMap<String, InFlightResolution>()
     private val resolutionGenerations = ConcurrentHashMap<String, AtomicLong>()
     private val queuedPrefetchPriorities = ConcurrentHashMap<String, PrefetchPriority>()
-    private val prefetchPermits = Semaphore(PREFETCH_PARALLELISM)
+    private val visibleListPrefetchPermits = Semaphore(1)
+    private val activeQueuePrefetchPermits = Semaphore(1)
 
     suspend fun resolveInnertube(
         videoId: String,
@@ -273,7 +274,11 @@ object YtMusicStreamResolver {
             if (!schedulePrefetch(videoId, priority)) return@forEach
             prefetchScope.launch {
                 try {
-                    prefetchPermits.withPermit {
+                    val permit = when (priority) {
+                        PrefetchPriority.VISIBLE_LIST -> visibleListPrefetchPermits
+                        PrefetchPriority.ACTIVE_QUEUE -> activeQueuePrefetchPermits
+                    }
+                    permit.withPermit {
                         resolveForPrefetch(videoId)
                     }
                 } catch (cancelled: CancellationException) {
@@ -320,7 +325,6 @@ object YtMusicStreamResolver {
 
     private const val DEFAULT_PREFETCH_COUNT = 4
     const val PLAYBACK_LOOKAHEAD_COUNT = 6
-    private const val PREFETCH_PARALLELISM = 1
     private const val MAX_VISIBLE_LIST_PREFETCH = 4
     private const val MAX_ACTIVE_QUEUE_PREFETCH = 6
     private const val EXPIRY_SAFETY_SECONDS = 300L

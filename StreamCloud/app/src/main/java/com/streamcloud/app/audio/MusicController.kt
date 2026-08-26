@@ -56,17 +56,17 @@ object MusicController {
                         val c = future.get()
                         controller = c
                         deferred.complete(c)
-                        cont.resume(c)
+                        if (cont.isActive) cont.resume(c)
                     }.onFailure {
                         deferred.completeExceptionally(it)
-                        cont.resumeWith(Result.failure(it))
+                        if (cont.isActive) cont.resumeWith(Result.failure(it))
                     }
                 }, MoreExecutors.directExecutor())
 
                 cont.invokeOnCancellation {
-
-
-
+                    future.cancel(true)
+                    deferred.cancel()
+                    if (pending === deferred) pending = null
                 }
             }
         }
