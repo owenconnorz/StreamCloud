@@ -6,6 +6,11 @@ package com.streamcloud.app.ui.player
 internal const val SWIPE_UP_EXPAND_THRESHOLD_PX = 60f
 
 /**
+ * Threshold (in pixels) a downward swipe must exceed to dismiss the mini-player.
+ */
+internal const val SWIPE_DOWN_DISMISS_THRESHOLD_PX = 80f
+
+/**
  * Threshold (in pixels) a horizontal swipe must exceed to seek next/previous.
  */
 internal const val SWIPE_HORIZONTAL_SEEK_THRESHOLD_PX = 80f
@@ -32,6 +37,7 @@ internal fun resolveMiniPlayerSwipeAction(
         isHorizontal && totalX > SWIPE_HORIZONTAL_SEEK_THRESHOLD_PX  -> MiniPlayerSwipeAction.SeekPrev
         isHorizontal                                                  -> MiniPlayerSwipeAction.SnapBack
         !isHorizontal && totalY < -SWIPE_UP_EXPAND_THRESHOLD_PX      -> MiniPlayerSwipeAction.Expand
+        !isHorizontal && totalY > SWIPE_DOWN_DISMISS_THRESHOLD_PX     -> MiniPlayerSwipeAction.Dismiss
         else                                                          -> MiniPlayerSwipeAction.None
     }
 }
@@ -41,5 +47,6 @@ internal enum class MiniPlayerSwipeAction {
     SeekPrev,
     SnapBack,
     Expand,
+    Dismiss,
     None,
 }

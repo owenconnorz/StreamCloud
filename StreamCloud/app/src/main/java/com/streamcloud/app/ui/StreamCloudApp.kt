@@ -171,6 +171,8 @@ fun StreamCloudApp() {
     val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
+    val miniNowPlayingId by com.streamcloud.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState(initial = null)
+    var dismissedMiniPlayerId by remember { mutableStateOf<String?>(null) }
 
 
 
@@ -308,7 +310,15 @@ fun StreamCloudApp() {
         currentRoute == "plugins" || currentRoute == "plugin-picker" ||
         currentRoute == "reddit-login" ||
         currentRoute == Tab.Adult.route
-    val showMiniPlayer = currentRoute != null && !isMediaRoute && !isSettingsOrAdult
+    val showMiniPlayer = currentRoute != null &&
+        !isMediaRoute &&
+        !isSettingsOrAdult &&
+        miniNowPlayingId != dismissedMiniPlayerId
+
+    LaunchedEffect(currentRoute) {
+        // A dismissed bar should not stay hidden after navigating to another screen.
+        dismissedMiniPlayerId = null
+    }
 
     // Profile picker — show on launch when profiles exist; also triggered from Settings
     var showProfilePicker by remember { mutableStateOf(false) }
@@ -1011,6 +1021,22 @@ fun StreamCloudApp() {
                                  nav.navigate("player/url/$u/$n")
                              }
                          },
+                         onAdultProviderClick = { provider, itemUrl, itemName ->
+                             if (itemUrl.isNotBlank()) {
+                                 val playbackId = if (provider == "pornhub") {
+                                     val id = itemUrl.substringAfter("viewkey=", "")
+                                         .substringBefore('&')
+                                         .ifBlank { itemUrl.substringAfterLast('/') }
+                                     "pornhub://$id"
+                                 } else {
+                                     "saved"
+                                 }
+                                 val v = URLEncoder.encode(playbackId, "UTF-8")
+                                 val e = URLEncoder.encode(itemUrl, "UTF-8")
+                                 val t = URLEncoder.encode(itemName, "UTF-8")
+                                 nav.navigate("player/eporner/$v/$e/$t")
+                             }
+                         },
                     )
                 }
                 composable(
@@ -1073,27 +1099,40 @@ fun StreamCloudApp() {
                     val id    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8")
                     val embed = URLDecoder.decode(entry.arguments!!.getString("embed")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    var resolved by remember(id, embed) {
-                        mutableStateOf<com.streamcloud.app.data.api.EpornerResolvedPlayback?>(null)
+                    var resolvedUrl by remember(id, embed) { mutableStateOf<String?>(null) }
+                    var resolvedHeaders by remember(id, embed) {
+                        mutableStateOf<Map<String, String>>(emptyMap())
                     }
                     var resolveError by remember(id, embed) { mutableStateOf<String?>(null) }
                     var resolveAttempt by remember(id, embed) { mutableStateOf(0) }
                     LaunchedEffect(id, embed, resolveAttempt) {
-                        resolved = null
+                        resolvedUrl = null
+                        resolvedHeaders = emptyMap()
                         resolveError = null
-                        runCatching { com.streamcloud.app.data.api.EpornerPlaybackResolver.resolve(id, embed) }
-                            .onSuccess { resolved = it }
+                        runCatching {
+                            if (id.startsWith("pornhub://")) {
+                                com.streamcloud.app.data.api.PornhubPlaybackResolver.resolve(id, embed)
+                                    .let { it.url to it.headers }
+                            } else {
+                                com.streamcloud.app.data.api.EpornerPlaybackResolver.resolve(id, embed)
+                                    .let { it.url to it.headers }
+                            }
+                        }
+                            .onSuccess {
+                                resolvedUrl = it.first
+                                resolvedHeaders = it.second
+                            }
                             .onFailure {
                                 resolveError = it.message
                                     ?.takeIf(String::isNotBlank)
-                                    ?: "Eporner could not prepare this video."
+                                    ?: "This provider could not prepare the video."
                             }
                     }
-                    if (resolved != null) {
+                    if (resolvedUrl != null) {
                         NativePlayerScreen(
-                            streamUrl = resolved!!.url,
+                            streamUrl = resolvedUrl!!,
                             title = title,
-                            headers = resolved!!.headers,
+                            headers = resolvedHeaders,
                             onBack = { nav.popBackStack() },
                         )
                     } else if (resolveError != null) {
@@ -1105,7 +1144,7 @@ fun StreamCloudApp() {
                             verticalArrangement = Arrangement.Center,
                         ) {
                             Text(
-                                "This Eporner video could not be prepared.",
+                                "This video could not be prepared.",
                                 style = MaterialTheme.typography.titleMedium,
                                 textAlign = TextAlign.Center,
                             )
@@ -1290,6 +1329,7 @@ fun StreamCloudApp() {
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                             },
+                            onDismiss = { dismissedMiniPlayerId = miniNowPlayingId },
                         )
                     }
                 }
@@ -1320,6 +1360,7 @@ fun StreamCloudApp() {
                                 onExpand = {
                                     com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                                 },
+                                onDismiss = { dismissedMiniPlayerId = miniNowPlayingId },
                             )
                         }
                         val showBar = currentRoute == null ||

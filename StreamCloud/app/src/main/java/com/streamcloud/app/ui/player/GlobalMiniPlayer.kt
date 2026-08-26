@@ -30,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -63,6 +64,7 @@ import kotlin.math.roundToInt
 fun GlobalMiniPlayer(
     modifier: Modifier = Modifier,
     onExpand: () -> Unit = { PlayerExpandBus.requestExpand() },
+    onDismiss: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -150,6 +152,8 @@ fun GlobalMiniPlayer(
 
     val swipeOffsetX = remember { Animatable(0f) }
     var liveDragX by remember { mutableStateOf(0f) }
+    val swipeOffsetY = remember { Animatable(0f) }
+    var liveDragY by remember { mutableStateOf(0f) }
 
     AnimatedVisibility(
         visible = title != null,
@@ -165,8 +169,16 @@ fun GlobalMiniPlayer(
                 .offset {
                     IntOffset(
                         (swipeOffsetX.value + liveDragX).roundToInt(),
-                        0,
+                        (swipeOffsetY.value + liveDragY).roundToInt(),
                     )
+                }
+                .graphicsLayer {
+                    val verticalOffset = swipeOffsetY.value + liveDragY
+                    val progress = (abs(verticalOffset) / 240f).coerceIn(0f, 1f)
+                    val scale = 1f - (progress * 0.08f)
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = 1f - (progress * 0.15f)
                 }
                 .clip(RoundedCornerShape(20.dp))
                 .background(bgColor)
@@ -195,11 +207,16 @@ fun GlobalMiniPlayer(
                                 if (dirLocked && isHorizontal) {
                                     liveDragX = totalX.coerceIn(-280f, 280f)
                                     change.consume()
+                                } else if (dirLocked) {
+                                    liveDragY = totalY.coerceIn(-240f, 240f)
+                                    change.consume()
                                 }
                             }
                         }
                         swipeOffsetX.snapTo(liveDragX)
+                        swipeOffsetY.snapTo(liveDragY)
                         liveDragX = 0f
+                        liveDragY = 0f
                         when (resolveMiniPlayerSwipeAction(dirLocked, isHorizontal, totalX, totalY)) {
                             MiniPlayerSwipeAction.SeekNext -> {
                                 swipeOffsetX.animateTo(-90f, tween(100))
@@ -215,10 +232,19 @@ fun GlobalMiniPlayer(
                             }
                             MiniPlayerSwipeAction.SnapBack -> swipeOffsetX.animateTo(0f, spring())
                             MiniPlayerSwipeAction.Expand   -> {
+                                swipeOffsetY.animateTo(-240f, tween(180))
                                 onExpand()
+                                // The sheet now owns the expanded state. Reset the
+                                // mini-player so it is ready when the sheet closes.
+                                swipeOffsetY.snapTo(0f)
+                            }
+                            MiniPlayerSwipeAction.Dismiss -> {
+                                swipeOffsetY.animateTo(240f, tween(180))
+                                onDismiss()
                             }
                             MiniPlayerSwipeAction.None     -> {
                                 swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.68f))
+                                swipeOffsetY.animateTo(0f, spring(dampingRatio = 0.68f))
                             }
                         }
                     }

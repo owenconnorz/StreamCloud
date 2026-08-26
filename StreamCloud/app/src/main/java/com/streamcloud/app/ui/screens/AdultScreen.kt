@@ -98,7 +98,11 @@ fun AdultScreen(
             val total = gridState.layoutInfo.totalItemsCount
             val last  = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             total > 0 && last >= total - 6
-        }.collect { reachedEnd -> if (reachedEnd && state.source == AdultSource.Eporner) vm.loadMore() }
+        }.collect { reachedEnd ->
+            if (reachedEnd && state.source in setOf(AdultSource.Eporner, AdultSource.Pornhub)) {
+                vm.loadMore()
+            }
+        }
     }
 
     Column(
@@ -108,7 +112,7 @@ fun AdultScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         // ── Title row (only shown for Eporner) ──────────────────────────
-        if (state.source == AdultSource.Eporner) {
+        if (state.source in setOf(AdultSource.Eporner, AdultSource.Pornhub)) {
             Spacer(Modifier.height(12.dp))
             Row(
                 Modifier
@@ -140,11 +144,17 @@ fun AdultScreen(
         }
 
         // ── Source switcher tabs: Eporner / Reddit ───────────────────────
-        val sources = listOf(AdultSource.Eporner, AdultSource.Reddit, AdultSource.RedGifs)
+        val sources = listOf(
+            AdultSource.Eporner,
+            AdultSource.Pornhub,
+            AdultSource.Reddit,
+            AdultSource.RedGifs,
+        )
         val selectedTabIndex = sources.indexOfFirst { it == state.source }.coerceAtLeast(0)
-        TabRow(
+        ScrollableTabRow(
             selectedTabIndex = selectedTabIndex,
             modifier = Modifier.fillMaxWidth(),
+            edgePadding = 8.dp,
         ) {
             sources.forEachIndexed { index, source ->
                 Tab(
@@ -181,7 +191,7 @@ fun AdultScreen(
                     .weight(1f),
             )
         } else {
-            // ── Eporner: search field, categories, grid ──────────────────
+            // ── Searchable provider grid ──────────────────────────────────
             Spacer(Modifier.height(8.dp))
 
             // Search field
@@ -312,6 +322,8 @@ fun AdultScreen(
                 detailItem = null
                 if (item.source == AdultSource.Reddit) {
                     onPlay(item.id, item.streamUrl.orEmpty(), item.title)
+                } else if (item.source == AdultSource.Pornhub) {
+                    onPlay("pornhub://${item.id}", item.embedUrl.orEmpty(), item.title)
                 } else {
                     onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
                 }
@@ -515,7 +527,7 @@ private fun EpornerDetailSheet(
 
     LaunchedEffect(item.id) {
         LibraryDb.get(context).watchlist()
-            .isWatchlisted(epornerWatchlistId(item.id))
+            .isWatchlisted(adultWatchlistId(item))
             .collect { saved = it }
     }
 
@@ -608,7 +620,7 @@ private fun EpornerDetailSheet(
                     onClick  = {
                         scope.launch {
                             val db  = LibraryDb.get(context)
-                            val wid = epornerWatchlistId(item.id)
+                            val wid = adultWatchlistId(item)
                             if (saved) {
                                 db.watchlist().remove(wid)
                             } else {
@@ -617,8 +629,8 @@ private fun EpornerDetailSheet(
                                         tmdbId    = wid,
                                         title     = item.title,
                                         posterUrl = item.thumbnail,
-                                        mediaType = "eporner",
-                                        csPlugin  = "eporner",
+                                        mediaType = item.source.name.lowercase(),
+                                        csPlugin  = item.source.name.lowercase(),
                                         csUrl     = item.embedUrl.orEmpty(),
                                     )
                                 )
@@ -670,8 +682,14 @@ private fun InfoPill(icon: ImageVector, label: String) {
     }
 }
 
-private fun epornerWatchlistId(epornerId: String): Long =
-    (-9_000_000_000L) - (epornerId.hashCode().toLong() and 0xFFFFFL)
+private fun adultWatchlistId(item: AdultItem): Long {
+    val stableKey = if (item.source == AdultSource.Eporner) {
+        item.id
+    } else {
+        "${item.source.name}:${item.id}"
+    }
+    return (-9_000_000_000L) - (stableKey.hashCode().toLong() and 0xFFFFFL)
+}
 
 
 @Composable
