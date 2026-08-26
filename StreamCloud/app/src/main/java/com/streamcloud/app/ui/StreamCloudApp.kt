@@ -1109,7 +1109,7 @@ fun StreamCloudApp() {
                         resolvedUrl = null
                         resolvedHeaders = emptyMap()
                         resolveError = null
-                        runCatching {
+                        runCatching<Pair<String, Map<String, String>>> {
                             if (id.startsWith("pornhub://")) {
                                 com.streamcloud.app.data.api.PornhubPlaybackResolver.resolve(id, embed)
                                     .let { it.url to it.headers }
