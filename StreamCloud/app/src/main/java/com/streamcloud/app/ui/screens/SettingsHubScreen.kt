@@ -161,6 +161,7 @@ fun SettingsHubScreen(
     onSwitchProfile: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
     onOpenRedditLogin: () -> Unit = {},
+    onOpenPornhubLogin: () -> Unit = {},
     onSubPageChanged: (Boolean) -> Unit = {},
     backRequest: Int = 0,
     tvNavFocusRequester: FocusRequester? = null,
@@ -1232,6 +1233,8 @@ fun SettingsHubScreen(
                     SpotifyAccountRow()
                     SettingDivider()
                     RedditAccountRow(onLogin = onOpenRedditLogin)
+                    SettingDivider()
+                    PornhubAccountRow(onLogin = onOpenPornhubLogin)
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
@@ -3150,6 +3153,61 @@ private fun RedditAccountRow(onLogin: () -> Unit) {
                     scope.launch {
                         com.streamcloud.app.data.api.RedditAdultRepository.clearSessionCookies()
                         sl.settings.clearRedditAccount()
+                    }
+                },
+            ) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PornhubAccountRow(onLogin: () -> Unit) {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val signedIn by sl.settings.pornhubSignedIn.collectAsState(initial = false)
+    val scope = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .clickable(enabled = !signedIn, onClick = onLogin)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(
+            if (signedIn) Icons.Default.Logout else Icons.Default.Login,
+            Color(0xFFFFA726),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "Pornhub" else "Sign in to Pornhub",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) "Signed in with the Pornhub WebView"
+                else "Use Pornhub’s own page for login and verification",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
+        }
+        if (signedIn) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        val cleared =
+                            com.streamcloud.app.data.api.PornhubRepository.clearSessionCookies()
+                        if (cleared) sl.settings.clearPornhubAccount()
                     }
                 },
             ) { Text("Sign out") }

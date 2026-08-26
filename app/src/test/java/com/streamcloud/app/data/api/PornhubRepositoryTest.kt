@@ -76,4 +76,39 @@ class PornhubRepositoryTest {
             ),
         )
     }
+
+    @Test
+    fun cookieParsingKeepsOnlyPornhubCookieNames() {
+        assertEquals(
+            setOf("session", "accessAgeDisclaimerPH", "platform"),
+            pornhubCookieNames("session=abc; accessAgeDisclaimerPH=1; platform=mobile"),
+        )
+        assertTrue(
+            pornhubCookieNames("accessAgeDisclaimerPH=1; platform=mobile")
+                .none { it == "session" },
+        )
+    }
+
+    @Test
+    fun allowsOnlyOfficialHttpsPornhubUrls() {
+        assertTrue(isAllowedPornhubUrl("https://www.pornhub.com/view_video.php?viewkey=abc"))
+        assertTrue(isAllowedPornhubUrl("https://cdn.pornhub.com/video/master.m3u8"))
+        assertFalse(isAllowedPornhubUrl("http://www.pornhub.com/login"))
+        assertFalse(isAllowedPornhubUrl("https://pornhub.com.evil.example/video"))
+        assertFalse(isAllowedPornhubUrl("https://evil.example/pornhub.com/video"))
+    }
+
+    @Test
+    fun rejectsRedirectsOutsidePornhubDomains() {
+        val start = "https://www.pornhub.com/login"
+        assertEquals(
+            "https://www.pornhub.com/video",
+            resolveAllowedPornhubRedirect(start, "/video"),
+        )
+        assertEquals(
+            "https://m.pornhub.com/video",
+            resolveAllowedPornhubRedirect(start, "https://m.pornhub.com/video"),
+        )
+        assertEquals(null, resolveAllowedPornhubRedirect(start, "https://evil.example/collect"))
+    }
 }

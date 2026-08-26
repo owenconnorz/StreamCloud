@@ -138,6 +138,7 @@ object SettingsKeys {
     // Adult
     val ADULT_SOURCE       = stringPreferencesKey("adult_source")
     val REDDIT_USERNAME    = stringPreferencesKey("reddit_username")
+    val PORNHUB_SIGNED_IN  = booleanPreferencesKey("pornhub_signed_in")
     val AGE_GATE_CONFIRMED = booleanPreferencesKey("age_gate_confirmed")
 
     // Nav
@@ -572,11 +573,17 @@ class SettingsRepository(private val context: Context) {
     // ── Adult tab ───────────────────────────────────────────────────────────
     val adultSource: Flow<String> = context.dataStore.data.map { it[SettingsKeys.ADULT_SOURCE] ?: "Eporner" }
     val redditUsername: Flow<String> = context.dataStore.data.map { it[SettingsKeys.REDDIT_USERNAME] ?: "" }
+    val pornhubSignedIn: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.PORNHUB_SIGNED_IN] ?: false }
     val ageGateConfirmed: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.AGE_GATE_CONFIRMED] ?: false }
 
     suspend fun setAdultSource(source: String) = context.dataStore.edit { it[SettingsKeys.ADULT_SOURCE] = source }
     suspend fun setRedditUsername(u: String) = context.dataStore.edit { it[SettingsKeys.REDDIT_USERNAME] = u }
     suspend fun clearRedditAccount() = context.dataStore.edit { it.remove(SettingsKeys.REDDIT_USERNAME) }
+    suspend fun setPornhubSignedIn(signedIn: Boolean) =
+        context.dataStore.edit { it[SettingsKeys.PORNHUB_SIGNED_IN] = signedIn }
+    suspend fun clearPornhubAccount() = context.dataStore.edit {
+        it.remove(SettingsKeys.PORNHUB_SIGNED_IN)
+    }
     suspend fun setAgeGateConfirmed(b: Boolean) = context.dataStore.edit { it[SettingsKeys.AGE_GATE_CONFIRMED] = b }
 
     // ── Nav hidden tabs ─────────────────────────────────────────────────────

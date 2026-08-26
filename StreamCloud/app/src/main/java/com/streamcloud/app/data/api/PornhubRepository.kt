@@ -1,5 +1,6 @@
 package com.streamcloud.app.data.api
 
+import android.webkit.CookieManager
 import com.streamcloud.app.data.network.BrowserHeaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,12 +37,20 @@ class PornhubUnavailableException(message: String) : Exception(message)
 
 object PornhubRepository {
     private const val BASE_URL = "https://www.pornhub.com"
+    private const val DEFAULT_COOKIE = "accessAgeDisclaimerPH=1; platform=mobile"
+    private val cookieHosts = listOf(
+        "https://www.pornhub.com",
+        "https://pornhub.com",
+        "https://m.pornhub.com",
+    )
+    private val cookiePaths = listOf("/", "/login", "/video", "/view_video.php")
 
     private val client by lazy {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            .followRedirects(true)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .build()
     }
 
@@ -84,33 +93,106 @@ object PornhubRepository {
         val sources = parsePornhubMediaDefinitions(html)
         val chosen = choosePornhubSource(sources, preferProgressive)
             ?: throw PornhubUnavailableException("Pornhub did not provide a playable stream.")
-        PornhubResolvedPlayback(chosen.url, playbackHeaders(pageUrl))
+        PornhubResolvedPlayback(chosen.url, playbackHeaders(pageUrl, chosen.url))
+    }
+
+    /**
+     * Read the WebView cookie jar at request time. Cookies are not copied into
+     * DataStore, logged, or sent to any host other than Pornhub.
+     */
+    fun sessionCookieHeader(url: String = BASE_URL): String {
+        if (!isAllowedPornhubUrl(url)) return ""
+        return runCatching { CookieManager.getInstance().getCookie(url) }
+            .getOrNull()
+            .orEmpty()
+    }
+
+    fun hasSessionCookies(url: String = BASE_URL): Boolean =
+        pornhubCookieNames(sessionCookieHeader(url)).any {
+            it != "accessAgeDisclaimerPH" && it != "platform"
+        }
+
+    /**
+     * Clear only Pornhub domains. The shared WebView cookie store also contains
+     * Reddit and other account sessions, so removeAllCookies() is not acceptable.
+     */
+    fun clearSessionCookies(): Boolean {
+        val manager = CookieManager.getInstance()
+        val cookieUrls = cookieHosts.flatMap { host ->
+            cookiePaths.map { path -> "$host$path" }
+        }
+        val names = cookieUrls
+            .flatMap { url ->
+                runCatching { manager.getCookie(url).orEmpty() }
+                    .getOrDefault("")
+                    .let(::pornhubCookieNames)
+            }
+            .distinct()
+        names.forEach { name ->
+            cookieHosts.forEach { host ->
+                cookiePaths.forEach { path ->
+                    manager.setCookie(
+                        "$host$path",
+                        "$name=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=$path; Secure",
+                    )
+                    manager.setCookie(
+                        "$host$path",
+                        "$name=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Domain=.pornhub.com; Path=$path; Secure",
+                    )
+                }
+            }
+        }
+        manager.flush()
+        return cookieUrls.none { url ->
+            runCatching { manager.getCookie(url).orEmpty() }
+                .getOrDefault("")
+                .let(::pornhubCookieNames)
+                .any { it !in setOf("accessAgeDisclaimerPH", "platform") }
+        }
     }
 
     private fun requestPage(url: String): String {
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", BrowserHeaders.USER_AGENT)
-            .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
-            .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
-            .header("Referer", "$BASE_URL/")
-            .header("Cookie", "accessAgeDisclaimerPH=1; platform=mobile")
-            .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw PornhubUnavailableException(
-                    when (response.code) {
-                        403 -> "Pornhub blocked this request."
-                        404 -> "This Pornhub page is no longer available."
-                        429 -> "Pornhub rate-limited this device. Please wait and try again."
-                        else -> "Pornhub returned HTTP ${response.code}."
-                    },
-                )
+        var currentUrl = url
+        repeat(6) { redirectCount ->
+            if (!isAllowedPornhubUrl(currentUrl)) {
+                throw PornhubUnavailableException("Pornhub redirected outside its official site.")
             }
-            if (body.isBlank()) throw PornhubUnavailableException("Pornhub returned an empty page.")
-            return body
+            val request = Request.Builder()
+                .url(currentUrl)
+                .header("User-Agent", BrowserHeaders.USER_AGENT)
+                .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
+                .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+                .header("Referer", "$BASE_URL/")
+                .header("Cookie", sessionCookieHeader(currentUrl).ifBlank { DEFAULT_COOKIE })
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.isRedirect) {
+                    if (redirectCount == 5) {
+                        throw PornhubUnavailableException("Pornhub redirected too many times.")
+                    }
+                    val location = response.header("Location").orEmpty()
+                    currentUrl = resolveAllowedPornhubRedirect(currentUrl, location)
+                        ?: throw PornhubUnavailableException(
+                            "Pornhub redirected outside its official site.",
+                        )
+                    return@use
+                }
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw PornhubUnavailableException(
+                        when (response.code) {
+                            403 -> "Pornhub blocked this request."
+                            404 -> "This Pornhub page is no longer available."
+                            429 -> "Pornhub rate-limited this device. Please wait and try again."
+                            else -> "Pornhub returned HTTP ${response.code}."
+                        },
+                    )
+                }
+                if (body.isBlank()) throw PornhubUnavailableException("Pornhub returned an empty page.")
+                return body
+            }
         }
+        throw PornhubUnavailableException("Pornhub redirected too many times.")
     }
 
     private fun normalizeVideoUrl(videoId: String, fallbackPageUrl: String): String {
@@ -120,7 +202,9 @@ object PornhubRepository {
             fallbackPageUrl.startsWith("https://") -> fallbackPageUrl
             else -> ""
         }
-        if (fallback.startsWith("$BASE_URL/view_video.php")) return fallback
+        if (isAllowedPornhubUrl(fallback) &&
+            runCatching { fallback.toHttpUrl().encodedPath == "/view_video.php" }.getOrDefault(false)
+        ) return fallback
         val cleanId = videoId.removePrefix("pornhub://").trim()
         require(cleanId.matches(Regex("[A-Za-z0-9_-]+"))) {
             "Pornhub did not provide a valid video identifier."
@@ -131,13 +215,34 @@ object PornhubRepository {
             .toString()
     }
 
-    private fun playbackHeaders(pageUrl: String) = mapOf(
-        "User-Agent" to BrowserHeaders.USER_AGENT,
-        "Referer" to pageUrl,
-        "Origin" to BASE_URL,
-        "Accept" to "*/*",
-        "Cookie" to "accessAgeDisclaimerPH=1; platform=mobile",
-    )
+    private fun playbackHeaders(pageUrl: String, streamUrl: String) = buildMap {
+        put("User-Agent", BrowserHeaders.USER_AGENT)
+        put("Referer", pageUrl)
+        put("Origin", BASE_URL)
+        put("Accept", "*/*")
+        val host = runCatching { streamUrl.toHttpUrl().host }.getOrNull().orEmpty()
+        if (host == "pornhub.com" || host.endsWith(".pornhub.com")) {
+            put("Cookie", sessionCookieHeader(streamUrl).ifBlank { DEFAULT_COOKIE })
+        }
+    }
+}
+
+internal fun pornhubCookieNames(cookieHeader: String): Set<String> =
+    cookieHeader.split(';')
+        .mapNotNull { it.substringBefore('=').trim().takeIf(String::isNotBlank) }
+        .toSet()
+
+internal fun isAllowedPornhubUrl(url: String): Boolean {
+    val parsed = runCatching { url.toHttpUrl() }.getOrNull() ?: return false
+    return parsed.scheme == "https" &&
+        (parsed.host == "pornhub.com" || parsed.host.endsWith(".pornhub.com"))
+}
+
+internal fun resolveAllowedPornhubRedirect(currentUrl: String, location: String): String? {
+    val resolved = runCatching { currentUrl.toHttpUrl().resolve(location)?.toString() }
+        .getOrNull()
+        ?: return null
+    return resolved.takeIf(::isAllowedPornhubUrl)
 }
 
 internal fun parsePornhubListing(html: String): List<AdultItem> {

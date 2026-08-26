@@ -309,6 +309,7 @@ fun StreamCloudApp() {
     val isSettingsOrAdult = currentRoute == Tab.Settings.route ||
         currentRoute == "plugins" || currentRoute == "plugin-picker" ||
         currentRoute == "reddit-login" ||
+        currentRoute == "pornhub-login" ||
         currentRoute == Tab.Adult.route
     val showMiniPlayer = currentRoute != null &&
         !isMediaRoute &&
@@ -1296,6 +1297,7 @@ fun StreamCloudApp() {
                             onOpenCollections = { nav.navigate("collections") },
                             onSwitchProfile   = { showProfilePicker = true },
                             onOpenRedditLogin = { nav.navigate("reddit-login") },
+                            onOpenPornhubLogin = { nav.navigate("pornhub-login") },
                             onSubPageChanged  = { settingsHasSubPage = it },
                             backRequest       = settingsBackRequest,
                             tvNavFocusRequester = tvNavHeroFocus,
@@ -1313,6 +1315,18 @@ fun StreamCloudApp() {
                         onLoginSuccess = { username ->
                             loginScope.launch {
                                 sl.settings.setRedditUsername(username)
+                                nav.popBackStack()
+                            }
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+                composable("pornhub-login") {
+                    val loginScope = rememberCoroutineScope()
+                    com.streamcloud.app.ui.screens.adult.PornhubLoginScreen(
+                        onLoginSuccess = {
+                            loginScope.launch {
+                                sl.settings.setPornhubSignedIn(true)
                                 nav.popBackStack()
                             }
                         },

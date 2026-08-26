@@ -1,0 +1,243 @@
+@file:Suppress("DEPRECATION")
+
+package com.streamcloud.app.ui.screens.adult
+
+import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.dp
+import com.streamcloud.app.data.api.PornhubRepository
+
+/**
+ * Official Pornhub login flow. StreamCloud never receives the password or
+ * verification codes; Android WebView owns the page and its cookie jar.
+ */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun PornhubLoginScreen(
+    onLoginSuccess: () -> Unit,
+    onBack: () -> Unit,
+) {
+    var pageLoading by remember { mutableStateOf(true) }
+    var pageError by remember { mutableStateOf<String?>(null) }
+    var canFinish by remember { mutableStateOf(false) }
+    var detectedLogin by remember { mutableStateOf(false) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
+
+    BackHandler(onBack = onBack)
+
+    LaunchedEffect(detectedLogin) {
+        if (detectedLogin) onLoginSuccess()
+    }
+
+    val bridge = remember {
+        object {
+            @JavascriptInterface
+            fun receiveLoggedIn(value: Boolean) {
+                Handler(Looper.getMainLooper()).post {
+                    if (value) detectedLogin = true
+                }
+            }
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF111111))
+                .statusBarsPadding()
+                .padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Sign in to Pornhub",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleSmall
+                        .copy(fontWeight = FontWeight.SemiBold),
+                )
+                Text(
+                    "Complete verification on Pornhub’s official page",
+                    color = Color.White.copy(alpha = 0.68f),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            if (canFinish) {
+                TextButton(
+                    onClick = onLoginSuccess,
+                    enabled = !pageLoading,
+                ) {
+                    Text("Done", color = Color(0xFFFFA726))
+                }
+            }
+        }
+
+        if (pageLoading) {
+            LinearProgressIndicator(
+                Modifier.fillMaxWidth(),
+                color = Color(0xFFFFA726),
+            )
+        }
+
+        Box(Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { context ->
+                    WebView(context).also { view ->
+                        webView = view
+                        view.isFocusable = true
+                        view.isFocusableInTouchMode = true
+                        view.settings.javaScriptEnabled = true
+                        view.settings.domStorageEnabled = true
+                        view.settings.useWideViewPort = true
+                        view.settings.loadWithOverviewMode = true
+
+                        CookieManager.getInstance().setAcceptCookie(true)
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
+                        view.addJavascriptInterface(bridge, "PornhubBridge")
+                        view.webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): Boolean {
+                                val uri = request?.url ?: return true
+                                return uri.scheme != "https" || !isPornhubHost(uri)
+                            }
+
+                            override fun onPageStarted(
+                                view: WebView?,
+                                url: String?,
+                                favicon: Bitmap?,
+                            ) {
+                                super.onPageStarted(view, url, favicon)
+                                pageLoading = true
+                                pageError = null
+                            }
+
+                            override fun onReceivedError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                error: WebResourceError?,
+                            ) {
+                                super.onReceivedError(view, request, error)
+                                if (request?.isForMainFrame == true) {
+                                    pageError = error?.description?.toString()
+                                        ?: "Pornhub could not load this page."
+                                }
+                            }
+
+                            override fun onReceivedHttpError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                response: android.webkit.WebResourceResponse?,
+                            ) {
+                                super.onReceivedHttpError(view, request, response)
+                                if (request?.isForMainFrame == true) {
+                                    pageError = when (response?.statusCode) {
+                                        403 -> "Pornhub blocked this page. Complete verification and retry."
+                                        429 -> "Pornhub is rate-limiting this device. Please wait and retry."
+                                        else -> "Pornhub returned HTTP ${response?.statusCode ?: "an error"}."
+                                    }
+                                }
+                            }
+
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                pageLoading = false
+                                CookieManager.getInstance().flush()
+                                val currentUrl = url.orEmpty()
+                                val awayFromLogin = isPornhubHost(
+                                    runCatching { Uri.parse(currentUrl) }.getOrNull(),
+                                ) &&
+                                    !currentUrl.contains("/login", ignoreCase = true)
+                                canFinish = awayFromLogin &&
+                                    PornhubRepository.hasSessionCookies(currentUrl)
+                                if (awayFromLogin) {
+                                    view?.evaluateJavascript(
+                                        """
+                                        (function() {
+                                          var t = document.body ? document.body.innerText : '';
+                                          PornhubBridge.receiveLoggedIn(
+                                            /(^|\n)\s*(log out|logout|sign out)\b/i.test(t)
+                                          );
+                                        })();
+                                        """.trimIndent(),
+                                        null,
+                                    )
+                                }
+                            }
+                        }
+                        view.loadUrl("https://www.pornhub.com/login")
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                update = { webView = it },
+            )
+
+            pageError?.let { message ->
+                Surface(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp),
+                    color = Color(0xFF2A1717),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            message,
+                            Modifier.weight(1f),
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        IconButton(onClick = {
+                            pageError = null
+                            webView?.reload()
+                        }) {
+                            Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun isPornhubHost(uri: Uri?): Boolean {
+    val host = uri?.host?.lowercase() ?: return false
+    return host == "pornhub.com" || host.endsWith(".pornhub.com")
+}
