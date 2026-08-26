@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
+import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.FollowedArtistDao
 import com.streamcloud.app.data.library.FollowedArtistEntity
@@ -114,6 +115,13 @@ class MusicViewModel(context: Context) : ViewModel() {
     }
 
     init {
+        // Metrolist keeps a long-lived player connection. Establish StreamCloud's controller as
+        // soon as the music surface exists so a first tap does not also have to create the
+        // MediaLibraryService, ExoPlayer, session, and controller connection.
+        viewModelScope.launch {
+            runCatching { MusicController.get(appContext) }
+                .onFailure { Log.w("MusicViewModel", "Music controller preconnect failed", it) }
+        }
         loadHomeFeed()
         loadYtHome()
         viewModelScope.launch {
@@ -353,6 +361,11 @@ class MusicViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             _state.update { it.copy(resolvingUrl = selected.url, error = null) }
             try {
+                val selectedSong = selected.toYtmSong()
+                // Start network resolution before the legacy-local-file Room lookup below.
+                // The playback service consumes this same in-flight request/cache entry.
+                com.streamcloud.app.data.ytmusic.YtMusicStreamResolver
+                    .primeForPlayback(selectedSong.videoId)
                 val cached = dao.byUrl(selected.url)?.localPath?.takeIf {
                     java.io.File(it).exists()
                 }
@@ -371,7 +384,7 @@ class MusicViewModel(context: Context) : ViewModel() {
                     val songs = queue.map { it.toYtmSong() }
                     if (songs.size == 1) {
                         com.streamcloud.app.data.ytmusic.YtPlayback.playSong(
-                            appContext, songs.single(), withAutoRadio = false,
+                            appContext, selectedSong, withAutoRadio = false,
                         )
                     } else {
                         com.streamcloud.app.data.ytmusic.YtPlayback.playPlaylist(

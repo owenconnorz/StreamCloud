@@ -4,7 +4,6 @@ import android.util.Log
 import android.webkit.CookieManager
 import com.streamcloud.app.data.AppLogger
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -29,7 +28,11 @@ class PoTokenGenerator {
     private var streamingPot: String? = null
     private var generator: PoTokenWebView? = null
 
-    fun getWebClientPoToken(context: android.content.Context, videoId: String, sessionId: String): PoTokenResult? {
+    suspend fun getWebClientPoToken(
+        context: android.content.Context,
+        videoId: String,
+        sessionId: String,
+    ): PoTokenResult? {
         if (!webViewSupported) return null
 
         val now = System.currentTimeMillis()
@@ -42,7 +45,7 @@ class PoTokenGenerator {
 
         AppLogger.i(TAG, "Generating PoToken for $videoId")
         return try {
-            runBlocking { getWebClientPoTokenSuspend(context, videoId, sessionId, forceRecreate = false) }
+            getWebClientPoTokenSuspend(context, videoId, sessionId, forceRecreate = false)
         } catch (e: BadWebViewException) {
             AppLogger.e(TAG, "Broken WebView — PoToken backed off for ${BAD_IMPL_BACKOFF_MS / 1000}s: ${e.message}")
             webViewBadImplSince = System.currentTimeMillis()

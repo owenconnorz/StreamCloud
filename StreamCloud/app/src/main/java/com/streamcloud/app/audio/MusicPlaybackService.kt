@@ -189,6 +189,14 @@ class MusicPlaybackService : MediaLibraryService() {
                             else -> "UNKNOWN($state)"
                         }
                         AppLogger.i(TAG, "playback state → $label")
+                        if (state == androidx.media3.common.Player.STATE_READY) {
+                            // Timeline/transition callbacks can fire while the selected item is
+                            // still resolving. Only let queue URL and byte warming begin after the
+                            // foreground item has enough buffered audio to start.
+                            prefetchUpcomingStreams()
+                        } else if (state == androidx.media3.common.Player.STATE_BUFFERING) {
+                            cancelObsoleteBufferedPrefetches(emptySet())
+                        }
                     }
                     override fun onIsPlayingChanged(playing: Boolean) {
                         // The cast flow pauses the primary session player before replacing a
@@ -773,6 +781,7 @@ class MusicPlaybackService : MediaLibraryService() {
      */
     private fun prefetchUpcomingStreams() {
         if (!::exoPlayer.isInitialized) return
+        if (exoPlayer.playbackState != Player.STATE_READY) return
         var itemIndex = exoPlayer.currentMediaItemIndex
         if (itemIndex < 0 || exoPlayer.mediaItemCount == 0) return
 
