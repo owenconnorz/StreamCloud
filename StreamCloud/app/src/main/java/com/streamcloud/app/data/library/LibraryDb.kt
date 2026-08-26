@@ -5,12 +5,15 @@ import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
@@ -126,6 +129,130 @@ interface WatchlistDao {
 
     @Query("SELECT COUNT(*) > 0 FROM watchlist WHERE tmdb_id = :tmdbId")
     fun isWatchlisted(tmdbId: Long): Flow<Boolean>
+
+    @Query("SELECT * FROM watchlist WHERE tmdb_id = :tmdbId LIMIT 1")
+    suspend fun byId(tmdbId: Long): WatchlistEntity?
+}
+
+@Entity(tableName = "movie_watchlists")
+data class MovieWatchlistEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(
+    tableName = "movie_watchlist_items",
+    primaryKeys = ["watchlist_id", "tmdb_id"],
+    foreignKeys = [
+        ForeignKey(
+            entity = MovieWatchlistEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["watchlist_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("watchlist_id")],
+)
+data class MovieWatchlistItemEntity(
+    @ColumnInfo(name = "watchlist_id") val watchlistId: Long,
+    @ColumnInfo(name = "tmdb_id") val tmdbId: Long,
+    val title: String,
+    @ColumnInfo(name = "poster_url") val posterUrl: String?,
+    @ColumnInfo(name = "media_type") val mediaType: String,
+    @ColumnInfo(name = "added_at") val addedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "cs_plugin", defaultValue = "") val csPlugin: String = "",
+    @ColumnInfo(name = "cs_url", defaultValue = "") val csUrl: String = "",
+)
+
+fun WatchlistEntity.toMovieWatchlistItem(watchlistId: Long) = MovieWatchlistItemEntity(
+    watchlistId = watchlistId,
+    tmdbId = tmdbId,
+    title = title,
+    posterUrl = posterUrl,
+    mediaType = mediaType,
+    addedAt = addedAt,
+    csPlugin = csPlugin,
+    csUrl = csUrl,
+)
+
+fun MovieWatchlistItemEntity.toWatchlistEntity() = WatchlistEntity(
+    tmdbId = tmdbId,
+    title = title,
+    posterUrl = posterUrl,
+    mediaType = mediaType,
+    addedAt = addedAt,
+    csPlugin = csPlugin,
+    csUrl = csUrl,
+)
+
+@Dao
+interface MovieWatchlistDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun create(watchlist: MovieWatchlistEntity): Long
+
+    @Query("DELETE FROM movie_watchlists WHERE id = :watchlistId")
+    suspend fun delete(watchlistId: Long)
+
+    @Query("SELECT * FROM movie_watchlists ORDER BY created_at ASC")
+    fun all(): Flow<List<MovieWatchlistEntity>>
+
+    @Query("SELECT * FROM movie_watchlists ORDER BY created_at ASC")
+    suspend fun allOnce(): List<MovieWatchlistEntity>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun addItem(item: MovieWatchlistItemEntity)
+
+    @Query("DELETE FROM movie_watchlist_items WHERE watchlist_id = :watchlistId AND tmdb_id = :tmdbId")
+    suspend fun removeItem(watchlistId: Long, tmdbId: Long)
+
+    @Query("DELETE FROM movie_watchlist_items WHERE watchlist_id = :watchlistId AND tmdb_id IN (:tmdbIds)")
+    suspend fun removeItems(watchlistId: Long, tmdbIds: List<Long>)
+
+    @Query("DELETE FROM movie_watchlist_items WHERE watchlist_id = :watchlistId")
+    suspend fun clear(watchlistId: Long)
+
+    @Query("SELECT * FROM movie_watchlist_items WHERE watchlist_id = :watchlistId ORDER BY added_at DESC")
+    fun items(watchlistId: Long): Flow<List<MovieWatchlistItemEntity>>
+
+    @Query("SELECT * FROM movie_watchlist_items WHERE watchlist_id = :watchlistId ORDER BY added_at DESC")
+    suspend fun itemsOnce(watchlistId: Long): List<MovieWatchlistItemEntity>
+
+    @Query("SELECT watchlist_id FROM movie_watchlist_items WHERE tmdb_id = :tmdbId")
+    suspend fun watchlistIdsForMovie(tmdbId: Long): List<Long>
+
+    @Query("SELECT COUNT(*) > 0 FROM movie_watchlist_items WHERE tmdb_id = :tmdbId")
+    fun isInAnyWatchlist(tmdbId: Long): Flow<Boolean>
+}
+
+suspend fun LibraryDb.reconcileMovieWatchlists(
+    entry: WatchlistEntity,
+    selectedListIds: Set<Long>,
+) = withTransaction {
+    if (0L in selectedListIds) watchlist().add(entry) else watchlist().remove(entry.tmdbId)
+    movieWatchlists().allOnce().forEach { list ->
+        if (list.id in selectedListIds) {
+            movieWatchlists().addItem(entry.toMovieWatchlistItem(list.id))
+        } else {
+            movieWatchlists().removeItem(list.id, entry.tmdbId)
+        }
+    }
+}
+
+suspend fun LibraryDb.moveMovieWatchlistItems(
+    entries: List<WatchlistEntity>,
+    sourceListId: Long?,
+    destinationListId: Long?,
+) = withTransaction {
+    entries.forEach { entry ->
+        if (destinationListId == null) {
+            if (watchlist().byId(entry.tmdbId) == null) watchlist().add(entry)
+        } else {
+            movieWatchlists().addItem(entry.toMovieWatchlistItem(destinationListId))
+        }
+    }
+    if (sourceListId == null) entries.forEach { watchlist().remove(it.tmdbId) }
+    else movieWatchlists().removeItems(sourceListId, entries.map { it.tmdbId })
 }
 
 @Entity(tableName = "local_playlists")
@@ -405,6 +532,8 @@ interface FollowedArtistDao {
         TrackEntity::class,
         WatchProgressEntity::class,
         WatchlistEntity::class,
+        MovieWatchlistEntity::class,
+        MovieWatchlistItemEntity::class,
         LocalPlaylistEntity::class,
         PlaylistTrackEntity::class,
         FormatEntity::class,
@@ -415,13 +544,14 @@ interface FollowedArtistDao {
         WatchedMovieEntity::class,
         MovieDownloadEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
     abstract fun tracks(): TrackDao
     abstract fun watchProgress(): WatchProgressDao
     abstract fun watchlist(): WatchlistDao
+    abstract fun movieWatchlists(): MovieWatchlistDao
     abstract fun localPlaylists(): LocalPlaylistDao
     abstract fun formats(): FormatDao
     abstract fun userCollections(): UserCollectionDao
@@ -601,11 +731,48 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS movie_watchlists (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        created_at INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS movie_watchlist_items (
+                        watchlist_id INTEGER NOT NULL,
+                        tmdb_id INTEGER NOT NULL,
+                        title TEXT NOT NULL,
+                        poster_url TEXT,
+                        media_type TEXT NOT NULL,
+                        added_at INTEGER NOT NULL,
+                        cs_plugin TEXT NOT NULL DEFAULT '',
+                        cs_url TEXT NOT NULL DEFAULT '',
+                        PRIMARY KEY(watchlist_id, tmdb_id),
+                        FOREIGN KEY(watchlist_id) REFERENCES movie_watchlists(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_movie_watchlist_items_watchlist_id " +
+                        "ON movie_watchlist_items(watchlist_id)",
+                )
+            }
+        }
+
         @Volatile private var INSTANCE: LibraryDb? = null
         fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).addMigrations(MIGRATION_13_14, MIGRATION_14_15).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                .fallbackToDestructiveMigration()
+                .build()
+                .also { INSTANCE = it }
         }
     }
 }

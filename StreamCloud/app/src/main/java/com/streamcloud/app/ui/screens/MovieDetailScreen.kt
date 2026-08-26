@@ -83,6 +83,7 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.downloads.MovieDownloader
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.components.MagnetOptionsSheet
 import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
@@ -126,6 +127,7 @@ fun MovieDetailScreen(
     val autoplayBestStream by sl.settings.autoplayBestStream.collectAsState(initial = false)
 
     var movie by remember { mutableStateOf<TmdbMovie?>(null) }
+    var watchlistPickerEntry by remember { mutableStateOf<WatchlistEntity?>(null) }
     var videos by remember { mutableStateOf<List<TmdbVideo>>(emptyList()) }
     var imdbId by remember { mutableStateOf<String?>(null) }
     var credits by remember { mutableStateOf<TmdbCredits?>(null) }
@@ -318,7 +320,20 @@ fun MovieDetailScreen(
 
     val moviesVm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
     val watchlistIds = moviesVm.state.collectAsState().value.watchlist.map { it.tmdbId }.toSet()
-    val inWatchlist = movie?.id?.let { it in watchlistIds } ?: false
+    val inCustomWatchlist by remember(movieId) {
+        LibraryDb.get(context.applicationContext).movieWatchlists().isInAnyWatchlist(movieId)
+    }.collectAsState(initial = false)
+    val inWatchlist = (movie?.id?.let { it in watchlistIds } ?: false) || inCustomWatchlist
+    val chooseWatchlists: () -> Unit = {
+        movie?.let {
+            watchlistPickerEntry = WatchlistEntity(
+                tmdbId = it.id,
+                title = it.displayTitle,
+                posterUrl = it.posterUrl,
+                mediaType = mediaType,
+            )
+        }
+    }
 
     var actionsExpanded by remember { mutableStateOf(false) }
     var magnetSource by remember { mutableStateOf<PlayerSource?>(null) }
@@ -438,7 +453,7 @@ fun MovieDetailScreen(
                                     icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                     active = inWatchlist,
                                 ) {
-                                    movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
+                                    chooseWatchlists()
                                 }
                                 MovieActionCircle(
                                     icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
@@ -456,7 +471,7 @@ fun MovieDetailScreen(
                                         icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                         active = inWatchlist,
                                     ) {
-                                        movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
+                                        chooseWatchlists()
                                     }
                                     MovieActionCircle(
                                         icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
@@ -493,7 +508,7 @@ fun MovieDetailScreen(
                                     icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                     active = inWatchlist,
                                 ) {
-                                    movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
+                                    chooseWatchlists()
                                 }
                                 MovieActionCircle(
                                     icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
@@ -511,7 +526,7 @@ fun MovieDetailScreen(
                                         icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                         active = inWatchlist,
                                     ) {
-                                        movie?.let { moviesVm.toggleWatchlist(it.id, it.displayTitle, it.posterUrl, mediaType) }
+                                        chooseWatchlists()
                                     }
                                     MovieActionCircle(
                                         icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
@@ -1110,6 +1125,13 @@ fun MovieDetailScreen(
                 }
             }
         }
+    }
+
+    watchlistPickerEntry?.let { entry ->
+        MovieWatchlistPickerDialog(
+            entry = entry,
+            onDismiss = { watchlistPickerEntry = null },
+        )
     }
 
     if (showStreamPicker) {

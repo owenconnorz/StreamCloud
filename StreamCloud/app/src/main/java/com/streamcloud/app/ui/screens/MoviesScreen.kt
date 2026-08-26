@@ -61,6 +61,7 @@ import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
+import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
@@ -129,6 +130,7 @@ fun MoviesScreen(
         }
     }
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
+    var watchlistPickerEntry by remember { mutableStateOf<WatchlistEntity?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
@@ -708,7 +710,14 @@ fun MoviesScreen(
                     isInLibrary = ps.tmdbId != null && state.watchlist.any { it.tmdbId == ps.tmdbId },
                     onAddToLibrary = {
                         posterSheet = null
-                        ps.tmdbId?.let { vm.toggleWatchlist(it, ps.title, ps.posterUrl, ps.mediaType) }
+                        ps.tmdbId?.let {
+                            watchlistPickerEntry = WatchlistEntity(
+                                tmdbId = it,
+                                title = ps.title,
+                                posterUrl = ps.posterUrl,
+                                mediaType = ps.mediaType,
+                            )
+                        }
                     },
                     onMarkAsWatched = {
                         posterSheet = null
@@ -716,6 +725,13 @@ fun MoviesScreen(
                     },
                 )
             }
+        }
+
+        watchlistPickerEntry?.let { entry ->
+            MovieWatchlistPickerDialog(
+                entry = entry,
+                onDismiss = { watchlistPickerEntry = null },
+            )
         }
 
         // On TV the TvNetflixTopNav in StreamCloudApp already provides the header
@@ -1653,7 +1669,7 @@ private fun PosterOptionsSheet(
         HorizontalDivider()
         QuickActionRow(
             icon = Icons.Default.Bookmark,
-            label = if (isInLibrary) "Remove from library" else "Add to library",
+            label = if (isInLibrary) "Manage watchlists" else "Choose watchlists",
             onClick = onAddToLibrary,
         )
         QuickActionRow(
