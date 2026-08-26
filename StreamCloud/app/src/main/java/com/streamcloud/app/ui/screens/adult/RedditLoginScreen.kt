@@ -24,8 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 
 @Composable
 private fun WebViewProgressBar(loading: State<Boolean>) {
@@ -117,17 +115,7 @@ fun RedditLoginScreen(
             Box(Modifier.fillMaxSize()) {
                 AndroidView(
                     factory = { ctx ->
-                        val wv: WebView = object : WebView(ctx) {
-                            // Keep keyboard up when another view briefly steals focus.
-                            override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
-                                super.onWindowFocusChanged(hasWindowFocus)
-                                if (!hasWindowFocus) {
-                                    val imeVisible = ViewCompat.getRootWindowInsets(this)
-                                        ?.isVisible(WindowInsetsCompat.Type.ime()) == true
-                                    if (imeVisible) post { requestFocus() }
-                                }
-                            }
-                        }
+                        val wv = WebView(ctx)
                         wv.apply {
                             isFocusable             = true
                             isFocusableInTouchMode  = true
@@ -141,7 +129,6 @@ fun RedditLoginScreen(
 
                             // Bridge must be added before loadUrl.
                             addJavascriptInterface(bridge, "RedditBridge")
-                            requestFocus()
 
                             webViewClient = object : WebViewClient() {
 
