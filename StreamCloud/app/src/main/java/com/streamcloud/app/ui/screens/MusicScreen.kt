@@ -844,6 +844,7 @@ private fun MusicHomeRecoveryState(
     onReload: () -> Unit,
     focusRequester: FocusRequester? = null,
 ) {
+    val visibleFailure = failureSummary.takeUnless { loading }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -882,10 +883,10 @@ private fun MusicHomeRecoveryState(
             color = MaterialTheme.colorScheme.onBackground,
         )
         Text(
-            failureSummary
+            visibleFailure
                 ?: "Reload, search, or sign in to YouTube Music on this TV to keep listening.",
             style = MaterialTheme.typography.bodyMedium,
-            color = if (failureSummary != null) {
+            color = if (visibleFailure != null) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -903,7 +904,7 @@ private fun MusicHomeRecoveryState(
         ) {
             Text("Reload music")
         }
-        if (failureSummary != null) {
+        if (visibleFailure != null) {
             Text(
                 "If this is a separate TV device, sign in to YouTube Music here and try again.",
                 style = MaterialTheme.typography.bodySmall,

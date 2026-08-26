@@ -208,7 +208,7 @@ class MusicViewModel(context: Context) : ViewModel() {
                         homeFeed = feed,
                         homeLoading = false,
                         homeFeedFailure = if (feed.isEmpty()) {
-                            "No songs were returned by the YouTube fallback."
+                            "Music recommendations are temporarily unavailable."
                         } else {
                             null
                         },
@@ -223,7 +223,7 @@ class MusicViewModel(context: Context) : ViewModel() {
                 _state.update {
                     it.copy(
                         homeLoading = false,
-                        homeFeedFailure = e.message ?: "Couldn't load the YouTube fallback.",
+                        homeFeedFailure = "Music recommendations are temporarily unavailable.",
                     )
                 }
             }

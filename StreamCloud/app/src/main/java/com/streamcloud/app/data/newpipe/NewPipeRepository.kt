@@ -16,7 +16,6 @@ import okhttp3.Request
 import org.schabi.newpipe.extractor.NewPipe as BravePipe
 import org.schabi.newpipe.extractor.ServiceList as BravePipeServiceList
 import org.schabi.newpipe.extractor.channel.ChannelInfoItem
-import org.schabi.newpipe.extractor.kiosk.KioskInfo
 import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo as BravePipeStreamInfo
@@ -69,6 +68,7 @@ data class MusicSearchSections(
 
 object NewPipeRepository {
     private const val TAG = "YouTubeExtractor"
+    private val HOME_FEED_QUERIES = listOf("trending music", "top hits")
 
     /**
      * A stream URL is only useful if it works from the same IPv4 network profile used by the
@@ -371,13 +371,19 @@ object NewPipeRepository {
     // ── Home feed ─────────────────────────────────────────────────────────────────
 
     suspend fun homeFeed(): List<YtTrack> = withContext(Dispatchers.IO) {
-            val service = BravePipeServiceList.YouTube
-        val kiosks = service.kioskList
-        val kioskUrl = kiosks.getListLinkHandlerFactoryByType("Trending").fromId("Trending")
-        val kiosk = kiosks.getExtractorByUrl(kioskUrl.url, null)
-        kiosk.fetchPage()
-        val items = KioskInfo.getInfo(service, kioskUrl.url).relatedItems
-        items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toTrack(isVideo = true) }
+        // The YouTube extractor no longer guarantees a kiosk named "Trending"; requesting that
+        // legacy name now throws before any feed request is made. Music search uses the maintained
+        // InnerTube path first and BravePipe second, so it is both more stable and still works
+        // without a signed-in YouTube Music account.
+        HOME_FEED_QUERIES.forEach { query ->
+            val tracks = runCatching { searchSongs(query) }
+                .onFailure { error ->
+                    AppLogger.w(TAG, "Home feed query '$query' failed: ${error.message}")
+                }
+                .getOrDefault(emptyList())
+            if (tracks.isNotEmpty()) return@withContext tracks.distinctBy(YtTrack::url)
+        }
+        emptyList()
     }
 
     // ── Playback ──────────────────────────────────────────────────────────────────
