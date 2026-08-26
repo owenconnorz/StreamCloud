@@ -82,7 +82,7 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         }
 
         scope.launch {
-            com.streamcloud.app.data.ytmusic.YtNSigDescrambler.warmUp()
+            com.streamcloud.app.data.ytmusic.YtPlayerUtils.warmUp()
         }
 
         scope.launch {

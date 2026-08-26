@@ -1570,10 +1570,10 @@ class MusicPlaybackService : MediaLibraryService() {
 
     companion object {
         private const val TAG    = "MusicPlaybackService"
-        // 50 one-megabyte ranges fit comfortably beneath the 256 MiB LRU player cache while
-        // giving long queues a generous rolling runway. The window advances with the player.
-        private const val BUFFERED_PREFETCH_TRACK_COUNT = 50
-        private const val BUFFERED_PREFETCH_BYTES = 1L * 1024L * 1024L
+        // Keep a small byte runway for the immediate next songs. A 50 MiB speculative warm-up
+        // competes with a cold first stream on constrained mobile and TV connections.
+        private const val BUFFERED_PREFETCH_TRACK_COUNT = 2
+        private const val BUFFERED_PREFETCH_BYTES = 256L * 1024L
         private const val BUFFERED_PREFETCH_BUFFER_BYTES = 64 * 1024
         private const val STREAM_WEB_SESSION_HEADER = "X-StreamCloud-Web-Session"
         private const val STREAM_WEB_SESSION_VALUE = "1"

@@ -386,7 +386,24 @@ object YtPlayerUtils {
         val contentLength: Long?,
     )
 
-    suspend fun warmUp() = withContext(Dispatchers.IO) { ensureVisitorData() }
+    /**
+     * Prepare all reusable cold-start prerequisites while the application/service is idle.
+     *
+     * This intentionally does not resolve a real song: signed stream URLs are short lived and
+     * must remain tied to the track a listener actually chooses.
+     */
+    suspend fun warmUp() = withContext(Dispatchers.IO) {
+        ensureVisitorData()
+        YtNSigDescrambler.warmUp()
+
+        val sessionId = cachedVisitorData ?: return@withContext
+        val context = appContext ?: return@withContext
+        poTokenGenerator.warmUp(
+            context = context,
+            sessionId = sessionId,
+            warmUpVideoId = POTOKEN_WARMUP_VIDEO_ID,
+        )
+    }
 
     suspend fun resolveAudioFormatInfo(
         videoId: String,
@@ -570,6 +587,7 @@ object YtPlayerUtils {
     }
 
     private const val PRIMARY_FAST_START_CLIENT = "WEB_REMIX"
+    private const val POTOKEN_WARMUP_VIDEO_ID = "jNQXAC9IVRw"
 
     // ── Music video detection + stream resolution ─────────────────────────────────────────────
 

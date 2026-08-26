@@ -95,6 +95,25 @@ object YtMusicStreamResolver {
         return resolveShared(videoId, speculative = false)
     }
 
+    /**
+     * Start a user-requested resolve immediately. The returned work is shared with the
+     * ResolvingDataSource, so preparing a Media3 item cannot cancel and repeat it as speculative
+     * list prefetch.
+     *
+     * Resolution failures are represented as [Result] because Media3 still owns the maintained
+     * extractor fallback and client-rejection recovery path.
+     */
+    fun primeForPlayback(videoId: String): Deferred<Result<StreamUrlCache.Entry>> =
+        foregroundScope.async {
+            try {
+                Result.success(resolveInnertube(videoId))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                Result.failure(error)
+            }
+        }
+
     private suspend fun resolveForPrefetch(videoId: String): StreamUrlCache.Entry {
         StreamUrlCache.getEntry(videoId)?.let { return it }
         return resolveShared(videoId, speculative = true)
@@ -299,11 +318,11 @@ object YtMusicStreamResolver {
         )
     }
 
-    private const val DEFAULT_PREFETCH_COUNT = 8
+    private const val DEFAULT_PREFETCH_COUNT = 4
     const val PLAYBACK_LOOKAHEAD_COUNT = 6
-    private const val PREFETCH_PARALLELISM = 2
-    private const val MAX_VISIBLE_LIST_PREFETCH = 12
-    private const val MAX_ACTIVE_QUEUE_PREFETCH = 12
+    private const val PREFETCH_PARALLELISM = 1
+    private const val MAX_VISIBLE_LIST_PREFETCH = 4
+    private const val MAX_ACTIVE_QUEUE_PREFETCH = 6
     private const val EXPIRY_SAFETY_SECONDS = 300L
     private const val MINIMUM_CACHE_SECONDS = 60L
 }

@@ -53,6 +53,40 @@ class PoTokenGenerator {
         }
     }
 
+    /**
+     * Create and warm the reusable BotGuard/WebView session before a user starts playback.
+     *
+     * The player token remains video-specific, but initializing the shared generator and
+     * streaming token here avoids making a first song wait for WebView startup.
+     */
+    suspend fun warmUp(
+        context: android.content.Context,
+        sessionId: String,
+        warmUpVideoId: String,
+    ) {
+        if (sessionId.isBlank() || warmUpVideoId.isBlank() || !webViewSupported) return
+
+        val now = System.currentTimeMillis()
+        if (webViewBadImplSince > 0 && now - webViewBadImplSince < BAD_IMPL_BACKOFF_MS) return
+
+        try {
+            getWebClientPoTokenSuspend(
+                context = context,
+                videoId = warmUpVideoId,
+                currentSessionId = sessionId,
+                forceRecreate = false,
+            )
+            AppLogger.i(TAG, "PoToken generator warmed for playback")
+        } catch (e: BadWebViewException) {
+            webViewBadImplSince = System.currentTimeMillis()
+            AppLogger.w(TAG, "PoToken warm-up skipped after WebView error: ${e.message}")
+        } catch (e: Exception) {
+            // Playback still has its normal anonymous-client fallbacks when background warm-up
+            // cannot complete (for example on devices without a usable WebView).
+            AppLogger.w(TAG, "PoToken warm-up failed: ${e.message}")
+        }
+    }
+
     private suspend fun getWebClientPoTokenSuspend(
         context: android.content.Context,
         videoId: String,
