@@ -1,5 +1,20 @@
 # StreamCloud
 
+## Latest update
+
+### YouTube Music playback
+- **Faster and more reliable startup** — foreground playback now takes priority over speculative prefetching and follows healthier YouTube client ordering.
+- **Better CDN recovery** — signed stream URLs stay paired with the correct client identity and session, with bounded recovery after expired or rejected URLs.
+
+### Reddit and RedGifs
+- **Reddit feeds work through the in-app sign-in flow** — authenticated WebView cookies are reused safely instead of relying on a dead proxy or an embedded OAuth secret.
+- **RedGifs feeds use the current API routes** — tag searches, token renewal, and live response parsing were updated.
+- **PornHub was removed** — the unsupported provider no longer appears in the app.
+
+### Library playback
+- **Saved RedGifs and Reddit media reopen correctly** — saved direct media now goes straight to the native player instead of being mistaken for a TMDB movie and returning HTTP 404.
+- **Existing saved RedGifs entries remain compatible** — older entries saved with the previous source label are also handled.
+
 ## Android TV and Music recovery
 
 ### What's new
