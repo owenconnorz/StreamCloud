@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,22 +61,11 @@ fun RedditFeedView(
     vm: AdultViewModel,
     modifier: Modifier = Modifier,
     customSubs: List<String> = emptyList(),
+    onOpenRedditLogin: () -> Unit = {},
     onPlayItem: (AdultItem) -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
     val items = state.items
-    var showLogin by rememberSaveable { mutableStateOf(false) }
-
-    if (showLogin) {
-        RedditLoginScreen(
-            onLoginSuccess = { username ->
-                showLogin = false
-                vm.completeRedditLogin(username)
-            },
-            onBack = { showLogin = false },
-        )
-        return
-    }
 
     val subLabels = remember(customSubs) {
         val preset = RedditAdultSubs.PRESETS.map { it.first }
@@ -88,7 +76,7 @@ fun RedditFeedView(
         SubredditUnavailablePrompt(
             subreddit = state.currentSubreddit,
             onRetry   = { vm.refresh() },
-            onSignIn  = { showLogin = true },
+            onSignIn  = onOpenRedditLogin,
             modifier  = modifier,
         )
         return
@@ -215,7 +203,7 @@ fun RedditFeedView(
                         style    = MaterialTheme.typography.bodySmall,
                         color    = MaterialTheme.colorScheme.onErrorContainer,
                     )
-                    TextButton(onClick = { showLogin = true }) { Text("Sign in") }
+                    TextButton(onClick = onOpenRedditLogin) { Text("Sign in") }
                 }
             }
         }

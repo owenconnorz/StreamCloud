@@ -47,6 +47,40 @@ object RedditAdultRepository {
 
     private const val USER_AGENT    = "android:com.streamcloud.app:v1.0.0 (by /u/streamcloud_app)"
 
+    /**
+     * Remove only Reddit cookies so signing out here does not disconnect the
+     * other WebView-backed accounts in StreamCloud.
+     */
+    fun clearSessionCookies() {
+        val manager = CookieManager.getInstance()
+        val hosts = listOf(
+            "https://www.reddit.com",
+            "https://old.reddit.com",
+            "https://reddit.com",
+        )
+        val cookieNames = hosts.flatMap { host ->
+            runCatching { manager.getCookie(host).orEmpty() }
+                .getOrDefault("")
+                .split(';')
+                .mapNotNull { cookie ->
+                    cookie.substringBefore('=').trim().takeIf(String::isNotBlank)
+                }
+        }.distinct()
+        cookieNames.forEach { name ->
+            hosts.forEach { host ->
+                manager.setCookie(
+                    host,
+                    "$name=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; Secure",
+                )
+            }
+            manager.setCookie(
+                "https://reddit.com",
+                "$name=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Domain=.reddit.com; Path=/; Secure",
+            )
+        }
+        manager.flush()
+    }
+
     // Dedicated Json parser: coerceInputValues handles null for non-nullable fields
     // (Reddit sometimes sends "is_gallery": null, "is_video": null, etc.)
     private val redditJson = kotlinx.serialization.json.Json {

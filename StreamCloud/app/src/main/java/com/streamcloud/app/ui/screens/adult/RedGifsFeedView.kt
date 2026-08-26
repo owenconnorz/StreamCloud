@@ -165,12 +165,15 @@ private fun RedGifsPostCard(item: AdultItem, isActive: Boolean = false, onPlayCl
             ExoPlayer.Builder(context).build().apply {
                 setMediaItem(MediaItem.fromUri(item.streamUrl))
                 repeatMode = Player.REPEAT_MODE_ONE
-                volume     = 0f
+                volume     = 1f
                 prepare()
             }
         } else null
     }
-    LaunchedEffect(isActive) { player?.playWhenReady = isActive }
+    LaunchedEffect(isActive) {
+        player?.playWhenReady = isActive
+        player?.volume = if (isActive) 1f else 0f
+    }
     DisposableEffect(item.streamUrl) { onDispose { player?.release() } }
 
     LaunchedEffect(item.id) {

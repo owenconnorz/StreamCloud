@@ -66,6 +66,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 @Composable
 fun AdultScreen(
     onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
+    onOpenRedditLogin: () -> Unit = {},
     screenTitle: String = "Adult",
     screenSubtitle: String = "",
 ) {
@@ -158,8 +159,10 @@ fun AdultScreen(
             // ── Reddit swipe-up feed ─────────────────────────────────────
             RedditFeedView(
                 vm         = vm,
+                onOpenRedditLogin = onOpenRedditLogin,
                 onPlayItem = { item ->
-                    onPlay(item.id, item.streamUrl.orEmpty(), item.title)
+                    val directUrl = item.streamUrl.orEmpty()
+                    onPlay("direct://$directUrl", directUrl, item.title)
                 },
                 modifier   = Modifier
                     .fillMaxWidth()
@@ -170,7 +173,8 @@ fun AdultScreen(
             RedGifsFeedView(
                 vm         = vm,
                 onPlayItem = { item ->
-                    onPlay(item.id, item.streamUrl.orEmpty(), item.title)
+                    val directUrl = item.streamUrl.orEmpty()
+                    onPlay("direct://$directUrl", directUrl, item.title)
                 },
                 modifier   = Modifier
                     .fillMaxWidth()

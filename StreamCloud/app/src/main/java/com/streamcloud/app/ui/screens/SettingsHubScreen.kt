@@ -159,6 +159,7 @@ fun SettingsHubScreen(
     onOpenCollections: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
+    onOpenRedditLogin: () -> Unit = {},
     onSubPageChanged: (Boolean) -> Unit = {},
     backRequest: Int = 0,
     tvNavFocusRequester: FocusRequester? = null,
@@ -936,6 +937,8 @@ fun SettingsHubScreen(
                     YtMusicAccountRow()
                     SettingDivider()
                     SpotifyAccountRow()
+                    SettingDivider()
+                    RedditAccountRow(onLogin = onOpenRedditLogin)
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
@@ -2801,6 +2804,61 @@ private fun SpotifyAccountRow() {
                     runCatching { android.webkit.CookieManager.getInstance().removeAllCookies(null) }
                 }
             }) { Text("Log out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RedditAccountRow(onLogin: () -> Unit) {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val username by sl.settings.redditUsername.collectAsState(initial = "")
+    val signedIn = username.isNotBlank()
+    val scope = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .clickable(enabled = !signedIn, onClick = onLogin)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(
+            if (signedIn) Icons.Default.Logout else Icons.Default.Login,
+            Color(0xFFFF4500),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "Reddit" else "Sign in to Reddit",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) "Signed in as u/$username"
+                else "Access Reddit feeds that require an account",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        if (signedIn) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        com.streamcloud.app.data.api.RedditAdultRepository.clearSessionCookies()
+                        sl.settings.clearRedditAccount()
+                    }
+                },
+            ) { Text("Sign out") }
         } else {
             Icon(
                 Icons.Default.ChevronRight,

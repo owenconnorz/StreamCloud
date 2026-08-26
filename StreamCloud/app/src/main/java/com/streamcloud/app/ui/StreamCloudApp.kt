@@ -306,6 +306,7 @@ fun StreamCloudApp() {
     // Mini player is hidden on Settings, Plugins, and Adult routes
     val isSettingsOrAdult = currentRoute == Tab.Settings.route ||
         currentRoute == "plugins" || currentRoute == "plugin-picker" ||
+        currentRoute == "reddit-login" ||
         currentRoute == Tab.Adult.route
     val showMiniPlayer = currentRoute != null && !isMediaRoute && !isSettingsOrAdult
 
@@ -1048,12 +1049,15 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(Tab.Adult.route) {
-                    AdultScreen(onPlay = { videoId, embed, title ->
-                        val v = URLEncoder.encode(videoId, "UTF-8")
-                        val e = URLEncoder.encode(embed, "UTF-8")
-                        val t = URLEncoder.encode(title, "UTF-8")
-                        nav.navigate("player/eporner/$v/$e/$t")
-                    })
+                    AdultScreen(
+                        onPlay = { videoId, embed, title ->
+                            val v = URLEncoder.encode(videoId, "UTF-8")
+                            val e = URLEncoder.encode(embed, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/eporner/$v/$e/$t")
+                        },
+                        onOpenRedditLogin = { nav.navigate("reddit-login") },
+                    )
                 }
 
 
@@ -1252,6 +1256,7 @@ fun StreamCloudApp() {
                             onOpenPlugins     = { nav.navigate("plugins") },
                             onOpenCollections = { nav.navigate("collections") },
                             onSwitchProfile   = { showProfilePicker = true },
+                            onOpenRedditLogin = { nav.navigate("reddit-login") },
                             onSubPageChanged  = { settingsHasSubPage = it },
                             backRequest       = settingsBackRequest,
                             tvNavFocusRequester = tvNavHeroFocus,
@@ -1262,6 +1267,18 @@ fun StreamCloudApp() {
                     com.streamcloud.app.ui.theme.StaticAppTheme {
                         PluginsScreen(onBack = { nav.popBackStack() })
                     }
+                }
+                composable("reddit-login") {
+                    val loginScope = rememberCoroutineScope()
+                    com.streamcloud.app.ui.screens.adult.RedditLoginScreen(
+                        onLoginSuccess = { username ->
+                            loginScope.launch {
+                                sl.settings.setRedditUsername(username)
+                                nav.popBackStack()
+                            }
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
                 }
             }
                     }

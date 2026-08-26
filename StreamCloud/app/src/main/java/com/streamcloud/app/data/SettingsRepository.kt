@@ -576,6 +576,7 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAdultSource(source: String) = context.dataStore.edit { it[SettingsKeys.ADULT_SOURCE] = source }
     suspend fun setRedditUsername(u: String) = context.dataStore.edit { it[SettingsKeys.REDDIT_USERNAME] = u }
+    suspend fun clearRedditAccount() = context.dataStore.edit { it.remove(SettingsKeys.REDDIT_USERNAME) }
     suspend fun setAgeGateConfirmed(b: Boolean) = context.dataStore.edit { it[SettingsKeys.AGE_GATE_CONFIRMED] = b }
 
     // ── Nav hidden tabs ─────────────────────────────────────────────────────
