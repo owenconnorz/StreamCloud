@@ -5,9 +5,12 @@ import android.util.Log
 import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.potoken.PoTokenGenerator
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -29,7 +32,9 @@ import kotlin.random.Random
 object YtPlayerUtils {
 
     private const val TAG = "YtPlayerUtils"
-    private val warmUpMutex = Mutex()
+    private val warmUpScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val warmUpStateLock = Any()
+    @Volatile private var warmUpDeferred: Deferred<Unit>? = null
     @Volatile private var lastWarmUpAtMs = 0L
     private data class ClientHealth(
         val consecutiveFailures: Int,
@@ -403,30 +408,39 @@ object YtPlayerUtils {
      * This intentionally does not resolve a real song: signed stream URLs are short lived and
      * must remain tied to the track a listener actually chooses.
      */
-    suspend fun warmUp() = withContext(Dispatchers.IO) {
+    suspend fun warmUp() {
         val now = System.currentTimeMillis()
         if (lastWarmUpAtMs > 0 && now - lastWarmUpAtMs < WARM_UP_TTL_MS) {
-            return@withContext
+            return
         }
-        warmUpMutex.withLock {
+
+        val deferred = synchronized(warmUpStateLock) {
             val lockedNow = System.currentTimeMillis()
             if (lastWarmUpAtMs > 0 && lockedNow - lastWarmUpAtMs < WARM_UP_TTL_MS) {
-                return@withLock
-            }
-            ensureVisitorData()
-            YtNSigDescrambler.warmUp()
+                null
+            } else {
+                warmUpDeferred?.takeIf { it.isActive }
+                    ?: warmUpScope.async(start = CoroutineStart.LAZY) {
+                        ensureVisitorData()
+                        YtNSigDescrambler.warmUp()
 
-            val sessionId = cachedVisitorData
-            val context = appContext
-            if (sessionId != null && context != null) {
-                poTokenGenerator.warmUp(
-                    context = context,
-                    sessionId = sessionId,
-                    warmUpVideoId = POTOKEN_WARMUP_VIDEO_ID,
-                )
+                        val sessionId = cachedVisitorData
+                        val context = appContext
+                        if (sessionId != null && context != null) {
+                            poTokenGenerator.warmUp(
+                                context = context,
+                                sessionId = sessionId,
+                                warmUpVideoId = POTOKEN_WARMUP_VIDEO_ID,
+                            )
+                        }
+                        lastWarmUpAtMs = System.currentTimeMillis()
+                    }.also {
+                        warmUpDeferred = it
+                        it.start()
+                    }
             }
-            lastWarmUpAtMs = System.currentTimeMillis()
         }
+        deferred?.await()
     }
 
     suspend fun resolveAudioFormatInfo(

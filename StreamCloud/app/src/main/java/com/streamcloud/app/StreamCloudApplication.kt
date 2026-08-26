@@ -82,15 +82,20 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         }
 
         scope.launch {
-            com.streamcloud.app.data.ytmusic.YtPlayerUtils.warmUp()
-        }
+            val cookieFlow = ServiceLocator.get(this@StreamCloudApplication).settings.ytMusicCookie
+            val initialCookie = cookieFlow.first()
+            com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = initialCookie
+            com.streamcloud.app.data.ytmusic.YtPlayerUtils.ytMusicCookie = initialCookie
 
-        scope.launch {
-            ServiceLocator.get(this@StreamCloudApplication).settings.ytMusicCookie
-                .collectLatest { cookie ->
+            launch {
+                cookieFlow.collectLatest { cookie ->
                     com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = cookie
                     com.streamcloud.app.data.ytmusic.YtPlayerUtils.ytMusicCookie = cookie
                 }
+            }
+            // Start the one shared resolver warm-up only after the initial account state is known.
+            // Playback and the service can await this same work instead of racing another copy.
+            com.streamcloud.app.data.ytmusic.YtPlayerUtils.warmUp()
         }
 
         scope.launch {

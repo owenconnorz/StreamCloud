@@ -128,12 +128,7 @@ object YtMusicStreamResolver {
             val active = inFlightResolutions[videoId]
             if (active != null) {
                 if (!speculative && active.speculative) {
-                    // Drop stale low-priority work and let playback resolve without waiting.
-                    if (inFlightResolutions.remove(videoId, active)) {
-                        invalidateResolution(videoId)
-                        active.deferred.cancel()
-                    }
-                    continue
+                    AppLogger.i(TAG, "Promoting active prefetch for $videoId without restarting extraction")
                 }
                 return active.deferred.await()
             }
@@ -195,10 +190,12 @@ object YtMusicStreamResolver {
             ?.let { return it }
 
         val now = System.currentTimeMillis()
+        PlaybackLatencyTrace.mark(videoId, "resolver-start")
         val info = YtPlayerUtils.resolveAudioFormatInfo(
             videoId = videoId,
             excludedClientLabels = excludedClientLabels,
         ) ?: error("YouTube returned no audio stream for $videoId")
+        PlaybackLatencyTrace.mark(videoId, "resolver-end-${info.clientLabel}")
         val expiryMs = now + (info.expiresInSeconds - EXPIRY_SAFETY_SECONDS)
             .coerceAtLeast(MINIMUM_CACHE_SECONDS) * 1_000L
 

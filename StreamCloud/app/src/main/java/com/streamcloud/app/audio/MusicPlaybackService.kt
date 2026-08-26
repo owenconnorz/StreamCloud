@@ -48,6 +48,7 @@ import com.streamcloud.app.data.ytmusic.YtMusicHomeRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.data.ytmusic.YtMusicStreamResolver
+import com.streamcloud.app.data.ytmusic.PlaybackLatencyTrace
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.data.ytmusic.YtPlayback
@@ -177,7 +178,25 @@ class MusicPlaybackService : MediaLibraryService() {
                 playWhenReady = false
                 addListener(object : androidx.media3.common.Player.Listener {
                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                        if (retryWithFreshYoutubeStream(error)) return
+                        val traceVideoId = currentMediaItem?.mediaMetadata?.extras
+                            ?.getString(YtPlayback.EXTRA_VIDEO_ID)
+                            ?: youtubeVideoId(currentMediaItem?.mediaId)
+                        val traceAttemptId = currentMediaItem?.mediaMetadata?.extras
+                            ?.takeIf { it.containsKey(YtPlayback.EXTRA_PLAYBACK_ATTEMPT_ID) }
+                            ?.getLong(YtPlayback.EXTRA_PLAYBACK_ATTEMPT_ID)
+                        if (retryWithFreshYoutubeStream(error)) {
+                            if (traceVideoId != null) {
+                                PlaybackLatencyTrace.mark(traceVideoId, "player-error-retrying-${error.errorCode}")
+                            }
+                            return
+                        }
+                        if (traceVideoId != null && traceAttemptId != null) {
+                            PlaybackLatencyTrace.abort(
+                                traceVideoId,
+                                traceAttemptId,
+                                "player-error-${error.errorCode}",
+                            )
+                        }
                         AppLogger.e(TAG, "ExoPlayer error code=${error.errorCode} msg=${error.message}", error.cause)
                     }
                     override fun onPlaybackStateChanged(state: Int) {
@@ -189,6 +208,17 @@ class MusicPlaybackService : MediaLibraryService() {
                             else -> "UNKNOWN($state)"
                         }
                         AppLogger.i(TAG, "playback state → $label")
+                        val traceVideoId = currentMediaItem?.mediaMetadata?.extras
+                            ?.getString(YtPlayback.EXTRA_VIDEO_ID)
+                            ?: youtubeVideoId(currentMediaItem?.mediaId)
+                        if (traceVideoId != null) {
+                            when (state) {
+                                androidx.media3.common.Player.STATE_BUFFERING ->
+                                    PlaybackLatencyTrace.mark(traceVideoId, "media3-buffering")
+                                androidx.media3.common.Player.STATE_READY ->
+                                    PlaybackLatencyTrace.mark(traceVideoId, "media3-ready")
+                            }
+                        }
                         if (state == androidx.media3.common.Player.STATE_READY) {
                             // Timeline/transition callbacks can fire while the selected item is
                             // still resolving. Only let queue URL and byte warming begin after the
@@ -199,6 +229,21 @@ class MusicPlaybackService : MediaLibraryService() {
                         }
                     }
                     override fun onIsPlayingChanged(playing: Boolean) {
+                        if (playing) {
+                            val traceVideoId = currentMediaItem?.mediaMetadata?.extras
+                                ?.getString(YtPlayback.EXTRA_VIDEO_ID)
+                                ?: youtubeVideoId(currentMediaItem?.mediaId)
+                            val traceAttemptId = currentMediaItem?.mediaMetadata?.extras
+                                ?.takeIf { it.containsKey(YtPlayback.EXTRA_PLAYBACK_ATTEMPT_ID) }
+                                ?.getLong(YtPlayback.EXTRA_PLAYBACK_ATTEMPT_ID)
+                            if (traceVideoId != null && traceAttemptId != null) {
+                                PlaybackLatencyTrace.finish(
+                                    traceVideoId,
+                                    traceAttemptId,
+                                    "first-audio",
+                                )
+                            }
+                        }
                         // The cast flow pauses the primary session player before replacing a
                         // Sonos URI. A secondary crossfade player is not session-owned, so it
                         // must be stopped explicitly or the upcoming song can leak from the phone.

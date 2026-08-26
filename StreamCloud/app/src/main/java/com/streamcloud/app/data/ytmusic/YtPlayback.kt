@@ -17,7 +17,6 @@ import com.streamcloud.app.data.library.TrackEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -27,13 +26,14 @@ object YtPlayback {
     const val EXTRA_VIDEO_ID = "videoId"
     const val EXTRA_WATCH_URL = "watchUrl"
     const val EXTRA_IS_MUSIC_VIDEO = "isMusicVideo"
+    const val EXTRA_PLAYBACK_ATTEMPT_ID = "playbackAttemptId"
 
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun watchUrl(videoId: String) = "https://music.youtube.com/watch?v=$videoId"
 
 
-    private fun buildMediaItem(song: YtmSong): MediaItem {
+    private fun buildMediaItem(song: YtmSong, playbackAttemptId: Long? = null): MediaItem {
         val url = watchUrl(song.videoId)
         return MediaItem.Builder()
             .setMediaId(url)
@@ -48,6 +48,7 @@ object YtPlayback {
                         putString(EXTRA_VIDEO_ID, song.videoId)
                         putString(EXTRA_WATCH_URL, url)
                         putBoolean(EXTRA_IS_MUSIC_VIDEO, song.isVideo)
+                        playbackAttemptId?.let { putLong(EXTRA_PLAYBACK_ATTEMPT_ID, it) }
                     })
                     .build(),
             )
@@ -80,27 +81,38 @@ object YtPlayback {
 
 
     suspend fun playSong(context: Context, song: YtmSong, withAutoRadio: Boolean = true) {
+        val playbackAttempt = PlaybackLatencyTrace.begin(song.videoId)
         // This is foreground work, not list prefetch. It shares its result with Media3 instead of
         // being cancelled and restarted when the data source promotes the selected item.
         YtMusicStreamResolver.primeForPlayback(song.videoId)
-        val item = buildMediaItem(song)
-        upsertTrack(context, song, bumpPlayCount = true)
+        val item = buildMediaItem(song, playbackAttempt.attemptId)
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
+            PlaybackLatencyTrace.mark(song.videoId, "controller-ready")
             controller.setMediaItem(item)
             controller.prepare()
             controller.play()
+            PlaybackLatencyTrace.mark(song.videoId, "prepare-play")
         }
-        if (withAutoRadio) startAutoRadio(context, song)
+        backgroundScope.launch {
+            if (PlaybackLatencyTrace.awaitFirstAudio(playbackAttempt)) {
+                upsertTrack(context, song, bumpPlayCount = true)
+            }
+        }
+        if (withAutoRadio) startAutoRadio(context, song, playbackAttempt)
     }
 
 
-    private fun startAutoRadio(context: Context, seed: YtmSong) {
+    private fun startAutoRadio(
+        context: Context,
+        seed: YtmSong,
+        playbackAttempt: PlaybackLatencyTrace.Handle?,
+    ) {
         backgroundScope.launch {
             runCatching {
-                // Leave the first stream's resolver and initial CDN read alone. Auto-radio is
-                // speculative queue work and used to compete with a fresh song tap immediately.
-                delay(AUTO_RADIO_DELAY_MS)
+                if (playbackAttempt != null && !PlaybackLatencyTrace.awaitFirstAudio(playbackAttempt)) {
+                    return@runCatching
+                }
                 val related = EndlessPlayback.relatedSongs(context, seed.videoId)
                 if (related.isEmpty()) return@runCatching
                 primeStreams(related)
@@ -120,9 +132,6 @@ object YtPlayback {
         }
     }
 
-    private const val AUTO_RADIO_DELAY_MS = 2_000L
-
-
     fun startRadioFromCurrent(context: Context, mediaIdUrl: String) {
         val videoId = mediaIdUrl
             .substringAfter("v=", missingDelimiterValue = "")
@@ -137,7 +146,7 @@ object YtPlayback {
             thumbnail = null,
             durationSeconds = null,
         )
-        startAutoRadio(context, seed)
+        startAutoRadio(context, seed, playbackAttempt = null)
     }
 
 
@@ -189,23 +198,29 @@ object YtPlayback {
         if (songs.isEmpty()) return
         val safeStart = startIndex.coerceIn(0, songs.lastIndex)
         val activeSong = songs[safeStart]
+        val playbackAttempt = PlaybackLatencyTrace.begin(activeSong.videoId)
         YtMusicStreamResolver.primeForPlayback(activeSong.videoId)
 
 
-        val allItems = songs.map { buildMediaItem(it) }
+        val allItems = songs.mapIndexed { index, song ->
+            buildMediaItem(
+                song = song,
+                playbackAttemptId = playbackAttempt.attemptId.takeIf { index == safeStart },
+            )
+        }
 
 
-        upsertTrack(context, songs[safeStart], bumpPlayCount = true)
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
+            PlaybackLatencyTrace.mark(activeSong.videoId, "controller-ready")
             controller.setMediaItems(allItems, safeStart,  0L)
             controller.prepare()
             controller.play()
+            PlaybackLatencyTrace.mark(activeSong.videoId, "prepare-play")
         }
         backgroundScope.launch {
-            // Let the selected track own the network/IO path first. Queue URL warming and
-            // non-selected library writes are useful only after playback has started preparing.
-            delay(QUEUE_WARMUP_DELAY_MS)
+            if (!PlaybackLatencyTrace.awaitFirstAudio(playbackAttempt)) return@launch
+            upsertTrack(context, songs[safeStart], bumpPlayCount = true)
             YtMusicStreamResolver.primeQueue(
                 videoIds = songs.drop(safeStart + 1).map(YtmSong::videoId),
                 currentIndex = 0,
@@ -248,9 +263,6 @@ object YtPlayback {
             false,
         )
     }
-
-    private const val QUEUE_WARMUP_DELAY_MS = 2_000L
-
 
     fun removeDownload(context: Context, song: YtmSong) {
         DownloadService.sendRemoveDownload(

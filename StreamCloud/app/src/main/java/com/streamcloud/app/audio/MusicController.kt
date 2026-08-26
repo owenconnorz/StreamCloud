@@ -9,8 +9,6 @@ import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 
 @UnstableApi
 object MusicController {
@@ -25,21 +23,15 @@ object MusicController {
 
 
     suspend fun get(context: Context): MediaController {
-
         controller?.takeIf { it.isConnected }?.let { return it }
 
+        val connection: CompletableDeferred<MediaController> = mutex.withLock {
+            controller?.takeIf { it.isConnected }?.let { return@withLock CompletableDeferred(it) }
 
-        return mutex.withLock {
-
-            controller?.takeIf { it.isConnected }?.let { return@withLock it }
-
-
-            pending?.takeIf { it.isActive }?.let { return@withLock it.await() }
-
+            pending?.takeIf { it.isActive }?.let { return@withLock it }
 
             controller?.let { runCatching { it.release() } }
             controller = null
-
 
             val deferred = CompletableDeferred<MediaController>()
             pending = deferred
@@ -50,26 +42,23 @@ object MusicController {
             )
             val future = MediaController.Builder(context.applicationContext, token).buildAsync()
 
-            suspendCancellableCoroutine { cont ->
-                future.addListener({
-                    runCatching {
-                        val c = future.get()
-                        controller = c
-                        deferred.complete(c)
-                        if (cont.isActive) cont.resume(c)
-                    }.onFailure {
-                        deferred.completeExceptionally(it)
-                        if (cont.isActive) cont.resumeWith(Result.failure(it))
-                    }
-                }, MoreExecutors.directExecutor())
-
-                cont.invokeOnCancellation {
-                    future.cancel(true)
-                    deferred.cancel()
+            future.addListener({
+                runCatching {
+                    future.get()
+                }.onSuccess { connected ->
+                    controller = connected
+                    deferred.complete(connected)
+                }.onFailure { error ->
                     if (pending === deferred) pending = null
+                    deferred.completeExceptionally(error)
                 }
-            }
+            }, MoreExecutors.directExecutor())
+            deferred
         }
+        // Do not hold the connection mutex while Media3 starts and binds the service. Concurrent
+        // callers await the same deferred, and cancellation of one UI caller does not tear down
+        // the shared connection that playback is about to use.
+        return connection.await()
     }
 
     fun release() {
