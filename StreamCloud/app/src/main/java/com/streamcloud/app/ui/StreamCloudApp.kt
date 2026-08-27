@@ -1326,6 +1326,9 @@ fun StreamCloudApp() {
                     com.streamcloud.app.ui.screens.adult.PornhubLoginScreen(
                         onLoginSuccess = {
                             loginScope.launch {
+                                // Force a fresh account transition even when an
+                                // older build already left the local flag true.
+                                sl.settings.setPornhubSignedIn(false)
                                 sl.settings.setPornhubSignedIn(true)
                                 nav.popBackStack()
                             }

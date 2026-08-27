@@ -3178,7 +3178,7 @@ private fun PornhubAccountRow(onLogin: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .tvFocusBorder(RoundedCornerShape(18.dp))
-            .clickable(enabled = !signedIn, onClick = onLogin)
+            .clickable(onClick = onLogin)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

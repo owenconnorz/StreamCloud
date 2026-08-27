@@ -46,7 +46,6 @@ fun PornhubLoginScreen(
     var pageLoading by remember { mutableStateOf(true) }
     var pageError by remember { mutableStateOf<String?>(null) }
     var canFinish by remember { mutableStateOf(false) }
-    var detectedLogin by remember { mutableStateOf(false) }
     var providerLoginStarted by remember { mutableStateOf(false) }
     var providerCookieBaseline by remember { mutableStateOf("") }
     var providerSessionReturned by remember { mutableStateOf(false) }
@@ -78,11 +77,16 @@ fun PornhubLoginScreen(
         )
     }
 
-    BackHandler(onBack = onBack)
-
-    LaunchedEffect(detectedLogin) {
-        if (detectedLogin) onLoginSuccess()
+    fun finishOrGoBack() {
+        CookieManager.getInstance().flush()
+        if (canFinish || PornhubRepository.hasSessionCookies()) {
+            onLoginSuccess()
+        } else {
+            onBack()
+        }
     }
+
+    BackHandler(onBack = ::finishOrGoBack)
 
     val bridge = remember {
         object {
@@ -90,7 +94,6 @@ fun PornhubLoginScreen(
             fun receivePageState(loggedIn: Boolean, verificationRequired: Boolean) {
                 Handler(Looper.getMainLooper()).post {
                     canFinish = loggedIn && !verificationRequired
-                    if (canFinish) detectedLogin = true
                 }
             }
         }
@@ -109,7 +112,7 @@ fun PornhubLoginScreen(
                 .padding(end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(onClick = ::finishOrGoBack) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -118,20 +121,21 @@ fun PornhubLoginScreen(
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    "Sign in to Pornhub",
+                    if (canFinish) "Signed in to Pornhub" else "Sign in to Pornhub",
                     color = Color.White,
                     style = MaterialTheme.typography.titleSmall
                         .copy(fontWeight = FontWeight.SemiBold),
                 )
                 Text(
-                    "Complete verification on Pornhub’s official page",
+                    if (canFinish) "Press Back or Done to reload Pornhub"
+                    else "Complete verification on Pornhub’s official page",
                     color = Color.White.copy(alpha = 0.68f),
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
             if (canFinish) {
                 TextButton(
-                    onClick = onLoginSuccess,
+                    onClick = ::finishOrGoBack,
                     enabled = !pageLoading,
                 ) {
                     Text("Done", color = Color(0xFFFFA726))
