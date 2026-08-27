@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,6 +39,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -70,6 +73,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 fun AdultScreen(
     onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
     onOpenRedditLogin: () -> Unit = {},
+    onOpenSearch: (AdultSource) -> Unit = {},
     screenTitle: String = "Adult",
     screenSubtitle: String = "",
 ) {
@@ -140,6 +144,20 @@ fun AdultScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                IconButton(
+                    onClick = { onOpenSearch(state.source) },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search ${state.source.label}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
                 IconButton(onClick = { vm.refresh() }) {
                     Icon(
                         Icons.Default.Refresh,
@@ -231,35 +249,6 @@ fun AdultScreen(
                 )
                 Spacer(Modifier.height(8.dp))
             }
-
-            // Search field
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it; vm.search(it) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                placeholder = { Text("Search videos\u2026") },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = {
-                    if (state.loading) CircularProgressIndicator(
-                        Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor   = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                    focusedContainerColor   = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
-
-            Spacer(Modifier.height(8.dp))
 
             // Category + active-category chip row (Eporner only)
             if (state.source == AdultSource.Eporner) Row(
@@ -372,6 +361,133 @@ fun AdultScreen(
             },
             onDismiss  = { detailItem = null },
         )
+    }
+}
+
+@Composable
+fun AdultSearchScreen(
+    source: AdultSource,
+    onBack: () -> Unit,
+    onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
+) {
+    val context = LocalContext.current
+    val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(context))
+    val state by vm.state.collectAsState()
+    var query by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(source) {
+        vm.setSource(source)
+        focusRequester.requestFocus()
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                )
+            }
+            TextField(
+                value = query,
+                onValueChange = {
+                    query = it
+                    vm.search(it)
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+                placeholder = {
+                    Text(
+                        "Search ${source.label} videos\u2026",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                singleLine = true,
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                trailingIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (state.loading) {
+                            CircularProgressIndicator(
+                                Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = {
+                                query = ""
+                                vm.search("")
+                            }) {
+                                Icon(Icons.Default.Close, "Clear")
+                            }
+                        }
+                    }
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { vm.search(query) }),
+                shape = RoundedCornerShape(28.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                ),
+            )
+        }
+
+        state.error?.let {
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+        }
+
+        LazyVerticalGrid(
+            columns = if (source == AdultSource.Pornhub) {
+                GridCells.Adaptive(300.dp)
+            } else {
+                GridCells.Fixed(2)
+            },
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .tvFocusGroup(),
+        ) {
+            items(state.items, key = { it.id }) { item ->
+                AdultCard(item) {
+                    onPlay(
+                        if (item.source == AdultSource.Pornhub) "pornhub://${item.id}"
+                        else item.epornerId ?: item.id,
+                        item.embedUrl.orEmpty(),
+                        item.title,
+                    )
+                }
+            }
+        }
     }
 }
 

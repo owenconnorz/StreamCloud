@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.Brush
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
+import com.streamcloud.app.ui.screens.AdultSearchScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
 import com.streamcloud.app.ui.screens.MovieDetailScreen
 import com.streamcloud.app.ui.screens.MovieSearchScreen
@@ -310,6 +311,7 @@ fun StreamCloudApp() {
         currentRoute == "plugins" || currentRoute == "plugin-picker" ||
         currentRoute == "reddit-login" ||
         currentRoute == "pornhub-login" ||
+        currentRoute?.startsWith("adult-search/") == true ||
         currentRoute == Tab.Adult.route
     val showMiniPlayer = currentRoute != null &&
         !isMediaRoute &&
@@ -1084,6 +1086,32 @@ fun StreamCloudApp() {
                             nav.navigate("player/eporner/$v/$e/$t")
                         },
                         onOpenRedditLogin = { nav.navigate("reddit-login") },
+                        onOpenSearch = { source ->
+                            nav.navigate("adult-search/${source.name}")
+                        },
+                    )
+                }
+
+                composable(
+                    "adult-search/{source}",
+                    arguments = listOf(
+                        navArgument("source") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val source = runCatching {
+                        com.streamcloud.app.data.api.AdultSource.valueOf(
+                            entry.arguments?.getString("source").orEmpty(),
+                        )
+                    }.getOrDefault(com.streamcloud.app.data.api.AdultSource.Eporner)
+                    AdultSearchScreen(
+                        source = source,
+                        onBack = { nav.popBackStack() },
+                        onPlay = { videoId, embed, title ->
+                            val v = URLEncoder.encode(videoId, "UTF-8")
+                            val e = URLEncoder.encode(embed, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/eporner/$v/$e/$t")
+                        },
                     )
                 }
 
