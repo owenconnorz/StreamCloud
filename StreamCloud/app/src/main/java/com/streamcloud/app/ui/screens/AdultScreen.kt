@@ -400,7 +400,6 @@ fun AdultScreen(
 }
 
 @Composable
-@Composable
 private fun AdultProviderPicker(
     selectedSource: AdultSource,
     onBack: () -> Unit,
