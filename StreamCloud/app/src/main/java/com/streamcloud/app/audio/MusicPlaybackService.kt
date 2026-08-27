@@ -665,7 +665,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 dataSpec.httpRequestHeaders.keys.none { it.equals("Range", ignoreCase = true) }
             ) {
                 val rangeEnd = dataSpec.length
-                    .takeIf { it != androidx.media3.common.C.LENGTH_UNSET }
+                    .takeIf { it != androidx.media3.common.C.LENGTH_UNSET.toLong() }
                     ?.let { dataSpec.position + it - 1L }
                 put("Range", "bytes=${dataSpec.position}-${rangeEnd ?: ""}")
             }
