@@ -71,6 +71,24 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
+internal fun resolvedStreamDataLength(
+    position: Long,
+    requestedLength: Long,
+    contentLength: Long?,
+    requiresByteRange: Boolean,
+): Long {
+    if (
+        !requiresByteRange ||
+        requestedLength != androidx.media3.common.C.LENGTH_UNSET.toLong()
+    ) {
+        return requestedLength
+    }
+    return contentLength
+        ?.minus(position)
+        ?.takeIf { it > 0L }
+        ?: requestedLength
+}
+
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaLibraryService() {
 
@@ -660,19 +678,17 @@ class MusicPlaybackService : MediaLibraryService() {
                 if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
             )
             put(STREAM_VIDEO_ID_HEADER, videoId)
-            if (
-                stream.requiresByteRange &&
-                dataSpec.httpRequestHeaders.keys.none { it.equals("Range", ignoreCase = true) }
-            ) {
-                val rangeEnd = dataSpec.length
-                    .takeIf { it != androidx.media3.common.C.LENGTH_UNSET.toLong() }
-                    ?.let { dataSpec.position + it - 1L }
-                put("Range", "bytes=${dataSpec.position}-${rangeEnd ?: ""}")
-            }
             putAll(stream.webSessionHeaders)
         }
+        val resolvedLength = resolvedStreamDataLength(
+            position = dataSpec.position,
+            requestedLength = dataSpec.length,
+            contentLength = stream.contentLength,
+            requiresByteRange = stream.requiresByteRange,
+        )
         return dataSpec.buildUpon()
             .setUri(stream.url.toUri())
+            .setLength(resolvedLength)
             .setHttpRequestHeaders(
                 dataSpec.httpRequestHeaders + streamHeaders
             )
