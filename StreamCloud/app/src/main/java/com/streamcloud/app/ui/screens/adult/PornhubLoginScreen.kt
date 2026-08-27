@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -125,9 +126,7 @@ fun PornhubLoginScreen(
                         view.settings.useWideViewPort = true
                         view.settings.loadWithOverviewMode = true
                         view.settings.javaScriptCanOpenWindowsAutomatically = true
-                        // Keep SSO popups in this WebView. A separate WebView
-                        // would lose the visible navigation and completion flow.
-                        view.settings.setSupportMultipleWindows(false)
+                        view.settings.setSupportMultipleWindows(true)
                         // Pornhub's SSO markup is served differently to the
                         // Android WebView user agent. A current mobile Chrome
                         // UA also keeps the Google sign-in control visible.
@@ -139,7 +138,55 @@ fun PornhubLoginScreen(
                         CookieManager.getInstance().setAcceptCookie(true)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
                         view.addJavascriptInterface(bridge, "PornhubBridge")
-                        view.webChromeClient = WebChromeClient()
+                        view.webChromeClient = object : WebChromeClient() {
+                            override fun onCreateWindow(
+                                view: WebView?,
+                                isDialog: Boolean,
+                                isUserGesture: Boolean,
+                                resultMsg: Message?,
+                            ): Boolean {
+                                val parent = view ?: return false
+                                val message = resultMsg ?: return false
+                                val transport = message.obj as? WebView.WebViewTransport
+                                    ?: return false
+                                val popup = WebView(parent.context).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    settings.userAgentString = parent.settings.userAgentString
+                                    CookieManager.getInstance().setAcceptThirdPartyCookies(
+                                        this,
+                                        true,
+                                    )
+                                    webViewClient = object : WebViewClient() {
+                                        override fun shouldOverrideUrlLoading(
+                                            popupView: WebView?,
+                                            request: WebResourceRequest?,
+                                        ): Boolean {
+                                            val uri = request?.url ?: return true
+                                            if (uri.scheme == "about") return false
+                                            if (!isAllowedLoginNavigation(uri)) {
+                                                pageError =
+                                                    "Pornhub tried to open an unsupported login page."
+                                                return true
+                                            }
+                                            parent.post {
+                                                parent.loadUrl(uri.toString())
+                                                popupView?.stopLoading()
+                                                popupView?.destroy()
+                                            }
+                                            return true
+                                        }
+                                    }
+                                }
+                                transport.webView = popup
+                                message.sendToTarget()
+                                return true
+                            }
+
+                            override fun onCloseWindow(window: WebView?) {
+                                window?.destroy()
+                            }
+                        }
                         view.webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
                                 view: WebView?,
@@ -323,6 +370,19 @@ private fun repairPornhubSsoButtons(view: WebView?) {
               text.style.setProperty('color', '#ffffff', 'important');
               text.style.setProperty('font-size', '16px', 'important');
               text.style.setProperty('font-weight', '600', 'important');
+
+              // Pornhub binds its SSO click listener to the first duplicate.
+              // Forward a click from a later visible mobile copy to that
+              // canonical control without replacing Pornhub's own handler.
+              if (button !== buttons[0] &&
+                  button.getAttribute('data-streamcloud-sso-forwarded') !== 'true') {
+                button.setAttribute('data-streamcloud-sso-forwarded', 'true');
+                button.addEventListener('click', function(event) {
+                  event.preventDefault();
+                  event.stopImmediatePropagation();
+                  buttons[0].click();
+                }, true);
+              }
             });
           }
           function repairAll() {
