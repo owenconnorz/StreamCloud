@@ -123,6 +123,13 @@ fun PornhubLoginScreen(
                         view.settings.domStorageEnabled = true
                         view.settings.useWideViewPort = true
                         view.settings.loadWithOverviewMode = true
+                        // Pornhub's SSO markup is served differently to the
+                        // Android WebView user agent. A current mobile Chrome
+                        // UA also keeps the Google sign-in control visible.
+                        view.settings.userAgentString =
+                            "Mozilla/5.0 (Linux; Android 14; Pixel 8) " +
+                                "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                                "Chrome/124.0.0.0 Mobile Safari/537.36"
 
                         CookieManager.getInstance().setAcceptCookie(true)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
@@ -133,7 +140,7 @@ fun PornhubLoginScreen(
                                 request: WebResourceRequest?,
                             ): Boolean {
                                 val uri = request?.url ?: return true
-                                return uri.scheme != "https" || !isPornhubHost(uri)
+                                return !isAllowedLoginNavigation(uri)
                             }
 
                             override fun onPageStarted(
@@ -241,3 +248,25 @@ private fun isPornhubHost(uri: Uri?): Boolean {
     val host = uri?.host?.lowercase() ?: return false
     return host == "pornhub.com" || host.endsWith(".pornhub.com")
 }
+
+/**
+ * Pornhub's SSO buttons leave Pornhub briefly and return after the provider
+ * finishes authentication. Keep this list deliberately narrow: normal page
+ * navigation must still stay on Pornhub, while Google and X OAuth pages need
+ * to be allowed inside the official WebView.
+ */
+private fun isLoginProviderHost(uri: Uri?): Boolean {
+    val host = uri?.host?.lowercase() ?: return false
+    return host == "accounts.google.com" ||
+        host == "google.com" ||
+        host.endsWith(".google.com") ||
+        host == "gstatic.com" ||
+        host.endsWith(".gstatic.com") ||
+        host == "x.com" ||
+        host.endsWith(".x.com") ||
+        host == "twitter.com" ||
+        host.endsWith(".twitter.com")
+}
+
+private fun isAllowedLoginNavigation(uri: Uri?): Boolean =
+    uri?.scheme == "https" && (isPornhubHost(uri) || isLoginProviderHost(uri))
