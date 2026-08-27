@@ -294,27 +294,34 @@ private fun repairPornhubSsoButtons(view: WebView?) {
         """
         (function() {
           function repair(id, label) {
-            var button = document.getElementById(id);
-            if (!button) return;
-            button.style.setProperty('display', 'flex', 'important');
-            button.style.setProperty('align-items', 'center', 'important');
-            button.style.setProperty('justify-content', 'center', 'important');
-            button.style.setProperty('gap', '8px', 'important');
-            button.style.setProperty('color', '#ffffff', 'important');
-            button.style.setProperty('font-size', '16px', 'important');
+            // Pornhub currently renders duplicate desktop/mobile controls with
+            // the same ID. Repair every instance, not only getElementById().
+            var buttons = document.querySelectorAll('[id="' + id + '"]');
+            buttons.forEach(function(button) {
+              button.style.setProperty('display', 'flex', 'important');
+              button.style.setProperty('align-items', 'center', 'important');
+              button.style.setProperty('justify-content', 'center', 'important');
+              button.style.setProperty('gap', '8px', 'important');
+              button.style.setProperty('color', '#ffffff', 'important');
+              button.style.setProperty('font-size', '16px', 'important');
 
-            var text = button.querySelector('span[data-streamcloud-sso-label]');
-            if (!text) {
-              text = document.createElement('span');
-              text.setAttribute('data-streamcloud-sso-label', 'true');
-              button.appendChild(text);
-            }
-            text.textContent = label;
-            text.style.setProperty('display', 'inline', 'important');
-            text.style.setProperty('visibility', 'visible', 'important');
-            text.style.setProperty('opacity', '1', 'important');
-            text.style.setProperty('color', '#ffffff', 'important');
-            text.style.setProperty('font-size', '16px', 'important');
+              // Pornhub mobile CSS explicitly hides all spans in these buttons.
+              // Use <b> so the visible label survives without replacing the
+              // official button or its attached click handler.
+              var text = button.querySelector('b[data-streamcloud-sso-label]');
+              if (!text) {
+                text = document.createElement('b');
+                text.setAttribute('data-streamcloud-sso-label', 'true');
+                button.appendChild(text);
+              }
+              text.textContent = label;
+              text.style.setProperty('display', 'inline', 'important');
+              text.style.setProperty('visibility', 'visible', 'important');
+              text.style.setProperty('opacity', '1', 'important');
+              text.style.setProperty('color', '#ffffff', 'important');
+              text.style.setProperty('font-size', '16px', 'important');
+              text.style.setProperty('font-weight', '600', 'important');
+            });
           }
           function repairAll() {
             repair('ssoGoogleSigninButton', 'Google');
