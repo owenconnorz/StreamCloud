@@ -7,12 +7,16 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -145,7 +149,8 @@ fun PornhubLoginScreen(
         Box(Modifier.fillMaxSize()) {
             AndroidView(
                 factory = { context ->
-                    WebView(context).also { view ->
+                    FrameLayout(context).also { container ->
+                        WebView(context).also { view ->
                         webView = view
                         view.isFocusable = true
                         view.isFocusableInTouchMode = true
@@ -154,12 +159,7 @@ fun PornhubLoginScreen(
                         view.settings.useWideViewPort = true
                         view.settings.loadWithOverviewMode = true
                         view.settings.javaScriptCanOpenWindowsAutomatically = true
-                        // Google opens the account chooser as a new window. Keep
-                        // that navigation in this visible WebView; creating a
-                        // second WebView without attaching it to the screen
-                        // produces a blank white login surface after an account
-                        // is selected.
-                        view.settings.setSupportMultipleWindows(false)
+                        view.settings.setSupportMultipleWindows(true)
                         // Pornhub's SSO markup is served differently to the
                         // Android WebView user agent. A current mobile Chrome
                         // UA also keeps the Google sign-in control visible.
@@ -171,6 +171,22 @@ fun PornhubLoginScreen(
                         CookieManager.getInstance().setAcceptCookie(true)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
                         view.addJavascriptInterface(bridge, "PornhubBridge")
+                        view.webChromeClient = visiblePopupClient(
+                            container = container,
+                            parent = view,
+                            bridge = bridge,
+                            onPopupActive = { popup -> webView = popup },
+                            onPopupClosed = {
+                                webView = view
+                                detectCompletedProviderLogin()
+                                detectCompletedProviderLogin(250L)
+                                detectCompletedProviderLogin(1_000L)
+                            },
+                            onProviderStarted = ::markProviderLoginStarted,
+                            onProviderReturned = ::detectCompletedProviderLogin,
+                            onPageError = { pageError = it },
+                            onPageLoading = { pageLoading = it },
+                        )
                         view.webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
                                 view: WebView?,
@@ -179,7 +195,7 @@ fun PornhubLoginScreen(
                                 val uri = request?.url ?: return true
                                 if (uri.scheme == "about") {
                                     detectCompletedProviderLogin()
-                                    return true
+                                    return false
                                 }
                                 if (isLoginProviderHost(uri)) {
                                     markProviderLoginStarted()
@@ -272,10 +288,17 @@ fun PornhubLoginScreen(
                             }
                         }
                         view.loadUrl("https://www.pornhub.com/login")
+                        container.addView(
+                            view,
+                            FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            ),
+                        )
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
-                update = { webView = it },
             )
 
             pageError?.let { message ->
@@ -309,6 +332,149 @@ fun PornhubLoginScreen(
     }
 }
 
+@SuppressLint("SetJavaScriptEnabled")
+private fun visiblePopupClient(
+    container: FrameLayout,
+    parent: WebView,
+    bridge: Any,
+    onPopupActive: (WebView) -> Unit,
+    onPopupClosed: () -> Unit,
+    onProviderStarted: () -> Unit,
+    onProviderReturned: (Long) -> Unit,
+    onPageError: (String) -> Unit,
+    onPageLoading: (Boolean) -> Unit,
+): WebChromeClient = object : WebChromeClient() {
+    override fun onCreateWindow(
+        view: WebView?,
+        isDialog: Boolean,
+        isUserGesture: Boolean,
+        resultMsg: Message?,
+    ): Boolean {
+        val message = resultMsg ?: return false
+        val transport = message.obj as? WebView.WebViewTransport ?: return false
+
+        val popup = WebView(parent.context).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            settings.javaScriptCanOpenWindowsAutomatically = true
+            settings.setSupportMultipleWindows(false)
+            settings.userAgentString = parent.settings.userAgentString
+            CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+            addJavascriptInterface(bridge, "PornhubBridge")
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    popupView: WebView?,
+                    request: WebResourceRequest?,
+                ): Boolean {
+                    val uri = request?.url ?: return true
+                    if (uri.scheme == "about") {
+                        onProviderReturned(0L)
+                        return false
+                    }
+                    if (!isAllowedLoginNavigation(uri)) {
+                        onPageError("The login provider opened an unsupported page.")
+                        return true
+                    }
+                    if (isLoginProviderHost(uri)) onProviderStarted()
+                    if (isPornhubHost(uri)) onProviderReturned(0L)
+                    return false
+                }
+
+                override fun onPageStarted(
+                    popupView: WebView?,
+                    url: String?,
+                    favicon: Bitmap?,
+                ) {
+                    super.onPageStarted(popupView, url, favicon)
+                    onPageLoading(true)
+                    val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
+                    if (isLoginProviderHost(uri)) onProviderStarted()
+                    if (isPornhubHost(uri)) onProviderReturned(0L)
+                }
+
+                override fun onReceivedError(
+                    popupView: WebView?,
+                    request: WebResourceRequest?,
+                    error: WebResourceError?,
+                ) {
+                    super.onReceivedError(popupView, request, error)
+                    if (request?.isForMainFrame == true) {
+                        onPageError(
+                            error?.description?.toString()
+                                ?: "The login provider could not load this page.",
+                        )
+                    }
+                }
+
+                override fun onPageFinished(popupView: WebView?, url: String?) {
+                    super.onPageFinished(popupView, url)
+                    onPageLoading(false)
+                    CookieManager.getInstance().flush()
+                    onProviderReturned(0L)
+                    val currentUrl = url.orEmpty()
+                    if (isPornhubHost(runCatching {
+                            Uri.parse(currentUrl)
+                        }.getOrNull())
+                    ) {
+                        repairPornhubSsoButtons(popupView)
+                        evaluatePornhubPageState(popupView, currentUrl)
+                    }
+                }
+            }
+        }
+
+        for (index in container.childCount - 1 downTo 0) {
+            val child = container.getChildAt(index)
+            if (child !== parent) {
+                container.removeViewAt(index)
+                (child as? WebView)?.destroy()
+            }
+        }
+        container.addView(
+            popup,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        onPopupActive(popup)
+        transport.webView = popup
+        message.sendToTarget()
+        return true
+    }
+
+    override fun onCloseWindow(window: WebView?) {
+        window?.let {
+            container.removeView(it)
+            it.destroy()
+        }
+        onPopupClosed()
+    }
+}
+
+private fun evaluatePornhubPageState(view: WebView?, currentUrl: String) {
+    val awayFromLogin = isPornhubHost(
+        runCatching { Uri.parse(currentUrl) }.getOrNull(),
+    ) && !currentUrl.contains("/login", ignoreCase = true)
+    if (!awayFromLogin) return
+
+    view?.evaluateJavascript(
+        """
+        (function() {
+          var t = document.body ? document.body.innerText : '';
+          var loggedIn = /(^|\n)\s*(log out|logout|sign out)\b/i.test(t);
+          var verificationRequired =
+            /(verify your age|age verification|confirm your age|age assurance)/i.test(t);
+          PornhubBridge.receivePageState(loggedIn, verificationRequired);
+        })();
+        """.trimIndent(),
+        null,
+    )
+}
+
 private fun isPornhubHost(uri: Uri?): Boolean {
     val host = uri?.host?.lowercase() ?: return false
     return host == "pornhub.com" || host.endsWith(".pornhub.com")
@@ -325,6 +491,10 @@ private fun isLoginProviderHost(uri: Uri?): Boolean {
     return host == "accounts.google.com" ||
         host == "google.com" ||
         host.endsWith(".google.com") ||
+        host == "googleapis.com" ||
+        host.endsWith(".googleapis.com") ||
+        host == "googleusercontent.com" ||
+        host.endsWith(".googleusercontent.com") ||
         host == "gstatic.com" ||
         host.endsWith(".gstatic.com") ||
         host == "x.com" ||
