@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerCategory
@@ -203,28 +204,6 @@ fun AdultScreen(
             }
         }
         Spacer(Modifier.height(16.dp))
-
-        // ── Source switcher tabs: Eporner / Reddit ───────────────────────
-        val sources = listOf(
-            AdultSource.Eporner,
-            AdultSource.Pornhub,
-            AdultSource.Reddit,
-            AdultSource.RedGifs,
-        )
-        val selectedTabIndex = sources.indexOfFirst { it == state.source }.coerceAtLeast(0)
-        ScrollableTabRow(
-            selectedTabIndex = selectedTabIndex,
-            modifier = Modifier.fillMaxWidth(),
-            edgePadding = 8.dp,
-        ) {
-            sources.forEachIndexed { index, source ->
-                Tab(
-                    selected = index == selectedTabIndex,
-                    onClick  = { vm.setSource(source) },
-                    text     = { Text(source.label) },
-                )
-            }
-        }
 
         if (state.source == AdultSource.Pornhub && showAllPornhubCategories) {
             PornhubCategoriesPage(
@@ -507,34 +486,79 @@ private fun AdultProviderPicker(
 
 @Composable
 private fun ProviderBadge(provider: AdultSource) {
-    val (background, foreground, label) = when (provider) {
-        AdultSource.Eporner -> Triple(Color(0xFF202124), Color(0xFFFFB300), "E")
-        AdultSource.Pornhub -> Triple(Color(0xFFFF9800), Color.Black, "P")
-        AdultSource.Reddit -> Triple(Color(0xFFFF4500), Color.White, "R")
-        AdultSource.RedGifs -> Triple(Color(0xFF00BCD4), Color.White, "RG")
+    val brand = when (provider) {
+        // Official site favicons keep the selector recognizable without
+        // shipping third-party artwork in the APK.
+        AdultSource.Eporner -> ProviderBrand(
+            logoUrl = "https://www.eporner.com/favicon.ico",
+            background = Color(0xFF25262A),
+            fallbackForeground = Color(0xFFFFB300),
+            fallbackLabel = "E",
+        )
+        AdultSource.Pornhub -> ProviderBrand(
+            logoUrl = "https://www.pornhub.com/favicon.ico",
+            background = Color(0xFFFF9800),
+            fallbackForeground = Color.Black,
+            fallbackLabel = "P",
+        )
+        AdultSource.Reddit -> ProviderBrand(
+            logoUrl = "https://www.redditstatic.com/desktop2x/img/favicon/favicon-96x96.png",
+            background = Color(0xFFFF4500),
+            fallbackForeground = Color.White,
+            fallbackLabel = "R",
+        )
+        AdultSource.RedGifs -> ProviderBrand(
+            logoUrl = "https://www.redgifs.com/favicon.ico",
+            background = Color(0xFF00BCD4),
+            fallbackForeground = Color.White,
+            fallbackLabel = "RG",
+        )
     }
     Box(
         modifier = Modifier
             .size(46.dp)
             .clip(CircleShape)
-            .background(background),
+            .background(brand.background),
         contentAlignment = Alignment.Center,
     ) {
-        if (provider == AdultSource.Eporner) {
-            Icon(
-                Icons.Default.Extension,
-                contentDescription = null,
-                tint = foreground,
-                modifier = Modifier.size(24.dp),
-            )
-        } else {
-            Text(
-                label,
-                color = foreground,
-                fontWeight = FontWeight.Bold,
-                fontSize = if (label.length > 1) 13.sp else 18.sp,
-            )
-        }
+        SubcomposeAsyncImage(
+            model = brand.logoUrl,
+            contentDescription = "${provider.label} logo",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(32.dp),
+            loading = {
+                ProviderFallbackBadge(brand)
+            },
+            error = {
+                ProviderFallbackBadge(brand)
+            },
+        )
+    }
+}
+
+private data class ProviderBrand(
+    val logoUrl: String,
+    val background: Color,
+    val fallbackForeground: Color,
+    val fallbackLabel: String,
+)
+
+@Composable
+private fun ProviderFallbackBadge(brand: ProviderBrand) {
+    if (brand.fallbackLabel == "E") {
+        Icon(
+            Icons.Default.Extension,
+            contentDescription = null,
+            tint = brand.fallbackForeground,
+            modifier = Modifier.size(24.dp),
+        )
+    } else {
+        Text(
+            brand.fallbackLabel,
+            color = brand.fallbackForeground,
+            fontWeight = FontWeight.Bold,
+            fontSize = if (brand.fallbackLabel.length > 1) 13.sp else 18.sp,
+        )
     }
 }
 
