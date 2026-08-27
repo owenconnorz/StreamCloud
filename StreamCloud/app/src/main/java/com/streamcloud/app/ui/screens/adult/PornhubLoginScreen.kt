@@ -191,8 +191,7 @@ fun PornhubLoginScreen(
                                 pageLoading = false
                                 CookieManager.getInstance().flush()
                                 val currentUrl = url.orEmpty()
-                                if (currentUrl.contains("/login", ignoreCase = true) &&
-                                    isPornhubHost(runCatching {
+                                if (isPornhubHost(runCatching {
                                         Uri.parse(currentUrl)
                                     }.getOrNull())
                                 ) {
@@ -317,8 +316,21 @@ private fun repairPornhubSsoButtons(view: WebView?) {
             text.style.setProperty('color', '#ffffff', 'important');
             text.style.setProperty('font-size', '16px', 'important');
           }
-          repair('ssoGoogleSigninButton', 'Google');
-          repair('ssoXSigninButton', 'X');
+          function repairAll() {
+            repair('ssoGoogleSigninButton', 'Google');
+            repair('ssoXSigninButton', 'X');
+          }
+          repairAll();
+
+          if (!window.__streamcloudSsoObserver && document.documentElement) {
+            window.__streamcloudSsoObserver = new MutationObserver(function() {
+              repairAll();
+            });
+            window.__streamcloudSsoObserver.observe(document.documentElement, {
+              childList: true,
+              subtree: true
+            });
+          }
         })();
         """.trimIndent(),
         null,
