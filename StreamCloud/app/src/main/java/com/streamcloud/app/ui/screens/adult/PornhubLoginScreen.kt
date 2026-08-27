@@ -45,7 +45,33 @@ fun PornhubLoginScreen(
     var pageError by remember { mutableStateOf<String?>(null) }
     var canFinish by remember { mutableStateOf(false) }
     var detectedLogin by remember { mutableStateOf(false) }
+    var providerLoginStarted by remember { mutableStateOf(false) }
+    var providerCookieBaseline by remember { mutableStateOf("") }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
+    fun markProviderLoginStarted() {
+        if (!providerLoginStarted) {
+            providerCookieBaseline = PornhubRepository.sessionCookieHeader()
+            providerLoginStarted = true
+        }
+    }
+
+    fun detectCompletedProviderLogin(delayMillis: Long = 0L) {
+        if (!providerLoginStarted) return
+        mainHandler.postDelayed(
+            {
+                CookieManager.getInstance().flush()
+                val currentCookies = PornhubRepository.sessionCookieHeader()
+                if (currentCookies != providerCookieBaseline &&
+                    PornhubRepository.hasSessionCookies()
+                ) {
+                    detectedLogin = true
+                }
+            },
+            delayMillis,
+        )
+    }
 
     BackHandler(onBack = onBack)
 
@@ -163,11 +189,20 @@ fun PornhubLoginScreen(
                                             request: WebResourceRequest?,
                                         ): Boolean {
                                             val uri = request?.url ?: return true
-                                            if (uri.scheme == "about") return false
+                                            if (uri.scheme == "about") {
+                                                detectCompletedProviderLogin()
+                                                return false
+                                            }
                                             if (!isAllowedLoginNavigation(uri)) {
                                                 pageError =
                                                     "Pornhub tried to open an unsupported login page."
                                                 return true
+                                            }
+                                            if (isLoginProviderHost(uri)) {
+                                                markProviderLoginStarted()
+                                            }
+                                            if (isPornhubHost(uri)) {
+                                                detectCompletedProviderLogin()
                                             }
                                             parent.post {
                                                 parent.loadUrl(uri.toString())
@@ -175,6 +210,30 @@ fun PornhubLoginScreen(
                                                 popupView?.destroy()
                                             }
                                             return true
+                                        }
+
+                                        override fun onPageStarted(
+                                            popupView: WebView?,
+                                            url: String?,
+                                            favicon: Bitmap?,
+                                        ) {
+                                            super.onPageStarted(popupView, url, favicon)
+                                            val uri = runCatching { Uri.parse(url.orEmpty()) }
+                                                .getOrNull()
+                                            if (isLoginProviderHost(uri)) {
+                                                markProviderLoginStarted()
+                                            }
+                                            if (isPornhubHost(uri)) {
+                                                detectCompletedProviderLogin()
+                                            }
+                                        }
+
+                                        override fun onPageFinished(
+                                            popupView: WebView?,
+                                            url: String?,
+                                        ) {
+                                            super.onPageFinished(popupView, url)
+                                            detectCompletedProviderLogin()
                                         }
                                     }
                                 }
@@ -185,6 +244,9 @@ fun PornhubLoginScreen(
 
                             override fun onCloseWindow(window: WebView?) {
                                 window?.destroy()
+                                detectCompletedProviderLogin()
+                                detectCompletedProviderLogin(250L)
+                                detectCompletedProviderLogin(1_000L)
                             }
                         }
                         view.webViewClient = object : WebViewClient() {
@@ -193,6 +255,16 @@ fun PornhubLoginScreen(
                                 request: WebResourceRequest?,
                             ): Boolean {
                                 val uri = request?.url ?: return true
+                                if (uri.scheme == "about") {
+                                    detectCompletedProviderLogin()
+                                    return true
+                                }
+                                if (isLoginProviderHost(uri)) {
+                                    markProviderLoginStarted()
+                                }
+                                if (isPornhubHost(uri)) {
+                                    detectCompletedProviderLogin()
+                                }
                                 return !isAllowedLoginNavigation(uri)
                             }
 
@@ -204,6 +276,13 @@ fun PornhubLoginScreen(
                                 super.onPageStarted(view, url, favicon)
                                 pageLoading = true
                                 pageError = null
+                                val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
+                                if (isLoginProviderHost(uri)) {
+                                    markProviderLoginStarted()
+                                }
+                                if (isPornhubHost(uri)) {
+                                    detectCompletedProviderLogin()
+                                }
                             }
 
                             override fun onReceivedError(
@@ -237,6 +316,7 @@ fun PornhubLoginScreen(
                                 super.onPageFinished(view, url)
                                 pageLoading = false
                                 CookieManager.getInstance().flush()
+                                detectCompletedProviderLogin()
                                 val currentUrl = url.orEmpty()
                                 if (isPornhubHost(runCatching {
                                         Uri.parse(currentUrl)
