@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -86,10 +88,14 @@ fun AdultScreen(
     var query by remember { mutableStateOf("") }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showAllPornhubCategories by remember { mutableStateOf(false) }
+    var showProviderPicker by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
 
     BackHandler(enabled = showAllPornhubCategories) {
         showAllPornhubCategories = false
+    }
+    BackHandler(enabled = showProviderPicker) {
+        showProviderPicker = false
     }
 
     // Age gate: show blocking overlay until user confirms 18+
@@ -101,6 +107,19 @@ fun AdultScreen(
     // PIN lock: show lock screen if adult lock is enabled and not yet unlocked this session
     if (state.adultLockEnabled && state.safeModePin.isNotBlank() && !state.lockUnlocked) {
         PinLockScreen(onUnlock = { pin -> vm.unlockWithPin(pin) })
+        return
+    }
+
+    if (showProviderPicker) {
+        AdultProviderPicker(
+            selectedSource = state.source,
+            onBack = { showProviderPicker = false },
+            onSelect = { source ->
+                vm.setSource(source)
+                query = ""
+                showProviderPicker = false
+            },
+        )
         return
     }
 
@@ -123,27 +142,27 @@ fun AdultScreen(
             .statusBarsPadding()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // ── Title row (only shown for Eporner) ──────────────────────────
-        if (state.source in setOf(AdultSource.Eporner, AdultSource.Pornhub)) {
-            Spacer(Modifier.height(12.dp))
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        screenTitle,
-                        style = MaterialTheme.typography.displayLarge,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    )
-                    Text(
-                        screenSubtitle.ifBlank { "18+ \u00b7 ${state.source.label}" },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+        // ── Title row and provider controls ──────────────────────────────
+        Spacer(Modifier.height(12.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    screenTitle,
+                    style = MaterialTheme.typography.displayLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text(
+                    screenSubtitle.ifBlank { "18+ \u00b7 ${state.source.label}" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (state.source in setOf(AdultSource.Eporner, AdultSource.Pornhub)) {
                 IconButton(
                     onClick = { onOpenSearch(state.source) },
                     modifier = Modifier
@@ -158,6 +177,22 @@ fun AdultScreen(
                     )
                 }
                 Spacer(Modifier.width(8.dp))
+            }
+            IconButton(
+                onClick = { showProviderPicker = true },
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                Icon(
+                    Icons.Default.Extension,
+                    contentDescription = "Plugins",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (state.source in setOf(AdultSource.Eporner, AdultSource.Pornhub)) {
+                Spacer(Modifier.width(8.dp))
                 IconButton(onClick = { vm.refresh() }) {
                     Icon(
                         Icons.Default.Refresh,
@@ -166,8 +201,8 @@ fun AdultScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(16.dp))
         }
+        Spacer(Modifier.height(16.dp))
 
         // ── Source switcher tabs: Eporner / Reddit ───────────────────────
         val sources = listOf(
@@ -361,6 +396,145 @@ fun AdultScreen(
             },
             onDismiss  = { detailItem = null },
         )
+    }
+}
+
+@Composable
+@Composable
+private fun AdultProviderPicker(
+    selectedSource: AdultSource,
+    onBack: () -> Unit,
+    onSelect: (AdultSource) -> Unit,
+) {
+    val providers = listOf(
+        AdultSource.Eporner,
+        AdultSource.Pornhub,
+        AdultSource.Reddit,
+        AdultSource.RedGifs,
+    )
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("Plugins") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .tvFocusGroup(),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                Text(
+                    "Choose a provider",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+                )
+            }
+            items(providers, key = { it.name }) { provider ->
+                val selected = provider == selectedSource
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(74.dp)
+                        .clip(RoundedCornerShape(17.dp))
+                        .clickable { onSelect(provider) },
+                    shape = RoundedCornerShape(17.dp),
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    tonalElevation = if (selected) 3.dp else 0.dp,
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ProviderBadge(provider)
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                provider.label,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                            if (selected) {
+                                Text(
+                                    "Active",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                                )
+                            }
+                        }
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = "Open ${provider.label}",
+                            tint = if (selected) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProviderBadge(provider: AdultSource) {
+    val (background, foreground, label) = when (provider) {
+        AdultSource.Eporner -> Triple(Color(0xFF202124), Color(0xFFFFB300), "E")
+        AdultSource.Pornhub -> Triple(Color(0xFFFF9800), Color.Black, "P")
+        AdultSource.Reddit -> Triple(Color(0xFFFF4500), Color.White, "R")
+        AdultSource.RedGifs -> Triple(Color(0xFF00BCD4), Color.White, "RG")
+    }
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(background),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (provider == AdultSource.Eporner) {
+            Icon(
+                Icons.Default.Extension,
+                contentDescription = null,
+                tint = foreground,
+                modifier = Modifier.size(24.dp),
+            )
+        } else {
+            Text(
+                label,
+                color = foreground,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (label.length > 1) 13.sp else 18.sp,
+            )
+        }
     }
 }
 
