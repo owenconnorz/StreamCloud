@@ -37,7 +37,6 @@ class PornhubUnavailableException(message: String) : Exception(message)
 
 object PornhubRepository {
     private const val BASE_URL = "https://www.pornhub.com"
-    private const val DEFAULT_COOKIE = "accessAgeDisclaimerPH=1; platform=mobile"
     private val cookieHosts = listOf(
         "https://www.pornhub.com",
         "https://pornhub.com",
@@ -163,7 +162,7 @@ object PornhubRepository {
                 .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
                 .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
                 .header("Referer", "$BASE_URL/")
-                .header("Cookie", sessionCookieHeader(currentUrl).ifBlank { DEFAULT_COOKIE })
+                .header("Cookie", pornhubRequestCookieHeader(sessionCookieHeader(currentUrl)))
                 .build()
             client.newCall(request).execute().use { response ->
                 if (response.isRedirect) {
@@ -222,7 +221,7 @@ object PornhubRepository {
         put("Accept", "*/*")
         val host = runCatching { streamUrl.toHttpUrl().host }.getOrNull().orEmpty()
         if (host == "pornhub.com" || host.endsWith(".pornhub.com")) {
-            put("Cookie", sessionCookieHeader(streamUrl).ifBlank { DEFAULT_COOKIE })
+            put("Cookie", pornhubRequestCookieHeader(sessionCookieHeader(streamUrl)))
         }
     }
 }
@@ -231,6 +230,16 @@ internal fun pornhubCookieNames(cookieHeader: String): Set<String> =
     cookieHeader.split(';')
         .mapNotNull { it.substringBefore('=').trim().takeIf(String::isNotBlank) }
         .toSet()
+
+internal fun pornhubRequestCookieHeader(sessionCookieHeader: String): String {
+    val current = sessionCookieHeader.trim().trimEnd(';')
+    val names = pornhubCookieNames(current)
+    return buildList {
+        if (current.isNotBlank()) add(current)
+        if ("accessAgeDisclaimerPH" !in names) add("accessAgeDisclaimerPH=1")
+        if ("platform" !in names) add("platform=mobile")
+    }.joinToString("; ")
+}
 
 internal fun isAllowedPornhubUrl(url: String): Boolean {
     val parsed = runCatching { url.toHttpUrl() }.getOrNull() ?: return false

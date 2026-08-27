@@ -76,6 +76,8 @@ class AdultViewModel(
     private var currentQuery: String = ""
     private var currentOrder: String = "most-popular"
     private var redditAfter: String? = null
+    private var observedPornhubSignIn = false
+    private var wasPornhubSignedIn = false
 
     init {
         // Observe the saved Reddit username and reflect it in state
@@ -103,6 +105,19 @@ class AdultViewModel(
         viewModelScope.launch {
             settings.safeModePin.collectLatest { p ->
                 _state.update { it.copy(safeModePin = p) }
+            }
+        }
+        viewModelScope.launch {
+            settings.pornhubSignedIn.collectLatest { signedIn ->
+                val completedSignIn = observedPornhubSignIn &&
+                    !wasPornhubSignedIn &&
+                    signedIn
+                wasPornhubSignedIn = signedIn
+                observedPornhubSignIn = true
+                if (completedSignIn && _state.value.source == AdultSource.Pornhub) {
+                    _state.update { it.copy(currentPage = 1, items = emptyList()) }
+                    fetchPornhubPage(replace = true)
+                }
             }
         }
         viewModelScope.launch {
