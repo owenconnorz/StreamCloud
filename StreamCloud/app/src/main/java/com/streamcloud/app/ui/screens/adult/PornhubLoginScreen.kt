@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -123,6 +124,10 @@ fun PornhubLoginScreen(
                         view.settings.domStorageEnabled = true
                         view.settings.useWideViewPort = true
                         view.settings.loadWithOverviewMode = true
+                        view.settings.javaScriptCanOpenWindowsAutomatically = true
+                        // Keep SSO popups in this WebView. A separate WebView
+                        // would lose the visible navigation and completion flow.
+                        view.settings.setSupportMultipleWindows(false)
                         // Pornhub's SSO markup is served differently to the
                         // Android WebView user agent. A current mobile Chrome
                         // UA also keeps the Google sign-in control visible.
@@ -134,6 +139,7 @@ fun PornhubLoginScreen(
                         CookieManager.getInstance().setAcceptCookie(true)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
                         view.addJavascriptInterface(bridge, "PornhubBridge")
+                        view.webChromeClient = WebChromeClient()
                         view.webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
                                 view: WebView?,
@@ -185,6 +191,13 @@ fun PornhubLoginScreen(
                                 pageLoading = false
                                 CookieManager.getInstance().flush()
                                 val currentUrl = url.orEmpty()
+                                if (currentUrl.contains("/login", ignoreCase = true) &&
+                                    isPornhubHost(runCatching {
+                                        Uri.parse(currentUrl)
+                                    }.getOrNull())
+                                ) {
+                                    repairPornhubSsoButtons(view)
+                                }
                                 val awayFromLogin = isPornhubHost(
                                     runCatching { Uri.parse(currentUrl) }.getOrNull(),
                                 ) &&
@@ -270,3 +283,44 @@ private fun isLoginProviderHost(uri: Uri?): Boolean {
 
 private fun isAllowedLoginNavigation(uri: Uri?): Boolean =
     uri?.scheme == "https" && (isPornhubHost(uri) || isLoginProviderHost(uri))
+
+/**
+ * Pornhub's responsive stylesheet can hide the SSO labels and external Google
+ * image in Android WebView, leaving an apparently empty button. Restore only
+ * the presentation of Pornhub's own existing buttons; their official click
+ * handlers and authentication flow remain untouched.
+ */
+private fun repairPornhubSsoButtons(view: WebView?) {
+    view?.evaluateJavascript(
+        """
+        (function() {
+          function repair(id, label) {
+            var button = document.getElementById(id);
+            if (!button) return;
+            button.style.setProperty('display', 'flex', 'important');
+            button.style.setProperty('align-items', 'center', 'important');
+            button.style.setProperty('justify-content', 'center', 'important');
+            button.style.setProperty('gap', '8px', 'important');
+            button.style.setProperty('color', '#ffffff', 'important');
+            button.style.setProperty('font-size', '16px', 'important');
+
+            var text = button.querySelector('span[data-streamcloud-sso-label]');
+            if (!text) {
+              text = document.createElement('span');
+              text.setAttribute('data-streamcloud-sso-label', 'true');
+              button.appendChild(text);
+            }
+            text.textContent = label;
+            text.style.setProperty('display', 'inline', 'important');
+            text.style.setProperty('visibility', 'visible', 'important');
+            text.style.setProperty('opacity', '1', 'important');
+            text.style.setProperty('color', '#ffffff', 'important');
+            text.style.setProperty('font-size', '16px', 'important');
+          }
+          repair('ssoGoogleSigninButton', 'Google');
+          repair('ssoXSigninButton', 'X');
+        })();
+        """.trimIndent(),
+        null,
+    )
+}
