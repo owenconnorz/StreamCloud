@@ -10,6 +10,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.delay
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -115,7 +116,7 @@ object PornhubRepository {
      * Clear only Pornhub domains. The shared WebView cookie store also contains
      * Reddit and other account sessions, so removeAllCookies() is not acceptable.
      */
-    fun clearSessionCookies(): Boolean {
+    suspend fun clearSessionCookies(): Boolean {
         val manager = CookieManager.getInstance()
         val cookieUrls = cookieHosts.flatMap { host ->
             cookiePaths.map { path -> "$host$path" }
@@ -142,12 +143,18 @@ object PornhubRepository {
             }
         }
         manager.flush()
-        return cookieUrls.none { url ->
-            runCatching { manager.getCookie(url).orEmpty() }
-                .getOrDefault("")
-                .let(::pornhubCookieNames)
-                .any { it !in setOf("accessAgeDisclaimerPH", "platform") }
+        repeat(3) { attempt ->
+            if (attempt > 0) delay(150L)
+            manager.flush()
+            val remaining = cookieUrls.any { url ->
+                runCatching { manager.getCookie(url).orEmpty() }
+                    .getOrDefault("")
+                    .let(::pornhubCookieNames)
+                    .any { it !in setOf("accessAgeDisclaimerPH", "platform") }
+            }
+            if (!remaining) return true
         }
+        return false
     }
 
     private fun requestPage(url: String): String {

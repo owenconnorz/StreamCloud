@@ -3205,9 +3205,11 @@ private fun PornhubAccountRow(onLogin: () -> Unit) {
             TextButton(
                 onClick = {
                     scope.launch {
-                        val cleared =
-                            com.streamcloud.app.data.api.PornhubRepository.clearSessionCookies()
-                        if (cleared) sl.settings.clearPornhubAccount()
+                        com.streamcloud.app.data.api.PornhubRepository.clearSessionCookies()
+                        // CookieManager writes asynchronously. The account
+                        // indicator must not remain stuck if its immediate
+                        // verification races that write.
+                        sl.settings.clearPornhubAccount()
                     }
                 },
             ) { Text("Sign out") }
