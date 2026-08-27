@@ -47,6 +47,7 @@ fun PornhubLoginScreen(
     var detectedLogin by remember { mutableStateOf(false) }
     var providerLoginStarted by remember { mutableStateOf(false) }
     var providerCookieBaseline by remember { mutableStateOf("") }
+    var providerSessionReturned by remember { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
@@ -64,9 +65,11 @@ fun PornhubLoginScreen(
                 CookieManager.getInstance().flush()
                 val currentCookies = PornhubRepository.sessionCookieHeader()
                 if (currentCookies != providerCookieBaseline &&
-                    PornhubRepository.hasSessionCookies()
+                    PornhubRepository.hasSessionCookies() &&
+                    !providerSessionReturned
                 ) {
-                    detectedLogin = true
+                    providerSessionReturned = true
+                    webView?.loadUrl("https://www.pornhub.com/")
                 }
             },
             delayMillis,
@@ -82,9 +85,10 @@ fun PornhubLoginScreen(
     val bridge = remember {
         object {
             @JavascriptInterface
-            fun receiveLoggedIn(value: Boolean) {
+            fun receivePageState(loggedIn: Boolean, verificationRequired: Boolean) {
                 Handler(Looper.getMainLooper()).post {
-                    if (value) detectedLogin = true
+                    canFinish = loggedIn && !verificationRequired
+                    if (canFinish) detectedLogin = true
                 }
             }
         }
@@ -328,15 +332,19 @@ fun PornhubLoginScreen(
                                     runCatching { Uri.parse(currentUrl) }.getOrNull(),
                                 ) &&
                                     !currentUrl.contains("/login", ignoreCase = true)
-                                canFinish = awayFromLogin &&
-                                    PornhubRepository.hasSessionCookies(currentUrl)
+                                canFinish = false
                                 if (awayFromLogin) {
                                     view?.evaluateJavascript(
                                         """
                                         (function() {
                                           var t = document.body ? document.body.innerText : '';
-                                          PornhubBridge.receiveLoggedIn(
-                                            /(^|\n)\s*(log out|logout|sign out)\b/i.test(t)
+                                          var loggedIn =
+                                            /(^|\n)\s*(log out|logout|sign out)\b/i.test(t);
+                                          var verificationRequired =
+                                            /(verify your age|age verification|confirm your age|age assurance)/i.test(t);
+                                          PornhubBridge.receivePageState(
+                                            loggedIn,
+                                            verificationRequired
                                           );
                                         })();
                                         """.trimIndent(),

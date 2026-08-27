@@ -243,7 +243,6 @@ internal fun pornhubRequestCookieHeader(sessionCookieHeader: String): String {
     val names = pornhubCookieNames(current)
     return buildList {
         if (current.isNotBlank()) add(current)
-        if ("accessAgeDisclaimerPH" !in names) add("accessAgeDisclaimerPH=1")
         if ("platform" !in names) add("platform=mobile")
     }.joinToString("; ")
 }

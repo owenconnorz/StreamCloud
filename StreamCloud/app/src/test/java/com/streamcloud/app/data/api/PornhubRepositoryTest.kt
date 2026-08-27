@@ -7,13 +7,13 @@ import org.junit.Test
 class PornhubRepositoryTest {
 
     @Test
-    fun authenticatedRequestsKeepSessionAndAgeCookies() {
+    fun authenticatedRequestsKeepPornhubProvidedCookies() {
         val cookies = pornhubRequestCookieHeader("session=authenticated; locale=en")
 
         assertTrue(cookies.contains("session=authenticated"))
         assertTrue(cookies.contains("locale=en"))
-        assertTrue(cookies.contains("accessAgeDisclaimerPH=1"))
         assertTrue(cookies.contains("platform=mobile"))
+        assertTrue(!cookies.contains("accessAgeDisclaimerPH"))
     }
 
     @Test

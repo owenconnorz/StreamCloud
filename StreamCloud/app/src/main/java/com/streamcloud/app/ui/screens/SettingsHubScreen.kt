@@ -3124,7 +3124,7 @@ private fun RedditAccountRow(onLogin: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .tvFocusBorder(RoundedCornerShape(18.dp))
-            .clickable(enabled = !signedIn, onClick = onLogin)
+            .clickable(onClick = onLogin)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -3194,7 +3194,7 @@ private fun PornhubAccountRow(onLogin: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                if (signedIn) "Signed in with the Pornhub WebView"
+                if (signedIn) "Signed in — tap to continue verification or manage the account"
                 else "Use Pornhub’s own page for login and verification",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
