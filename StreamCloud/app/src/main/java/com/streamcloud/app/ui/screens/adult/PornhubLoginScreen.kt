@@ -314,7 +314,9 @@ private fun repairPornhubSsoButtons(view: WebView?) {
                 text.setAttribute('data-streamcloud-sso-label', 'true');
                 button.appendChild(text);
               }
-              text.textContent = label;
+              if (text.textContent !== label) {
+                text.textContent = label;
+              }
               text.style.setProperty('display', 'inline', 'important');
               text.style.setProperty('visibility', 'visible', 'important');
               text.style.setProperty('opacity', '1', 'important');
