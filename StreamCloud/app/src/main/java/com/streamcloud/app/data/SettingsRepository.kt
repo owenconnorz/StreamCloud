@@ -113,6 +113,7 @@ object SettingsKeys {
     val HOLD_TO_SPEED_ENABLED = booleanPreferencesKey("hold_to_speed_enabled")
     val HOLD_TO_SPEED_VALUE   = stringPreferencesKey("hold_to_speed_value")
     val ADULT_LOCK_ENABLED    = booleanPreferencesKey("adult_lock_enabled")
+    val MOVIE_AUDIO_FORMATS   = stringPreferencesKey("movie_audio_formats")
 
     // Playback behaviour
     val SEEK_INCREMENT_SECONDS     = stringPreferencesKey("seek_increment_seconds")
@@ -511,6 +512,8 @@ class SettingsRepository(private val context: Context) {
     val holdToSpeedEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOLD_TO_SPEED_ENABLED] ?: false }
     val holdToSpeedValue: Flow<String> = context.dataStore.data.map { it[SettingsKeys.HOLD_TO_SPEED_VALUE] ?: "2.0" }
     val adultLockEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.ADULT_LOCK_ENABLED] ?: false }
+    val movieAudioFormats: Flow<String> =
+        context.dataStore.data.map { it[SettingsKeys.MOVIE_AUDIO_FORMATS] ?: MovieAudioPreferences.defaultIdsCsv }
 
     suspend fun setMoviesTheme(theme: String) = context.dataStore.edit { it[SettingsKeys.MOVIES_THEME] = theme }
     suspend fun setIntroDbApiKey(key: String) = context.dataStore.edit { it[SettingsKeys.INTRO_DB_API_KEY] = key }
@@ -519,6 +522,8 @@ class SettingsRepository(private val context: Context) {
     suspend fun setHoldToSpeedEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.HOLD_TO_SPEED_ENABLED] = b }
     suspend fun setHoldToSpeedValue(v: String) = context.dataStore.edit { it[SettingsKeys.HOLD_TO_SPEED_VALUE] = v }
     suspend fun setAdultLockEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.ADULT_LOCK_ENABLED] = b }
+    suspend fun setMovieAudioFormats(csv: String) =
+        context.dataStore.edit { it[SettingsKeys.MOVIE_AUDIO_FORMATS] = csv }
 
     // ── Playback behaviour ──────────────────────────────────────────────────
     val seekIncrementSeconds: Flow<String>     = context.dataStore.data.map { it[SettingsKeys.SEEK_INCREMENT_SECONDS]     ?: "10" }

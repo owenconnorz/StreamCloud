@@ -102,6 +102,7 @@ import androidx.compose.ui.unit.sp
 import com.streamcloud.app.BuildConfig
 import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.MovieAudioPreferences
 import com.streamcloud.app.data.downloads.DownloadCaches
 import com.streamcloud.app.data.util.ThumbnailCache
 import com.streamcloud.app.data.collections.HomeCollections
@@ -226,9 +227,11 @@ fun SettingsHubScreen(
     var parentalGuideOn     by remember { mutableStateOf(true) }
     var holdToSpeedOn       by remember { mutableStateOf(false) }
     var holdToSpeedVal      by remember { mutableStateOf("2.0") }
+    var movieAudioFormats   by remember { mutableStateOf(MovieAudioPreferences.defaultIdsCsv) }
     var showIntroKeyDialog  by remember { mutableStateOf(false) }
     var showSubSourceDialog by remember { mutableStateOf(false) }
     var showHoldSpeedDialog by remember { mutableStateOf(false) }
+    var showMovieAudioDialog by remember { mutableStateOf(false) }
     var adultLockEnabled    by remember { mutableStateOf(false) }
     var traktUsername       by remember { mutableStateOf("") }
     var traktClientId       by remember { mutableStateOf("") }
@@ -348,6 +351,7 @@ fun SettingsHubScreen(
         parentalGuideOn     = sl.settings.parentalGuideEnabled.first()
         holdToSpeedOn       = sl.settings.holdToSpeedEnabled.first()
         holdToSpeedVal      = sl.settings.holdToSpeedValue.first()
+        movieAudioFormats   = sl.settings.movieAudioFormats.first()
         adultLockEnabled    = sl.settings.adultLockEnabled.first()
         traktUsername       = sl.settings.traktUsername.first()
         traktClientId       = sl.settings.traktClientId.first()
@@ -610,6 +614,14 @@ fun SettingsHubScreen(
                             onClick = { showHoldSpeedDialog = true },
                         )
                     }
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.SurroundSound, tint = ColourContent,
+                        title = "Preferred Dolby audio",
+                        subtitle = "Prefer Dolby tracks when a movie provides them",
+                        value = MovieAudioPreferences.summary(movieAudioFormats),
+                        onClick = { showMovieAudioDialog = true },
+                    )
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
@@ -2432,6 +2444,17 @@ fun SettingsHubScreen(
             onDismiss = { showSubtitleLangDialog = false },
         )
     }
+    if (showMovieAudioDialog) {
+        MovieAudioFormatsDialog(
+            selectedCsv = movieAudioFormats,
+            onSave = { selected ->
+                movieAudioFormats = selected
+                scope.launch { sl.settings.setMovieAudioFormats(selected) }
+                showMovieAudioDialog = false
+            },
+            onDismiss = { showMovieAudioDialog = false },
+        )
+    }
     if (showVideoCachePicker) {
         CacheSizeSheet(
             title = "Max cache size",
@@ -3390,6 +3413,77 @@ private fun QualityDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun MovieAudioFormatsDialog(
+    selectedCsv: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var selected by remember(selectedCsv) {
+        mutableStateOf(MovieAudioPreferences.decodeIds(selectedCsv))
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Preferred Dolby audio") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "Selected formats are preferred when available. Device and source support still determine what can play.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                MovieAudioPreferences.formats.forEach { format ->
+                    val checked = format.id in selected
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selected = if (checked) selected - format.id else selected + format.id
+                            }
+                            .padding(vertical = 5.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(format.label, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                format.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = { enabled ->
+                                selected = if (enabled) selected + format.id else selected - format.id
+                            },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val csv = MovieAudioPreferences.formats
+                        .filter { it.id in selected }
+                        .joinToString(",") { it.id }
+                    onSave(csv)
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = {
+                    selected = MovieAudioPreferences.defaultIds
+                }) { Text("All") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
     )
 }
 

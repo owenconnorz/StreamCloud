@@ -81,6 +81,7 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.MovieAudioPreferences
 import com.streamcloud.app.torrent.TorrentService
 import com.streamcloud.app.torrent.TorrentState
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -223,6 +224,9 @@ fun NativePlayerScreen(
     val gestureBrightnessOn by sl.settings.gestureBrightnessEnabled.collectAsState(initial = true)
     val resumePlaybackOn    by sl.settings.resumePlayback.collectAsState(initial = true)
     val pipEnabledOn        by sl.settings.pipEnabled.collectAsState(initial = true)
+    val movieAudioFormats   by sl.settings.movieAudioFormats.collectAsState(
+        initial = MovieAudioPreferences.defaultIdsCsv,
+    )
 
     // ── Subtitle style ────────────────────────────────────────────────────
     var subtitleStyle by remember { mutableStateOf(SubtitleStylePrefs.load(context)) }
@@ -282,7 +286,14 @@ fun NativePlayerScreen(
             .setHandleAudioBecomingNoisy(true)
             .build()
             .apply {
-                setMediaSource(source); prepare(); playWhenReady = true
+                setMediaSource(source)
+                val preferredDolbyMimeTypes = MovieAudioPreferences.mimeTypesFor(movieAudioFormats)
+                if (preferredDolbyMimeTypes.isNotEmpty()) {
+                    trackSelectionParameters = trackSelectionParameters.buildUpon()
+                        .setPreferredAudioMimeTypes(*preferredDolbyMimeTypes.toTypedArray())
+                        .build()
+                }
+                prepare(); playWhenReady = true
                 val defSpeed = defaultSpeedStr.toFloatOrNull() ?: 1f
                 if (defSpeed != 1f) playbackParameters = PlaybackParameters(defSpeed)
             }
