@@ -14,6 +14,7 @@ import com.streamcloud.app.data.api.RedditAuthRequiredException
 import com.streamcloud.app.data.api.RedditRateLimitException
 import com.streamcloud.app.data.api.RedGifsRepository
 import com.streamcloud.app.data.api.PornhubRepository
+import com.streamcloud.app.data.api.PornhubCategory
 import com.streamcloud.app.data.library.AdultHistoryEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.network.Net
@@ -41,6 +42,8 @@ data class AdultState(
     val loadingCategories: Boolean = false,
     val selectedCategory: EpornerCategory? = null,
     val categorySearch: String = "",
+    val pornhubCategories: List<PornhubCategory> = emptyList(),
+    val loadingPornhubCategories: Boolean = false,
     /** True when Reddit returns a 401/403 — the user must log in. */
     val redditNeedsAuth: Boolean = false,
     /** Currently-browsed subreddit (without r/ prefix). */
@@ -133,7 +136,10 @@ class AdultViewModel(
             when (savedSource) {
                 AdultSource.Reddit  -> fetchRedditPage(replace = true)
                 AdultSource.RedGifs -> fetchRedGifsPage(replace = true)
-                AdultSource.Pornhub -> fetchPornhubPage(replace = true)
+                AdultSource.Pornhub -> {
+                    fetchPornhubPage(replace = true)
+                    loadPornhubCategories()
+                }
                 else -> {
                     fetchPage(query = "", page = 1, order = "most-popular", replaceItems = true, isInitial = true)
                     loadCategories()
@@ -178,6 +184,7 @@ class AdultViewModel(
                 currentQuery = ""
                 _state.update { it.copy(currentPage = 1) }
                 fetchPornhubPage(replace = true)
+                loadPornhubCategories()
             }
         }
     }
@@ -327,6 +334,29 @@ class AdultViewModel(
 
     fun setCategorySearch(q: String) {
         _state.update { it.copy(categorySearch = q) }
+    }
+
+    fun selectPornhubCategory(category: PornhubCategory) {
+        currentQuery = category.title
+        _state.update { it.copy(currentPage = 1) }
+        fetchPornhubPage(replace = true)
+    }
+
+    fun loadPornhubCategories() {
+        if (_state.value.loadingPornhubCategories ||
+            _state.value.pornhubCategories.isNotEmpty()
+        ) return
+        viewModelScope.launch {
+            _state.update { it.copy(loadingPornhubCategories = true) }
+            val categories = runCatching { PornhubRepository.fetchCategories() }
+                .getOrDefault(emptyList())
+            _state.update {
+                it.copy(
+                    pornhubCategories = categories,
+                    loadingPornhubCategories = false,
+                )
+            }
+        }
     }
 
     fun loadCategories() {

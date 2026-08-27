@@ -1,6 +1,7 @@
 package com.streamcloud.app.ui.screens
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Lock
@@ -54,6 +56,7 @@ import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerCategory
+import com.streamcloud.app.data.api.PornhubCategory
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.screens.adult.RedditFeedView
@@ -78,7 +81,12 @@ fun AdultScreen(
     var detailItem by remember { mutableStateOf<AdultItem?>(null) }
     var query by remember { mutableStateOf("") }
     var showCategoryPicker by remember { mutableStateOf(false) }
+    var showAllPornhubCategories by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
+
+    BackHandler(enabled = showAllPornhubCategories) {
+        showAllPornhubCategories = false
+    }
 
     // Age gate: show blocking overlay until user confirms 18+
     if (!state.ageGateConfirmed) {
@@ -165,7 +173,21 @@ fun AdultScreen(
             }
         }
 
-        if (state.source == AdultSource.Reddit) {
+        if (state.source == AdultSource.Pornhub && showAllPornhubCategories) {
+            PornhubCategoriesPage(
+                categories = state.pornhubCategories,
+                loading = state.loadingPornhubCategories,
+                onBack = { showAllPornhubCategories = false },
+                onSelect = { category ->
+                    vm.selectPornhubCategory(category)
+                    query = category.title
+                    showAllPornhubCategories = false
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        } else if (state.source == AdultSource.Reddit) {
             // ── Reddit swipe-up feed ─────────────────────────────────────
             RedditFeedView(
                 vm         = vm,
@@ -193,6 +215,22 @@ fun AdultScreen(
         } else {
             // ── Searchable provider grid ──────────────────────────────────
             Spacer(Modifier.height(8.dp))
+
+            if (state.source == AdultSource.Pornhub && query.isBlank()) {
+                PornhubCategoryCarousel(
+                    categories = state.pornhubCategories,
+                    loading = state.loadingPornhubCategories,
+                    onViewAll = {
+                        vm.loadPornhubCategories()
+                        showAllPornhubCategories = true
+                    },
+                    onSelect = { category ->
+                        vm.selectPornhubCategory(category)
+                        query = category.title
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+            }
 
             // Search field
             OutlinedTextField(
@@ -260,7 +298,11 @@ fun AdultScreen(
 
             LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Fixed(2),
+                columns = if (state.source == AdultSource.Pornhub) {
+                    GridCells.Adaptive(300.dp)
+                } else {
+                    GridCells.Fixed(2)
+                },
                 modifier = Modifier.tvFocusGroup(),
                 contentPadding = PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -510,6 +552,164 @@ private fun formatCount(n: Int): String = when {
     n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
     n >= 1_000     -> "%.1fK".format(n / 1_000.0)
     else           -> n.toString()
+}
+
+@Composable
+private fun PornhubCategoryCarousel(
+    categories: List<PornhubCategory>,
+    loading: Boolean,
+    onViewAll: () -> Unit,
+    onSelect: (PornhubCategory) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Porn Categories",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            TextButton(onClick = onViewAll) {
+                Text("All categories")
+            }
+        }
+        when {
+            loading -> Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(116.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
+            }
+            categories.isNotEmpty() -> LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(
+                    categories.take(18),
+                    key = { it.id.ifBlank { it.title } },
+                ) { category ->
+                    PornhubCategoryCard(
+                        category = category,
+                        onClick = { onSelect(category) },
+                        modifier = Modifier.width(190.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PornhubCategoriesPage(
+    categories: List<PornhubCategory>,
+    loading: Boolean,
+    onBack: () -> Unit,
+    onSelect: (PornhubCategory) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.background(Color.Black)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                )
+            }
+            Text(
+                "All Porn Categories",
+                color = Color.White,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        if (loading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFFFF9000))
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(170.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.tvFocusGroup(),
+            ) {
+                items(categories, key = { it.id.ifBlank { it.title } }) { category ->
+                    PornhubCategoryCard(
+                        category = category,
+                        onClick = { onSelect(category) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PornhubCategoryCard(
+    category: PornhubCategory,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(6.dp))
+            .tvFocusBorder(RoundedCornerShape(6.dp))
+            .background(Color(0xFF242424))
+            .clickable(onClick = onClick),
+    ) {
+        AsyncImage(
+            model = category.thumbnail,
+            contentDescription = category.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
+                    ),
+                ),
+        )
+        Column(
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(10.dp),
+        ) {
+            Text(
+                category.title,
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            category.countLabel?.let { count ->
+                Text(
+                    count,
+                    color = Color.White.copy(alpha = 0.78f),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -858,14 +1058,16 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
-            Icon(
-                Icons.Default.PlayCircle,
-                null,
-                tint     = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(48.dp),
-            )
+            if (v.source != AdultSource.Pornhub) {
+                Icon(
+                    Icons.Default.PlayCircle,
+                    null,
+                    tint     = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(48.dp),
+                )
+            }
         }
         Text(
             v.title,

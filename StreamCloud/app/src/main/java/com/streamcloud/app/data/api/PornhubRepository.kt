@@ -6,10 +6,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.delay
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -21,6 +23,13 @@ import java.util.concurrent.TimeUnit
 data class PornhubPage(
     val items: List<AdultItem>,
     val hasMore: Boolean,
+)
+
+data class PornhubCategory(
+    val id: String,
+    val title: String,
+    val countLabel: String? = null,
+    val thumbnail: String? = null,
 )
 
 data class PornhubStreamSource(
@@ -76,6 +85,10 @@ object PornhubRepository {
             items = parsed,
             hasMore = parsed.isNotEmpty() && hasNextPornhubPage(html, page),
         )
+    }
+
+    suspend fun fetchCategories(): List<PornhubCategory> = withContext(Dispatchers.IO) {
+        parsePornhubCategories(requestPage("$BASE_URL/categories"))
     }
 
     suspend fun resolve(
@@ -268,6 +281,45 @@ internal fun parsePornhubListing(html: String): List<AdultItem> {
     return candidates.mapNotNull(::parsePornhubCard).distinctBy { it.id }
 }
 
+internal fun parsePornhubCategories(html: String): List<PornhubCategory> {
+    val document = Jsoup.parse(html, "https://www.pornhub.com")
+    return document.select(
+        "a[href*='/categories/'], a[href*='/video?c='], a[href*='/video?category=']",
+    ).mapNotNull { link ->
+        val image = link.selectFirst("img") ?: link.parent()?.selectFirst("img")
+        val title = sequenceOf(
+            link.attr("data-title"),
+            link.selectFirst("[class*=categoryName], [class*=title]")?.text(),
+            image?.attr("alt"),
+            link.ownText(),
+        ).filterNotNull().map(String::trim).firstOrNull(String::isNotBlank)
+            ?: return@mapNotNull null
+        val href = link.absUrl("href").ifBlank { link.attr("href") }
+        val parsedHref = runCatching { href.toHttpUrl() }.getOrNull()
+        val id = parsedHref?.queryParameter("c")
+            ?: parsedHref?.queryParameter("category")
+            ?: parsedHref?.pathSegments?.lastOrNull()?.takeIf { it.isNotBlank() }
+            ?: title.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        val surroundingText = link.parent()?.text().orEmpty()
+        val countLabel = Regex("""([\d,.]+\s*(?:K|M|B)?\s+videos?)""", RegexOption.IGNORE_CASE)
+            .find(surroundingText)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        val thumbnail = sequenceOf("data-src", "data-original", "data-thumb_url", "src")
+            .map { image?.attr(it).orEmpty() }
+            .firstOrNull { it.startsWith("http") || it.startsWith("//") }
+            ?.let { if (it.startsWith("//")) "https:$it" else it }
+        PornhubCategory(
+            id = id,
+            title = title,
+            countLabel = countLabel,
+            thumbnail = thumbnail,
+        )
+    }.filter { it.title.length in 2..60 }
+        .distinctBy { it.id.ifBlank { it.title.lowercase() } }
+}
+
 private fun parsePornhubCard(element: Element): AdultItem? {
     val link = element.selectFirst("a[href*='view_video.php?viewkey=']") ?: return null
     val pageUrl = link.absUrl("href").ifBlank {
@@ -330,19 +382,29 @@ internal fun parsePornhubMediaDefinitions(html: String): List<PornhubStreamSourc
         Json { ignoreUnknownKeys = true; isLenient = true }.parseToJsonElement(jsonText) as? JsonArray
     }.getOrNull() ?: return emptyList()
     return array.mapNotNull { raw ->
-        val item = raw.jsonObject
-        val url = item["videoUrl"]?.jsonPrimitive?.contentOrNull
+        val item = raw as? JsonObject ?: return@mapNotNull null
+        val url = item["videoUrl"].firstHttpsString()
             ?.replace("\\/", "/")
             ?.replace("\\u0026", "&")
-            ?.takeIf { it.startsWith("https://") }
             ?: return@mapNotNull null
-        val qualityPrimitive = item["quality"]?.jsonPrimitive
+        val qualityPrimitive = item["quality"] as? JsonPrimitive
         val quality = qualityPrimitive?.intOrNull
             ?: qualityPrimitive?.contentOrNull?.filter(Char::isDigit)?.toIntOrNull()
             ?: 0
-        val format = item["format"]?.jsonPrimitive?.contentOrNull.orEmpty().lowercase()
+        val format = (item["format"] as? JsonPrimitive)
+            ?.contentOrNull
+            .orEmpty()
+            .lowercase()
         PornhubStreamSource(url = url, format = format, quality = quality)
     }.distinctBy { it.url }
+}
+
+private fun JsonElement?.firstHttpsString(): String? = when (this) {
+    is JsonPrimitive -> contentOrNull?.takeIf { it.startsWith("https://") }
+    is JsonArray -> firstNotNullOfOrNull { it.firstHttpsString() }
+    is JsonObject -> sequenceOf("videoUrl", "url", "src")
+        .firstNotNullOfOrNull { key -> this[key].firstHttpsString() }
+    else -> null
 }
 
 internal fun choosePornhubSource(
