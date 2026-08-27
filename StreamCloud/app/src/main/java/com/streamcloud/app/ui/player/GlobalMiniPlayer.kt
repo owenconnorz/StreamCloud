@@ -50,6 +50,7 @@ import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.audio.PlaybackBus
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +80,10 @@ fun GlobalMiniPlayer(
 
     val isPlaying by PlaybackBus.isPlaying.collectAsState()
     val nowMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
+    val sonosCastState by SonosRepository.castState.collectAsState()
+    val sonosIsPlaying by SonosRepository.isSonosPlaying.collectAsState()
+    val isSonosCasting = sonosCastState is SonosRepository.CastState.Casting
+    val displayIsPlaying = if (isSonosCasting) sonosIsPlaying else isPlaying
 
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
     var showPlayHint by remember { mutableStateOf(false) }
@@ -306,7 +311,12 @@ fun GlobalMiniPlayer(
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clickable {
-                            controller?.let { if (it.isPlaying) it.pause() else it.play() }
+                            if (isSonosCasting) {
+                                if (sonosIsPlaying) SonosRepository.pause()
+                                else SonosRepository.resume()
+                            } else {
+                                controller?.let { if (it.isPlaying) it.pause() else it.play() }
+                            }
                             showPlayHint = true
                         },
                 ) {
@@ -330,7 +340,7 @@ fun GlobalMiniPlayer(
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                imageVector = if (isPlaying) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                imageVector = if (displayIsPlaying) Icons.Default.PlayArrow else Icons.Default.Pause,
                                 contentDescription = null,
                                 tint = Color.White,
                                 modifier = Modifier.size(22.dp),

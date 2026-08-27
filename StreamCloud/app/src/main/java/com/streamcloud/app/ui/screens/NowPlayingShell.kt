@@ -182,10 +182,10 @@ fun NowPlayingShell(
                 // When casting, tell the active network destination to load the selected track.
                 val cstate = SonosRepository.castState.value
                 if (cstate is SonosRepository.CastState.Casting) {
-                    // The queue is still driven by Media3, but its audio must never take back
-                    // the phone speaker while Sonos resolves the replacement stream.
+                    // SonosRepository owns the queue observer for the lifetime of the cast.
+                    // This screen only keeps phone audio paused while the repository replaces
+                    // the speaker URI, so mini-player and notification skips work too.
                     controller.pause()
-                    SonosRepository.updateTrack(context.applicationContext, vid, trackTitle, watchUrl)
                 } else if (MusicRemoteCast.state.value is MusicRemoteCast.State.Casting) {
                     controller.pause()
                     MusicRemoteCast.updateTrack(context.applicationContext, vid, trackTitle, watchUrl)

@@ -2,8 +2,11 @@ package com.streamcloud.app.data.sonos
 
 import android.content.Context
 import android.util.Log
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.data.newpipe.NewPipeRepository
+import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -60,8 +63,11 @@ object SonosRepository {
     private val _sonosDurationMs = MutableStateFlow(0L)
     val sonosDurationMs: StateFlow<Long> = _sonosDurationMs.asStateFlow()
 
-    private var activeDevice: SonosDevice? = null
+    @Volatile private var activeDevice: SonosDevice? = null
     private var appContext: Context? = null
+    private var queuePlayer: Player? = null
+    private var queueListener: Player.Listener? = null
+    private var observedQueueMediaId: String? = null
     private var pollingJob: kotlinx.coroutines.Job? = null
     private var connectionJob: kotlinx.coroutines.Job? = null
     private var trackUpdateJob: kotlinx.coroutines.Job? = null
@@ -94,6 +100,67 @@ object SonosRepository {
 
     private fun shouldPlayAfterTrackUpdate(generation: Int): Boolean =
         trackUpdateIntent.get().let { it.generation == generation && it.shouldPlay }
+
+    private fun queueTrack(mediaItem: MediaItem): Triple<String, String, String>? {
+        val extras = mediaItem.mediaMetadata.extras
+        val mediaId = mediaItem.mediaId
+        val explicitVideoId = extras?.getString(YtPlayback.EXTRA_VIDEO_ID).orEmpty()
+        val videoId = explicitVideoId.ifBlank {
+            if (mediaId.startsWith("http")) {
+                mediaId.substringAfter("v=", "").substringBefore("&")
+            } else {
+                mediaId
+            }
+        }
+        val watchUrl = extras?.getString(YtPlayback.EXTRA_WATCH_URL)
+            ?.takeIf { it.isNotBlank() }
+            ?: mediaId.takeIf { it.startsWith("http") }
+            ?: videoId.takeIf { it.isNotBlank() }
+                ?.let { YtPlayback.watchUrl(it) }
+        if (videoId.isBlank() || watchUrl.isNullOrBlank()) return null
+        return Triple(videoId, mediaItem.mediaMetadata.title?.toString().orEmpty(), watchUrl)
+    }
+
+    private fun detachQueueObserverOnMain() {
+        val player = queuePlayer
+        val listener = queueListener
+        if (player != null && listener != null) {
+            player.removeListener(listener)
+        }
+        queuePlayer = null
+        queueListener = null
+        observedQueueMediaId = null
+    }
+
+    private suspend fun attachQueueObserver(context: Context) =
+        withContext(Dispatchers.Main) {
+            val controller = MusicController.get(context.applicationContext)
+            detachQueueObserverOnMain()
+            observedQueueMediaId = controller.currentMediaItem?.mediaId
+            val listener = object : Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    val item = mediaItem ?: return
+                    if (activeDevice == null || _castState.value !is CastState.Casting) return
+                    if (item.mediaId == observedQueueMediaId) return
+                    observedQueueMediaId = item.mediaId
+                    val (videoId, title, watchUrl) = queueTrack(item) ?: run {
+                        Log.w(TAG, "Cannot map queue item ${item.mediaId} to a Sonos stream")
+                        _castState.update {
+                            CastState.Error("Sonos cannot play the selected queue item.")
+                        }
+                        return
+                    }
+                    // Sonos owns only one external URI at a time. Media3 remains the queue owner,
+                    // and every transition replaces that URI through the generation-aware path.
+                    controller.pause()
+                    updateTrack(context.applicationContext, videoId, title, watchUrl)
+                }
+            }
+            queuePlayer = controller
+            queueListener = listener
+            controller.addListener(listener)
+            controller.pause()
+        }
 
     private suspend fun prepareSonosStream(
         videoId: String,
@@ -213,6 +280,7 @@ object SonosRepository {
         _castState.update { CastState.Connecting }
         connectionJob = scope.launch {
             try {
+                withContext(Dispatchers.Main) { detachQueueObserverOnMain() }
                 val localIp = SonosDiscovery.localIp(context)
                 if (localIp == null) {
                     _castState.update { CastState.Error("Cannot determine local IP — connect to WiFi first.") }
@@ -314,10 +382,20 @@ object SonosRepository {
                     activeDevice  = device
                     appContext    = context.applicationContext
 
-                    runCatching {
-                        withContext(Dispatchers.Main) {
-                            MusicController.get(context.applicationContext).pause()
+                    val observerError = runCatching {
+                        attachQueueObserver(context.applicationContext)
+                    }.exceptionOrNull()
+                    if (observerError != null) {
+                        Log.w(TAG, "Could not attach Sonos queue controls", observerError)
+                        activeDevice = null
+                        appContext = null
+                        _isSonosPlaying.value = false
+                        SonosController.stop(device)
+                        SonosProxyServer.stop()
+                        _castState.update {
+                            CastState.Error("Sonos connected, but queue controls could not be started.")
                         }
+                        return@launch
                     }
 
                     SonosController.getVolume(device)?.let { _sonosVolume.value = it }
@@ -345,6 +423,7 @@ object SonosRepository {
     fun cancelConnection(context: Context) {
         connectionJob?.cancel()
         connectionJob = null
+        scope.launch(Dispatchers.Main) { detachQueueObserverOnMain() }
         SonosProxyServer.stop()
         _castState.update { CastState.Idle }
         startDiscovery(context)
@@ -520,6 +599,7 @@ object SonosRepository {
         val ctx    = appContext
         activeDevice = null
         appContext    = null
+        scope.launch(Dispatchers.Main) { detachQueueObserverOnMain() }
         SonosProxyServer.stop()
         if (device != null) scope.launch { SonosController.stop(device) }
         _castState.update { CastState.Idle }
