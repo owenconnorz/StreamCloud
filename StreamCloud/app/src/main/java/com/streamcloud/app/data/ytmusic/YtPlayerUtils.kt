@@ -517,7 +517,9 @@ object YtPlayerUtils {
             val needsSessionSnapshot =
                 client.useWebPoTokens || client.useWebAuth || client.requiresAuth
             if (needsSessionSnapshot && !visitorDataPreparedForWebFallback) {
+                PlaybackLatencyTrace.mark(videoId, "warmup-session-start")
                 ensureVisitorData()
+                PlaybackLatencyTrace.mark(videoId, "warmup-session-ready")
                 visitorDataPreparedForWebFallback = true
             }
             val webSessionSnapshot = if (needsSessionSnapshot) {
@@ -567,6 +569,7 @@ object YtPlayerUtils {
                     recordClientFailure(client.label)
                     continue
                 }
+                PlaybackLatencyTrace.mark(videoId, "warmup-potoken-ready")
                 Log.d(TAG, "[${client.label}] PoToken generated ok")
             }
 
@@ -577,6 +580,7 @@ object YtPlayerUtils {
             // no-op (guarded by snippetFetchedAt TTL), so there is zero latency on warm paths.
             if (client.useSignatureTimestamp) {
                 YtNSigDescrambler.warmUp()
+                PlaybackLatencyTrace.mark(videoId, "warmup-player-js-ready")
             }
 
             val result = tryClient(

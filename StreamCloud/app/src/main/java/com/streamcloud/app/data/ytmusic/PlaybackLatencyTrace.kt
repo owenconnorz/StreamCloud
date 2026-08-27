@@ -25,6 +25,7 @@ object PlaybackLatencyTrace {
         val id: Long,
         val startedAtMs: Long,
         val firstAudio: CompletableDeferred<Boolean> = CompletableDeferred(),
+        val markedStages: MutableSet<String> = ConcurrentHashMap.newKeySet(),
     )
 
     class Handle internal constructor(
@@ -65,7 +66,12 @@ object PlaybackLatencyTrace {
     }
 
     fun mark(videoId: String, stage: String) {
+        markOnce(videoId, stage, stage)
+    }
+
+    fun markOnce(videoId: String, key: String, stage: String) {
         val attempt = attempts[videoId] ?: return
+        if (!attempt.markedStages.add(key)) return
         AppLogger.i(TAG, "$videoId $stage +${SystemClock.elapsedRealtime() - attempt.startedAtMs}ms")
     }
 

@@ -14,6 +14,10 @@ object StreamUrlCache {
     private const val CLIENT_LABEL_KEY = "clientLabel"
     private const val WEB_SESSION_HEADERS_KEY = "requiresWebSessionHeaders"
     private const val SESSION_FINGERPRINT_KEY = "sessionFingerprint"
+    private const val CONTENT_LENGTH_KEY = "contentLength"
+    private const val REQUIRES_BYTE_RANGE_KEY = "requiresByteRange"
+    private const val GENERATION_KEY = "generation"
+    private const val MAX_PERSISTED_ENTRIES = 128
 
     data class Entry(
         val url: String,
@@ -29,6 +33,12 @@ object StreamUrlCache {
         val requiresWebSessionHeaders: Boolean = false,
         /** Non-secret hash of the cookie/visitor state that minted this web-bound URL. */
         val sessionFingerprint: String? = null,
+        /** Advertised complete media length, when supplied by the selected player format. */
+        val contentLength: Long? = null,
+        /** Whether playback must retain Media3's bounded HTTP range request semantics. */
+        val requiresByteRange: Boolean = true,
+        /** Resolver generation that owns this entry; older work cannot replace it. */
+        val generation: Long = 0L,
     )
 
     private val cache = ConcurrentHashMap<String, Entry>()
@@ -59,6 +69,7 @@ object StreamUrlCache {
                 expiredOrInvalidKeys.forEach { key -> remove(key) }
             }.apply()
         }
+        trimPersistentEntries(prefs)
     }
 
 
@@ -95,6 +106,9 @@ object StreamUrlCache {
         clientLabel: String? = null,
         requiresWebSessionHeaders: Boolean = false,
         sessionFingerprint: String? = null,
+        contentLength: Long? = null,
+        requiresByteRange: Boolean = true,
+        generation: Long = 0L,
     ) {
         val entry = Entry(
             url = url,
@@ -103,12 +117,16 @@ object StreamUrlCache {
             clientLabel = clientLabel,
             requiresWebSessionHeaders = requiresWebSessionHeaders,
             sessionFingerprint = sessionFingerprint,
+            contentLength = contentLength,
+            requiresByteRange = requiresByteRange,
+            generation = generation,
         )
         cache[videoId] = entry
         if (expiryMs > System.currentTimeMillis()) {
             preferences?.edit()
                 ?.putString(videoId, encode(entry))
                 ?.apply()
+            preferences?.let(::trimPersistentEntries)
         }
     }
 
@@ -143,6 +161,9 @@ object StreamUrlCache {
         .put(CLIENT_LABEL_KEY, entry.clientLabel)
         .put(WEB_SESSION_HEADERS_KEY, entry.requiresWebSessionHeaders)
         .put(SESSION_FINGERPRINT_KEY, entry.sessionFingerprint)
+        .put(CONTENT_LENGTH_KEY, entry.contentLength)
+        .put(REQUIRES_BYTE_RANGE_KEY, entry.requiresByteRange)
+        .put(GENERATION_KEY, entry.generation)
         .toString()
 
     private fun decode(value: String): Entry? = runCatching {
@@ -156,8 +177,29 @@ object StreamUrlCache {
                 requiresWebSessionHeaders = json.optBoolean(WEB_SESSION_HEADERS_KEY),
                 sessionFingerprint = json.optString(SESSION_FINGERPRINT_KEY)
                     .takeUnless { it.isBlank() || it == "null" },
+                contentLength = json.optLong(CONTENT_LENGTH_KEY, -1L)
+                    .takeIf { it >= 0L },
+                requiresByteRange = json.optBoolean(REQUIRES_BYTE_RANGE_KEY, true),
+                generation = json.optLong(GENERATION_KEY, 0L),
             )
         }
     }.getOrNull()
+
+    @Synchronized
+    private fun trimPersistentEntries(prefs: SharedPreferences) {
+        val entries = prefs.all.mapNotNull { (key, value) ->
+            (value as? String)?.let(::decode)?.let { key to it }
+        }
+        if (entries.size <= MAX_PERSISTED_ENTRIES) return
+        val removeCount = entries.size - MAX_PERSISTED_ENTRIES
+        val oldestKeys = entries
+            .sortedWith(compareBy<Pair<String, Entry>>({ it.second.expiryMs }, { it.first }))
+            .take(removeCount)
+            .map { it.first }
+        prefs.edit().apply {
+            oldestKeys.forEach(::remove)
+        }.apply()
+        oldestKeys.forEach(cache::remove)
+    }
 
 }

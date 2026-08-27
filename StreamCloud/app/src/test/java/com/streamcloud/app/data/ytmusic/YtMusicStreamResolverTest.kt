@@ -47,4 +47,41 @@ class YtMusicStreamResolverTest {
             ),
         )
     }
+
+    @Test
+    fun cachedStreamRetainsItsPlaybackContract() {
+        val entry = StreamUrlCache.Entry(
+            url = "https://example.test/audio",
+            userAgent = "resolver-agent",
+            expiryMs = 123_456L,
+            clientLabel = "VISIONOS",
+            requiresWebSessionHeaders = false,
+            sessionFingerprint = null,
+            contentLength = 9_876_543L,
+            requiresByteRange = true,
+            generation = 7L,
+        )
+
+        assertEquals(9_876_543L, entry.contentLength ?: -1L)
+        assertEquals(true, entry.requiresByteRange)
+        assertEquals(7L, entry.generation)
+    }
+
+    @Test
+    fun staleResolverGenerationsAreNotReturnedAfterRecovery() {
+        assertEquals(true, isResolutionGenerationCurrent(4L, 4L))
+        assertEquals(false, isResolutionGenerationCurrent(3L, 4L))
+    }
+
+    @Test
+    fun playbackLookAheadContainsOnlyCurrentAndImmediateNextTrack() {
+        assertEquals(
+            listOf("current", "next"),
+            queuePrefetchVideoIds(
+                videoIds = listOf("current", "next", "later"),
+                currentIndex = 0,
+                lookAhead = YtMusicStreamResolver.PLAYBACK_LOOKAHEAD_COUNT,
+            ),
+        )
+    }
 }

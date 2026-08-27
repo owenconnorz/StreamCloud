@@ -3,6 +3,8 @@ package com.streamcloud.app
 import android.app.Application
 import android.os.Build
 import android.util.Log
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -29,6 +31,7 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import java.util.concurrent.TimeUnit
 
+@OptIn(UnstableApi::class)
 class StreamCloudApplication : Application(), ImageLoaderFactory {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -62,6 +65,7 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         // context the service uses so web-client fallback and PoToken resolution are available.
         com.streamcloud.app.data.ytmusic.YtPlayerUtils.appContext = applicationContext
         com.streamcloud.app.data.ytmusic.StreamUrlCache.initialize(applicationContext)
+        com.streamcloud.app.audio.MusicController.prewarm(applicationContext)
 
         runCatching { com.lagradost.cloudstream3.installPrefs(this) }
             .onFailure { Log.e("StreamCloud", "installPrefs failed", it) }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 internal fun boundedPrefetchVideoIds(videoIds: Iterable<String>, limit: Int): List<String> =
@@ -38,6 +39,9 @@ internal fun queuePrefetchVideoIds(
     )
 }
 
+internal fun isResolutionGenerationCurrent(entryGeneration: Long, currentGeneration: Long): Boolean =
+    entryGeneration == currentGeneration
+
 /**
  * Resolves and caches the short-lived YouTube audio URL independently of ExoPlayer.
  *
@@ -55,14 +59,36 @@ object YtMusicStreamResolver {
 
     private data class InFlightResolution(
         val deferred: Deferred<StreamUrlCache.Entry>,
-        val speculative: Boolean,
-    )
+        val generation: Long,
+        val excludedClientLabels: MutableSet<String>,
+        val foreground: AtomicBoolean,
+    ) {
+        fun promote(): Boolean = foreground.compareAndSet(false, true)
+    }
+
+    private class StaleResolutionException(videoId: String, generation: Long) :
+        IllegalStateException("Resolution $generation for $videoId was superseded")
+
+    private sealed interface ResolutionDecision {
+        data class Cached(val entry: StreamUrlCache.Entry) : ResolutionDecision
+        data class Recover(val excludedClientLabels: Set<String>) : ResolutionDecision
+        data class Await(val resolution: InFlightResolution) : ResolutionDecision
+    }
+
+    private sealed interface RecoveryDecision {
+        data class Cached(val entry: StreamUrlCache.Entry) : RecoveryDecision
+        data class Await(
+            val resolution: InFlightResolution,
+            val requiredExclusions: MutableSet<String>,
+        ) : RecoveryDecision
+    }
 
     private val prefetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val foregroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val resolutionLocks = ConcurrentHashMap<String, Mutex>()
     private val inFlightResolutions = ConcurrentHashMap<String, InFlightResolution>()
     private val resolutionGenerations = ConcurrentHashMap<String, AtomicLong>()
+    private val recoveryExclusions = ConcurrentHashMap<String, MutableSet<String>>()
     private val queuedPrefetchPriorities = ConcurrentHashMap<String, PrefetchPriority>()
     private val visibleListPrefetchPermits = Semaphore(1)
     private val activeQueuePrefetchPermits = Semaphore(1)
@@ -82,17 +108,11 @@ object YtMusicStreamResolver {
         // A rejected client must not reuse a speculative request that may be resolving the same
         // client. This path only follows a confirmed CDN failure and is intentionally isolated.
         if (excludedClientLabels.isNotEmpty()) {
-            val generation = invalidateResolution(videoId)
-            return resolveFresh(
-                videoId = videoId,
-                excludedClientLabels = excludedClientLabels,
-                serializeWithPrefetch = false,
-                generation = generation,
-            )
+            return resolveRecovery(videoId, excludedClientLabels)
         }
 
-        // A foreground request must never inherit a slow, speculative warm-up. It promotes the
-        // work to its own resolver job, while concurrent foreground requests still share one job.
+        // A foreground request promotes and awaits the one authoritative resolver job. It never
+        // cancels useful speculative network work or starts a duplicate extraction.
         return resolveShared(videoId, speculative = false)
     }
 
@@ -125,41 +145,164 @@ object YtMusicStreamResolver {
         speculative: Boolean,
     ): StreamUrlCache.Entry {
         while (true) {
-            val active = inFlightResolutions[videoId]
-            if (active != null) {
-                if (!speculative && active.speculative) {
-                    AppLogger.i(TAG, "Promoting active prefetch for $videoId without restarting extraction")
+            val decision = synchronized(generationState(videoId)) {
+                StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint())
+                    ?.let { return@synchronized ResolutionDecision.Cached(it) }
+                recoveryExclusions[videoId]
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { return@synchronized ResolutionDecision.Recover(it.toSet()) }
+                inFlightResolutions[videoId]?.let {
+                    return@synchronized ResolutionDecision.Await(it)
                 }
-                return active.deferred.await()
-            }
-
-            val scope = if (speculative) prefetchScope else foregroundScope
-            val generation = if (speculative) {
-                currentResolutionGeneration(videoId)
-            } else {
-                nextResolutionGeneration(videoId)
-            }
-            val deferred = scope.async(start = CoroutineStart.LAZY) {
-                resolveFresh(
-                    videoId = videoId,
-                    excludedClientLabels = emptySet(),
-                    // A promoted request must not wait for a cancelled/non-cooperative prefetch
-                    // still holding the per-video mutex.
-                    serializeWithPrefetch = speculative,
+                val generation = if (speculative) {
+                    generationState(videoId).get()
+                } else {
+                    generationState(videoId).incrementAndGet()
+                }
+                // Every authoritative extraction lives in the non-cancellable foreground scope.
+                // Speculative callers are throttled before reaching this point; promotion
+                // changes ownership without cancelling or duplicating the underlying work.
+                val deferred = foregroundScope.async(start = CoroutineStart.LAZY) {
+                    resolveFresh(
+                        videoId = videoId,
+                        excludedClientLabels = emptySet(),
+                        serializeWithPrefetch = speculative,
+                        generation = generation,
+                    )
+                }
+                val created = InFlightResolution(
+                    deferred = deferred,
                     generation = generation,
+                    excludedClientLabels = ConcurrentHashMap.newKeySet(),
+                    foreground = AtomicBoolean(!speculative),
                 )
+                inFlightResolutions[videoId] = created
+                deferred.invokeOnCompletion {
+                    inFlightResolutions.remove(videoId, created)
+                }
+                deferred.start()
+                ResolutionDecision.Await(created)
             }
-            val created = InFlightResolution(deferred, speculative)
-            if (inFlightResolutions.putIfAbsent(videoId, created) != null) {
-                deferred.cancel()
+            when (decision) {
+                is ResolutionDecision.Cached -> return decision.entry
+                is ResolutionDecision.Recover ->
+                    return resolveRecovery(videoId, decision.excludedClientLabels)
+                is ResolutionDecision.Await -> Unit
+            }
+            val active = (decision as ResolutionDecision.Await).resolution
+            if (!speculative && active.promote()) {
+                AppLogger.i(TAG, "Promoting active prefetch for $videoId without restarting extraction")
+            }
+            val resolved = try {
+                active.deferred.await()
+            } catch (_: StaleResolutionException) {
                 continue
             }
-
-            deferred.invokeOnCompletion {
-                inFlightResolutions.remove(videoId, created)
+            if (!isResolutionGenerationCurrent(resolved.generation, currentResolutionGeneration(videoId))) {
+                continue
             }
-            deferred.start()
-            return deferred.await()
+            return resolved
+        }
+    }
+
+    private suspend fun resolveRecovery(
+        videoId: String,
+        excludedClientLabels: Set<String>,
+    ): StreamUrlCache.Entry {
+        while (true) {
+            val decision = synchronized(generationState(videoId)) {
+                val requiredExclusions = recoveryExclusions[videoId]
+                    ?: StreamUrlCache.getEntry(
+                        videoId,
+                        YtPlayerUtils.currentWebSessionFingerprint(),
+                    )?.takeIf { cached -> cached.clientLabel !in excludedClientLabels }
+                        ?.let { return@synchronized RecoveryDecision.Cached(it) }
+                    ?: ConcurrentHashMap.newKeySet<String>().also {
+                        recoveryExclusions[videoId] = it
+                    }
+                requiredExclusions.addAll(excludedClientLabels)
+                val existing = inFlightResolutions[videoId]
+                if (
+                    existing != null &&
+                    existing.excludedClientLabels.isNotEmpty() &&
+                    existing.deferred.isActive &&
+                    existing.generation == generationState(videoId).get()
+                ) {
+                    existing.excludedClientLabels.addAll(requiredExclusions)
+                    existing.promote()
+                    return@synchronized RecoveryDecision.Await(existing, requiredExclusions)
+                }
+
+                val generation = generationState(videoId).incrementAndGet()
+                StreamUrlCache.remove(videoId)
+                val canonicalExclusions = ConcurrentHashMap.newKeySet<String>().apply {
+                    addAll(requiredExclusions)
+                }
+                val deferred = foregroundScope.async(start = CoroutineStart.LAZY) {
+                    resolveFresh(
+                        videoId = videoId,
+                        excludedClientLabels = canonicalExclusions.toSet(),
+                        serializeWithPrefetch = false,
+                        generation = generation,
+                    )
+                }
+                InFlightResolution(
+                    deferred = deferred,
+                    generation = generation,
+                    excludedClientLabels = canonicalExclusions,
+                    foreground = AtomicBoolean(true),
+                ).also { replacement ->
+                    inFlightResolutions[videoId] = replacement
+                    deferred.invokeOnCompletion {
+                        inFlightResolutions.remove(videoId, replacement)
+                    }
+                    deferred.start()
+                }
+                RecoveryDecision.Await(
+                    resolution = inFlightResolutions.getValue(videoId),
+                    requiredExclusions = requiredExclusions,
+                )
+            }
+            if (decision is RecoveryDecision.Cached) return decision.entry
+            val recovery = decision as RecoveryDecision.Await
+            val created = recovery.resolution
+            val requiredExclusions = recovery.requiredExclusions
+            val resolved = try {
+                created.deferred.await()
+            } catch (_: StaleResolutionException) {
+                requiredExclusions.addAll(created.excludedClientLabels)
+                inFlightResolutions.remove(videoId, created)
+                continue
+            } catch (error: Throwable) {
+                synchronized(generationState(videoId)) {
+                    if (generationState(videoId).get() == created.generation) {
+                        inFlightResolutions.remove(videoId, created)
+                        recoveryExclusions.remove(videoId, requiredExclusions)
+                    }
+                }
+                throw error
+            }
+            requiredExclusions.addAll(created.excludedClientLabels)
+            if (!isResolutionGenerationCurrent(resolved.generation, currentResolutionGeneration(videoId))) {
+                continue
+            }
+            if (resolved.clientLabel in requiredExclusions) {
+                // A stricter caller may have joined after this generation took its request
+                // snapshot. Retire the completed generation once and continue with the monotonic
+                // union rather than allowing callers to alternate older exclusion contracts.
+                inFlightResolutions.remove(videoId, created)
+                continue
+            }
+            synchronized(generationState(videoId)) {
+                val current = inFlightResolutions[videoId]
+                if (
+                    created.generation == generationState(videoId).get() &&
+                    (current == null || current.generation == created.generation)
+                ) {
+                    recoveryExclusions.remove(videoId, requiredExclusions)
+                }
+            }
+            return resolved
         }
     }
 
@@ -206,11 +349,16 @@ object YtMusicStreamResolver {
             clientLabel = info.clientLabel,
             requiresWebSessionHeaders = info.requiresWebSessionHeaders,
             sessionFingerprint = info.sessionFingerprint,
+            contentLength = info.contentLength,
+            requiresByteRange = true,
+            generation = generation,
         )
         // A foreground recovery/promotion may have superseded this resolver while an underlying
         // extractor ignored cancellation. Generation validation and cache publication share the
         // same per-video lock as invalidation, so an old resolver cannot slip in a stale URL.
-        publishIfCurrent(videoId, generation, entry)
+        if (!publishIfCurrent(videoId, generation, entry)) {
+            throw StaleResolutionException(videoId, generation)
+        }
         return entry
     }
 
@@ -222,25 +370,20 @@ object YtMusicStreamResolver {
             generationState(videoId).get()
         }
 
-    private fun nextResolutionGeneration(videoId: String): Long =
-        synchronized(generationState(videoId)) {
-            generationState(videoId).incrementAndGet()
-        }
-
-    private fun invalidateResolution(videoId: String): Long =
-        synchronized(generationState(videoId)) {
-            generationState(videoId).incrementAndGet().also {
-                StreamUrlCache.remove(videoId)
-            }
-        }
-
     private fun publishIfCurrent(
         videoId: String,
         generation: Long,
         entry: StreamUrlCache.Entry,
-    ) {
+    ): Boolean {
         synchronized(generationState(videoId)) {
-            if (generation != generationState(videoId).get()) return
+            if (generation != generationState(videoId).get()) return false
+            val active = inFlightResolutions[videoId]
+            if (
+                active?.generation == generation &&
+                entry.clientLabel in active.excludedClientLabels
+            ) {
+                return false
+            }
             StreamUrlCache.put(
                 videoId = videoId,
                 url = entry.url,
@@ -249,7 +392,11 @@ object YtMusicStreamResolver {
                 clientLabel = entry.clientLabel,
                 requiresWebSessionHeaders = entry.requiresWebSessionHeaders,
                 sessionFingerprint = entry.sessionFingerprint,
+                contentLength = entry.contentLength,
+                requiresByteRange = entry.requiresByteRange,
+                generation = entry.generation,
             )
+            return true
         }
     }
 
@@ -323,9 +470,9 @@ object YtMusicStreamResolver {
     }
 
     private const val DEFAULT_PREFETCH_COUNT = 4
-    const val PLAYBACK_LOOKAHEAD_COUNT = 6
+    const val PLAYBACK_LOOKAHEAD_COUNT = 2
     private const val MAX_VISIBLE_LIST_PREFETCH = 4
-    private const val MAX_ACTIVE_QUEUE_PREFETCH = 6
+    private const val MAX_ACTIVE_QUEUE_PREFETCH = 2
     private const val EXPIRY_SAFETY_SECONDS = 300L
     private const val MINIMUM_CACHE_SECONDS = 60L
 }

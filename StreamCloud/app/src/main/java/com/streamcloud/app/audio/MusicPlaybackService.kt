@@ -70,7 +70,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import java.io.File
 
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaLibraryService() {
@@ -140,6 +139,9 @@ class MusicPlaybackService : MediaLibraryService() {
         val requiresWebSessionHeaders: Boolean,
         val sessionFingerprint: String? = null,
         val webSessionHeaders: Map<String, String> = emptyMap(),
+        val contentLength: Long? = null,
+        val requiresByteRange: Boolean = true,
+        val generation: Long = 0L,
     )
 
 
@@ -549,6 +551,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 val host = req.url.host
                 val builder = req.newBuilder()
                 val streamSessionMarker = req.header(STREAM_WEB_SESSION_HEADER)
+                val traceVideoId = req.header(STREAM_VIDEO_ID_HEADER)
                 val useWebSessionHeaders = when (streamSessionMarker) {
                     // The resolving data source explicitly marks every music stream. This must win
                     // over its user agent: a maintained extractor can resolve via a web page but
@@ -564,8 +567,16 @@ class MusicPlaybackService : MediaLibraryService() {
                 // This header tells the in-app interceptor which profile to apply. It must never
                 // reach YouTube's CDN as an actual HTTP header.
                 builder.removeHeader(STREAM_WEB_SESSION_HEADER)
+                builder.removeHeader(STREAM_VIDEO_ID_HEADER)
 
                 val response = chain.proceed(builder.build())
+                traceVideoId?.let { videoId ->
+                    PlaybackLatencyTrace.markOnce(
+                        videoId = videoId,
+                        key = "first-cdn-response",
+                        stage = "first-cdn-${response.code}",
+                    )
+                }
 
                 // Log 403 CDN response bodies — the body often contains the exact failure reason
                 // (e.g. "Video unavailable", IP mismatch, missing auth) which is invisible from
@@ -630,12 +641,9 @@ class MusicPlaybackService : MediaLibraryService() {
             return dataSpec
         }
 
-        // Legacy MusicDownloader files stored as real paths in the library DB.
-        val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
-        val localPath = runBlocking(Dispatchers.IO) { dao.byUrl(watchUrl)?.localPath }
-        if (localPath != null && !localPath.startsWith("cache:") && File(localPath).exists()) {
-            return dataSpec.withUri(localPath.toUri())
-        }
+        // Legacy library items carry their file URI directly. Never query Room from Media3's
+        // resolver thread; selected-track bookkeeping must not delay the first network read.
+        if (dataSpec.uri.scheme == "file") return dataSpec
 
         // Always resolve to the real stream URL for everything else.
         // CacheDataSource handles player-cache hits transparently — there is no need
@@ -645,14 +653,28 @@ class MusicPlaybackService : MediaLibraryService() {
         val videoId = watchUrl.substringAfter("v=", "").substringBefore("&")
         val stream = resolveStreamUrl(videoId, watchUrl)
 
+        val streamHeaders = buildMap {
+            put("User-Agent", stream.userAgent)
+            put(
+                STREAM_WEB_SESSION_HEADER,
+                if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
+            )
+            put(STREAM_VIDEO_ID_HEADER, videoId)
+            if (
+                stream.requiresByteRange &&
+                dataSpec.httpRequestHeaders.keys.none { it.equals("Range", ignoreCase = true) }
+            ) {
+                val rangeEnd = dataSpec.length
+                    .takeIf { it != androidx.media3.common.C.LENGTH_UNSET }
+                    ?.let { dataSpec.position + it - 1L }
+                put("Range", "bytes=${dataSpec.position}-${rangeEnd ?: ""}")
+            }
+            putAll(stream.webSessionHeaders)
+        }
         return dataSpec.buildUpon()
             .setUri(stream.url.toUri())
             .setHttpRequestHeaders(
-                dataSpec.httpRequestHeaders + mapOf(
-                    "User-Agent" to stream.userAgent,
-                    STREAM_WEB_SESSION_HEADER to
-                        if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
-                ) + stream.webSessionHeaders
+                dataSpec.httpRequestHeaders + streamHeaders
             )
             .build()
     }
@@ -687,6 +709,9 @@ class MusicPlaybackService : MediaLibraryService() {
                 requiresWebSessionHeaders = entry.requiresWebSessionHeaders,
                 sessionFingerprint = entry.sessionFingerprint,
                 webSessionHeaders = webHeaders,
+                contentLength = entry.contentLength,
+                requiresByteRange = entry.requiresByteRange,
+                generation = entry.generation,
             )
         }
 
@@ -745,6 +770,9 @@ class MusicPlaybackService : MediaLibraryService() {
                 requiresWebSessionHeaders = entry.requiresWebSessionHeaders,
                 sessionFingerprint = entry.sessionFingerprint,
                 webSessionHeaders = webHeaders,
+                contentLength = entry.contentLength,
+                requiresByteRange = entry.requiresByteRange,
+                generation = entry.generation,
             )
         }
         AppLogger.w(TAG, "Innertube failed for $videoId: ${innertubeResult.exceptionOrNull()?.message}")
@@ -784,6 +812,9 @@ class MusicPlaybackService : MediaLibraryService() {
             userAgent = extracted.userAgent,
             expiryMs = now + 3_600_000L,
             clientLabel = extracted.resolverLabel,
+            contentLength = null,
+            requiresByteRange = true,
+            generation = 0L,
         )
         AppLogger.i(
             TAG,
@@ -795,6 +826,9 @@ class MusicPlaybackService : MediaLibraryService() {
             userAgent = extracted.userAgent,
             requiresWebSessionHeaders = false,
             sessionFingerprint = null,
+            contentLength = null,
+            requiresByteRange = true,
+            generation = 0L,
         )
     }
 
@@ -1375,9 +1409,15 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
 
-    private fun trackEntityItem(t: TrackEntity): MediaItem = MediaItem.Builder()
+    private fun trackEntityItem(t: TrackEntity): MediaItem {
+        val localFileUri = t.localPath
+            ?.takeUnless { it.startsWith("cache:") }
+            ?.let { java.io.File(it) }
+            ?.takeIf(java.io.File::exists)
+            ?.toUri()
+        return MediaItem.Builder()
         .setMediaId(t.url)
-        .setUri(t.url)
+        .setUri(localFileUri ?: t.url.toUri())
         .setCustomCacheKey(t.url)
         .setMediaMetadata(
             MediaMetadata.Builder()
@@ -1390,6 +1430,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 .build(),
         )
         .build()
+    }
 
     private fun ytmSongItem(s: YtmSong): MediaItem {
         val url = "https://music.youtube.com/watch?v=${s.videoId}"
@@ -1682,12 +1723,13 @@ class MusicPlaybackService : MediaLibraryService() {
         private const val TAG    = "MusicPlaybackService"
         // Keep a small byte runway for the immediate next songs. A 50 MiB speculative warm-up
         // competes with a cold first stream on constrained mobile and TV connections.
-        private const val BUFFERED_PREFETCH_TRACK_COUNT = 2
+        private const val BUFFERED_PREFETCH_TRACK_COUNT = 1
         private const val BUFFERED_PREFETCH_BYTES = 256L * 1024L
         private const val BUFFERED_PREFETCH_BUFFER_BYTES = 64 * 1024
         private const val AUTHENTICATED_LIBRARY_SYNC_DELAY_MS = 5_000L
         private const val STREAM_WEB_SESSION_HEADER = "X-StreamCloud-Web-Session"
         private const val STREAM_WEB_SESSION_VALUE = "1"
+        private const val STREAM_VIDEO_ID_HEADER = "X-StreamCloud-Video-Id"
         private const val MAX_YOUTUBE_STREAM_RECOVERIES = 2
         const val ROOT_ID        = "streamcloud_root"
         const val HOME_ID        = "streamcloud_home"

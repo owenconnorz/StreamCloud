@@ -115,7 +115,7 @@ object YtPlayback {
                 }
                 val related = EndlessPlayback.relatedSongs(context, seed.videoId)
                 if (related.isEmpty()) return@runCatching
-                primeStreams(related)
+                primeStreams(related.take(1))
                 related.forEach { s ->
                     runCatching {
                         val item = buildMediaItem(s)
@@ -152,23 +152,19 @@ object YtPlayback {
 
     suspend fun playNext(context: Context, song: YtmSong) {
         val item = buildMediaItem(song)
-        val startsPlayback = withContext(Dispatchers.Main) {
+        withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
             if (controller.mediaItemCount == 0) {
                 YtMusicStreamResolver.primeForPlayback(song.videoId)
                 controller.setMediaItem(item)
                 controller.prepare()
                 controller.play()
-                true
             } else {
                 val insertAt = (controller.currentMediaItemIndex + 1)
                     .coerceIn(0, controller.mediaItemCount)
                 controller.addMediaItem(insertAt, item)
-                false
+                YtMusicStreamResolver.primeForPlayback(song.videoId)
             }
-        }
-        if (!startsPlayback) {
-            primeStreams(listOf(song))
         }
     }
 
@@ -199,7 +195,7 @@ object YtPlayback {
         val safeStart = startIndex.coerceIn(0, songs.lastIndex)
         val activeSong = songs[safeStart]
         val playbackAttempt = PlaybackLatencyTrace.begin(activeSong.videoId)
-        YtMusicStreamResolver.primeForPlayback(activeSong.videoId)
+        val foregroundResolution = YtMusicStreamResolver.primeForPlayback(activeSong.videoId)
 
 
         val allItems = songs.mapIndexed { index, song ->
@@ -219,12 +215,15 @@ object YtPlayback {
             PlaybackLatencyTrace.mark(activeSong.videoId, "prepare-play")
         }
         backgroundScope.launch {
+            if (foregroundResolution.await().isSuccess) {
+                songs.getOrNull(safeStart + 1)?.let { nextSong ->
+                    YtMusicStreamResolver.primeForPlayback(nextSong.videoId)
+                }
+            }
+        }
+        backgroundScope.launch {
             if (!PlaybackLatencyTrace.awaitFirstAudio(playbackAttempt)) return@launch
             upsertTrack(context, songs[safeStart], bumpPlayCount = true)
-            YtMusicStreamResolver.primeQueue(
-                videoIds = songs.drop(safeStart + 1).map(YtmSong::videoId),
-                currentIndex = 0,
-            )
             songs.indices.filter { it != safeStart }.forEach { i ->
                 upsertTrack(context, songs[i], bumpPlayCount = false)
             }
