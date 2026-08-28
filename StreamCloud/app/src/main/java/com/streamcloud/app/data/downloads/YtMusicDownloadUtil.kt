@@ -5,7 +5,9 @@ import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
@@ -28,7 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
-import okhttp3.Request
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
@@ -37,14 +39,19 @@ object YtMusicDownloadUtil {
     private const val TAG = "YtMusicDownloadUtil"
     private const val STREAM_WEB_SESSION_HEADER = "X-StreamCloud-Web-Session"
     private const val STREAM_WEB_SESSION_VALUE = "1"
+    private const val STREAM_VIDEO_ID_HEADER = "X-StreamCloud-Video-Id"
+    private const val STREAM_DOWNLOAD_CACHE_KEY_HEADER = "X-StreamCloud-Download-Cache-Key"
     private const val FALLBACK_STREAM_USER_AGENT =
         "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile private var _downloadManager: DownloadManager? = null
+    @Volatile private var activeDownloadCache: Cache? = null
+    @Volatile private var activePlayerCache: Cache? = null
 
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
+    private val rejectedDownloadClients = ConcurrentHashMap<String, MutableSet<String>>()
 
     private data class DownloadStream(
         val url: String,
@@ -72,9 +79,13 @@ object YtMusicDownloadUtil {
                 val request = chain.request()
                 val useWebSessionHeaders =
                     request.header(STREAM_WEB_SESSION_HEADER) == STREAM_WEB_SESSION_VALUE
+                val videoId = request.header(STREAM_VIDEO_ID_HEADER)
+                val downloadCacheKey = request.header(STREAM_DOWNLOAD_CACHE_KEY_HEADER)
                 val host = request.url.host
                 val builder = request.newBuilder()
                     .removeHeader(STREAM_WEB_SESSION_HEADER)
+                    .removeHeader(STREAM_VIDEO_ID_HEADER)
+                    .removeHeader(STREAM_DOWNLOAD_CACHE_KEY_HEADER)
 
                 // WEB_REMIX/PoToken URLs are bound to the browser session that minted them.
                 // Android-client and maintained-extractor URLs must deliberately stay anonymous.
@@ -103,16 +114,40 @@ object YtMusicDownloadUtil {
                         builder.header("X-Goog-Visitor-Id", it)
                     }
                 }
-                chain.proceed(builder.build())
+                val response = chain.proceed(builder.build())
+                if (
+                    videoId != null &&
+                    host.contains("googlevideo.com") &&
+                    response.code in setOf(403, 416)
+                ) {
+                    val rejected = StreamUrlCache.remove(videoId)
+                    rejected?.clientLabel?.let { clientLabel ->
+                        rejectedDownloadClients
+                            .computeIfAbsent(videoId) { ConcurrentHashMap.newKeySet() }
+                            .add(clientLabel)
+                        YtPlayerUtils.recordCdnFailure(clientLabel)
+                    }
+                    // A replacement client can select a different representation. Remove partial
+                    // bytes from both cache layers so the retry starts at byte zero rather than
+                    // combining formats or repeating an incompatible 416 resume offset.
+                    runCatching {
+                        activeDownloadCache?.removeResource(downloadCacheKey ?: videoId)
+                    }.onFailure { error ->
+                        AppLogger.w(TAG, "Could not reset partial download for $videoId: ${error.message}")
+                    }
+                    runCatching {
+                        activePlayerCache?.removeResource(watchUrlForDownloadId(videoId))
+                    }.onFailure { error ->
+                        AppLogger.w(TAG, "Could not reset player cache for $videoId: ${error.message}")
+                    }
+                    AppLogger.w(
+                        TAG,
+                        "Download CDN ${response.code} for $videoId via " +
+                            "${rejected?.clientLabel ?: "uncached"}; retrying from byte zero",
+                    )
+                }
+                response
             }
-            .build()
-    }
-
-    private val downloadProbeHttpClient: OkHttpClient by lazy {
-        downloadHttpClient.newBuilder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(8, TimeUnit.SECONDS)
-            .callTimeout(12, TimeUnit.SECONDS)
             .build()
     }
 
@@ -123,6 +158,8 @@ object YtMusicDownloadUtil {
         val ctx = context.applicationContext
         val downloadCache = DownloadCaches.downloadCache(ctx)
         val playerCache  = DownloadCaches.playerCache(ctx)
+        activeDownloadCache = downloadCache
+        activePlayerCache = playerCache
         // Use playerCache (not downloadCache) in the upstream chain.
         // DownloadManager already writes directly to downloadCache; having downloadCache
         // in the factory too causes simultaneous read/write lock contention that
@@ -141,28 +178,43 @@ object YtMusicDownloadUtil {
             val requestId = dataSpec.key ?: dataSpec.uri.toString()
             val videoId = videoIdFromDownloadId(requestId)
             val watchUrl = watchUrlForDownloadId(requestId)
+            // Streaming media items use the canonical watch URL as their player-cache key, while
+            // permanent downloads use the stable video ID. The outer DownloadManager cache keeps
+            // the stable key; this inner key lets it reuse any ranges playback already buffered.
+            val playerCacheKey = watchUrl
 
             if (findDownload(downloads.value, requestId)?.state == Download.STATE_COMPLETED) {
                 return@Factory dataSpec
             }
 
-
-
-
-
-            val requestLength = if (dataSpec.length >= 0) dataSpec.length else 1
-            if (playerCache.isCached(requestId, dataSpec.position, requestLength)) {
-                return@Factory dataSpec
+            val cachedContentLength = ContentMetadata.getContentLength(
+                playerCache.getContentMetadata(playerCacheKey),
+            )
+            val requestLength = if (dataSpec.length >= 0L) {
+                dataSpec.length
+            } else {
+                cachedContentLength - dataSpec.position
+            }
+            if (
+                requestLength > 0L &&
+                playerCache.isCached(playerCacheKey, dataSpec.position, requestLength)
+            ) {
+                return@Factory dataSpec.buildUpon()
+                    .setKey(playerCacheKey)
+                    .build()
             }
 
             val stream = resolveDownloadStream(videoId, watchUrl)
             dataSpec.buildUpon()
                 .setUri(stream.url.toUri())
+                .setKey(playerCacheKey)
                 .setHttpRequestHeaders(
                     dataSpec.httpRequestHeaders + mapOf(
                         "User-Agent" to stream.userAgent,
                         STREAM_WEB_SESSION_HEADER to
                             if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
+                        STREAM_VIDEO_ID_HEADER to videoId,
+                        STREAM_DOWNLOAD_CACHE_KEY_HEADER to requestId,
                     ),
                 )
                 .build()
@@ -186,6 +238,15 @@ object YtMusicDownloadUtil {
                     download: Download,
                     finalException: Exception?,
                 ) {
+                    if (
+                        download.state == Download.STATE_COMPLETED ||
+                        download.state == Download.STATE_FAILED ||
+                        download.state == Download.STATE_REMOVING
+                    ) {
+                        rejectedDownloadClients.remove(
+                            videoIdFromDownloadId(download.request.id),
+                        )
+                    }
                     downloads.update { map ->
                         map.toMutableMap().apply { set(download.request.id, download) }
                     }
@@ -202,6 +263,9 @@ object YtMusicDownloadUtil {
                     downloadManager: DownloadManager,
                     download: Download,
                 ) {
+                    rejectedDownloadClients.remove(
+                        videoIdFromDownloadId(download.request.id),
+                    )
                     downloads.update { map ->
                         map.toMutableMap().apply { remove(download.request.id) }
                     }
@@ -256,71 +320,37 @@ object YtMusicDownloadUtil {
 
     private fun resolveDownloadStream(videoId: String, watchUrl: String): DownloadStream =
         runBlocking(Dispatchers.IO) {
-            // A signed CDN URL can be valid when playback cached it yet no longer be readable
-            // when Media3 starts the offline transfer. Probe one byte with the same client/session
-            // headers before giving the URL to DownloadManager; otherwise its retry loop remains
-            // "Downloading" at 0% while repeatedly opening the same rejected stream.
-            val rejectedClients = mutableSetOf<String>()
-            repeat(MAX_INNERTUBE_STREAM_ATTEMPTS) {
-                val resolvedEntry = if (videoId.isNotBlank()) {
-                    runCatching {
-                        YtMusicStreamResolver.resolveInnertube(videoId, rejectedClients)
-                    }.onFailure { error ->
-                        AppLogger.w(TAG, "Shared stream resolver failed for $videoId: ${error.message}")
-                    }.getOrNull()
-                } else null
-
-                if (resolvedEntry != null) {
-                    val stream = DownloadStream(
-                        url = resolvedEntry.url,
-                        userAgent = resolvedEntry.userAgent,
-                        requiresWebSessionHeaders = resolvedEntry.requiresWebSessionHeaders,
+            // Match OpenTune's fast path: reuse the shared playback URL cache and begin the real
+            // transfer immediately. The network interceptor invalidates rejected URLs on 403/416,
+            // so DownloadManager's bounded retry resolves a fresh client instead of needing a
+            // separate probe before every download.
+            val resolvedEntry = if (videoId.isNotBlank()) {
+                runCatching {
+                    YtMusicStreamResolver.resolveInnertube(
+                        videoId = videoId,
+                        excludedClientLabels =
+                            rejectedDownloadClients[videoId]?.toSet().orEmpty(),
                     )
-                    if (canReadDownloadStream(stream)) {
-                        return@runBlocking stream
-                    }
-
-                    AppLogger.w(
-                        TAG,
-                        "CDN probe rejected ${resolvedEntry.clientLabel ?: "unknown"} for $videoId; trying fallback",
-                    )
-                    StreamUrlCache.remove(videoId)
-                    resolvedEntry.clientLabel?.let(rejectedClients::add)
-                }
+                }.onFailure { error ->
+                    AppLogger.w(TAG, "Shared stream resolver failed for $videoId: ${error.message}")
+                }.getOrNull()
+            } else {
+                null
+            }
+            if (resolvedEntry != null) {
+                return@runBlocking DownloadStream(
+                    url = resolvedEntry.url,
+                    userAgent = resolvedEntry.userAgent,
+                    requiresWebSessionHeaders = resolvedEntry.requiresWebSessionHeaders,
+                )
             }
 
-            // Preserve the maintained extractor fallback. It is reached after an Innertube URL
-            // has failed a real byte-read probe, not only when player-response resolution fails.
-            val fallbackStream = DownloadStream(
+            DownloadStream(
                 url = NewPipeRepository.resolveAudioStream(watchUrl),
                 userAgent = FALLBACK_STREAM_USER_AGENT,
                 requiresWebSessionHeaders = false,
             )
-            if (!canReadDownloadStream(fallbackStream)) {
-                AppLogger.w(TAG, "Extractor fallback probe failed for $videoId; Media3 will retry it")
-            }
-            fallbackStream
         }
-
-    private fun canReadDownloadStream(stream: DownloadStream): Boolean =
-        runCatching {
-            val request = Request.Builder()
-                .url(stream.url)
-                .header("Range", "bytes=0-1")
-                .header("User-Agent", stream.userAgent)
-                .header(
-                    STREAM_WEB_SESSION_HEADER,
-                    if (stream.requiresWebSessionHeaders) STREAM_WEB_SESSION_VALUE else "0",
-                )
-                .build()
-            downloadProbeHttpClient.newCall(request).execute().use { response ->
-                response.isSuccessful && (response.body?.byteStream()?.read() ?: -1) >= 0
-            }
-        }.onFailure { error ->
-            AppLogger.w(TAG, "CDN probe failed: ${error.message}")
-        }.getOrDefault(false)
-
-    private const val MAX_INNERTUBE_STREAM_ATTEMPTS = 2
 
 
     private fun syncRoomLocalPath(context: Context, download: Download) {
@@ -399,6 +429,12 @@ object YtMusicDownloadUtil {
 
     fun isDownloaded(downloadId: String): Boolean =
         findDownload(downloads.value, downloadId)?.state == Download.STATE_COMPLETED
+
+    fun completedDownloadCacheKey(downloadId: String): String? =
+        findDownload(downloads.value, downloadId)
+            ?.takeIf { it.state == Download.STATE_COMPLETED }
+            ?.request
+            ?.let { request -> request.customCacheKey ?: request.id }
 
     fun downloadProgress(downloadId: String): Float =
         findDownload(downloads.value, downloadId)?.percentDownloaded?.div(100f) ?: 0f

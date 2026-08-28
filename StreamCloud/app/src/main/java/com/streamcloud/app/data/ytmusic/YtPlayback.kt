@@ -56,7 +56,10 @@ object YtPlayback {
     }
 
     private fun primeStreams(songs: Iterable<YtmSong>) {
-        YtMusicStreamResolver.prime(songs.map(YtmSong::videoId))
+        YtMusicStreamResolver.prime(
+            songs.map(YtmSong::videoId)
+                .filterNot(YtMusicDownloadUtil::isDownloaded),
+        )
     }
 
     private fun upsertTrack(context: Context, song: YtmSong, bumpPlayCount: Boolean) {
@@ -84,7 +87,9 @@ object YtPlayback {
         val playbackAttempt = PlaybackLatencyTrace.begin(song.videoId)
         // This is foreground work, not list prefetch. It shares its result with Media3 instead of
         // being cancelled and restarted when the data source promotes the selected item.
-        YtMusicStreamResolver.primeForPlayback(song.videoId)
+        if (!YtMusicDownloadUtil.isDownloaded(song.videoId)) {
+            YtMusicStreamResolver.primeForPlayback(song.videoId)
+        }
         val item = buildMediaItem(song, playbackAttempt.attemptId)
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
@@ -155,7 +160,9 @@ object YtPlayback {
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
             if (controller.mediaItemCount == 0) {
-                YtMusicStreamResolver.primeForPlayback(song.videoId)
+                if (!YtMusicDownloadUtil.isDownloaded(song.videoId)) {
+                    YtMusicStreamResolver.primeForPlayback(song.videoId)
+                }
                 controller.setMediaItem(item)
                 controller.prepare()
                 controller.play()
@@ -163,7 +170,9 @@ object YtPlayback {
                 val insertAt = (controller.currentMediaItemIndex + 1)
                     .coerceIn(0, controller.mediaItemCount)
                 controller.addMediaItem(insertAt, item)
-                YtMusicStreamResolver.primeForPlayback(song.videoId)
+                if (!YtMusicDownloadUtil.isDownloaded(song.videoId)) {
+                    YtMusicStreamResolver.primeForPlayback(song.videoId)
+                }
             }
         }
     }
@@ -174,7 +183,9 @@ object YtPlayback {
         val startsPlayback = withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
             if (controller.mediaItemCount == 0) {
-                YtMusicStreamResolver.primeForPlayback(song.videoId)
+                if (!YtMusicDownloadUtil.isDownloaded(song.videoId)) {
+                    YtMusicStreamResolver.primeForPlayback(song.videoId)
+                }
                 controller.setMediaItem(item)
                 controller.prepare()
                 controller.play()
@@ -195,7 +206,11 @@ object YtPlayback {
         val safeStart = startIndex.coerceIn(0, songs.lastIndex)
         val activeSong = songs[safeStart]
         val playbackAttempt = PlaybackLatencyTrace.begin(activeSong.videoId)
-        val foregroundResolution = YtMusicStreamResolver.primeForPlayback(activeSong.videoId)
+        val foregroundResolution = if (YtMusicDownloadUtil.isDownloaded(activeSong.videoId)) {
+            null
+        } else {
+            YtMusicStreamResolver.primeForPlayback(activeSong.videoId)
+        }
 
 
         val allItems = songs.mapIndexed { index, song ->
@@ -215,9 +230,11 @@ object YtPlayback {
             PlaybackLatencyTrace.mark(activeSong.videoId, "prepare-play")
         }
         backgroundScope.launch {
-            if (foregroundResolution.await().isSuccess) {
+            if (foregroundResolution?.await()?.isSuccess != false) {
                 songs.getOrNull(safeStart + 1)?.let { nextSong ->
-                    YtMusicStreamResolver.primeForPlayback(nextSong.videoId)
+                    if (!YtMusicDownloadUtil.isDownloaded(nextSong.videoId)) {
+                        YtMusicStreamResolver.primeForPlayback(nextSong.videoId)
+                    }
                 }
             }
         }
@@ -234,6 +251,9 @@ object YtPlayback {
     fun downloadSong(context: Context, song: YtmSong) {
         val watchUrl = watchUrl(song.videoId)
         val downloadId = YtMusicDownloadUtil.downloadId(song.videoId)
+        // Resolve immediately while Android starts the foreground download service. The download
+        // data source consumes this same shared job/cache instead of starting from a cold resolver.
+        YtMusicStreamResolver.primeForPlayback(song.videoId)
         backgroundScope.launch {
             val dao = LibraryDb.get(context).tracks()
             val existing = runCatching { dao.byUrl(watchUrl) }.getOrNull()

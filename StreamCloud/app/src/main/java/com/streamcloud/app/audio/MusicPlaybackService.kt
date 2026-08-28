@@ -651,13 +651,26 @@ class MusicPlaybackService : MediaLibraryService() {
         val watchUrl = if (cacheKey.startsWith("http")) cacheKey
         else "https://music.youtube.com/watch?v=$cacheKey"
 
-        // Only skip resolution for fully-completed ExoPlayer downloads.
-        // The download cache is guaranteed to contain the full file in that case,
-        // so ExoPlayer can seek anywhere (including to the moov atom at the end of
-        // an mp4 file) without needing a live stream URL.
-        if (com.streamcloud.app.data.downloads.YtMusicDownloadUtil.isDownloaded(watchUrl)) {
-            return dataSpec
-        }
+        // Completed downloads are stored under their DownloadRequest cache key (new requests use
+        // the stable video ID; older requests may still use the watch URL). Playback media items
+        // use the watch URL as their normal custom key, so rewrite it to the actual offline key.
+        // Returning the original key misses the downloaded bytes and sends the YouTube HTML watch
+        // page to Media3, which fails as UnrecognizedInputFormatException.
+        com.streamcloud.app.data.downloads.YtMusicDownloadUtil
+            .completedDownloadCacheKey(watchUrl)
+            ?.let { downloadedCacheKey ->
+                val requestedLength = if (dataSpec.length >= 0L) dataSpec.length else 1L
+                if (downloadCache.isCached(downloadedCacheKey, dataSpec.position, requestedLength)) {
+                    return dataSpec.buildUpon()
+                        .setKey(downloadedCacheKey)
+                        .build()
+                }
+                AppLogger.w(
+                    TAG,
+                    "Completed download index for $watchUrl has no bytes at ${dataSpec.position}; " +
+                        "falling back to a fresh stream",
+                )
+            }
 
         // Legacy library items carry their file URI directly. Never query Room from Media3's
         // resolver thread; selected-track bookkeeping must not delay the first network read.

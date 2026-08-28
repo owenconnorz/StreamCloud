@@ -1717,9 +1717,9 @@ private fun YtSongRow(s: YtmSong, onClick: () -> Unit) {
 
     LaunchedEffect(s.videoId) {
         val url = com.streamcloud.app.data.ytmusic.YtPlayback.watchUrl(s.videoId)
-        com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads.collect { dlMap ->
-            val state = dlMap[url]?.state
-            downloaded = (state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED)
+        com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads.collect {
+            downloaded = com.streamcloud.app.data.downloads.YtMusicDownloadUtil
+                .isDownloaded(s.videoId)
                 || com.streamcloud.app.data.downloads.MusicDownloader.isDownloaded(context, url)
         }
     }
