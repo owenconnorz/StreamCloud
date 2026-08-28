@@ -1,5 +1,22 @@
 # StreamCloud
 
+## V1740 — YouTube Music downloads and playback recovery
+
+### YouTube Music
+- **Downloaded songs play offline reliably** — completed downloads now resolve to their stable video-ID cache entry instead of trying to play the YouTube watch page.
+- **Downloads start faster** — the extra CDN probe was removed, and shared stream resolution begins while the playback service starts.
+- **Player and download caches work together** — already-buffered ranges can be reused when creating a permanent download.
+
+### Recovery
+- **CDN failures recover cleanly** — rejected signed URLs and incompatible partial data are evicted after `403` or `416` responses before retrying from byte zero.
+- **Client fallback is safer** — rejected YouTube client labels are temporarily excluded while the maintained extractor fallback remains available.
+- **Library download status is consistent** — stable video IDs and older watch-URL entries are both recognized.
+
+### Movie settings
+- Added preferred Dolby audio format settings that prioritize supported Dolby tracks without forcing unsupported decoding.
+
+APK: `StreamCloud-release.apk`
+
 ## V1698 — Movie watchlists
 
 ### New
