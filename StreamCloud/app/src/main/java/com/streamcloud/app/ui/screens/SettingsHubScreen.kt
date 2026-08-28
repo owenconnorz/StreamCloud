@@ -616,7 +616,7 @@ fun SettingsHubScreen(
                     }
                     SettingDivider()
                     SettingNav(
-                        icon = Icons.Default.SurroundSound, tint = ColourContent,
+                        icon = Icons.Default.VolumeUp, tint = ColourContent,
                         title = "Preferred Dolby audio",
                         subtitle = "Prefer Dolby tracks when a movie provides them",
                         value = MovieAudioPreferences.summary(movieAudioFormats),
