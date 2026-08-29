@@ -65,7 +65,7 @@ object AlbumArtThemeBus {
         scope.launch {
             runCatching { PlaybackBus.ensureAttached(app) }
 
-            PlaybackBus.nowPlayingMediaId.collectLatest { _ ->
+            PlaybackBus.nowPlayingMediaId.collectLatest artwork@{ _ ->
                 val artworkUrl = withContext(Dispatchers.Main) {
                     runCatching {
                         MusicController.get(app)
@@ -75,7 +75,7 @@ object AlbumArtThemeBus {
 
                 if (artworkUrl.isNullOrBlank()) {
                     resetToDefaults()
-                    return@collect
+                    return@artwork
                 }
 
                 val result = computePalette(app, artworkUrl)
@@ -163,7 +163,7 @@ object AlbumArtThemeBus {
         )
 
     private suspend fun computePalette(context: Context, url: String): PaletteResult? =
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) palette@{
             try {
                 val req = ImageRequest.Builder(context)
                     .data(url)
@@ -171,9 +171,9 @@ object AlbumArtThemeBus {
                     .size(200)
                     .build()
                 val res = ThumbnailCache.loader(context).execute(req) as? SuccessResult
-                    ?: return@runCatching null
+                    ?: return@palette null
                 val bitmap: Bitmap = (res.drawable as? BitmapDrawable)?.bitmap
-                    ?: return@runCatching null
+                    ?: return@palette null
 
                 val palette = Palette.from(bitmap).maximumColorCount(32).generate()
                 val primary = selectAlbumArtColorSample(
@@ -186,7 +186,7 @@ object AlbumArtThemeBus {
                             population = swatch.population,
                         )
                     },
-                ) ?: return@runCatching null
+                ) ?: return@palette null
 
                 // Keep the actual artwork hue and saturation. In particular,
                 // neutral covers must stay neutral instead of becoming hue 0/red.
