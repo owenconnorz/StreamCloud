@@ -153,6 +153,7 @@ private sealed class Tab(val route: String, val label: String, val icon: ImageVe
 @Composable
 fun StreamCloudApp() {
     val nav = rememberNavController()
+    val playerSurfaceState = com.streamcloud.app.ui.player.rememberPlayerSurfaceState()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     var settingsHasSubPage by remember { mutableStateOf(false) }
@@ -173,7 +174,6 @@ fun StreamCloudApp() {
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
     val miniNowPlayingId by com.streamcloud.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState(initial = null)
-    var dismissedMiniPlayerId by remember { mutableStateOf<String?>(null) }
 
 
 
@@ -316,12 +316,7 @@ fun StreamCloudApp() {
     val showMiniPlayer = currentRoute != null &&
         !isMediaRoute &&
         !isSettingsOrAdult &&
-        miniNowPlayingId != dismissedMiniPlayerId
-
-    LaunchedEffect(currentRoute) {
-        // A dismissed bar should not stay hidden after navigating to another screen.
-        dismissedMiniPlayerId = null
-    }
+        miniNowPlayingId != null
 
     // Profile picker — show on launch when profiles exist; also triggered from Settings
     var showProfilePicker by remember { mutableStateOf(false) }
@@ -1369,12 +1364,18 @@ fun StreamCloudApp() {
 
 
 
-                    if (showRail && currentRoute != Tab.Music.route && !isMediaRoute && !isSettingsOrAdult) {
+                    if (
+                        showRail &&
+                        !isTv &&
+                        currentRoute != Tab.Music.route &&
+                        !isMediaRoute &&
+                        !isSettingsOrAdult
+                    ) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
+                            playerSurfaceState = playerSurfaceState,
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                             },
-                            onDismiss = { dismissedMiniPlayerId = miniNowPlayingId },
                         )
                     }
                 }
@@ -1402,10 +1403,10 @@ fun StreamCloudApp() {
                     ) {
                         if (showMiniPlayer) {
                             com.streamcloud.app.ui.player.GlobalMiniPlayer(
+                                playerSurfaceState = playerSurfaceState,
                                 onExpand = {
                                     com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                                 },
-                                onDismiss = { dismissedMiniPlayerId = miniNowPlayingId },
                             )
                         }
                         val showBar = currentRoute == null ||
@@ -1508,6 +1509,7 @@ fun StreamCloudApp() {
 
 
         com.streamcloud.app.ui.player.GlobalNowPlayingSheet(
+            playerSurfaceState = playerSurfaceState,
             onOpenSettings = { navigateToTab(nav, Tab.Settings.route) },
             onOpenArtistSearch = { artistName ->
 

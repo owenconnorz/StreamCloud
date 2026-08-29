@@ -39,10 +39,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.LocalDensity
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
@@ -57,17 +60,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @OptIn(UnstableApi::class)
 @Composable
 fun GlobalMiniPlayer(
     modifier: Modifier = Modifier,
+    playerSurfaceState: PlayerSurfaceState,
     onExpand: () -> Unit = { PlayerExpandBus.requestExpand() },
-    onDismiss: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
+    val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.roundToPx() }
     val scope = rememberCoroutineScope()
     val sl = remember(context) { ServiceLocator.get(context) }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
@@ -137,14 +141,24 @@ fun GlobalMiniPlayer(
                 title = c.mediaMetadata.title?.toString()
                 artist = c.mediaMetadata.artist?.toString()
                 artworkUri = c.mediaMetadata.artworkUri?.toString()
-                c.addListener(object : Player.Listener {
-                    override fun onMediaMetadataChanged(md: androidx.media3.common.MediaMetadata) {
-                        title = md.title?.toString()
-                        artist = md.artist?.toString()
-                        artworkUri = md.artworkUri?.toString()
-                    }
-                })
             }
+    }
+
+    DisposableEffect(controller) {
+        val activeController = controller
+        if (activeController == null) {
+            onDispose {}
+        } else {
+            val listener = object : Player.Listener {
+                override fun onMediaMetadataChanged(md: androidx.media3.common.MediaMetadata) {
+                    title = md.title?.toString()
+                    artist = md.artist?.toString()
+                    artworkUri = md.artworkUri?.toString()
+                }
+            }
+            activeController.addListener(listener)
+            onDispose { activeController.removeListener(listener) }
+        }
     }
 
     LaunchedEffect(nowMediaId) {
@@ -156,9 +170,11 @@ fun GlobalMiniPlayer(
     }
 
     val swipeOffsetX = remember { Animatable(0f) }
-    var liveDragX by remember { mutableStateOf(0f) }
-    val swipeOffsetY = remember { Animatable(0f) }
-    var liveDragY by remember { mutableStateOf(0f) }
+    var dragStartTime by remember { mutableStateOf(0L) }
+    var totalDragDistance by remember { mutableStateOf(0f) }
+    var totalGestureX by remember { mutableStateOf(0f) }
+    var totalGestureY by remember { mutableStateOf(0f) }
+    var dragAxis by remember { mutableStateOf(MiniPlayerDragAxis.Undecided) }
 
     AnimatedVisibility(
         visible = title != null,
@@ -173,97 +189,143 @@ fun GlobalMiniPlayer(
                 .padding(horizontal = 12.dp, vertical = 6.dp)
                 .offset {
                     IntOffset(
-                        (swipeOffsetX.value + liveDragX).roundToInt(),
-                        (swipeOffsetY.value + liveDragY).roundToInt(),
+                        swipeOffsetX.value.roundToInt(),
+                        0,
                     )
                 }
                 .graphicsLayer {
-                    val verticalOffset = swipeOffsetY.value + liveDragY
-                    val progress = (abs(verticalOffset) / 240f).coerceIn(0f, 1f)
-                    val scale = 1f - (progress * 0.08f)
-                    scaleX = scale
-                    scaleY = scale
-                    alpha = 1f - (progress * 0.15f)
+                    alpha = 1f - (playerSurfaceState.progress * 4f).coerceIn(0f, 1f)
                 }
+                .then(
+                    if (playerSurfaceState.progress >= 0.25f) {
+                        Modifier.clearAndSetSemantics {}
+                    } else {
+                        Modifier
+                    },
+                )
                 .clip(RoundedCornerShape(20.dp))
                 .background(bgColor)
-                .pointerInput(controller) {
-                    var totalX = 0f
-                    var totalY = 0f
-                    var dirLocked = false
-                    var isHorizontal = false
-
+                .pointerInput(controller, onExpand, playerSurfaceState, screenHeightPx) {
                     detectDragGestures(
                         onDragStart = {
-                            totalX = 0f
-                            totalY = 0f
-                            dirLocked = false
-                            isHorizontal = false
-                            liveDragX = 0f
-                            liveDragY = 0f
+                            dragStartTime = System.currentTimeMillis()
+                            totalDragDistance = 0f
+                            totalGestureX = 0f
+                            totalGestureY = 0f
+                            dragAxis = MiniPlayerDragAxis.Undecided
                         },
                         onDragCancel = {
+                            playerSurfaceState.collapse()
                             scope.launch {
-                                liveDragX = 0f
-                                liveDragY = 0f
                                 swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.72f))
-                                swipeOffsetY.animateTo(0f, spring(dampingRatio = 0.72f))
                             }
                         },
                         onDragEnd = {
                             scope.launch {
-                                swipeOffsetX.snapTo(liveDragX)
-                                swipeOffsetY.snapTo(liveDragY)
-                                liveDragX = 0f
-                                liveDragY = 0f
-                                when (resolveMiniPlayerSwipeAction(dirLocked, isHorizontal, totalX, totalY)) {
-                                    MiniPlayerSwipeAction.SeekNext -> {
-                                        swipeOffsetX.animateTo(-90f, tween(100))
-                                        controller?.seekToNextMediaItem()
-                                        swipeOffsetX.snapTo(90f)
-                                        swipeOffsetX.animateTo(0f, tween(220))
+                                val dragDuration = System.currentTimeMillis() - dragStartTime
+                                when (dragAxis) {
+                                    MiniPlayerDragAxis.Horizontal -> {
+                                        val currentOffset = swipeOffsetX.value
+                                        val canChangeSong = when {
+                                            currentOffset < 0f -> controller?.hasNextMediaItem() == true
+                                            currentOffset > 0f -> controller?.hasPreviousMediaItem() == true
+                                            else -> false
+                                        }
+                                        val shouldChangeSong = shouldCommitMiniPlayerTrackSwipe(
+                                            offsetX = currentOffset,
+                                            totalDistance = totalDragDistance,
+                                            durationMs = dragDuration,
+                                            canChangeSong = canChangeSong,
+                                        )
+                                        when (
+                                            if (shouldChangeSong) {
+                                                resolveMiniPlayerSwipeAction(currentOffset)
+                                            } else {
+                                                MiniPlayerSwipeAction.SnapBack
+                                            }
+                                        ) {
+                                            MiniPlayerSwipeAction.SeekNext -> {
+                                                swipeOffsetX.animateTo(-90f, tween(100))
+                                                controller?.seekToNextMediaItem()
+                                                swipeOffsetX.snapTo(90f)
+                                                swipeOffsetX.animateTo(0f, tween(220))
+                                            }
+
+                                            MiniPlayerSwipeAction.SeekPrev -> {
+                                                swipeOffsetX.animateTo(90f, tween(100))
+                                                controller?.seekToPreviousMediaItem()
+                                                swipeOffsetX.snapTo(-90f)
+                                                swipeOffsetX.animateTo(0f, tween(220))
+                                            }
+
+                                            MiniPlayerSwipeAction.SnapBack ->
+                                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.72f))
+                                        }
                                     }
-                                    MiniPlayerSwipeAction.SeekPrev -> {
-                                        swipeOffsetX.animateTo(90f, tween(100))
-                                        controller?.seekToPreviousMediaItem()
-                                        swipeOffsetX.snapTo(-90f)
-                                        swipeOffsetX.animateTo(0f, tween(220))
+                                    MiniPlayerDragAxis.Vertical -> {
+                                        val velocityY = if (dragDuration > 0) {
+                                            totalGestureY / dragDuration
+                                        } else {
+                                            0f
+                                        }
+                                        when (
+                                            settlePlayerSurfaceProgress(
+                                                progress = playerSurfaceState.progress,
+                                                velocityYpxPerMs = velocityY,
+                                            )
+                                        ) {
+                                            MiniPlayerVerticalAction.Expand -> playerSurfaceState.expand()
+                                            MiniPlayerVerticalAction.SnapBack -> playerSurfaceState.collapse()
+                                        }
                                     }
-                                    MiniPlayerSwipeAction.SnapBack ->
-                                        swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.72f))
-                                    MiniPlayerSwipeAction.Expand -> {
-                                        swipeOffsetY.animateTo(-240f, tween(140))
-                                        onExpand()
-                                        swipeOffsetY.snapTo(0f)
-                                    }
-                                    MiniPlayerSwipeAction.Dismiss -> {
-                                        swipeOffsetY.animateTo(240f, tween(160))
-                                        onDismiss()
-                                    }
-                                    MiniPlayerSwipeAction.None -> {
-                                        swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.72f))
-                                        swipeOffsetY.animateTo(0f, spring(dampingRatio = 0.72f))
-                                    }
+                                    MiniPlayerDragAxis.Undecided -> Unit
                                 }
                             }
                         },
                         onDrag = { change, dragAmount ->
-                            totalX += dragAmount.x
-                            totalY += dragAmount.y
-                            if (!dirLocked &&
-                                (abs(totalX) >= viewConfiguration.touchSlop ||
-                                    abs(totalY) >= viewConfiguration.touchSlop)
-                            ) {
-                                isHorizontal = abs(totalX) > abs(totalY)
-                                dirLocked = true
+                            totalGestureX += dragAmount.x
+                            totalGestureY += dragAmount.y
+                            val previousAxis = dragAxis
+                            if (dragAxis == MiniPlayerDragAxis.Undecided) {
+                                dragAxis = resolveMiniPlayerDragAxis(
+                                    totalX = totalGestureX,
+                                    totalY = totalGestureY,
+                                    touchSlop = viewConfiguration.touchSlop,
+                                )
                             }
-                            if (dirLocked && isHorizontal) {
-                                liveDragX = totalX.coerceIn(-280f, 280f)
-                                change.consume()
-                            } else if (dirLocked) {
-                                // Update directly from every pointer delta. Keeping this
-                                // as plain Compose state makes the card stay under the thumb.
-                                liveDragY = totalY.coerceIn(-240f, 240f)
+                            val justLocked = previousAxis == MiniPlayerDragAxis.Undecided &&
+                                dragAxis != MiniPlayerDragAxis.Undecided
+                            when (dragAxis) {
+                                MiniPlayerDragAxis.Horizontal -> {
+                                    val horizontalDelta =
+                                        if (justLocked) totalGestureX else dragAmount.x
+                                    val canDrag = when {
+                                        horizontalDelta < 0f -> controller?.hasNextMediaItem() == true
+                                        horizontalDelta > 0f -> controller?.hasPreviousMediaItem() == true
+                                        else -> false
+                                    }
+                                    totalDragDistance += kotlin.math.abs(horizontalDelta)
+                                    if (canDrag) {
+                                        scope.launch {
+                                            swipeOffsetX.snapTo(
+                                                (swipeOffsetX.value + horizontalDelta).coerceIn(
+                                                    -SWIPE_HORIZONTAL_AUTO_THRESHOLD_PX,
+                                                    SWIPE_HORIZONTAL_AUTO_THRESHOLD_PX,
+                                                ),
+                                            )
+                                        }
+                                    }
+                                }
+                                MiniPlayerDragAxis.Vertical -> {
+                                    val verticalDelta =
+                                        if (justLocked) totalGestureY else dragAmount.y
+                                    // This updates the same anchor progress that translates
+                                    // the full player, so the full surface follows the finger.
+                                    playerSurfaceState.dragByPixels(verticalDelta, screenHeightPx)
+                                }
+                                MiniPlayerDragAxis.Undecided -> Unit
+                            }
+                            if (dragAxis != MiniPlayerDragAxis.Undecided) {
                                 change.consume()
                             }
                         },
