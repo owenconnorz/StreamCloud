@@ -14,3 +14,4 @@
 - [Fire TV focus handoff](tv-focus-handoff.md) — Persistent overlay navigation needs an explicit, retryable focus handoff into asynchronous page content.
 - [Android build validation](android-build-validation.md) — This Repl lacks a local Android SDK; use the nested StreamCloud GitHub Actions build for compile validation.
 - [StreamCloud release scope](streamcloud-release-scope.md) — Publish and mirror APK updates only within StreamCloud; AioWeb is not part of this project.
+- [Android Auto queue resumption](android-auto-queue-resumption.md) — Resume from durable logical media identities and position, never in-memory timelines or signed CDN URLs.
