@@ -11,11 +11,12 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.net.URLDecoder
 
 /**
  * Loads a full YouTube Music artist page via the InnerTube browse API (WEB_REMIX context).
- * This is the same method SimpMusic uses — it returns all sections: Songs, Albums, Singles,
- * Videos, Featured on, and Related Artists in one response.
+ * This is the same method SimpMusic uses — it returns Songs, Albums, Singles, Videos,
+ * Featured on, and Related Artists, with a follow-up browse for the complete song list.
  */
 object YtMusicArtistRepository {
 
@@ -47,15 +48,13 @@ object YtMusicArtistRepository {
         val description = resp.findFirst("musicDescriptionShelfRenderer")?.jsonObject
             ?.get("description").runsText().orEmpty()
 
-        // Songs shelf (musicShelfRenderer)
-        val songs = resp.findAll("musicShelfRenderer").firstOrNull { shelf ->
+        // Songs shelf (musicShelfRenderer). The artist overview only contains a five-song
+        // preview; its bottomEndpoint opens the complete artist song playlist.
+        val songsShelf = resp.findAll("musicShelfRenderer").firstOrNull { shelf ->
             val t = (shelf as? JsonObject)?.findFirst("title").runsText()?.lowercase() ?: ""
             "song" in t || t.isBlank()
-        }?.let { shelf ->
-            (shelf as? JsonObject)
-                ?.findAll("musicResponsiveListItemRenderer")
-                ?.mapNotNull { parseSong(it as? JsonObject) }
-        }.orEmpty()
+        } as? JsonObject
+        val songs = loadAllArtistSongs(songsShelf)
 
         // Carousel shelves (Albums, Singles, Videos, Featured on, Related)
         val carousels = resp.findAll("musicCarouselShelfRenderer").mapNotNull { it as? JsonObject }
@@ -105,6 +104,61 @@ object YtMusicArtistRepository {
             featuredOn = featuredOn,
             relatedArtists = relatedArtists,
         )
+    }
+
+    /**
+     * Loads the complete song list behind an artist's Top Songs shelf.
+     *
+     * The overview browse response intentionally contains only a short preview. Most artists
+     * expose a bottomEndpoint with a playlist browse ID for the full list. Some responses instead
+     * expose continuation tokens, so retain that path for clients/regions where the playlist
+     * endpoint is not present.
+     */
+    private suspend fun loadAllArtistSongs(previewShelf: JsonObject?): List<YtTrack> {
+        previewShelf ?: return emptyList()
+
+        val preview = previewShelf.findAll("musicResponsiveListItemRenderer")
+            .mapNotNull { parseSong(it as? JsonObject) }
+
+        val browseEndpoint = (previewShelf["bottomEndpoint"] as? JsonObject)
+            ?.get("browseEndpoint") as? JsonObject
+        val fullBrowseId = browseEndpoint
+            ?.get("browseId")?.jsonPrimitive?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+        val fullParams = browseEndpoint
+            ?.get("params")?.jsonPrimitive?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }
+
+        if (fullBrowseId != null) {
+            val fullResponse = runCatching {
+                client.browse(fullBrowseId, fullParams)
+            }.getOrNull()
+            val fullTracks = fullResponse
+                ?.findFirst("musicPlaylistShelfRenderer")
+                ?.findAll("musicResponsiveListItemRenderer")
+                ?.mapNotNull { parseSong(it as? JsonObject) }
+                .orEmpty()
+            if (fullTracks.isNotEmpty()) {
+                return (preview + fullTracks).distinctBy(YtTrack::url)
+            }
+        }
+
+        val collected = preview.toMutableList()
+        var continuation = previewShelf.findContinuationToken()
+        val seenTokens = mutableSetOf<String>()
+        var loadedPages = 0
+        while (continuation != null && loadedPages < 20) {
+            val token = continuation ?: break
+            if (!seenTokens.add(token)) break
+            val next = runCatching { client.browseContinuation(token) }.getOrNull()
+                ?: break
+            collected += next.findAll("musicResponsiveListItemRenderer")
+                .mapNotNull { parseSong(it as? JsonObject) }
+            continuation = next.findContinuationToken()
+            loadedPages++
+        }
+        return collected.distinctBy(YtTrack::url)
     }
 
     private fun parseSong(item: JsonObject?): YtTrack? {

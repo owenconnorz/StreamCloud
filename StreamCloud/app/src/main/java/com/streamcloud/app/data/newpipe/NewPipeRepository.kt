@@ -282,7 +282,7 @@ object NewPipeRepository {
                         .mapNotNull { it.toTrack(isVideo = false) }
                 }.getOrDefault(emptyList())
                 if (tabTracks.isNotEmpty()) tabTracks
-                else runCatching { searchSongs(artistName) }.getOrDefault(emptyList()).take(10)
+                else runCatching { searchSongs(artistName) }.getOrDefault(emptyList())
             }
             val albumsJob = async {
                 val tabAlbums = runCatching {
