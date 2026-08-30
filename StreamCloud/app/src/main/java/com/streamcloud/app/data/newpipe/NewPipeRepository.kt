@@ -279,7 +279,7 @@ object NewPipeRepository {
                     val t = info.tabs.getOrNull(0) ?: return@runCatching emptyList<YtTrack>()
                     val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
                     tabInfo.relatedItems.filterIsInstance<StreamInfoItem>()
-                        .mapNotNull { it.toTrack(isVideo = false) }.take(20)
+                        .mapNotNull { it.toTrack(isVideo = false) }
                 }.getOrDefault(emptyList())
                 if (tabTracks.isNotEmpty()) tabTracks
                 else runCatching { searchSongs(artistName) }.getOrDefault(emptyList()).take(10)
@@ -289,17 +289,17 @@ object NewPipeRepository {
                     val t = info.tabs.getOrNull(1) ?: return@runCatching emptyList<YtAlbum>()
                     val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
                     tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>()
-                        .mapNotNull { it.toAlbum() }.take(10)
+                        .mapNotNull { it.toAlbum() }
                 }.getOrDefault(emptyList())
                 if (tabAlbums.isNotEmpty()) tabAlbums
-                else runCatching { searchAlbums(artistName) }.getOrDefault(emptyList()).take(8)
+                else runCatching { searchAlbums(artistName) }.getOrDefault(emptyList())
             }
             val singlesJob = async {
                 runCatching {
                     val t = info.tabs.getOrNull(2) ?: return@runCatching emptyList<YtAlbum>()
                     val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
                     tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>()
-                        .mapNotNull { it.toAlbum() }.take(10)
+                        .mapNotNull { it.toAlbum() }
                 }.getOrDefault(emptyList())
             }
             val featuredJob = async {
@@ -307,14 +307,13 @@ object NewPipeRepository {
                     val t = info.tabs.getOrNull(3) ?: return@runCatching emptyList<YtAlbum>()
                     val tabInfo = org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo.getInfo(service, t)
                     tabInfo.relatedItems.filterIsInstance<PlaylistInfoItem>()
-                        .mapNotNull { it.toAlbum() }.take(10)
+                        .mapNotNull { it.toAlbum() }
                 }.getOrDefault(emptyList())
             }
             val relatedJob = async {
                 runCatching {
                     searchArtists(artistName)
                         .filter { !it.name.equals(artistName, ignoreCase = true) }
-                        .take(6)
                 }.getOrDefault(emptyList())
             }
             tracks = tracksJob.await()
@@ -337,7 +336,7 @@ object NewPipeRepository {
             topTracks = tracks,
             albums = albums,
             singles = singles,
-            videos = tracks.filter { it.viewCount > 0 }.ifEmpty { tracks }.take(6),
+            videos = tracks.filter { it.viewCount > 0 }.ifEmpty { tracks },
             featuredOn = featuredOn,
             relatedArtists = relatedArtists,
         )

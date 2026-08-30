@@ -55,7 +55,6 @@ object YtMusicArtistRepository {
             (shelf as? JsonObject)
                 ?.findAll("musicResponsiveListItemRenderer")
                 ?.mapNotNull { parseSong(it as? JsonObject) }
-                ?.take(10)
         }.orEmpty()
 
         // Carousel shelves (Albums, Singles, Videos, Featured on, Related)
@@ -69,29 +68,29 @@ object YtMusicArtistRepository {
         val albums = carouselByTitle("album")
             ?.findAll("musicTwoRowItemRenderer")
             ?.mapNotNull { parseAlbum(it as? JsonObject) }
-            .orEmpty().take(10)
+            .orEmpty()
 
         val singles = carouselByTitle("single")
             ?.findAll("musicTwoRowItemRenderer")
             ?.mapNotNull { parseAlbum(it as? JsonObject) }
-            .orEmpty().take(10)
+            .orEmpty()
 
         val videos = carouselByTitle("video")
             ?.findAll("musicTwoRowItemRenderer")
             ?.mapNotNull { parseVideo(it as? JsonObject) }
-            .orEmpty().take(8)
+            .orEmpty()
 
         val featuredOn = carouselByTitle("featured")
             ?.findAll("musicTwoRowItemRenderer")
             ?.mapNotNull { parseAlbum(it as? JsonObject) }
-            .orEmpty().take(10)
+            .orEmpty()
 
         val relatedArtists = carousels.firstOrNull { shelf ->
             val t = shelf.findFirst("title").runsText()?.lowercase() ?: ""
             "fan" in t || "related" in t || "similar" in t || "also like" in t
         }?.findAll("musicTwoRowItemRenderer")
             ?.mapNotNull { parseArtist(it as? JsonObject) }
-            .orEmpty().take(6)
+            .orEmpty()
 
         NewPipeRepository.ArtistPage(
             name = name,

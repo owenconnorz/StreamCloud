@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,15 +40,15 @@ fun MusicArtistSectionScreen(
     channelUrl: String,
     sectionType: String,
     onBack: () -> Unit,
-    onPlay: (YtTrack) -> Unit,
+    onPlay: (tracks: List<YtTrack>, startIndex: Int) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
 ) {
-    var page by remember(channelUrl) { mutableStateOf<NewPipeRepository.ArtistPage?>(null) }
-    var loading by remember(channelUrl) { mutableStateOf(true) }
-    var error by remember(channelUrl) { mutableStateOf<String?>(null) }
+    var page by remember(channelUrl, sectionType) { mutableStateOf<NewPipeRepository.ArtistPage?>(null) }
+    var loading by remember(channelUrl, sectionType) { mutableStateOf(true) }
+    var error by remember(channelUrl, sectionType) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(channelUrl) {
+    LaunchedEffect(channelUrl, sectionType) {
         loading = true; error = null; page = null
         try { page = withContext(Dispatchers.IO) { NewPipeRepository.loadArtist(channelUrl) } }
         catch (e: Throwable) { error = e.message }
@@ -66,7 +67,8 @@ fun MusicArtistSectionScreen(
     }
 
     val sectionTitle = when (sectionType) {
-        "popular"  -> "Popular"
+        "top-songs" -> "Top Songs"
+        "popular"  -> "Top Songs"
         "singles"  -> "Singles"
         "albums"   -> "Albums"
         "videos"   -> "Videos"
@@ -126,7 +128,7 @@ private fun ArtistSectionContent(
     sectionType: String,
     sectionTitle: String,
     statusBarPadding: androidx.compose.ui.unit.Dp,
-    onPlay: (YtTrack) -> Unit,
+    onPlay: (tracks: List<YtTrack>, startIndex: Int) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
 ) {
@@ -148,11 +150,11 @@ private fun ArtistSectionContent(
         }
 
         when (sectionType) {
-            "popular" -> {
-                items(page.topTracks, key = { "pop_${it.url}" }) { tr ->
+            "top-songs", "popular" -> {
+                itemsIndexed(page.topTracks, key = { index, track -> "pop_${index}_${track.url}" }) { index, tr ->
                     ArtistSectionTrackRow(
                         track = tr,
-                        onPlay = { onPlay(tr) },
+                        onPlay = { onPlay(page.topTracks, index) },
                         onArtistClick = onArtistClick,
                     )
                 }
@@ -174,10 +176,10 @@ private fun ArtistSectionContent(
                 }
             }
             "videos" -> {
-                items(page.videos, key = { "vid_${it.url}" }) { vid ->
+                itemsIndexed(page.videos, key = { index, track -> "vid_${index}_${track.url}" }) { index, vid ->
                     ArtistSectionVideoRow(
                         track = vid,
-                        onClick = { onPlay(vid) },
+                        onClick = { onPlay(page.videos, index) },
                     )
                 }
             }

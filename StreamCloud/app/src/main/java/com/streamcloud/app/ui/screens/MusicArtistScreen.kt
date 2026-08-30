@@ -234,9 +234,9 @@ private fun ArtistPageContent(
             }
         }
 
-        // Popular tracks
+        // Top songs
         if (page.topTracks.isNotEmpty()) {
-            item { SectionHeader("Popular", onViewAll = { onShowMore("popular") }) }
+            item { SectionHeader("Top Songs", onViewAll = { onShowMore("top-songs") }) }
             itemsIndexed(
                 page.topTracks.take(5),
                 key = { index, track -> "pop_${index}_${track.url}" },
