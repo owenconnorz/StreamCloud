@@ -56,8 +56,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.util.UnstableApi
 import android.net.Uri
 import coil.compose.AsyncImage
+import com.streamcloud.app.audio.PlaybackBus
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.audio.DjNarrator
 import com.streamcloud.app.audio.DjVoicePreset
@@ -75,6 +77,23 @@ import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
+
+internal fun musicMediaIdsMatch(first: String?, second: String?): Boolean {
+    if (first.isNullOrBlank() || second.isNullOrBlank()) return false
+    if (first == second) return true
+    return musicVideoId(first) != null && musicVideoId(first) == musicVideoId(second)
+}
+
+private fun musicVideoId(value: String): String? {
+    val trimmed = value.trim()
+    Uri.parse(trimmed).getQueryParameter("v")?.takeIf { it.isNotBlank() }?.let { return it }
+    Regex("""(?:[?&]v=|youtu\.be/|/(?:shorts|embed)/)([A-Za-z0-9_-]{11})""")
+        .find(trimmed)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.let { return it }
+    return trimmed.takeIf { it.matches(Regex("""[A-Za-z0-9_-]{11}""")) }
+}
 
 private val SUGGESTIONS = listOf(
     "Top hits 2026", "Lo-fi beats", "Chill", "Workout",
@@ -124,7 +143,7 @@ private fun buildDjFollowUpAnnouncement(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, androidx.media3.common.util.UnstableApi::class)
+@OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
 fun MusicScreen(
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
@@ -137,6 +156,8 @@ fun MusicScreen(
     val context = LocalContext.current
     val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
     val state by vm.state.collectAsState()
+    val nowPlayingMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
+    val playbackIsPlaying by PlaybackBus.isPlaying.collectAsState()
     var query by remember { mutableStateOf("") }
     var showHistory by remember { mutableStateOf(false) }
     var showDj by remember { mutableStateOf(false) }
@@ -677,6 +698,7 @@ fun MusicScreen(
                 val sections = state.sections
                 val topArtist = sections.artists.firstOrNull()
                 val topSongs = sections.songs.take(if (topArtist != null) 2 else 3)
+                val topVideos = sections.videos.take(if (topSongs.isNotEmpty()) 2 else 3)
 
                 topArtist?.let { artist ->
                     item(key = "sr_artist_${artist.url}") {
@@ -699,8 +721,27 @@ fun MusicScreen(
                         title = track.title,
                         subtitle = track.uploader,
                         isCircle = false,
+                        isNowPlaying = musicMediaIdsMatch(track.url, nowPlayingMediaId),
+                        isPlaying = playbackIsPlaying,
                         onClick = {
                             playFromQueue(track, sections.songs, index)
+                        },
+                    )
+                }
+
+                itemsIndexed(
+                    topVideos,
+                    key = { index, track -> "sr_video_${index}_${track.url}" },
+                ) { index, track ->
+                    SearchResultRow(
+                        thumbnail = track.thumbnail,
+                        title = track.title,
+                        subtitle = track.uploader,
+                        isCircle = false,
+                        isNowPlaying = musicMediaIdsMatch(track.url, nowPlayingMediaId),
+                        isPlaying = playbackIsPlaying,
+                        onClick = {
+                            playFromQueue(track, sections.videos, index)
                         },
                     )
                 }
@@ -1135,6 +1176,8 @@ private fun SearchResultRow(
     title: String,
     subtitle: String,
     isCircle: Boolean = false,
+    isNowPlaying: Boolean = false,
+    isPlaying: Boolean = false,
     onClick: () -> Unit,
 ) {
     Row(
@@ -1146,11 +1189,19 @@ private fun SearchResultRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val imgShape = if (isCircle) CircleShape else RoundedCornerShape(8.dp)
-        com.streamcloud.app.ui.components.MusicThumbnail(
-            url = thumbnail,
-            size = 54.dp,
-            shape = imgShape,
-        )
+        Box {
+            com.streamcloud.app.ui.components.MusicThumbnail(
+                url = thumbnail,
+                size = 54.dp,
+                shape = imgShape,
+            )
+            if (isNowPlaying) {
+                com.streamcloud.app.ui.components.PlayingBars(
+                    modifier = Modifier.matchParentSize(),
+                    paused = !isPlaying,
+                )
+            }
+        }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(

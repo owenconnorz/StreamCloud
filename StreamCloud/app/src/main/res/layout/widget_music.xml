@@ -18,6 +18,7 @@
             android:layout_alignParentStart="true"
             android:layout_centerVertical="true"
             android:scaleType="centerCrop"
+            android:src="@mipmap/ic_launcher"
             android:background="@drawable/widget_thumb_bg" />
 
         <ImageView
@@ -78,6 +79,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:scaleType="centerCrop"
+            android:src="@mipmap/ic_launcher"
             android:background="@drawable/widget_thumb_bg"
             android:layout_marginEnd="3dp" />
 
@@ -87,6 +89,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:scaleType="centerCrop"
+            android:src="@mipmap/ic_launcher"
             android:background="@drawable/widget_thumb_bg"
             android:layout_marginEnd="3dp" />
 
@@ -96,6 +99,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:scaleType="centerCrop"
+            android:src="@mipmap/ic_launcher"
             android:background="@drawable/widget_thumb_bg"
             android:layout_marginEnd="3dp" />
 
@@ -105,6 +109,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:scaleType="centerCrop"
+            android:src="@mipmap/ic_launcher"
             android:background="@drawable/widget_thumb_bg"
             android:layout_marginEnd="3dp" />
 
@@ -114,6 +119,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:scaleType="centerCrop"
+            android:src="@mipmap/ic_launcher"
             android:background="@drawable/widget_thumb_bg" />
 
     </LinearLayout>

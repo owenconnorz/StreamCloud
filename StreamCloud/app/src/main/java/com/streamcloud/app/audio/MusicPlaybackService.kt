@@ -24,6 +24,7 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicLong
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -38,6 +39,7 @@ import com.streamcloud.app.data.downloads.DownloadCaches
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.TrackDao
 import com.streamcloud.app.data.library.TrackEntity
+import com.streamcloud.app.widget.MusicWidgetProvider
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import com.streamcloud.app.data.ytmusic.StreamUrlCache
@@ -103,6 +105,9 @@ class MusicPlaybackService : MediaLibraryService() {
     private val bufferedPrefetchJobs = ConcurrentHashMap<String, Job>()
     private val bufferedPrefetchWriters = ConcurrentHashMap<String, CacheWriter>()
     private val bufferedPrefetchPermit = Semaphore(1)
+    private val widgetUpdateGeneration = AtomicLong(0)
+    private var widgetUpdateJob: Job? = null
+    @Volatile private var widgetRecentArtworkUrls: List<String> = emptyList()
 
     // ── Crossfade engine ──────────────────────────────────────────────────────
     // True crossfade uses TWO ExoPlayer instances.
@@ -326,6 +331,10 @@ class MusicPlaybackService : MediaLibraryService() {
                             // that ended before the fade-out window even started).
                             exoPlayer.volume = 1f
                         }
+                        refreshMusicWidget()
+                    }
+                    override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+                        refreshMusicWidget()
                     }
                     override fun onTimelineChanged(
                         timeline: androidx.media3.common.Timeline,
@@ -355,6 +364,17 @@ class MusicPlaybackService : MediaLibraryService() {
 
         audioFx = AudioFx(applicationContext, player.audioSessionId).also { it.start() }
         exoPlayer = player
+        refreshMusicWidget()
+        ioScope.launch {
+            LibraryDb.get(applicationContext).tracks().recent().collectLatest { recent ->
+                widgetRecentArtworkUrls = recent
+                    .mapNotNull { it.thumbnail?.takeIf(String::isNotBlank) }
+                    .take(5)
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    refreshMusicWidget()
+                }
+            }
+        }
 
         // Keep crossfadeDurationMs in sync with the DataStore setting.
         ioScope.launch {
@@ -916,6 +936,36 @@ class MusicPlaybackService : MediaLibraryService() {
             isCurrentLiked = dao.isLiked(url).first() ?: false
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 session?.setCustomLayout(buildCustomLayout())
+            }
+        }
+    }
+
+    /** Captures the latest Media3 metadata and coalesces duplicate transition/metadata callbacks. */
+    private fun refreshMusicWidget() {
+        if (!::exoPlayer.isInitialized) return
+        val item = exoPlayer.currentMediaItem ?: return
+        val metadata = item.mediaMetadata
+        val generation = widgetUpdateGeneration.incrementAndGet()
+        val title = metadata.title?.toString().orEmpty().ifBlank { "StreamCloud" }
+        val artist = (metadata.artist ?: metadata.albumArtist)?.toString().orEmpty()
+            .ifBlank { "Unknown artist" }
+        val artworkUrl = metadata.artworkUri?.toString().orEmpty()
+        val recentArtworkUrls = widgetRecentArtworkUrls
+        val appContext = applicationContext
+
+        widgetUpdateJob?.cancel()
+        widgetUpdateJob = ioScope.launch {
+            // A transition often emits both item and metadata callbacks. Coalesce them so the
+            // widget performs one artwork render for the latest item only.
+            delay(150)
+            if (generation == widgetUpdateGeneration.get()) {
+                MusicWidgetProvider.updateNowPlaying(
+                    appContext,
+                    title,
+                    artist,
+                    artworkUrl,
+                    recentArtworkUrls,
+                )
             }
         }
     }

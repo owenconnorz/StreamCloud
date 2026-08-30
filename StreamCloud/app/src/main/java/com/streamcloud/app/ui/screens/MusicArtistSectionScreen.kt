@@ -1,3 +1,5 @@
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.streamcloud.app.ui.screens
 
 import android.net.Uri
@@ -24,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.streamcloud.app.audio.PlaybackBus
 import com.streamcloud.app.data.newpipe.NewPipeRepository
 import com.streamcloud.app.data.newpipe.YtAlbum
 import com.streamcloud.app.data.newpipe.YtArtist
@@ -47,6 +50,8 @@ fun MusicArtistSectionScreen(
     var page by remember(channelUrl, sectionType) { mutableStateOf<NewPipeRepository.ArtistPage?>(null) }
     var loading by remember(channelUrl, sectionType) { mutableStateOf(true) }
     var error by remember(channelUrl, sectionType) { mutableStateOf<String?>(null) }
+    val nowPlayingMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
+    val playbackIsPlaying by PlaybackBus.isPlaying.collectAsState()
 
     LaunchedEffect(channelUrl, sectionType) {
         loading = true; error = null; page = null
@@ -100,6 +105,8 @@ fun MusicArtistSectionScreen(
                 onPlay = onPlay,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
+                nowPlayingMediaId = nowPlayingMediaId,
+                playbackIsPlaying = playbackIsPlaying,
             )
         }
 
@@ -131,6 +138,8 @@ private fun ArtistSectionContent(
     onPlay: (tracks: List<YtTrack>, startIndex: Int) -> Unit,
     onAlbumClick: (id: String, title: String, thumbnail: String?) -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
+    nowPlayingMediaId: String?,
+    playbackIsPlaying: Boolean,
 ) {
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -154,6 +163,8 @@ private fun ArtistSectionContent(
                 itemsIndexed(page.topTracks, key = { index, track -> "pop_${index}_${track.url}" }) { index, tr ->
                     ArtistSectionTrackRow(
                         track = tr,
+                        isNowPlaying = musicMediaIdsMatch(tr.url, nowPlayingMediaId),
+                        isPlaying = playbackIsPlaying,
                         onPlay = { onPlay(page.topTracks, index) },
                         onArtistClick = onArtistClick,
                     )
@@ -179,6 +190,8 @@ private fun ArtistSectionContent(
                 itemsIndexed(page.videos, key = { index, track -> "vid_${index}_${track.url}" }) { index, vid ->
                     ArtistSectionVideoRow(
                         track = vid,
+                        isNowPlaying = musicMediaIdsMatch(vid.url, nowPlayingMediaId),
+                        isPlaying = playbackIsPlaying,
                         onClick = { onPlay(page.videos, index) },
                     )
                 }
@@ -207,6 +220,8 @@ private fun ArtistSectionContent(
 @Composable
 private fun ArtistSectionTrackRow(
     track: YtTrack,
+    isNowPlaying: Boolean,
+    isPlaying: Boolean,
     onPlay: () -> Unit,
     onArtistClick: (url: String, thumbnail: String?) -> Unit,
 ) {
@@ -225,11 +240,23 @@ private fun ArtistSectionTrackRow(
             .padding(start = 20.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            model = track.thumbnail, contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(50.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
-        )
+        Box(
+            modifier = Modifier.size(50.dp).clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            AsyncImage(
+                model = track.thumbnail,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (isNowPlaying) {
+                com.streamcloud.app.ui.components.PlayingBars(
+                    modifier = Modifier.fillMaxSize(),
+                    paused = !isPlaying,
+                )
+            }
+        }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(track.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,
@@ -273,17 +300,34 @@ private fun ArtistSectionAlbumRow(album: YtAlbum, subtitle: String? = null, onCl
 }
 
 @Composable
-private fun ArtistSectionVideoRow(track: YtTrack, onClick: () -> Unit) {
+private fun ArtistSectionVideoRow(
+    track: YtTrack,
+    isNowPlaying: Boolean,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            model = track.thumbnail, contentDescription = track.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
-        )
+        Box(
+            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            AsyncImage(
+                model = track.thumbnail,
+                contentDescription = track.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (isNowPlaying) {
+                com.streamcloud.app.ui.components.PlayingBars(
+                    modifier = Modifier.fillMaxSize(),
+                    paused = !isPlaying,
+                )
+            }
+        }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(track.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold,

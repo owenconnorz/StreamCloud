@@ -39,11 +39,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
+import com.streamcloud.app.audio.PlaybackBus
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.components.SongRowMenu
+import com.streamcloud.app.ui.components.PlayingBars
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
@@ -56,7 +59,7 @@ internal fun shouldExpandMusicSearchBar(
     formFactor: UiFormFactor,
 ): Boolean = initialQuery.isNotBlank() || formFactor == UiFormFactor.Mobile
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
 fun MusicSearchScreen(
     onBack: () -> Unit,
@@ -69,12 +72,15 @@ fun MusicSearchScreen(
     val scope = rememberCoroutineScope()
     val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
     val state by vm.state.collectAsState()
+    val nowPlayingMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
+    val playbackIsPlaying by PlaybackBus.isPlaying.collectAsState()
     val searchHistory by sl.settings.musicSearchHistory.collectAsState(initial = emptyList())
     val formFactor = LocalUiFormFactor.current
     var query by remember { mutableStateOf(initialQuery) }
 
     // "View all" toggles per section
     var showAllSongs    by remember { mutableStateOf(false) }
+    var showAllVideos   by remember { mutableStateOf(false) }
     var showAllArtists  by remember { mutableStateOf(false) }
     var showAllAlbums   by remember { mutableStateOf(false) }
     // Phones open directly into text entry from the Music home search action.
@@ -84,7 +90,12 @@ fun MusicSearchScreen(
     }
 
     // Reset view-all when query changes
-    LaunchedEffect(query) { showAllSongs = false; showAllArtists = false; showAllAlbums = false }
+    LaunchedEffect(query) {
+        showAllSongs = false
+        showAllVideos = false
+        showAllArtists = false
+        showAllAlbums = false
+    }
 
     val nowArtwork = state.nowPlayingTrack?.thumbnail
     val dominant  by rememberDominant(nowArtwork)
@@ -393,11 +404,45 @@ fun MusicSearchScreen(
                     ) { index, track ->
                         SongResultRow(
                             track         = track,
+                            isNowPlaying  = musicMediaIdsMatch(track.url, nowPlayingMediaId),
+                            isPlaying     = playbackIsPlaying,
                             onClick       = {
                                 vm.play(sections.songs, index)
                                 submitSearch(query)
                             },
                             onViewArtist  = { name ->
+                                onArtistClick(
+                                    "https://music.youtube.com/search?q=${Uri.encode(name)}",
+                                    null,
+                                )
+                            },
+                        )
+                    }
+                }
+
+                // ── Videos ─────────────────────────────────────────────────
+                if (sections.videos.isNotEmpty()) {
+                    item(key = "hdr_videos") {
+                        SearchSectionHeader(
+                            title      = "Videos",
+                            showingAll = showAllVideos,
+                            onViewAll  = { showAllVideos = !showAllVideos },
+                        )
+                    }
+                    val videoList = if (showAllVideos) sections.videos else sections.videos.take(4)
+                    itemsIndexed(
+                        videoList,
+                        key = { index, track -> "video_${index}_${track.url}" },
+                    ) { index, track ->
+                        SongResultRow(
+                            track        = track,
+                            isNowPlaying = musicMediaIdsMatch(track.url, nowPlayingMediaId),
+                            isPlaying    = playbackIsPlaying,
+                            onClick      = {
+                                vm.play(sections.videos, index)
+                                submitSearch(query)
+                            },
+                            onViewArtist = { name ->
                                 onArtistClick(
                                     "https://music.youtube.com/search?q=${Uri.encode(name)}",
                                     null,
@@ -440,8 +485,9 @@ fun MusicSearchScreen(
                     )
                 }
 
-                if (sections.songs.isEmpty() && sections.artists.isEmpty() &&
-                    sections.albums.isEmpty() && state.suggestions.isEmpty() &&
+                if (sections.songs.isEmpty() && sections.videos.isEmpty() &&
+                    sections.artists.isEmpty() && sections.albums.isEmpty() &&
+                    state.suggestions.isEmpty() &&
                     query.length >= 2 && !state.loading
                 ) {
                     item {
@@ -525,6 +571,8 @@ private fun SearchFilterPills(
 @Composable
 private fun SongResultRow(
     track: YtTrack,
+    isNowPlaying: Boolean,
+    isPlaying: Boolean,
     onClick: () -> Unit,
     onViewArtist: (String) -> Unit,
 ) {
@@ -548,15 +596,25 @@ private fun SongResultRow(
             .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            model              = track.thumbnail,
-            contentDescription = null,
-            contentScale       = ContentScale.Crop,
+        Box(
             modifier = Modifier
                 .size(54.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
+        ) {
+            AsyncImage(
+                model = track.thumbnail,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (isNowPlaying) {
+                PlayingBars(
+                    modifier = Modifier.fillMaxSize(),
+                    paused = !isPlaying,
+                )
+            }
+        }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(
