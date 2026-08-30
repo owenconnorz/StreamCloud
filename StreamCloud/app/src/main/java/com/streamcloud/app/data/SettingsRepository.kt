@@ -159,6 +159,13 @@ object SettingsKeys {
     val DISCORD_RPC_CLEAR_PAUSE = booleanPreferencesKey("discord_rpc_clear_pause")
     val DISCORD_RPC_SHOW_BUTTON = booleanPreferencesKey("discord_rpc_show_button")
     val DISCORD_RPC_ACT_TYPE    = stringPreferencesKey("discord_rpc_act_type")
+
+    // Android Auto. The section identifiers are intentionally stable service-facing values.
+    val ANDROID_AUTO_VISIBLE_SECTIONS = stringPreferencesKey("android_auto_visible_sections")
+    val ANDROID_AUTO_SECTION_ORDER    = stringPreferencesKey("android_auto_section_order")
+    val ANDROID_AUTO_QUICK_ADD_DESTINATION = stringPreferencesKey("android_auto_quick_add_destination")
+    val ANDROID_AUTO_SHOW_YT_SUGGESTIONS = booleanPreferencesKey("android_auto_show_yt_suggestions")
+    val ANDROID_AUTO_SONGS_SEARCH_LIMIT = stringPreferencesKey("android_auto_songs_search_limit")
 }
 
 class SettingsRepository(private val context: Context) {
@@ -454,6 +461,60 @@ class SettingsRepository(private val context: Context) {
     val navLiquidGlass: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NAV_LIQUID_GLASS] ?: false }
 
     suspend fun setNavLiquidGlass(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NAV_LIQUID_GLASS] = b }
+
+    /**
+     * Android Auto browser configuration. Songs is opt-in; the remaining useful browse
+     * destinations retain their default visibility on upgrades.
+     */
+    val androidAutoVisibleSections: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        prefs[SettingsKeys.ANDROID_AUTO_VISIBLE_SECTIONS]
+            ?.takeIf { it.isNotBlank() }
+            ?.split(",")?.map(String::trim)?.filter(String::isNotEmpty)
+            ?.distinct()
+            ?: listOf(
+                "playlists", "artists", "albums", "liked_songs",
+                "home", "recently_played", "on_repeat", "downloads",
+            )
+    }
+    val androidAutoSectionOrder: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        val stored = prefs[SettingsKeys.ANDROID_AUTO_SECTION_ORDER]
+            ?.split(",")?.map(String::trim)?.filter(String::isNotEmpty)
+            ?.distinct()
+            ?: emptyList()
+        val defaults = listOf(
+            "playlists", "artists", "albums", "liked_songs", "songs",
+            "home", "recently_played", "on_repeat", "downloads",
+        )
+        (stored.filter { it in defaults } + defaults.filterNot { it in stored }).distinct()
+    }
+    /** Empty means quick-add has no configured destination. Values are `local:<playlist id>`. */
+    val androidAutoQuickAddDestination: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.ANDROID_AUTO_QUICK_ADD_DESTINATION] ?: ""
+    }
+    val androidAutoShowYoutubeSuggestions: Flow<Boolean> = context.dataStore.data.map {
+        it[SettingsKeys.ANDROID_AUTO_SHOW_YT_SUGGESTIONS] ?: true
+    }
+    /** One of 25, 50, 75, 100, 250, 500, or `unlimited`; malformed legacy values become 75. */
+    val androidAutoSongsSearchLimit: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.ANDROID_AUTO_SONGS_SEARCH_LIMIT]
+            ?.takeIf { value -> value in setOf("25", "50", "75", "100", "250", "500", "unlimited") }
+            ?: "75"
+    }
+
+    suspend fun setAndroidAutoVisibleSections(ids: List<String>) =
+        context.dataStore.edit { it[SettingsKeys.ANDROID_AUTO_VISIBLE_SECTIONS] = ids.distinct().joinToString(",") }
+    suspend fun setAndroidAutoSectionOrder(ids: List<String>) =
+        context.dataStore.edit { it[SettingsKeys.ANDROID_AUTO_SECTION_ORDER] = ids.distinct().joinToString(",") }
+    suspend fun setAndroidAutoQuickAddDestination(destination: String) =
+        context.dataStore.edit { it[SettingsKeys.ANDROID_AUTO_QUICK_ADD_DESTINATION] = destination }
+    suspend fun setAndroidAutoShowYoutubeSuggestions(enabled: Boolean) =
+        context.dataStore.edit { it[SettingsKeys.ANDROID_AUTO_SHOW_YT_SUGGESTIONS] = enabled }
+    suspend fun setAndroidAutoSongsSearchLimit(limit: String) {
+        require(limit in setOf("25", "50", "75", "100", "250", "500", "unlimited")) {
+            "Unsupported Android Auto songs search limit: $limit"
+        }
+        context.dataStore.edit { it[SettingsKeys.ANDROID_AUTO_SONGS_SEARCH_LIMIT] = limit }
+    }
 
 
     val spotifyCookie: Flow<String>    = context.dataStore.data.map { it[SettingsKeys.SPOTIFY_COOKIE]    ?: "" }

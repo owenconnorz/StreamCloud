@@ -13,6 +13,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -56,6 +57,12 @@ interface TrackDao {
 
     @Query("SELECT * FROM tracks WHERE local_path IS NOT NULL ORDER BY title ASC")
     fun downloaded(): Flow<List<TrackEntity>>
+
+    @Query(
+        "SELECT * FROM tracks WHERE title LIKE :pattern ESCAPE '\\' OR artist LIKE :pattern ESCAPE '\\' " +
+            "ORDER BY title ASC LIMIT :limit",
+    )
+    suspend fun search(pattern: String, limit: Int): List<TrackEntity>
 
     @Query("SELECT * FROM tracks ORDER BY play_count DESC LIMIT 30")
     fun mostPlayed(): Flow<List<TrackEntity>>
@@ -284,8 +291,32 @@ interface LocalPlaylistDao {
     @Query("SELECT * FROM local_playlists ORDER BY created_at DESC")
     fun allPlaylists(): Flow<List<LocalPlaylistEntity>>
 
+    @Query("SELECT * FROM local_playlists ORDER BY created_at DESC")
+    suspend fun allPlaylistsOnce(): List<LocalPlaylistEntity>
+
+    @Query("SELECT * FROM local_playlists WHERE id = :id LIMIT 1")
+    suspend fun playlistById(id: Long): LocalPlaylistEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addTrack(entry: PlaylistTrackEntity)
+
+    @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = :playlistId")
+    suspend fun nextTrackPosition(playlistId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = :playlistId AND track_url = :trackUrl")
+    suspend fun containsTrack(playlistId: Long, trackUrl: String): Int
+
+    /**
+     * Result values are stable for command feedback: 1 added, 0 already present, -1 playlist missing.
+     * The transaction serializes the duplicate check and next-position calculation.
+     */
+    @Transaction
+    suspend fun appendTrackIfPlaylistExists(playlistId: Long, trackUrl: String): Int {
+        if (playlistById(playlistId) == null) return -1
+        if (containsTrack(playlistId, trackUrl) > 0) return 0
+        addTrack(PlaylistTrackEntity(playlistId, trackUrl, nextTrackPosition(playlistId)))
+        return 1
+    }
 
     @Query("DELETE FROM playlist_tracks WHERE playlist_id = :playlistId AND track_url = :trackUrl")
     suspend fun removeTrack(playlistId: Long, trackUrl: String)

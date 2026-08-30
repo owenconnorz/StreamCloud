@@ -92,6 +92,36 @@ class LocalMediaRepository(context: Context) {
             }
         }
 
+    /** Searches device music without loading the complete MediaStore catalog into memory. */
+    suspend fun searchAudio(query: String, offset: Int, limit: Int): LocalMediaPage<LocalAudioItem> =
+        withContext(Dispatchers.IO) {
+            val escaped = query.trim()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            val match = "%$escaped%"
+            queryPage(
+                contentUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection = arrayOf(
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.TITLE,
+                    MediaStore.Audio.Media.DISPLAY_NAME,
+                    MediaStore.Audio.Media.ARTIST,
+                    MediaStore.Audio.Media.ALBUM,
+                    MediaStore.Audio.Media.ALBUM_ID,
+                    MediaStore.Audio.Media.DURATION,
+                ),
+                selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND " +
+                    "${MediaStore.Audio.Media.SIZE} > 0 AND (" +
+                    "${MediaStore.Audio.Media.TITLE} LIKE ? ESCAPE '\\' OR " +
+                    "${MediaStore.Audio.Media.ARTIST} LIKE ? ESCAPE '\\')",
+                selectionArgs = arrayOf(match, match),
+                sortColumn = MediaStore.Audio.Media.TITLE,
+                offset = offset,
+                limit = limit,
+            ) { cursor -> audioItems(cursor) }
+        }
+
     suspend fun loadVideoPage(offset: Int, limit: Int): LocalMediaPage<LocalVideoItem> =
         withContext(Dispatchers.IO) {
             queryPage(
@@ -163,6 +193,7 @@ class LocalMediaRepository(context: Context) {
         contentUri: Uri,
         projection: Array<String>,
         selection: String,
+        selectionArgs: Array<String>? = null,
         sortColumn: String,
         offset: Int,
         limit: Int,
@@ -174,6 +205,9 @@ class LocalMediaRepository(context: Context) {
                 projection,
                 Bundle().apply {
                     putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                    selectionArgs?.let {
+                        putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
+                    }
                     putStringArray(ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(sortColumn))
                     putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
                     putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
@@ -186,11 +220,35 @@ class LocalMediaRepository(context: Context) {
                 contentUri,
                 projection,
                 selection,
-                null,
+                selectionArgs,
                 "$sortColumn DESC LIMIT $limit OFFSET $offset",
             )
         }
         val items = cursor?.use(mapper).orEmpty()
         return LocalMediaPage(items = items, hasMore = items.size == limit)
+    }
+
+    private fun audioItems(cursor: Cursor): List<LocalAudioItem> {
+        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+        val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+        val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+        val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+        val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+        val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+        val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+        return buildList {
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idCol)
+                val albumId = cursor.getLong(albumIdCol)
+                add(LocalAudioItem(
+                    id, cursor.getString(titleCol).orEmpty().ifBlank { cursor.getString(nameCol).orEmpty() }
+                        .ifBlank { "Unknown title" },
+                    cursor.getString(artistCol).orEmpty().ifBlank { "Unknown artist" },
+                    cursor.getString(albumCol)?.takeIf { it.isNotBlank() }, cursor.getLong(durationCol),
+                    ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id),
+                    albumId.takeIf { it > 0L }?.let { Uri.parse("content://media/external/audio/albumart/$it") },
+                ))
+            }
+        }
     }
 }

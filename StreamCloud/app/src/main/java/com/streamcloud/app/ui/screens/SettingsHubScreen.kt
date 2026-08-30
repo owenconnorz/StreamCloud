@@ -151,7 +151,7 @@ private val ColourSonos      = Color(0xFF56C8D8)
 private enum class SettingsPage {
     SystemUpdate, Appearance, Playback, PlayerAudio, MovieSettings, MusicSettings, Account,
     ListenTogether, Content, Privacy,
-    Storage, BackupRestore, About, Logs, HomeLayout
+    Storage, BackupRestore, About, Logs, HomeLayout, AndroidAuto
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -171,6 +171,10 @@ fun SettingsHubScreen(
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
     val scope   = rememberCoroutineScope()
+    val localPlaylists by remember {
+        com.streamcloud.app.data.library.LibraryDb.get(context.applicationContext)
+            .localPlaylists().allPlaylists()
+    }.collectAsState(initial = emptyList())
 
 
     var backendUrl          by remember { mutableStateOf("") }
@@ -278,6 +282,7 @@ fun SettingsHubScreen(
     var showVideoCachePicker  by remember { mutableStateOf(false) }
     var showImageCachePicker  by remember { mutableStateOf(false) }
     var showPosterCachePicker by remember { mutableStateOf(false) }
+    var showAutoDestinationDialog by remember { mutableStateOf(false) }
 
     var seekIncrement          by remember { mutableStateOf("10") }
     var defaultSpeed           by remember { mutableStateOf("1.0") }
@@ -289,6 +294,16 @@ fun SettingsHubScreen(
     var gestureBrightness      by remember { mutableStateOf(true) }
     var resumePlayback         by remember { mutableStateOf(true) }
     var autoplayBestStream     by remember { mutableStateOf(false) }
+    var androidAutoVisibleSections by remember { mutableStateOf<List<String>>(emptyList()) }
+    var androidAutoSectionOrder by remember {
+        mutableStateOf(listOf(
+            "playlists", "artists", "albums", "liked_songs", "songs",
+            "home", "recently_played", "on_repeat", "downloads",
+        ))
+    }
+    var androidAutoQuickAddDestination by remember { mutableStateOf("") }
+    var androidAutoShowYoutubeSuggestions by remember { mutableStateOf(true) }
+    var androidAutoSongsSearchLimit by remember { mutableStateOf("75") }
     var showSeekDialog         by remember { mutableStateOf(false) }
     var showDefaultSpeedDialog by remember { mutableStateOf(false) }
     var showAudioLangDialog    by remember { mutableStateOf(false) }
@@ -378,6 +393,11 @@ fun SettingsHubScreen(
         gestureBrightness     = sl.settings.gestureBrightnessEnabled.first()
         resumePlayback        = sl.settings.resumePlayback.first()
         autoplayBestStream    = sl.settings.autoplayBestStream.first()
+        androidAutoVisibleSections = sl.settings.androidAutoVisibleSections.first()
+        androidAutoSectionOrder = sl.settings.androidAutoSectionOrder.first()
+        androidAutoQuickAddDestination = sl.settings.androidAutoQuickAddDestination.first()
+        androidAutoShowYoutubeSuggestions = sl.settings.androidAutoShowYoutubeSuggestions.first()
+        androidAutoSongsSearchLimit = sl.settings.androidAutoSongsSearchLimit.first()
     }
 
 
@@ -757,6 +777,33 @@ fun SettingsHubScreen(
                     )
                 }
             }
+
+            SettingsPage.AndroidAuto -> AndroidAutoSettingsPage(
+                visibleSections = androidAutoVisibleSections,
+                sectionOrder = androidAutoSectionOrder,
+                quickAddDestination = androidAutoQuickAddDestination,
+                localPlaylists = localPlaylists,
+                showYoutubeSuggestions = androidAutoShowYoutubeSuggestions,
+                songsSearchLimit = androidAutoSongsSearchLimit,
+                onBack = { currentPage = null },
+                onVisibleSectionsChange = { ids ->
+                    androidAutoVisibleSections = ids
+                    scope.launch { sl.settings.setAndroidAutoVisibleSections(ids) }
+                },
+                onOrderChange = { ids ->
+                    androidAutoSectionOrder = ids
+                    scope.launch { sl.settings.setAndroidAutoSectionOrder(ids) }
+                },
+                onQuickAddClick = { showAutoDestinationDialog = true },
+                onYoutubeSuggestionsChange = {
+                    androidAutoShowYoutubeSuggestions = it
+                    scope.launch { sl.settings.setAndroidAutoShowYoutubeSuggestions(it) }
+                },
+                onSongsSearchLimitChange = {
+                    androidAutoSongsSearchLimit = it
+                    scope.launch { sl.settings.setAndroidAutoSongsSearchLimit(it) }
+                },
+            )
 
 
             SettingsPage.SystemUpdate -> SubPageScaffold(
@@ -2531,6 +2578,242 @@ fun SettingsHubScreen(
             onDismiss = { showPosterCachePicker = false },
         )
     }
+    if (showAutoDestinationDialog) {
+        AlertDialog(
+            onDismissRequest = { showAutoDestinationDialog = false },
+            title = { Text("Quick-add destination") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "Choose the local playlist used by Android Auto quick-add.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        onClick = {
+                            androidAutoQuickAddDestination = ""
+                            scope.launch { sl.settings.setAndroidAutoQuickAddDestination("") }
+                            showAutoDestinationDialog = false
+                        },
+                    ) { Text("No destination") }
+                    localPlaylists.forEach { playlist ->
+                        TextButton(
+                            onClick = {
+                                androidAutoQuickAddDestination = "local:${playlist.id}"
+                                scope.launch {
+                                    sl.settings.setAndroidAutoQuickAddDestination("local:${playlist.id}")
+                                }
+                                showAutoDestinationDialog = false
+                            },
+                        ) { Text(playlist.name) }
+                    }
+                    if (localPlaylists.isEmpty()) {
+                        Text("Create a local playlist in Library first.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAutoDestinationDialog = false }) { Text("Close") } },
+        )
+    }
+}
+
+@Composable
+private fun AndroidAutoSettingsPage(
+    visibleSections: List<String>,
+    sectionOrder: List<String>,
+    quickAddDestination: String,
+    localPlaylists: List<com.streamcloud.app.data.library.LocalPlaylistEntity>,
+    showYoutubeSuggestions: Boolean,
+    songsSearchLimit: String,
+    onBack: () -> Unit,
+    onVisibleSectionsChange: (List<String>) -> Unit,
+    onOrderChange: (List<String>) -> Unit,
+    onQuickAddClick: () -> Unit,
+    onYoutubeSuggestionsChange: (Boolean) -> Unit,
+    onSongsSearchLimitChange: (String) -> Unit,
+) {
+    data class AutoSection(val id: String, val title: String, val icon: ImageVector)
+    val sections = listOf(
+        AutoSection("playlists", "Playlists", Icons.Default.QueueMusic),
+        AutoSection("artists", "Artists", Icons.Default.Person),
+        AutoSection("albums", "Albums", Icons.Default.MusicNote),
+        AutoSection("liked_songs", "Liked songs", Icons.Default.Favorite),
+        AutoSection("songs", "Songs", Icons.Default.MusicNote),
+        AutoSection("home", "Home", Icons.Default.Dashboard),
+        AutoSection("recently_played", "Recently played", Icons.Default.History),
+        AutoSection("on_repeat", "On repeat", Icons.Default.Restore),
+        AutoSection("downloads", "Downloads", Icons.Default.Download),
+    )
+    val sectionsById = remember { sections.associateBy { it.id } }
+    val orderedIds = remember(sectionOrder) { sectionOrder.filter { it in sectionsById }.toMutableStateList() }
+    var dragIndex by remember { mutableIntStateOf(-1) }
+    var dragAccumulator by remember { mutableFloatStateOf(0f) }
+    var rowHeightPx by remember { mutableFloatStateOf(0f) }
+    val limitOptions = listOf("25", "50", "75", "100", "250", "500", "unlimited")
+    val initialLimitIndex = limitOptions.indexOf(songsSearchLimit).coerceAtLeast(0)
+    var limitIndex by remember(songsSearchLimit) { mutableFloatStateOf(initialLimitIndex.toFloat()) }
+
+    SubPageScaffold(title = "Android Auto", onBack = onBack) {
+        Text(
+            "Visible sections",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        SettingsGroup {
+            Text(
+                "Tap a section to enable or disable it. Long press the drag handle to reorder. The first visible section is shown by default.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        SettingsGroup {
+            orderedIds.forEachIndexed { index, id ->
+                val section = sectionsById.getValue(id)
+                val enabled = id in visibleSections
+                if (index > 0) SettingDivider()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(if (dragIndex == index) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f) else Color.Transparent)
+                        .onGloballyPositioned { if (rowHeightPx == 0f) rowHeightPx = it.size.height.toFloat() }
+                        .padding(end = 14.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .tvFocusBorder(RoundedCornerShape(12.dp))
+                            .clickable {
+                                if (!enabled || visibleSections.size > 1) {
+                                    onVisibleSectionsChange(
+                                        if (enabled) visibleSections - id else visibleSections + id,
+                                    )
+                                }
+                            }
+                            .padding(start = 14.dp, top = 13.dp, bottom = 13.dp, end = 8.dp),
+                    ) {
+                        IconBox(section.icon, ColourPlayer)
+                        Spacer(Modifier.width(14.dp))
+                        Text(
+                            section.title,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(checked = enabled, onCheckedChange = null)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.Default.Reorder,
+                        contentDescription = "Long press and drag to reorder ${section.title}",
+                        tint = if (dragIndex == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .6f),
+                        modifier = Modifier
+                            .size(24.dp)
+                            .pointerInput(id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        dragIndex = orderedIds.indexOf(id)
+                                        dragAccumulator = 0f
+                                    },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        dragAccumulator += amount.y
+                                        val threshold = rowHeightPx.coerceAtLeast(72f) / 2f
+                                        while (dragAccumulator > threshold && dragIndex < orderedIds.lastIndex) {
+                                            orderedIds.add(dragIndex + 1, orderedIds.removeAt(dragIndex))
+                                            dragIndex++
+                                            dragAccumulator -= rowHeightPx.coerceAtLeast(72f)
+                                        }
+                                        while (dragAccumulator < -threshold && dragIndex > 0) {
+                                            orderedIds.add(dragIndex - 1, orderedIds.removeAt(dragIndex))
+                                            dragIndex--
+                                            dragAccumulator += rowHeightPx.coerceAtLeast(72f)
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        onOrderChange(orderedIds.toList())
+                                        dragIndex = -1
+                                    },
+                                    onDragCancel = { dragIndex = -1 },
+                                )
+                            },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Text("Quick-add destination", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(8.dp))
+        SettingsGroup {
+            SettingNav(
+                icon = Icons.Default.QueueMusic,
+                tint = ColourPlayer,
+                title = "Quick-add destination",
+                subtitle = when {
+                    quickAddDestination.startsWith("local:") -> localPlaylists
+                        .firstOrNull { it.id.toString() == quickAddDestination.removePrefix("local:") }
+                        ?.name ?: "Selected playlist is unavailable"
+                    else -> "Not configured"
+                },
+                onClick = onQuickAddClick,
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        Text("Mixes", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(8.dp))
+        SettingsGroup {
+            SettingToggle(
+                icon = Icons.Default.QueueMusic,
+                tint = ColourPlayer,
+                title = "Show YouTube suggested playlists",
+                subtitle = "Show YouTube Music recommended playlists while browsing Android Auto",
+                checked = showYoutubeSuggestions,
+                onChange = onYoutubeSuggestionsChange,
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        Text("Search options", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(8.dp))
+        SettingsGroup {
+            Column(Modifier.padding(16.dp)) {
+                Text("Songs search limit", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Limit the number of local songs shown in search results.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    if (limitOptions[limitIndex.toInt()] == "unlimited") "Unlimited" else "${limitOptions[limitIndex.toInt()]} songs",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Slider(
+                    value = limitIndex,
+                    onValueChange = { value ->
+                        val index = value.toInt().coerceIn(0, limitOptions.lastIndex)
+                        limitIndex = index.toFloat()
+                    },
+                    onValueChangeFinished = {
+                        onSongsSearchLimitChange(limitOptions[limitIndex.toInt()])
+                    },
+                    valueRange = 0f..limitOptions.lastIndex.toFloat(),
+                    steps = limitOptions.size - 2,
+                )
+                if (limitOptions[limitIndex.toInt()] == "unlimited") {
+                    Text(
+                        "Unlimited search results can use substantial memory and may cause Android Auto to become unstable.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -2568,6 +2851,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         )),
         HubSection("MUSIC", listOf(
             HubItem(Icons.Default.MusicNote, "Music settings", "Audio quality, equaliser, lyrics and queue", ColourPlayer, onClick = { onNavigate(SettingsPage.MusicSettings) }),
+            HubItem(Icons.Default.Dashboard, "Android Auto", "Configure music browsing and quick-add in your car", ColourPlayer, onClick = { onNavigate(SettingsPage.AndroidAuto) }),
             HubItem(Icons.Default.PlayArrow, "Player & playback", "Video quality, controls and playback behaviour", ColourPlayer, onClick = { onNavigate(SettingsPage.Playback) }),
             HubItem(Icons.Default.Group,     "Listen Together",  "Sync playback with friends",               ColourSonos,  onClick = { onNavigate(SettingsPage.ListenTogether) }),
         )),
