@@ -263,7 +263,7 @@ class MusicPlaybackService : MediaLibraryService() {
                             }
                         }
                         if (state == androidx.media3.common.Player.STATE_READY) {
-                            persistQueueSnapshot(player, force = true)
+                            persistQueueSnapshot(exoPlayer, force = true)
                             // Timeline/transition callbacks can fire while the selected item is
                             // still resolving. Only let queue URL and byte warming begin after the
                             // foreground item has enough buffered audio to start.
@@ -273,7 +273,7 @@ class MusicPlaybackService : MediaLibraryService() {
                         }
                     }
                     override fun onIsPlayingChanged(playing: Boolean) {
-                        if (!playing) persistQueueSnapshot(player, force = true)
+                        if (!playing) persistQueueSnapshot(exoPlayer, force = true)
                         if (playing) {
                             val traceVideoId = currentMediaItem?.mediaMetadata?.extras
                                 ?.getString(YtPlayback.EXTRA_VIDEO_ID)
@@ -310,7 +310,7 @@ class MusicPlaybackService : MediaLibraryService() {
                         }
                     }
                     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                        persistQueueSnapshot(player, force = true)
+                        persistQueueSnapshot(exoPlayer, force = true)
                         mediaItem?.let { item ->
                             youtubeVideoId(item.mediaId)?.let { videoId ->
                                 // A newly started track gets its own one-shot 403 recovery budget.
@@ -356,13 +356,13 @@ class MusicPlaybackService : MediaLibraryService() {
                         newPosition: Player.PositionInfo,
                         reason: Int,
                     ) {
-                        persistQueueSnapshot(player, force = true)
+                        persistQueueSnapshot(exoPlayer, force = true)
                     }
                     override fun onTimelineChanged(
                         timeline: androidx.media3.common.Timeline,
                         reason: Int,
                     ) {
-                        persistQueueSnapshot(player, force = true)
+                        persistQueueSnapshot(exoPlayer, force = true)
                         // Queue edits do not always produce a transition immediately (for example,
                         // when a user adds several songs while the current item is playing).
                         prefetchUpcomingStreams()
@@ -1410,7 +1410,7 @@ class MusicPlaybackService : MediaLibraryService() {
                     return@launch
                 }
                 val activeQueue = kotlinx.coroutines.withContext(Dispatchers.Main) {
-                    session.player.let { player ->
+                    mediaSession.player.let { player ->
                         Triple(
                             List(player.mediaItemCount) { player.getMediaItemAt(it) },
                             player.currentMediaItemIndex.coerceAtLeast(0),
