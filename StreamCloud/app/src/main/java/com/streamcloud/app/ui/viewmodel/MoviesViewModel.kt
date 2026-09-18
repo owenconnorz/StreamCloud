@@ -98,6 +98,8 @@ data class MoviesState(
     val searchHistory: List<String> = emptyList(),
     val moviesLoading: Boolean = false,
     val seriesLoading: Boolean = false,
+    val moviePagination: TmdbSearchPagination = TmdbSearchPagination(),
+    val tvPagination: TmdbSearchPagination = TmdbSearchPagination(),
     val csLoading: Boolean = false,
     val stremioLoading: Boolean = false,
     val installedPlugins: List<InstalledPlugin> = emptyList(),
@@ -124,14 +126,25 @@ class MoviesViewModel(
     val state: StateFlow<MoviesState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+    private var moviePageJob: Job? = null
+    private var tvPageJob: Job? = null
     private var searchRequestId = 0L
 
     // Separate hero-banner caches so TMDB and Stremio items can update independently
     @Volatile private var tmdbHeroItems: List<HeroBannerItem> = emptyList()
     @Volatile private var stremioHeroItems: List<HeroBannerItem> = emptyList()
 
-    /** In-memory cache: query → (movies, tvShows). Cleared when VM is cleared. */
-    private val tmdbCache = HashMap<String, Pair<List<TmdbMovie>, List<TmdbMovie>>>()
+    private data class TmdbSearchCacheEntry(
+        val movies: List<TmdbMovie> = emptyList(),
+        val tv: List<TmdbMovie> = emptyList(),
+        val moviePagination: TmdbSearchPagination = TmdbSearchPagination(),
+        val tvPagination: TmdbSearchPagination = TmdbSearchPagination(),
+        val moviesReady: Boolean = false,
+        val tvReady: Boolean = false,
+    )
+
+    /** In-memory cache of all fetched TMDB pages. Cleared when this VM is cleared. */
+    private val tmdbCache = HashMap<String, TmdbSearchCacheEntry>()
     private var discoverJob: Job? = null
 
     init {
@@ -399,6 +412,8 @@ class MoviesViewModel(
 
     fun search(query: String, forceRefresh: Boolean = false) {
         searchJob?.cancel()
+        moviePageJob?.cancel()
+        tvPageJob?.cancel()
         val requestId = ++searchRequestId
         if (query.isBlank()) {
             _state.update {
@@ -406,11 +421,16 @@ class MoviesViewModel(
                     searchResults = emptyList(), tvSearchResults = emptyList(),
                     csSearchResults = emptyList(), stremioSearchResults = emptyList(),
                     moviesLoading = false, seriesLoading = false,
+                    moviePagination = TmdbSearchPagination(),
+                    tvPagination = TmdbSearchPagination(),
                     csLoading = false, stremioLoading = false,
                 )
             }
             return
         }
+        val q = query.trim()
+        val cacheKey = q.lowercase()
+        if (forceRefresh) tmdbCache.remove(cacheKey)
         // A submitted search must replace every live type-ahead section. In particular,
         // CloudStream results are appended as plugins finish, so leaving old items here would
         // produce duplicate cards after the keyboard Search action forces a fresh request.
@@ -422,6 +442,8 @@ class MoviesViewModel(
                 stremioSearchResults = emptyList(),
                 moviesLoading = true,
                 seriesLoading = true,
+                moviePagination = TmdbSearchPagination().reset(q, requestId),
+                tvPagination = TmdbSearchPagination().reset(q, requestId),
                 csLoading = true,
                 stremioLoading = true,
                 error = null,
@@ -430,50 +452,104 @@ class MoviesViewModel(
         searchJob = viewModelScope.launch {
             delay(120)
             if (requestId != searchRequestId) return@launch
-            val q = query.trim()
 
             // Check cache first — serve instantly if available
-            val cached = if (forceRefresh) null else tmdbCache[q.lowercase()]
+            val cached = tmdbCache[cacheKey]
             if (cached != null) {
                 if (requestId == searchRequestId) {
                     _state.update {
                         it.copy(
-                            searchResults = cached.first,
-                            tvSearchResults = cached.second,
-                            moviesLoading = false,
-                            seriesLoading = false,
+                            searchResults = cached.movies,
+                            tvSearchResults = cached.tv,
+                            moviesLoading = !cached.moviesReady,
+                            seriesLoading = !cached.tvReady,
+                            moviePagination = if (cached.moviesReady) {
+                                cached.moviePagination.reuse(q, requestId)
+                            } else TmdbSearchPagination().reset(q, requestId),
+                            tvPagination = if (cached.tvReady) {
+                                cached.tvPagination.reuse(q, requestId)
+                            } else TmdbSearchPagination().reset(q, requestId),
                         )
                     }
                 }
             }
 
             // ── TMDB movies (only if not cached) ──────────────────────────
-            if (cached == null) {
+            if (cached?.moviesReady != true) {
                 launch {
-                    val movies = try {
-                        sl.tmdb.search(sl.tmdbApiKey, q).results
+                    val response = try {
+                        sl.tmdb.search(sl.tmdbApiKey, q, 1)
                     } catch (error: CancellationException) {
                         throw error
-                    } catch (_: Exception) {
-                        emptyList()
+                    } catch (error: Exception) {
+                        if (requestId == searchRequestId) {
+                            _state.update {
+                                it.copy(
+                                    moviesLoading = false,
+                                    moviePagination = it.moviePagination.fail(
+                                        q, requestId, searchError(error),
+                                    ),
+                                )
+                            }
+                        }
+                        return@launch
                     }
                     if (requestId != searchRequestId) return@launch
-                    tmdbCache[q.lowercase()] = Pair(movies, tmdbCache[q.lowercase()]?.second ?: emptyList())
-                    _state.update { it.copy(searchResults = movies, moviesLoading = false) }
+                    val pagination = _state.value.moviePagination.complete(
+                        q, requestId, response.page, response.totalPages,
+                    )
+                    val movies = mergeTmdbSearchResults(emptyList(), response.results)
+                    updateTmdbCache(cacheKey) {
+                        it.copy(
+                            movies = movies,
+                            moviePagination = pagination,
+                            moviesReady = true,
+                        )
+                    }
+                    _state.update {
+                        it.copy(
+                            searchResults = movies,
+                            moviesLoading = false,
+                            moviePagination = pagination,
+                        )
+                    }
                 }
-                // ── TMDB series ───────────────────────────────────────────
+            }
+            // ── TMDB series ───────────────────────────────────────────
+            if (cached?.tvReady != true) {
                 launch {
-                    val tv = try {
-                        sl.tmdb.searchTv(sl.tmdbApiKey, q).results
+                    val response = try {
+                        sl.tmdb.searchTv(sl.tmdbApiKey, q, 1)
                     } catch (error: CancellationException) {
                         throw error
-                    } catch (_: Exception) {
-                        emptyList()
+                    } catch (error: Exception) {
+                        if (requestId == searchRequestId) {
+                            _state.update {
+                                it.copy(
+                                    seriesLoading = false,
+                                    tvPagination = it.tvPagination.fail(
+                                        q, requestId, searchError(error),
+                                    ),
+                                )
+                            }
+                        }
+                        return@launch
                     }
                     if (requestId != searchRequestId) return@launch
-                    val existing = tmdbCache[q.lowercase()]?.first ?: emptyList()
-                    tmdbCache[q.lowercase()] = Pair(existing, tv)
-                    _state.update { it.copy(tvSearchResults = tv, seriesLoading = false) }
+                    val pagination = _state.value.tvPagination.complete(
+                        q, requestId, response.page, response.totalPages,
+                    )
+                    val tv = mergeTmdbSearchResults(emptyList(), response.results)
+                    updateTmdbCache(cacheKey) {
+                        it.copy(tv = tv, tvPagination = pagination, tvReady = true)
+                    }
+                    _state.update {
+                        it.copy(
+                            tvSearchResults = tv,
+                            seriesLoading = false,
+                            tvPagination = pagination,
+                        )
+                    }
                 }
             }
 
@@ -524,6 +600,95 @@ class MoviesViewModel(
             }
         }
     }
+
+    fun loadMoreMovies() {
+        loadMoreTmdb(isTv = false)
+    }
+
+    fun loadMoreTv() {
+        loadMoreTmdb(isTv = true)
+    }
+
+    private fun loadMoreTmdb(isTv: Boolean) {
+        val snapshot = _state.value
+        val pagination = if (isTv) snapshot.tvPagination else snapshot.moviePagination
+        // An error requires an explicit retry tap; this prevents near-end observers from
+        // repeatedly issuing the same failing request.
+        if (!pagination.canLoad && pagination.error == null) return
+        if (pagination.query.isBlank() || pagination.isLoading || pagination.endReached) return
+
+        val q = pagination.query
+        val requestId = pagination.generation
+        if (requestId != searchRequestId) return
+        val page = pagination.page + 1
+        _state.update {
+            if (isTv) it.copy(
+                seriesLoading = page == 1,
+                tvPagination = it.tvPagination.beginLoad(),
+            ) else it.copy(
+                moviesLoading = page == 1,
+                moviePagination = it.moviePagination.beginLoad(),
+            )
+        }
+
+        val job = viewModelScope.launch {
+            val response = try {
+                if (isTv) sl.tmdb.searchTv(sl.tmdbApiKey, q, page)
+                else sl.tmdb.search(sl.tmdbApiKey, q, page)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (requestId == searchRequestId) {
+                    _state.update {
+                        if (isTv) it.copy(
+                            seriesLoading = false,
+                            tvPagination = it.tvPagination.fail(q, requestId, searchError(error)),
+                        ) else it.copy(
+                            moviesLoading = false,
+                            moviePagination = it.moviePagination.fail(q, requestId, searchError(error)),
+                        )
+                    }
+                }
+                return@launch
+            }
+            if (requestId != searchRequestId) return@launch
+            val cacheKey = q.lowercase()
+            _state.update { current ->
+                if (requestId != searchRequestId) return@update current
+                if (isTv) {
+                    val items = mergeTmdbSearchResults(current.tvSearchResults, response.results)
+                    val next = current.tvPagination.complete(
+                        q, requestId, response.page, response.totalPages,
+                    )
+                    updateTmdbCache(cacheKey) {
+                        it.copy(tv = items, tvPagination = next, tvReady = true)
+                    }
+                    current.copy(tvSearchResults = items, seriesLoading = false, tvPagination = next)
+                } else {
+                    val items = mergeTmdbSearchResults(current.searchResults, response.results)
+                    val next = current.moviePagination.complete(
+                        q, requestId, response.page, response.totalPages,
+                    )
+                    updateTmdbCache(cacheKey) {
+                        it.copy(movies = items, moviePagination = next, moviesReady = true)
+                    }
+                    current.copy(searchResults = items, moviesLoading = false, moviePagination = next)
+                }
+            }
+        }
+        if (isTv) tvPageJob = job else moviePageJob = job
+    }
+
+    @Synchronized
+    private fun updateTmdbCache(
+        key: String,
+        transform: (TmdbSearchCacheEntry) -> TmdbSearchCacheEntry,
+    ) {
+        tmdbCache[key] = transform(tmdbCache[key] ?: TmdbSearchCacheEntry())
+    }
+
+    private fun searchError(error: Exception): String =
+        error.message?.takeIf { it.isNotBlank() } ?: "Unable to load results"
 
     fun saveToHistory(query: String) {
         val q = query.trim()

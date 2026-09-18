@@ -56,6 +56,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,6 +87,7 @@ import com.streamcloud.app.data.downloads.MovieDownloader
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.components.MagnetOptionsSheet
+import com.streamcloud.app.ui.components.MovieArtwork
 import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
@@ -151,6 +154,8 @@ fun MovieDetailScreen(
     }
 
     var showStreamPicker by remember { mutableStateOf(false) }
+    var pickerForDownload by remember { mutableStateOf(false) }
+    var showDownloadEpisodePicker by remember { mutableStateOf(false) }
     var pickerSeason by remember { mutableStateOf<Int?>(null) }
     var pickerEpisode by remember { mutableStateOf<Int?>(null) }
     var pickerEpTitle by remember { mutableStateOf<String?>(null) }
@@ -256,7 +261,8 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed."
             return
         }
-        resolverMessage = null; pickerSeason = null; pickerEpisode = null; pickerEpTitle = null
+        resolverMessage = null; pickerForDownload = false
+        pickerSeason = null; pickerEpisode = null; pickerEpTitle = null
         showStreamPicker = true
     }
 
@@ -266,6 +272,7 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons or Nuvio providers installed."
             return
         }
+        pickerForDownload = false
         pickerSeason = seasonNum; pickerEpisode = episodeNum; pickerEpTitle = episodeTitle
         showStreamPicker = true
     }
@@ -343,6 +350,105 @@ fun MovieDetailScreen(
     val downloadProgressMap by MovieDownloader.progressFlow.collectAsState(initial = emptyMap())
     val downloadProgress = downloadProgressMap[movieId]
 
+    fun openMovieDownloadPicker() {
+        imdbId ?: run {
+            resolverMessage = "Loading IMDB id… try again in a second."
+            return
+        }
+        if (installedAddons.isEmpty() && installedNuvio.isEmpty() && installedCsPlugins.isEmpty()) {
+            resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed."
+            return
+        }
+        resolverMessage = null
+        pickerForDownload = true
+        pickerSeason = null; pickerEpisode = null; pickerEpTitle = null
+        showStreamPicker = true
+    }
+
+    fun openEpisodeDownloadPicker(seasonNum: Int, episodeNum: Int, episodeTitle: String?) {
+        imdbId ?: run {
+            resolverMessage = "Loading IMDB id… try again in a second."
+            return
+        }
+        if (installedAddons.isEmpty() && installedNuvio.isEmpty() && installedCsPlugins.isEmpty()) {
+            resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed."
+            return
+        }
+        val requestedTitle = episodeDownloadTitle(
+            showTitle = movie?.displayTitle ?: "TV episode",
+            season = seasonNum,
+            episode = episodeNum,
+        )
+        tvDownloadConflictMessage(
+            existingTitle = downloadEntry?.title,
+            existingStatus = downloadEntry?.status,
+            hasActiveDownload = downloadProgress != null,
+            requestedTitle = requestedTitle,
+        )?.let { message ->
+            downloadError = message
+            return
+        }
+        resolverMessage = null
+        pickerForDownload = true
+        pickerSeason = seasonNum; pickerEpisode = episodeNum; pickerEpTitle = episodeTitle
+        showStreamPicker = true
+    }
+
+    fun downloadSource(source: PlayerSource) {
+        if (mediaType == "tv") {
+            val season = pickerSeason
+            val episode = pickerEpisode
+            if (season == null || episode == null) {
+                downloadError = "Choose a TV episode before selecting a download source."
+                return
+            }
+            tvDownloadConflictMessage(
+                existingTitle = downloadEntry?.title,
+                existingStatus = downloadEntry?.status,
+                hasActiveDownload = downloadProgress != null,
+                requestedTitle = episodeDownloadTitle(
+                    showTitle = movie?.displayTitle ?: "TV episode",
+                    season = season,
+                    episode = episode,
+                ),
+            )?.let { message ->
+                downloadError = message
+                return
+            }
+        }
+        if (!source.isMagnet && !source.isDirectDownloadSource()) {
+            downloadError = "This source is streaming-only. Choose a source with a Download button."
+            return
+        }
+        if (source.isMagnet) {
+            magnetSource = source
+            return
+        }
+        showStreamPicker = false
+        pickerForDownload = false
+        val m = movie
+        scope.launch {
+            runCatching {
+                MovieDownloader.download(
+                    context = context,
+                    tmdbId = movieId,
+                    title = buildString {
+                        append(m?.displayTitle ?: "Movie")
+                        val s = pickerSeason; val e = pickerEpisode
+                        if (s != null && e != null) append(" S${s}E${e}")
+                    },
+                    posterUrl = m?.posterUrl,
+                    mediaType = mediaType,
+                    url = source.url,
+                    headers = source.headers,
+                )
+            }.onFailure { e ->
+                downloadError = e.message?.takeIf { it.isNotBlank() }
+                    ?: "Download failed — the source may have expired."
+            }
+        }
+    }
+
     MoviesThemeWrapper(moviesThemeName) {
     val scrollState = rememberScrollState()
     val scrollScope = rememberCoroutineScope()
@@ -373,9 +479,10 @@ fun MovieDetailScreen(
 
             // ── Backdrop ──────────────────────────────────────────────────────
             Box(Modifier.fillMaxWidth().height(300.dp)) {
-                AsyncImage(
-                    model = movie?.backdropUrl ?: movie?.posterUrl,
-                    contentDescription = null,
+                MovieArtwork(
+                    primaryUrl = movie?.backdropUrl,
+                    fallbackUrl = movie?.posterUrl,
+                    contentDescription = movie?.displayTitle ?: "Movie artwork",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
                 )
@@ -411,6 +518,50 @@ fun MovieDetailScreen(
                 }
 
                 Spacer(Modifier.height(16.dp))
+
+                // Save and Download stay directly reachable instead of being hidden
+                // behind the phone overflow action.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = chooseWatchlists,
+                        enabled = movie != null,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Icon(
+                            if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (inWatchlist) "Saved · Manage" else "Save")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (mediaType == "tv") {
+                                if (tvSeasons.isEmpty()) {
+                                    resolverMessage = "Episodes are still loading. Try Download again in a moment."
+                                } else {
+                                    showDownloadEpisodePicker = true
+                                }
+                            } else {
+                                openMovieDownloadPicker()
+                            }
+                        },
+                        enabled = movie != null,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Download")
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
 
                 // ── Play button ───────────────────────────────────────────────
                 val addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size
@@ -450,14 +601,9 @@ fun MovieDetailScreen(
                         if (isTv) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 MovieActionCircle(
-                                    icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                    active = inWatchlist,
-                                ) {
-                                    chooseWatchlists()
-                                }
-                                MovieActionCircle(
                                     icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
                                     active = isWatched,
+                                    description = if (isWatched) "Mark as unwatched" else "Mark as watched",
                                 ) { toggleWatched() }
                             }
                         } else {
@@ -468,20 +614,16 @@ fun MovieDetailScreen(
                             ) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     MovieActionCircle(
-                                        icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                        active = inWatchlist,
-                                    ) {
-                                        chooseWatchlists()
-                                    }
-                                    MovieActionCircle(
                                         icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
                                         active = isWatched,
+                                        description = if (isWatched) "Mark as unwatched" else "Mark as watched",
                                     ) { toggleWatched() }
                                 }
                             }
                             MovieActionCircle(
                                 icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
                                 active = false,
+                                description = if (actionsExpanded) "Hide more actions" else "Show more actions",
                             ) { actionsExpanded = !actionsExpanded }
                         }
                     }
@@ -505,14 +647,9 @@ fun MovieDetailScreen(
                         if (isTv) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 MovieActionCircle(
-                                    icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                    active = inWatchlist,
-                                ) {
-                                    chooseWatchlists()
-                                }
-                                MovieActionCircle(
                                     icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
                                     active = isWatched,
+                                    description = if (isWatched) "Mark as unwatched" else "Mark as watched",
                                 ) { toggleWatched() }
                             }
                         } else {
@@ -523,20 +660,16 @@ fun MovieDetailScreen(
                             ) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     MovieActionCircle(
-                                        icon = if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                        active = inWatchlist,
-                                    ) {
-                                        chooseWatchlists()
-                                    }
-                                    MovieActionCircle(
                                         icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
                                         active = isWatched,
+                                        description = if (isWatched) "Mark as unwatched" else "Mark as watched",
                                     ) { toggleWatched() }
                                 }
                             }
                             MovieActionCircle(
                                 icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
                                 active = false,
+                                description = if (actionsExpanded) "Hide more actions" else "Show more actions",
                             ) { actionsExpanded = !actionsExpanded }
                         }
                     }
@@ -938,8 +1071,9 @@ fun MovieDetailScreen(
                                             if (mediaType == "tv") onTvClick(sm.id) else onMovieClick(sm.id)
                                         },
                                 ) {
-                                    AsyncImage(
-                                        model = sm.backdropUrl ?: sm.posterUrl,
+                                    MovieArtwork(
+                                        primaryUrl = sm.backdropUrl,
+                                        fallbackUrl = sm.posterUrl,
                                         contentDescription = sm.displayTitle,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize(),
@@ -1134,50 +1268,111 @@ fun MovieDetailScreen(
         )
     }
 
+    if (showDownloadEpisodePicker) {
+        AlertDialog(
+            onDismissRequest = { showDownloadEpisodePicker = false },
+            title = { Text("Choose an episode") },
+            text = {
+                Column {
+                    Text(
+                        "Select an episode, then choose a downloadable source. Selecting a stream will not start playback.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        tvSeasons.forEach { season ->
+                            FilterChip(
+                                selected = selectedSeason == season.seasonNumber,
+                                onClick = { selectedSeason = season.seasonNumber },
+                                label = { Text("Season ${season.seasonNumber}") },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    when {
+                        loadingEpisodes -> Box(
+                            modifier = Modifier.fillMaxWidth().height(120.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
+                        }
+                        tvEpisodes.isEmpty() -> Text(
+                            "No episodes are available for this season.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        else -> LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                            items(
+                                items = tvEpisodes,
+                                key = { "${it.seasonNumber}x${it.episodeNumber}" },
+                            ) { episode ->
+                                Text(
+                                    text = episode.displayLabel(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            showDownloadEpisodePicker = false
+                                            openEpisodeDownloadPicker(
+                                                episode.seasonNumber,
+                                                episode.episodeNumber,
+                                                episode.name,
+                                            )
+                                        }
+                                        .padding(vertical = 12.dp),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDownloadEpisodePicker = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
     if (showStreamPicker) {
         StreamPickerOverlay(
             movie = movie, mediaType = mediaType, tmdbId = movieId, imdbId = imdbId,
             season = pickerSeason, episode = pickerEpisode, episodeTitle = pickerEpTitle,
             installedAddons = installedAddons, installedNuvio = installedNuvio, installedCsPlugins = installedCsPlugins,
-            autoPlayBest = autoplayBestStream,
-            onBack = { showStreamPicker = false },
-            onPlay = { url, sources ->
+            // Download intent must always wait for an explicit source selection.
+            autoPlayBest = if (pickerForDownload) false else autoplayBestStream,
+            onBack = {
                 showStreamPicker = false
-                val m = movie
-                val displayTitle = buildString {
-                    append(m?.displayTitle ?: "Playback")
-                    val s = pickerSeason; val e = pickerEpisode
-                    if (s != null && e != null) append(" S${s}E${e}")
-                    pickerEpTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
-                }
-                val progressKey = WatchProgressKey(tmdbId = movieId, title = displayTitle,
-                    posterUrl = m?.posterUrl ?: m?.backdropUrl, mediaType = mediaType)
-                onPlay(url, displayTitle, sources, progressKey)
+                pickerForDownload = false
             },
-            onDownload = { source ->
-                if (source.isMagnet) {
-                    magnetSource = source
+            onPlay = { url, sources ->
+                if (pickerForDownload) {
+                    val selected = sources.firstOrNull { it.url == url }
+                    if (selected == null) {
+                        downloadError = "This source could not be selected for download."
+                    } else {
+                        downloadSource(selected)
+                    }
                 } else {
                     showStreamPicker = false
                     val m = movie
-                    scope.launch {
-                        runCatching {
-                            MovieDownloader.download(
-                                context = context,
-                                tmdbId = movieId,
-                                title = m?.displayTitle ?: "Movie",
-                                posterUrl = m?.posterUrl,
-                                mediaType = mediaType,
-                                url = source.url,
-                                headers = source.headers,
-                            )
-                        }.onFailure { e ->
-                            downloadError = e.message?.takeIf { it.isNotBlank() }
-                                ?: "Download failed — the source may have expired."
-                        }
+                    val displayTitle = buildString {
+                        append(m?.displayTitle ?: "Playback")
+                        val s = pickerSeason; val e = pickerEpisode
+                        if (s != null && e != null) append(" S${s}E${e}")
+                        pickerEpTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
                     }
+                    val progressKey = WatchProgressKey(tmdbId = movieId, title = displayTitle,
+                        posterUrl = m?.posterUrl ?: m?.backdropUrl, mediaType = mediaType)
+                    onPlay(url, displayTitle, sources, progressKey)
                 }
             },
+            onDownload = { source -> downloadSource(source) },
         )
     }
 
@@ -1193,7 +1388,11 @@ fun MovieDetailScreen(
         MagnetOptionsSheet(
             source = src,
             tmdbId = movieId,
-            title = movie?.displayTitle ?: "",
+            title = buildString {
+                append(movie?.displayTitle ?: "")
+                val s = pickerSeason; val e = pickerEpisode
+                if (s != null && e != null) append(" S${s}E${e}")
+            },
             posterUrl = movie?.posterUrl,
             mediaType = mediaType,
             onDismiss = { magnetSource = null },
@@ -1234,6 +1433,7 @@ private fun MovieActionCircle(
     icon: ImageVector,
     active: Boolean,
     progress: Float? = null,
+    description: String? = null,
     onClick: () -> Unit,
 ) {
     Box(
@@ -1245,6 +1445,9 @@ private fun MovieActionCircle(
                 if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
                 else MaterialTheme.colorScheme.surfaceVariant,
             )
+            .semantics {
+                description?.let { contentDescription = it }
+            }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -1264,6 +1467,47 @@ private fun MovieActionCircle(
                 modifier = Modifier.size(24.dp),
             )
         }
+    }
+}
+
+private fun PlayerSource.isDirectDownloadSource(): Boolean {
+    val path = url.substringBefore('?').lowercase()
+    if (
+        path.endsWith(".m3u8") ||
+        path.endsWith(".mpd") ||
+        path.contains("/hls/") ||
+        path.contains("/dash/")
+    ) {
+        return false
+    }
+    val directExtensions = setOf("mp4", "mkv", "avi", "mov", "webm", "ts", "flv", "wmv", "m4v")
+    val extension = path.substringAfterLast('.').takeIf { it.length in 2..4 }
+    if (extension != null && extension in directExtensions) return true
+    return url.startsWith("http://127.") || url.startsWith("http://localhost")
+}
+
+internal fun episodeDownloadTitle(showTitle: String, season: Int, episode: Int): String =
+    "$showTitle S${season}E${episode}"
+
+internal fun tvDownloadConflictMessage(
+    existingTitle: String?,
+    existingStatus: String?,
+    hasActiveDownload: Boolean,
+    requestedTitle: String,
+): String? {
+    val activeStatuses = setOf("queued", "downloading")
+    val isActive = hasActiveDownload || existingStatus in activeStatuses
+    val isComplete = existingStatus == "done"
+    if (!isActive && !isComplete) return null
+
+    val savedTitle = existingTitle?.takeIf { it.isNotBlank() } ?: "another episode"
+    return when {
+        isActive ->
+            "A download for $savedTitle is already active. Wait for it to finish before downloading another episode from this show."
+        savedTitle.equals(requestedTitle, ignoreCase = true) ->
+            "$requestedTitle is already downloaded."
+        else ->
+            "$savedTitle is already downloaded. Current storage supports only one episode per show; this download was not started so the existing episode is not replaced."
     }
 }
 

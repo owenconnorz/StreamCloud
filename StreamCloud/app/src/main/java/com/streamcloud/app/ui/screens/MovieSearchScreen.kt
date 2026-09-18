@@ -33,7 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
+import com.streamcloud.app.ui.components.MovieArtwork
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -156,6 +156,8 @@ fun MovieSearchScreen(
                 padding = padding,
                 onMovieClick = onMovieClick,
                 onTvClick = onTvClick,
+                onLoadMoreMovies = vm::loadMoreMovies,
+                onLoadMoreTv = vm::loadMoreTv,
                 onOpenCsItem = onOpenCsItem,
                 onOpenStremio = onOpenStremio,
             )
@@ -277,6 +279,8 @@ private fun CombinedResultsList(
     padding: PaddingValues,
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit,
+    onLoadMoreMovies: () -> Unit,
+    onLoadMoreTv: () -> Unit,
     onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit,
     onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit,
 ) {
@@ -285,7 +289,8 @@ private fun CombinedResultsList(
     val stremioGrouped = remember(state.stremioSearchResults) { state.stremioSearchResults.groupBy { it.addonName } }
     val anyLoading = state.moviesLoading || state.seriesLoading || state.csLoading || state.stremioLoading
     val hasAny = state.searchResults.isNotEmpty() || state.tvSearchResults.isNotEmpty() ||
-        state.csSearchResults.isNotEmpty() || state.stremioSearchResults.isNotEmpty()
+        state.csSearchResults.isNotEmpty() || state.stremioSearchResults.isNotEmpty() ||
+        state.moviePagination.error != null || state.tvPagination.error != null
 
     // TV: D-pad anchor for the results list. Focus is NOT requested automatically here —
     // the user is actively typing in the TextField and we must not steal focus (which
@@ -326,36 +331,60 @@ private fun CombinedResultsList(
         }
 
         // ── Series (TMDB TV) ──────────────────────────────────────────────
-        if (state.tvSearchResults.isNotEmpty() || state.seriesLoading) {
+        if (state.tvSearchResults.isNotEmpty() || state.seriesLoading ||
+            state.tvPagination.error != null
+        ) {
             item(key = "series-section") {
                 NuvioSection(
                     header = "TMDB \u2022 Series",
                     loading = state.seriesLoading,
                 ) {
-                    items(state.tvSearchResults) { movie ->
+                    items(state.tvSearchResults, key = { it.id }) { movie ->
                         NuvioCard(
-                            imageUrl = movie.backdropUrl ?: movie.posterUrl,
+                            imageUrl = movie.backdropUrl,
+                            fallbackImageUrl = movie.posterUrl,
                             title = movie.displayTitle,
                             onClick = { onTvClick(movie.id) },
                         )
+                    }
+                    if (!state.seriesLoading && !state.tvPagination.endReached) {
+                        item(key = "series-pagination") {
+                            PaginationCard(
+                                loading = state.tvPagination.isLoading,
+                                error = state.tvPagination.error,
+                                onClick = onLoadMoreTv,
+                            )
+                        }
                     }
                 }
             }
         }
 
         // ── Movies (TMDB) ─────────────────────────────────────────────────
-        if (state.searchResults.isNotEmpty() || state.moviesLoading) {
+        if (state.searchResults.isNotEmpty() || state.moviesLoading ||
+            state.moviePagination.error != null
+        ) {
             item(key = "movies-section") {
                 NuvioSection(
                     header = "TMDB \u2022 Movies",
                     loading = state.moviesLoading,
                 ) {
-                    items(state.searchResults) { movie ->
+                    items(state.searchResults, key = { it.id }) { movie ->
                         NuvioCard(
-                            imageUrl = movie.backdropUrl ?: movie.posterUrl,
+                            imageUrl = movie.backdropUrl,
+                            fallbackImageUrl = movie.posterUrl,
                             title = movie.displayTitle,
                             onClick = { onMovieClick(movie.id) },
                         )
+                    }
+                    if (!state.moviesLoading && !state.moviePagination.endReached) {
+                        item(key = "movie-pagination") {
+                            PaginationCard(
+                                loading = state.moviePagination.isLoading,
+                                error = state.moviePagination.error,
+                                onClick = onLoadMoreMovies,
+                            )
+                        }
                     }
                 }
             }
@@ -461,6 +490,7 @@ private fun NuvioCard(
     imageUrl: String?,
     title: String,
     onClick: () -> Unit,
+    fallbackImageUrl: String? = null,
 ) {
     val cardWidth = 185.dp
     Column(modifier = Modifier.width(cardWidth)) {
@@ -473,8 +503,9 @@ private fun NuvioCard(
                 .tvFocusBorder(RoundedCornerShape(10.dp))
                 .clickable(onClick = onClick),
         ) {
-            AsyncImage(
-                model = imageUrl,
+            MovieArtwork(
+                primaryUrl = imageUrl,
+                fallbackUrl = fallbackImageUrl,
                 contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -488,6 +519,53 @@ private fun NuvioCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun PaginationCard(
+    loading: Boolean,
+    error: String?,
+    onClick: () -> Unit,
+) {
+    val label = if (error == null) "Load more" else "Retry"
+    Column(
+        modifier = Modifier.width(185.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .tvFocusBorder(RoundedCornerShape(10.dp))
+                .clickable(enabled = !loading, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    strokeWidth = 3.dp,
+                )
+            } else {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            text = error ?: "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
         )
     }
 }

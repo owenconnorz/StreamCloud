@@ -32,13 +32,14 @@ import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.api.TmdbFindResponse
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.stremio.StremioMetaPreview
+import com.streamcloud.app.ui.components.MovieArtwork
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvFocusBorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.streamcloud.app.ui.theme.LocalUiFormFactor
-import com.streamcloud.app.ui.theme.UiFormFactor
-import com.streamcloud.app.ui.theme.tvFocusBorder
 
 @Composable
 fun CatalogPageScreen(
@@ -221,8 +222,9 @@ private fun GridPosterTmdb(m: TmdbMovie, onClick: () -> Unit) {
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
-        AsyncImage(
-            model = m.posterUrl,
+        MovieArtwork(
+            primaryUrl = m.posterUrl,
+            fallbackUrl = m.backdropUrl,
             contentDescription = m.displayTitle,
             contentScale = ContentScale.Crop,
             modifier = Modifier
