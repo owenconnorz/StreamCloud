@@ -67,6 +67,7 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.screens.adult.RedditFeedView
 import com.streamcloud.app.ui.screens.adult.RedGifsFeedView
+import com.streamcloud.app.ui.screens.adult.ProviderHomeFeed
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -92,6 +93,13 @@ fun AdultScreen(
     var showProviderPicker by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
 
+    BackHandler(
+        enabled = state.source == AdultSource.Pornhub &&
+            !state.pornhubHome && !showAllPornhubCategories && !showProviderPicker,
+    ) {
+        query = ""
+        vm.search("")
+    }
     BackHandler(enabled = showAllPornhubCategories) {
         showAllPornhubCategories = false
     }
@@ -125,13 +133,16 @@ fun AdultScreen(
     }
 
     // Infinite scroll for Eporner grid: trigger loadMore when near the bottom
-    LaunchedEffect(gridState) {
+    LaunchedEffect(gridState, state.source, state.pornhubHome) {
         snapshotFlow {
             val total = gridState.layoutInfo.totalItemsCount
             val last  = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             total > 0 && last >= total - 6
         }.collect { reachedEnd ->
-            if (reachedEnd && state.source in setOf(AdultSource.Eporner, AdultSource.Pornhub)) {
+            if (reachedEnd &&
+                (state.source == AdultSource.Eporner ||
+                    (state.source == AdultSource.Pornhub && !state.pornhubHome))
+            ) {
                 vm.loadMore()
             }
         }
@@ -219,6 +230,29 @@ fun AdultScreen(
                     .fillMaxWidth()
                     .weight(1f),
             )
+        } else if (state.source == AdultSource.Pornhub && state.pornhubHome) {
+            ProviderHomeFeed(
+                sections = state.pornhubHomeSections,
+                loading = state.loading,
+                error = state.error,
+                onRetry = { vm.refresh() },
+                onSelect = { detailItem = it },
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                categories = {
+                    PornhubCategoryCarousel(
+                        categories = state.pornhubCategories,
+                        loading = state.loadingPornhubCategories,
+                        onViewAll = {
+                            vm.loadPornhubCategories()
+                            showAllPornhubCategories = true
+                        },
+                        onSelect = { category ->
+                            vm.selectPornhubCategory(category)
+                            query = category.title
+                        },
+                    )
+                },
+            )
         } else if (state.source == AdultSource.Reddit) {
             // ── Reddit swipe-up feed ─────────────────────────────────────
             RedditFeedView(
@@ -248,20 +282,12 @@ fun AdultScreen(
             // ── Searchable provider grid ──────────────────────────────────
             Spacer(Modifier.height(8.dp))
 
-            if (state.source == AdultSource.Pornhub && query.isBlank()) {
-                PornhubCategoryCarousel(
-                    categories = state.pornhubCategories,
-                    loading = state.loadingPornhubCategories,
-                    onViewAll = {
-                        vm.loadPornhubCategories()
-                        showAllPornhubCategories = true
-                    },
-                    onSelect = { category ->
-                        vm.selectPornhubCategory(category)
-                        query = category.title
-                    },
-                )
-                Spacer(Modifier.height(8.dp))
+            if (state.source == AdultSource.Pornhub) {
+                TextButton(onClick = { query = ""; vm.search("") }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Back to home")
+                }
             }
 
             // Category + active-category chip row (Eporner only)
@@ -887,6 +913,7 @@ private fun PornhubCategoryCarousel(
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
             )
             TextButton(onClick = onViewAll) {
                 Text("All categories")

@@ -99,7 +99,7 @@ jobs:
           exit 0
 
       - name: Build Debug + Release APKs
-        run: ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace --no-build-cache
+        run: ./gradlew assembleDebug assembleRelease testDebugUnitTest --tests 'com.streamcloud.app.data.api.PornhubRepositoryTest' --no-daemon --stacktrace --no-build-cache
 
       - name: Collect APK artifacts
         run: |

@@ -25,6 +25,12 @@ data class PornhubPage(
     val hasMore: Boolean,
 )
 
+data class PornhubHomeSection(
+    val id: String,
+    val title: String,
+    val items: List<AdultItem>,
+)
+
 data class PornhubCategory(
     val id: String,
     val title: String,
@@ -85,6 +91,17 @@ object PornhubRepository {
             items = parsed,
             hasMore = parsed.isNotEmpty() && hasNextPornhubPage(html, page),
         )
+    }
+
+    suspend fun fetchHome(): List<PornhubHomeSection> = withContext(Dispatchers.IO) {
+        val html = requestPage("$BASE_URL/")
+        val sections = parsePornhubHomeSections(html)
+        if (sections.isEmpty() && isChallengePage(html)) {
+            throw PornhubUnavailableException(
+                "Pornhub requested browser verification. Try again later or use another source.",
+            )
+        }
+        sections
     }
 
     suspend fun fetchCategories(): List<PornhubCategory> = withContext(Dispatchers.IO) {
@@ -275,11 +292,119 @@ internal fun resolveAllowedPornhubRedirect(currentUrl: String, location: String)
 
 internal fun parsePornhubListing(html: String): List<AdultItem> {
     val document = Jsoup.parse(html, "https://www.pornhub.com")
-    val candidates = document.select(
-        "li[data-video-vkey], li[data-video-segment], div[data-video-vkey]",
-    )
+    val candidates = document.select(PORNHUB_CARD_SELECTOR)
     return candidates.mapNotNull(::parsePornhubCard).distinctBy { it.id }
 }
+
+internal fun parsePornhubHomeSections(html: String): List<PornhubHomeSection> {
+    val document = Jsoup.parse(html, "https://www.pornhub.com")
+    val documentOrder = document.getAllElements()
+        .withIndex()
+        .associate { (index, element) -> element to index }
+    val headings = mutableListOf<PornhubHomeHeading>()
+    document.select(
+        "h2, h3, h4, [class~=sectionTitle], [class~=section-title]",
+    ).forEach { heading ->
+        // Prefer the semantic heading over a wrapper that merely contains it.
+        if (!heading.tagName().matches(Regex("h[2-4]")) &&
+            heading.selectFirst("h2, h3, h4") != null
+        ) return@forEach
+        val title = heading.text().replace(Regex("\\s+"), " ").trim()
+        if (title.isBlank() || title.length > 100 || isPornhubAdElement(heading)) {
+            return@forEach
+        }
+        if (heading.parents().any(::isPornhubCardElement)) return@forEach
+        val container = heading.parents().firstOrNull { parent ->
+            parent.tagName() != "body" &&
+                parent.tagName() != "html" &&
+                parent.select(PORNHUB_CARD_SELECTOR).isNotEmpty()
+        } ?: return@forEach
+        headings += PornhubHomeHeading(
+            container = container,
+            title = title,
+            order = documentOrder[heading] ?: return@forEach,
+        )
+    }
+
+    val containers = headings.map { it.container }.toSet()
+    val itemsByHeading = linkedMapOf<PornhubHomeHeading, MutableList<AdultItem>>()
+    val unsectioned = mutableListOf<AdultItem>()
+    var firstUnsectionedOrder: Int? = null
+    document.select(PORNHUB_CARD_SELECTOR)
+        .filterNot(::isPornhubAdElement)
+        .forEach { candidate ->
+            val item = parsePornhubCard(candidate) ?: return@forEach
+            val candidateOrder = documentOrder[candidate] ?: return@forEach
+            val owner = candidate.parents().firstOrNull { it in containers }
+            val heading = headings.asSequence()
+                .filter { it.container == owner && it.order < candidateOrder }
+                .maxByOrNull { it.order }
+            if (heading == null) {
+                if (unsectioned.none { it.id == item.id }) {
+                    unsectioned += item
+                    if (firstUnsectionedOrder == null) firstUnsectionedOrder = candidateOrder
+                }
+            } else {
+                val items = itemsByHeading.getOrPut(heading) { mutableListOf() }
+                if (items.none { it.id == item.id }) items += item
+            }
+        }
+
+    val usedIds = mutableSetOf<String>()
+    val orderedSections = itemsByHeading.map { (heading, items) ->
+        val baseId = heading.container.id().takeIf(String::isNotBlank)
+            ?.let(::pornhubSectionId)
+            ?.takeIf(String::isNotBlank)
+            ?: pornhubSectionId(heading.title).ifBlank { "videos" }
+        var id = baseId
+        var suffix = 2
+        while (!usedIds.add(id)) id = "$baseId-${suffix++}"
+        heading.order to PornhubHomeSection(
+            id = id,
+            title = heading.title,
+            items = items,
+        )
+    }.toMutableList()
+    if (unsectioned.isNotEmpty()) {
+        var id = "videos"
+        var suffix = 2
+        while (!usedIds.add(id)) id = "videos-${suffix++}"
+        orderedSections += (firstUnsectionedOrder ?: Int.MAX_VALUE) to PornhubHomeSection(
+            id = id,
+            title = "Videos",
+            items = unsectioned,
+        )
+    }
+    return orderedSections.sortedBy { it.first }.map { it.second }
+}
+
+private data class PornhubHomeHeading(
+    val container: Element,
+    val title: String,
+    val order: Int,
+)
+
+private const val PORNHUB_CARD_SELECTOR =
+    "li[data-video-vkey], li[data-video-segment], div[data-video-vkey]"
+
+private fun isPornhubCardElement(element: Element): Boolean =
+    (element.tagName() == "li" &&
+        (element.hasAttr("data-video-vkey") || element.hasAttr("data-video-segment"))) ||
+        (element.tagName() == "div" && element.hasAttr("data-video-vkey"))
+
+private fun pornhubSectionId(value: String): String =
+    value.lowercase()
+        .replace(Regex("[^a-z0-9]+"), "-")
+        .trim('-')
+
+private fun isPornhubAdElement(element: Element): Boolean =
+    generateSequence(element) { it.parent() }
+        .takeWhile { it.tagName() != "body" }
+        .any {
+            val marker = "${it.id()} ${it.className()}".lowercase()
+            Regex("(^|[\\s_-])(ad|ads|advertisement|promoted|sponsored)([\\s_-]|$)")
+                .containsMatchIn(marker)
+        }
 
 internal fun parsePornhubCategories(html: String): List<PornhubCategory> {
     val document = Jsoup.parse(html, "https://www.pornhub.com")

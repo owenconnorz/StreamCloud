@@ -7,6 +7,122 @@ import org.junit.Test
 class PornhubRepositoryTest {
 
     @Test
+    fun homeParserPreservesTwoTitledRowsInProviderOrder() {
+        val sections = parsePornhubHomeSections(
+            """
+            <main>
+              <section id="recent">
+                <h2>Recently added</h2>
+                <ul><li data-video-vkey="one"><a href="/view_video.php?viewkey=one"
+                  title="Sample one"></a></li></ul>
+              </section>
+              <section id="popular">
+                <h2>Popular now</h2>
+                <ul><li data-video-vkey="two"><a href="/view_video.php?viewkey=two"
+                  title="Sample two"></a></li></ul>
+              </section>
+            </main>
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("Recently added", "Popular now"), sections.map { it.title })
+        assertEquals(listOf("one"), sections[0].items.map { it.id })
+        assertEquals(listOf("two"), sections[1].items.map { it.id })
+    }
+
+    @Test
+    fun siblingHeadingsAndListsRemainSeparateRows() {
+        val sections = parsePornhubHomeSections(
+            """
+            <main>
+              <div class="sectionTitle"><h2>First collection</h2></div>
+              <ul><li data-video-vkey="first"><a href="/view_video.php?viewkey=first"
+                title="First sample"></a></li></ul>
+              <div class="sectionTitle"><h2>Second collection</h2></div>
+              <ul><li data-video-vkey="second"><a href="/view_video.php?viewkey=second"
+                title="Second sample"></a></li></ul>
+            </main>
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("First collection", "Second collection"), sections.map { it.title })
+        assertEquals(listOf("first"), sections[0].items.map { it.id })
+        assertEquals(listOf("second"), sections[1].items.map { it.id })
+    }
+
+    @Test
+    fun unsectionedCardsAreKeptAlongsideTitledRowsInDomOrder() {
+        val sections = parsePornhubHomeSections(
+            """
+            <main>
+              <ul><li data-video-vkey="plain"><a href="/view_video.php?viewkey=plain"
+                title="Plain sample"></a></li></ul>
+              <section>
+                <h2>Named collection</h2>
+                <li data-video-vkey="named"><a href="/view_video.php?viewkey=named"
+                  title="Named sample"></a></li>
+              </section>
+            </main>
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("Videos", "Named collection"), sections.map { it.title })
+        assertEquals(listOf("plain"), sections[0].items.map { it.id })
+        assertEquals(listOf("named"), sections[1].items.map { it.id })
+    }
+
+    @Test
+    fun nestedSectionListsBelongOnlyToTheirNearestHeading() {
+        val sections = parsePornhubHomeSections(
+            """
+            <section>
+              <h2>Outer row</h2>
+              <li data-video-vkey="outer"><a href="/view_video.php?viewkey=outer"
+                title="Outer sample"></a></li>
+              <section>
+                <h3>Inner row</h3>
+                <li data-video-vkey="inner"><a href="/view_video.php?viewkey=inner"
+                  title="Inner sample"></a></li>
+                <div data-video-vkey="inner"><a href="/view_video.php?viewkey=inner"
+                  title="Duplicate inner sample"></a></div>
+              </section>
+            </section>
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("Outer row", "Inner row"), sections.map { it.title })
+        assertEquals(listOf("outer"), sections[0].items.map { it.id })
+        assertEquals(listOf("inner"), sections[1].items.map { it.id })
+    }
+
+    @Test
+    fun unsectionedCardsUseClearlyLabelledFallback() {
+        val sections = parsePornhubHomeSections(
+            """
+            <ul>
+              <li data-video-vkey="plain"><a href="/view_video.php?viewkey=plain"
+                title="Plain sample"></a></li>
+            </ul>
+            """.trimIndent(),
+        )
+
+        assertEquals(1, sections.size)
+        assertEquals("Videos", sections.single().title)
+        assertEquals("videos", sections.single().id)
+        assertEquals(listOf("plain"), sections.single().items.map { it.id })
+    }
+
+    @Test
+    fun emptyAndChallengePagesDoNotInventHomeSections() {
+        assertTrue(parsePornhubHomeSections("<main></main>").isEmpty())
+        assertTrue(
+            parsePornhubHomeSections(
+                """<html><body><div id="captcha">Loading...</div></body></html>""",
+            ).isEmpty(),
+        )
+    }
+
+    @Test
     fun authenticatedRequestsKeepPornhubProvidedCookies() {
         val cookies = pornhubRequestCookieHeader("session=authenticated; locale=en")
 

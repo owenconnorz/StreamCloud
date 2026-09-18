@@ -15,6 +15,7 @@ import com.streamcloud.app.data.api.RedditRateLimitException
 import com.streamcloud.app.data.api.RedGifsRepository
 import com.streamcloud.app.data.api.PornhubRepository
 import com.streamcloud.app.data.api.PornhubCategory
+import com.streamcloud.app.data.api.PornhubHomeSection
 import com.streamcloud.app.data.library.AdultHistoryEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.network.Net
@@ -44,6 +45,8 @@ data class AdultState(
     val categorySearch: String = "",
     val pornhubCategories: List<PornhubCategory> = emptyList(),
     val loadingPornhubCategories: Boolean = false,
+    val pornhubHomeSections: List<PornhubHomeSection> = emptyList(),
+    val pornhubHome: Boolean = false,
     /** True when Reddit returns a 401/403 — the user must log in. */
     val redditNeedsAuth: Boolean = false,
     /** Currently-browsed subreddit (without r/ prefix). */
@@ -132,7 +135,12 @@ class AdultViewModel(
                     settings.setAdultSource(AdultSource.Eporner.name)
                 }
             }
-            _state.update { it.copy(source = savedSource) }
+            _state.update {
+                it.copy(
+                    source = savedSource,
+                    pornhubHome = savedSource == AdultSource.Pornhub,
+                )
+            }
             when (savedSource) {
                 AdultSource.Reddit  -> fetchRedditPage(replace = true)
                 AdultSource.RedGifs -> fetchRedGifsPage(replace = true)
@@ -156,6 +164,10 @@ class AdultViewModel(
             it.copy(
                 source       = source,
                 items        = emptyList(),
+                pornhubHomeSections = emptyList(),
+                pornhubHome  = source == AdultSource.Pornhub,
+                loading      = false,
+                loadingMore  = false,
                 hasMore      = true,
                 currentPage  = 1,
                 error        = null,
@@ -192,7 +204,18 @@ class AdultViewModel(
     fun search(query: String) {
         if (_state.value.source == AdultSource.Pornhub) {
             currentQuery = query.trim()
+            _state.update {
+                it.copy(
+                    pornhubHome = currentQuery.isBlank(),
+                    pornhubHomeSections = if (currentQuery.isBlank()) {
+                        it.pornhubHomeSections
+                    } else {
+                        emptyList()
+                    },
+                )
+            }
             searchJob?.cancel()
+            loadMoreJob?.cancel()
             searchJob = viewModelScope.launch {
                 delay(300L)
                 fetchPornhubPage(replace = true)
@@ -287,6 +310,7 @@ class AdultViewModel(
             return
         }
         if (_state.value.source == AdultSource.Pornhub) {
+            if (currentQuery.isBlank()) return
             if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
             fetchPornhubPage(replace = false)
             return
@@ -337,8 +361,16 @@ class AdultViewModel(
     }
 
     fun selectPornhubCategory(category: PornhubCategory) {
+        searchJob?.cancel()
+        searchJob = null
         currentQuery = category.title
-        _state.update { it.copy(currentPage = 1) }
+        _state.update {
+            it.copy(
+                currentPage = 1,
+                pornhubHome = false,
+                pornhubHomeSections = emptyList(),
+            )
+        }
         fetchPornhubPage(replace = true)
     }
 
@@ -590,21 +622,38 @@ class AdultViewModel(
                 _state.update { it.copy(loadingMore = true) }
             }
             try {
-                val result = PornhubRepository.fetch(requestedQuery, page)
+                val homeSections = if (requestedQuery.isBlank()) {
+                    PornhubRepository.fetchHome()
+                } else {
+                    emptyList()
+                }
+                val result = if (requestedQuery.isBlank()) {
+                    null
+                } else {
+                    PornhubRepository.fetch(requestedQuery, page)
+                }
                 if (_state.value.source != AdultSource.Pornhub || currentQuery != requestedQuery) {
                     return@launch
                 }
                 if (replace) {
                     _state.update {
                         it.copy(
-                            items = result.items,
+                            items = result?.items.orEmpty(),
+                            pornhubHomeSections = homeSections,
                             loading = false,
-                            hasMore = result.hasMore,
+                            hasMore = result?.hasMore ?: false,
                             currentPage = page,
-                            error = if (result.items.isEmpty()) "Pornhub returned no videos." else null,
+                            error = if (result?.items.orEmpty().isEmpty() &&
+                                homeSections.isEmpty()
+                            ) {
+                                "Pornhub returned no videos."
+                            } else {
+                                null
+                            },
                         )
                     }
                 } else {
+                    checkNotNull(result)
                     val existingIds = _state.value.items.map { it.id }.toHashSet()
                     val deduped = result.items.filterNot { existingIds.contains(it.id) }
                     _state.update {
