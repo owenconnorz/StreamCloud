@@ -41,13 +41,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: StreamCloud/app/src/main/jniLibs
-          key: libtorrserver-V1.0.5
+          key: libtorrserver-V1741
 
-      - name: Extract libtorrserver.so from V1.0.5 release APK
+      - name: Extract libtorrserver.so from V1741 release APK
         if: steps.so-cache.outputs.cache-hit != 'true'
         run: |
-          echo "Downloading reference APK (V1.0.5) to extract libtorrserver.so…"
-          curl -fL             "https://github.com/owenconnorz/StreamCloud/releases/download/V1.0.5/StreamCloud-release.apk"             -o /tmp/reference.apk
+          echo "Downloading reference APK (V1741) to extract libtorrserver.so…"
+          curl -fL             "https://github.com/owenconnorz/StreamCloud/releases/download/V1741/StreamCloud-release.apk"             -o /tmp/reference.apk
           echo "APK downloaded: $(stat -c%s /tmp/reference.apk) bytes"
           for arch in arm64-v8a armeabi-v7a x86 x86_64; do
             mkdir -p app/src/main/jniLibs/$arch

@@ -1,6 +1,6 @@
 # StreamCloud
 
-## V1751 — Android TV and DLNA music casting controls
+## V1752 — Android TV and DLNA music casting controls
 
 ### Remote playback
 - **Casting progress stays live** — Android TV and DLNA receivers now report their current position, duration, play state, and buffering state throughout playback.
