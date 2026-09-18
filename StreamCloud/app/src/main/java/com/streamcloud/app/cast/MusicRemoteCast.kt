@@ -2,6 +2,8 @@ package com.streamcloud.app.cast
 
 import android.content.Context
 import androidx.mediarouter.media.MediaRouter
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.SessionManagerListener
@@ -38,7 +40,14 @@ object MusicRemoteCast {
     sealed interface State {
         data object Idle : State
         data class Connecting(val destination: DestinationType, val name: String) : State
-        data class Casting(val destination: DestinationType, val name: String, val title: String) : State
+        data class Casting(
+            val destination: DestinationType,
+            val name: String,
+            val title: String,
+            val artist: String = "",
+            val album: String = "",
+            val artworkUrl: String? = null,
+        ) : State
         data class Error(val message: String) : State
     }
 
@@ -60,12 +69,19 @@ object MusicRemoteCast {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state.asStateFlow()
+    private val _remoteState = MutableStateFlow<RemotePlaybackState?>(null)
+    val remoteState: StateFlow<RemotePlaybackState?> = _remoteState.asStateFlow()
 
     private var activeDestination: Destination? = null
     private var activeContext: Context? = null
     private var pendingGoogleDestination: Destination.Google? = null
     private var pendingGoogleContext: Context? = null
+    private var activeGoogleCastContext: CastContext? = null
+    private var activeGoogleSessionListener: SessionManagerListener<CastSession>? = null
+    private var observedMusicController: Player? = null
+    private var musicQueueListener: Player.Listener? = null
     private var connectJob: Job? = null
+    private var remotePollJob: Job? = null
     private val transitionGeneration = AtomicLong(0L)
     private val transitionMutex = Mutex()
 
@@ -75,6 +91,9 @@ object MusicRemoteCast {
         videoId: String,
         title: String,
         watchUrl: String,
+        artist: String = "",
+        album: String = "",
+        artworkUrl: String? = null,
     ) {
         val generation = transitionGeneration.incrementAndGet()
         connectJob?.cancel()
@@ -100,7 +119,9 @@ object MusicRemoteCast {
                             session = session,
                             streamUrl = streamUrl,
                             title = title,
-                            artworkUrl = null,
+                            artist = artist,
+                            album = album,
+                            artworkUrl = artworkUrl,
                             contentType = source.mimeType,
                             mediaType = com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MUSIC_TRACK,
                         )
@@ -111,7 +132,25 @@ object MusicRemoteCast {
                     pendingGoogleDestination = null
                     pendingGoogleContext = null
                     activeDestination = Destination.Google(session, route.id, route.name.toString())
-                    _state.value = State.Casting(DestinationType.GoogleCast, route.name.toString(), title)
+                    observeMusicQueue(appContext)
+                    observeActiveGoogleSession(appContext, session)
+                    publishTrack(
+                        destination = DestinationType.GoogleCast,
+                        deviceName = route.name.toString(),
+                        title = title,
+                        artist = artist,
+                        album = album,
+                        artworkUrl = artworkUrl,
+                    )
+                    _state.value = State.Casting(
+                        destination = DestinationType.GoogleCast,
+                        name = route.name.toString(),
+                        title = title,
+                        artist = artist,
+                        album = album,
+                        artworkUrl = artworkUrl,
+                    )
+                    startRemotePolling()
                     committed = true
                 } finally {
                     if (!committed) {
@@ -130,6 +169,9 @@ object MusicRemoteCast {
         videoId: String,
         title: String,
         watchUrl: String,
+        artist: String = "",
+        album: String = "",
+        artworkUrl: String? = null,
     ) {
         val generation = transitionGeneration.incrementAndGet()
         connectJob?.cancel()
@@ -143,7 +185,16 @@ object MusicRemoteCast {
                     ?: return@launch fail(generation, "Unable to prepare this track for ${device.name}.")
                 val streamUrl = startProxy(source)
                     ?: return@launch fail(generation, "A local network connection is required for ${device.name}.")
-                val loaded = DlnaController.setUri(device, streamUrl, title, source.mimeType)
+                DlnaRepository.resetPlaybackState()
+                val loaded = DlnaController.setUri(
+                    device = device,
+                    streamUrl = streamUrl,
+                    title = title,
+                    mimeType = source.mimeType,
+                    artist = artist,
+                    album = album,
+                    artworkUrl = artworkUrl,
+                )
                 if (!loaded || !DlnaController.play(device)) {
                     CastProxyServer.stop()
                     return@launch fail(generation, "${device.name} could not start this track.")
@@ -154,7 +205,24 @@ object MusicRemoteCast {
                 MusicController.get(context.applicationContext).pause()
                 activeContext = context.applicationContext
                 activeDestination = Destination.Dlna(device)
-                _state.value = State.Casting(DestinationType.Dlna, device.name, title)
+                observeMusicQueue(context.applicationContext)
+                publishTrack(
+                    destination = DestinationType.Dlna,
+                    deviceName = device.name,
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    artworkUrl = artworkUrl,
+                )
+                _state.value = State.Casting(
+                    destination = DestinationType.Dlna,
+                    name = device.name,
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    artworkUrl = artworkUrl,
+                )
+                startRemotePolling()
             }
         }
     }
@@ -163,15 +231,27 @@ object MusicRemoteCast {
      * Called when the music queue advances so a selected network destination stays in sync.
      * Bluetooth is intentionally excluded: Android routes normal Media3 audio to it directly.
      */
-    fun updateTrack(context: Context, videoId: String, title: String, watchUrl: String) {
-        val destination = activeDestination ?: return
-        val generation = transitionGeneration.incrementAndGet()
-        connectJob?.cancel()
+    fun updateTrack(
+        context: Context,
+        videoId: String,
+        title: String,
+        watchUrl: String,
+        artist: String = "",
+        album: String = "",
+        artworkUrl: String? = null,
+    ) {
         connectJob = scope.launch {
             transitionMutex.withLock {
+                val destination = activeDestination ?: return@withLock
+                if (_state.value !is State.Casting) return@withLock
+                val generation = transitionGeneration.incrementAndGet()
                 val source = prepareAudio(videoId, watchUrl)
                     ?: return@launch fail(generation, "Unable to prepare the next track for casting.")
-                if (!isCurrent(generation)) return@launch
+                if (
+                    !isCurrent(generation) ||
+                    activeDestination != destination ||
+                    _state.value !is State.Casting
+                ) return@withLock
                 when (destination) {
                     is Destination.Google -> {
                         val appContext = context.applicationContext
@@ -182,39 +262,87 @@ object MusicRemoteCast {
                                     it.remoteMediaClient != null
                             }
                         } ?: return@launch fail(generation, "Google Cast session ended.")
+                        if (activeDestination != destination) return@withLock
                         val streamUrl = startProxy(source)
                             ?: return@launch fail(generation, "A local Cast connection is required for the next track.")
                         withContext(Dispatchers.Main) {
-                            if (!isCurrent(generation)) return@withContext
+                            if (
+                                !isCurrent(generation) ||
+                                activeDestination != destination
+                            ) return@withContext
                             loadRemoteMedia(
                                 session = session,
                                 streamUrl = streamUrl,
                                 title = title,
-                                artworkUrl = null,
+                                artist = artist,
+                                album = album,
+                                artworkUrl = artworkUrl,
                                 contentType = source.mimeType,
                                 mediaType = com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MUSIC_TRACK,
                             )
                             MusicController.get(appContext).pause()
                         }
-                        if (!isCurrent(generation)) return@launch
-                        _state.value = State.Casting(DestinationType.GoogleCast, destination.name, title)
+                        if (
+                            !isCurrent(generation) ||
+                            activeDestination != destination
+                        ) return@withLock
+                        publishTrack(
+                            destination = DestinationType.GoogleCast,
+                            deviceName = destination.name,
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            artworkUrl = artworkUrl,
+                        )
+                        _state.value = State.Casting(
+                            destination = DestinationType.GoogleCast,
+                            name = destination.name,
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            artworkUrl = artworkUrl,
+                        )
                     }
 
                     is Destination.Dlna -> {
+                        if (activeDestination != destination) return@withLock
                         val streamUrl = startProxy(source)
                             ?: return@launch fail(
                                 generation,
                                 "A local network connection is required for the next track.",
                             )
+                        DlnaRepository.resetPlaybackState()
                         val loaded = DlnaController.setUri(
-                            destination.device,
-                            streamUrl,
-                            title,
-                            source.mimeType,
+                            device = destination.device,
+                            streamUrl = streamUrl,
+                            title = title,
+                            mimeType = source.mimeType,
+                            artist = artist,
+                            album = album,
+                            artworkUrl = artworkUrl,
                         )
                         if (loaded && DlnaController.play(destination.device)) {
+                            if (
+                                !isCurrent(generation) ||
+                                activeDestination != destination
+                            ) return@withLock
                             MusicController.get(context.applicationContext).pause()
-                            _state.value = State.Casting(DestinationType.Dlna, destination.device.name, title)
+                            publishTrack(
+                                destination = DestinationType.Dlna,
+                                deviceName = destination.device.name,
+                                title = title,
+                                artist = artist,
+                                album = album,
+                                artworkUrl = artworkUrl,
+                            )
+                            _state.value = State.Casting(
+                                destination = DestinationType.Dlna,
+                                name = destination.device.name,
+                                title = title,
+                                artist = artist,
+                                album = album,
+                                artworkUrl = artworkUrl,
+                            )
                         } else {
                             CastProxyServer.stop()
                             fail(generation, "${destination.device.name} could not start the next track.")
@@ -239,6 +367,62 @@ object MusicRemoteCast {
                     withContext(Dispatchers.Main) {
                         MusicController.get(context).play()
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Receiver transport commands. Keeping these here prevents a Compose screen from accidentally
+     * toggling the paused Media3 phone player while a network destination owns playback.
+     */
+    fun togglePlayPause() {
+        val destination = activeDestination ?: return
+        val generation = transitionGeneration.get()
+        scope.launch {
+            transitionMutex.withLock {
+                if (
+                    !isCurrent(generation) ||
+                    activeDestination != destination ||
+                    _state.value !is State.Casting
+                ) return@withLock
+                when (destination) {
+                    is Destination.Google -> withContext(Dispatchers.Main) {
+                        destination.session.remoteMediaClient?.let { client ->
+                            if (_remoteState.value?.isPlaying == true) client.pause() else client.play()
+                        }
+                    }
+                    is Destination.Dlna -> {
+                        val device = destination.device
+                        if (_remoteState.value?.isPlaying == true) DlnaController.pause(device)
+                        else DlnaController.play(device)
+                    }
+                }
+            }
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        val destination = activeDestination ?: return
+        val generation = transitionGeneration.get()
+        val target = positionMs.coerceAtLeast(0L)
+        scope.launch {
+            transitionMutex.withLock {
+                if (
+                    !isCurrent(generation) ||
+                    activeDestination != destination ||
+                    _state.value !is State.Casting
+                ) return@withLock
+                _remoteState.value = _remoteState.value?.copy(positionMs = target)
+                when (destination) {
+                    is Destination.Google -> withContext(Dispatchers.Main) {
+                        destination.session.remoteMediaClient?.seek(
+                            com.google.android.gms.cast.MediaSeekOptions.Builder()
+                                .setPosition(target)
+                                .build(),
+                        )
+                    }
+                    is Destination.Dlna -> DlnaController.seek(destination.device, target)
                 }
             }
         }
@@ -316,6 +500,11 @@ object MusicRemoteCast {
         val pendingContext = pendingGoogleContext
         activeDestination = null
         activeContext = null
+        remotePollJob?.cancel()
+        remotePollJob = null
+        _remoteState.value = null
+        removeMusicQueueObserver()
+        removeActiveGoogleSessionListener()
         pendingGoogleDestination = null
         pendingGoogleContext = null
         when (destination) {
@@ -338,6 +527,232 @@ object MusicRemoteCast {
 
     private fun isCurrent(generation: Long): Boolean =
         transitionGeneration.get() == generation
+
+    private fun publishTrack(
+        destination: DestinationType,
+        deviceName: String,
+        title: String,
+        artist: String,
+        album: String,
+        artworkUrl: String?,
+    ) {
+        _remoteState.value = RemotePlaybackState(
+            destination = destination,
+            deviceName = deviceName,
+            title = title,
+            artist = artist,
+            album = album,
+            artworkUrl = artworkUrl,
+        )
+    }
+
+    private fun startRemotePolling() {
+        remotePollJob?.cancel()
+        remotePollJob = scope.launch {
+            while (true) {
+                when (val destination = activeDestination) {
+                    is Destination.Google -> {
+                        val snapshot = withContext(Dispatchers.Main) {
+                            destination.session.remoteMediaClient?.let { client ->
+                                val status = client.mediaStatus ?: return@withContext null
+                                val previous = _remoteState.value ?: return@withContext null
+                                val phase = when (status.playerState) {
+                                    com.google.android.gms.cast.MediaStatus.PLAYER_STATE_PLAYING ->
+                                        RemotePlaybackPhase.Playing
+                                    com.google.android.gms.cast.MediaStatus.PLAYER_STATE_PAUSED ->
+                                        RemotePlaybackPhase.Paused
+                                    com.google.android.gms.cast.MediaStatus.PLAYER_STATE_BUFFERING ->
+                                        RemotePlaybackPhase.Buffering
+                                    com.google.android.gms.cast.MediaStatus.PLAYER_STATE_IDLE ->
+                                        RemotePlaybackPhase.Idle
+                                    else -> RemotePlaybackPhase.Unknown
+                                }
+                                previous.withReceiverSample(
+                                    positionMs = status.streamPosition,
+                                    durationMs = client.mediaInfo?.streamDuration,
+                                    phase = phase,
+                                )
+                            }
+                        }
+                        if (snapshot != null) _remoteState.value = snapshot
+                    }
+                    is Destination.Dlna -> {
+                        val previous = _remoteState.value
+                        if (previous != null) {
+                            _remoteState.value = previous.withReceiverSample(
+                                positionMs = DlnaRepository.positionMs.value,
+                                durationMs = DlnaRepository.durationMs.value,
+                                phase = if (DlnaRepository.isPlaying.value) {
+                                    RemotePlaybackPhase.Playing
+                                } else {
+                                    RemotePlaybackPhase.Paused
+                                },
+                            )
+                        }
+                    }
+                    null -> return@launch
+                }
+                kotlinx.coroutines.delay(500L)
+            }
+        }
+    }
+
+    private suspend fun observeActiveGoogleSession(context: Context, session: CastSession) {
+        removeActiveGoogleSessionListener()
+        val castContext = withContext(Dispatchers.Main) {
+            runCatching { CastContext.getSharedInstance(context) }.getOrNull()
+        } ?: return
+        val listener = object : SessionManagerListener<CastSession> {
+            override fun onSessionSuspended(suspended: CastSession, reason: Int) {
+                if (suspended != session) return
+                scope.launch {
+                    transitionMutex.withLock {
+                        val active = activeDestination as? Destination.Google
+                        if (active?.session != suspended) return@withLock
+                        remotePollJob?.cancel()
+                        remotePollJob = null
+                        _remoteState.value = _remoteState.value?.copy(
+                            isPlaying = false,
+                            isBuffering = true,
+                        )
+                        _state.value = State.Connecting(DestinationType.GoogleCast, active.name)
+                    }
+                }
+            }
+
+            override fun onSessionResumed(resumed: CastSession, wasSuspended: Boolean) {
+                if (resumed != session) return
+                scope.launch {
+                    transitionMutex.withLock {
+                        val active = activeDestination as? Destination.Google
+                        val playback = _remoteState.value
+                        if (active?.session != resumed || playback == null) return@withLock
+                        _state.value = State.Casting(
+                            destination = DestinationType.GoogleCast,
+                            name = active.name,
+                            title = playback.title,
+                            artist = playback.artist,
+                            album = playback.album,
+                            artworkUrl = playback.artworkUrl,
+                        )
+                        startRemotePolling()
+                    }
+                }
+            }
+
+            override fun onSessionEnded(ended: CastSession, error: Int) {
+                if (ended != session) return
+                scope.launch {
+                    transitionMutex.withLock {
+                        val active = activeDestination as? Destination.Google
+                        if (active?.session != ended) return@withLock
+                        activeDestination = null
+                        activeContext = null
+                        remotePollJob?.cancel()
+                        remotePollJob = null
+                        _remoteState.value = null
+                        _state.value = State.Idle
+                        CastProxyServer.stop()
+                        removeMusicQueueObserver()
+                        removeActiveGoogleSessionListener()
+                    }
+                }
+            }
+
+            override fun onSessionStarted(started: CastSession, sessionId: String) = Unit
+            override fun onSessionStarting(starting: CastSession) = Unit
+            override fun onSessionStartFailed(failed: CastSession, error: Int) = Unit
+            override fun onSessionEnding(ending: CastSession) = Unit
+            override fun onSessionResuming(resuming: CastSession, sessionId: String) = Unit
+            override fun onSessionResumeFailed(failed: CastSession, error: Int) {
+                if (failed != session) return
+                scope.launch {
+                    transitionMutex.withLock {
+                        val active = activeDestination as? Destination.Google
+                        if (active?.session != failed) return@withLock
+                        activeDestination = null
+                        activeContext = null
+                        remotePollJob?.cancel()
+                        remotePollJob = null
+                        _remoteState.value = null
+                        _state.value = State.Error("Google Cast connection was lost.")
+                        CastProxyServer.stop()
+                        removeMusicQueueObserver()
+                        removeActiveGoogleSessionListener()
+                    }
+                }
+            }
+        }
+        withContext(Dispatchers.Main) {
+            castContext.sessionManager.addSessionManagerListener(listener, CastSession::class.java)
+        }
+        activeGoogleCastContext = castContext
+        activeGoogleSessionListener = listener
+    }
+
+    private suspend fun removeActiveGoogleSessionListener() {
+        val castContext = activeGoogleCastContext
+        val listener = activeGoogleSessionListener
+        activeGoogleCastContext = null
+        activeGoogleSessionListener = null
+        if (castContext != null && listener != null) {
+            withContext(Dispatchers.Main) {
+                castContext.sessionManager.removeSessionManagerListener(
+                    listener,
+                    CastSession::class.java,
+                )
+            }
+        }
+    }
+
+    private suspend fun observeMusicQueue(context: Context) {
+        removeMusicQueueObserver()
+        val controller = MusicController.get(context)
+        val listener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val item = mediaItem ?: return
+                if (activeDestination == null) return
+                controller.pause()
+                val mediaId = item.mediaId
+                val videoId = if (mediaId.startsWith("http")) {
+                    mediaId.substringAfter("v=", "").substringBefore("&")
+                } else {
+                    mediaId
+                }
+                val watchUrl = if (mediaId.startsWith("http")) {
+                    mediaId
+                } else {
+                    "https://music.youtube.com/watch?v=$mediaId"
+                }
+                updateTrack(
+                    context = context,
+                    videoId = videoId,
+                    title = item.mediaMetadata.title?.toString().orEmpty(),
+                    watchUrl = watchUrl,
+                    artist = item.mediaMetadata.artist?.toString().orEmpty(),
+                    album = item.mediaMetadata.albumTitle?.toString().orEmpty(),
+                    artworkUrl = item.mediaMetadata.artworkUri?.toString(),
+                )
+            }
+        }
+        withContext(Dispatchers.Main) {
+            controller.addListener(listener)
+        }
+        observedMusicController = controller
+        musicQueueListener = listener
+    }
+
+    private suspend fun removeMusicQueueObserver() {
+        val controller = observedMusicController
+        val listener = musicQueueListener
+        observedMusicController = null
+        musicQueueListener = null
+        if (controller != null && listener != null) {
+            withContext(Dispatchers.Main) {
+                controller.removeListener(listener)
+            }
+        }
+    }
 
     private fun fail(generation: Long, message: String) {
         if (isCurrent(generation)) _state.value = State.Error(message)

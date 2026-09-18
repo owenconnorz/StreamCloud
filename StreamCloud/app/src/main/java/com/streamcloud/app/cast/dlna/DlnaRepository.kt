@@ -69,13 +69,24 @@ object DlnaRepository {
                 val info = runCatching { DlnaController.getPositionInfo(device) }.getOrNull()
                 val state = runCatching { DlnaController.getTransportState(device) }.getOrNull()
                 if (info != null) {
-                    _positionMs.value = info.positionMs
-                    _durationMs.value = info.durationMs
+                    // A renderer can briefly return an empty/zero position while it is
+                    // transitioning tracks. Keep the last valid receiver values during that
+                    // gap so the phone UI does not jump back to 0:00.
+                    if (info.positionMs >= 0L) _positionMs.value = info.positionMs
+                    if (info.durationMs > 0L) _durationMs.value = info.durationMs
                 }
-                _isPlaying.value = state == "PLAYING"
+                if (state != null) {
+                    _isPlaying.value = state == "PLAYING"
+                }
                 kotlinx.coroutines.delay(1_000)
             }
         }
+    }
+
+    fun resetPlaybackState() {
+        _isPlaying.value = false
+        _positionMs.value = 0L
+        _durationMs.value = 0L
     }
 
     fun stopPolling() {

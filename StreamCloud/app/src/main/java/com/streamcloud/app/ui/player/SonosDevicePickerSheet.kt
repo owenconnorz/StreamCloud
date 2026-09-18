@@ -47,6 +47,9 @@ fun SonosDevicePickerSheet(
     videoId: String,
     title: String,
     watchUrl: String,
+    artist: String = "",
+    album: String = "",
+    artworkUrl: String? = null,
     onDismiss: () -> Unit,
 ) {
     val context   = LocalContext.current
@@ -359,6 +362,9 @@ fun SonosDevicePickerSheet(
                             videoId = videoId,
                             title = title,
                             watchUrl = watchUrl,
+                            artist = artist,
+                            album = album,
+                            artworkUrl = artworkUrl,
                         )
                     },
                     onDlnaDevice = { device ->
@@ -369,6 +375,9 @@ fun SonosDevicePickerSheet(
                             videoId = videoId,
                             title = title,
                             watchUrl = watchUrl,
+                            artist = artist,
+                            album = album,
+                            artworkUrl = artworkUrl,
                         )
                     },
                     onRescan = {

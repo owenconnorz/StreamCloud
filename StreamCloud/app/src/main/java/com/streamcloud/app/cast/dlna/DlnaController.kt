@@ -29,9 +29,19 @@ object DlnaController {
         streamUrl: String,
         title: String = "",
         mimeType: String = "video/mp4",
+        artist: String = "",
+        album: String = "",
+        artworkUrl: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val didl = buildDidl(title, streamUrl, mimeType).xmlEscape()
+            val didl = buildDidl(
+                title = title,
+                url = streamUrl,
+                mimeType = mimeType,
+                artist = artist,
+                album = album,
+                artworkUrl = artworkUrl,
+            ).xmlEscape()
             val urlEsc = streamUrl.xmlEscape()
             val envelope = soapEnvelope(
                 service = AV_SERVICE,
@@ -185,17 +195,39 @@ object DlnaController {
         }
     }
 
-    private fun buildDidl(title: String, url: String, mimeType: String): String {
+    private fun buildDidl(
+        title: String,
+        url: String,
+        mimeType: String,
+        artist: String,
+        album: String,
+        artworkUrl: String?,
+    ): String {
         val safeTitle = title.xmlEscape()
         val safeUrl = url.xmlEscape()
+        val safeArtist = artist.xmlEscape()
+        val safeAlbum = album.xmlEscape()
+        val safeArtworkUrl = artworkUrl.orEmpty().xmlEscape()
         val upnpClass = if (mimeType.startsWith("audio")) "object.item.audioItem.musicTrack"
         else "object.item.videoItem"
+        val artistXml = safeArtist.takeIf { it.isNotBlank() }
+            ?.let { "<dc:creator>$it</dc:creator>" }
+            .orEmpty()
+        val albumXml = safeAlbum.takeIf { it.isNotBlank() }
+            ?.let { "<upnp:album>$it</upnp:album>" }
+            .orEmpty()
+        val artworkXml = safeArtworkUrl.takeIf { it.isNotBlank() }
+            ?.let { "<upnp:albumArtURI>$it</upnp:albumArtURI>" }
+            .orEmpty()
         return """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" """ +
             """xmlns:dc="http://purl.org/dc/elements/1.1/" """ +
             """xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">""" +
             """<item id="1" parentID="0" restricted="1">""" +
             """<dc:title>$safeTitle</dc:title>""" +
+            artistXml +
+            albumXml +
             """<upnp:class>$upnpClass</upnp:class>""" +
+            artworkXml +
             """<res protocolInfo="http-get:*:$mimeType:*">$safeUrl</res>""" +
             """</item></DIDL-Lite>"""
     }

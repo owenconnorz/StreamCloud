@@ -51,6 +51,7 @@ import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.audio.PlaybackBus
+import com.streamcloud.app.cast.MusicRemoteCast
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.sonos.SonosRepository
@@ -80,6 +81,7 @@ fun GlobalMiniPlayer(
     var controller by remember { mutableStateOf<Player?>(null) }
     var title by remember { mutableStateOf<String?>(null) }
     var artist by remember { mutableStateOf<String?>(null) }
+    var album by remember { mutableStateOf<String?>(null) }
     var artworkUri by remember { mutableStateOf<String?>(null) }
 
     val isPlaying by PlaybackBus.isPlaying.collectAsState()
@@ -87,7 +89,14 @@ fun GlobalMiniPlayer(
     val sonosCastState by SonosRepository.castState.collectAsState()
     val sonosIsPlaying by SonosRepository.isSonosPlaying.collectAsState()
     val isSonosCasting = sonosCastState is SonosRepository.CastState.Casting
-    val displayIsPlaying = if (isSonosCasting) sonosIsPlaying else isPlaying
+    val networkCastState by MusicRemoteCast.state.collectAsState()
+    val remotePlaybackState by MusicRemoteCast.remoteState.collectAsState()
+    val isNetworkCasting = networkCastState is MusicRemoteCast.State.Casting
+    val displayIsPlaying = when {
+        isSonosCasting -> sonosIsPlaying
+        isNetworkCasting -> remotePlaybackState?.isPlaying ?: isPlaying
+        else -> isPlaying
+    }
 
     var isLiked by remember(nowMediaId) { mutableStateOf(false) }
     var showPlayHint by remember { mutableStateOf(false) }
@@ -120,18 +129,31 @@ fun GlobalMiniPlayer(
         label = "miniRingColor",
     )
 
-    var playbackProgress by remember { mutableStateOf(0f) }
+    var localPlaybackProgress by remember { mutableStateOf(0f) }
     LaunchedEffect(controller) {
         while (true) {
             val c = controller
             if (c != null) {
                 val dur = c.duration
                 if (dur > 0L) {
-                    playbackProgress = (c.currentPosition.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+                    localPlaybackProgress =
+                        (c.currentPosition.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
                 }
             }
             delay(100L)
         }
+    }
+    val playbackProgress = if (
+        isNetworkCasting &&
+        remotePlaybackState?.positionMs != null &&
+        (remotePlaybackState?.durationMs ?: 0L) > 0L
+    ) {
+        (
+            remotePlaybackState!!.positionMs!!.toFloat() /
+                remotePlaybackState!!.durationMs!!.toFloat()
+            ).coerceIn(0f, 1f)
+    } else {
+        localPlaybackProgress
     }
 
     LaunchedEffect(Unit) {
@@ -140,6 +162,7 @@ fun GlobalMiniPlayer(
                 controller = c
                 title = c.mediaMetadata.title?.toString()
                 artist = c.mediaMetadata.artist?.toString()
+                album = c.mediaMetadata.albumTitle?.toString()
                 artworkUri = c.mediaMetadata.artworkUri?.toString()
             }
     }
@@ -153,6 +176,7 @@ fun GlobalMiniPlayer(
                 override fun onMediaMetadataChanged(md: androidx.media3.common.MediaMetadata) {
                     title = md.title?.toString()
                     artist = md.artist?.toString()
+                    album = md.albumTitle?.toString()
                     artworkUri = md.artworkUri?.toString()
                 }
             }
@@ -376,6 +400,8 @@ fun GlobalMiniPlayer(
                             if (isSonosCasting) {
                                 if (sonosIsPlaying) SonosRepository.pause()
                                 else SonosRepository.resume()
+                            } else if (isNetworkCasting) {
+                                MusicRemoteCast.togglePlayPause()
                             } else {
                                 controller?.let { if (it.isPlaying) it.pause() else it.play() }
                             }
@@ -481,8 +507,8 @@ fun GlobalMiniPlayer(
             ) {
                 Icon(
                     imageVector = Icons.Default.Cast,
-                    contentDescription = "Cast to Sonos",
-                    tint = Color.White,
+                    contentDescription = if (isNetworkCasting) "Casting to TV" else "Cast to devices",
+                    tint = if (isNetworkCasting) Color(0xFF66D9A6) else Color.White,
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -494,6 +520,9 @@ fun GlobalMiniPlayer(
             videoId  = videoId,
             title    = title.orEmpty(),
             watchUrl = nowMediaId ?: "",
+            artist = artist.orEmpty(),
+            album = album.orEmpty(),
+            artworkUrl = artworkUri,
             onDismiss = { showSonosPicker = false },
         )
     }

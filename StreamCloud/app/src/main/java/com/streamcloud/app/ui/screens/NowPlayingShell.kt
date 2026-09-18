@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.BedtimeOff
 import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
@@ -90,11 +91,6 @@ import com.streamcloud.app.data.newpipe.StreamMeta
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.cast.MusicRemoteCast
-import com.streamcloud.app.cast.dlna.DlnaController
-import com.streamcloud.app.cast.dlna.DlnaRepository
-import com.google.android.gms.cast.MediaSeekOptions
-import com.google.android.gms.cast.MediaStatus
-import com.google.android.gms.cast.framework.CastContext
 import com.streamcloud.app.ui.player.MusicActionsSheet
 import com.streamcloud.app.ui.player.SonosDevicePickerSheet
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -124,6 +120,7 @@ fun NowPlayingShell(
     var durationMs by remember { mutableStateOf(0L) }
     var title by remember { mutableStateOf(controller.mediaMetadata.title?.toString().orEmpty()) }
     var artist by remember { mutableStateOf(controller.mediaMetadata.artist?.toString().orEmpty()) }
+    var album by remember { mutableStateOf(controller.mediaMetadata.albumTitle?.toString().orEmpty()) }
     var artwork by remember { mutableStateOf(controller.mediaMetadata.artworkUri?.toString()) }
     var mediaId by remember { mutableStateOf(controller.currentMediaItem?.mediaId) }
     var selectedMusicVideo by remember {
@@ -160,6 +157,7 @@ fun NowPlayingShell(
             override fun onMediaMetadataChanged(md: MediaMetadata) {
                 title = md.title?.toString().orEmpty()
                 artist = md.artist?.toString().orEmpty()
+                album = md.albumTitle?.toString().orEmpty()
                 artwork = md.artworkUri?.toString()
                 mediaId = controller.currentMediaItem?.mediaId
                 updateSelectedMusicVideo(controller.currentMediaItem)
@@ -170,14 +168,6 @@ fun NowPlayingShell(
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updateSelectedMusicVideo(mediaItem)
                 if (mediaItem == null) return
-                val mid = mediaItem.mediaId
-                val vid = if (mid.startsWith("http")) {
-                    mid.substringAfter("v=", "").substringBefore("&")
-                } else {
-                    mid
-                }
-                val watchUrl = if (mid.startsWith("http")) mid else "https://music.youtube.com/watch?v=$mid"
-                val trackTitle = mediaItem.mediaMetadata.title?.toString().orEmpty()
 
                 // When casting, tell the active network destination to load the selected track.
                 val cstate = SonosRepository.castState.value
@@ -186,9 +176,6 @@ fun NowPlayingShell(
                     // This screen only keeps phone audio paused while the repository replaces
                     // the speaker URI, so mini-player and notification skips work too.
                     controller.pause()
-                } else if (MusicRemoteCast.state.value is MusicRemoteCast.State.Casting) {
-                    controller.pause()
-                    MusicRemoteCast.updateTrack(context.applicationContext, vid, trackTitle, watchUrl)
                 }
             }
         }
@@ -273,47 +260,22 @@ fun NowPlayingShell(
     val sonosTrackUpdating by SonosRepository.isSonosTrackUpdating.collectAsState()
     val sonosPosMs      by SonosRepository.sonosPositionMs.collectAsState()
     val sonosDurMs      by SonosRepository.sonosDurationMs.collectAsState()
-    val dlnaIsPlaying by DlnaRepository.isPlaying.collectAsState()
-    val dlnaPosMs by DlnaRepository.positionMs.collectAsState()
-    val dlnaDurMs by DlnaRepository.durationMs.collectAsState()
-    val isGoogleCasting = (remoteCastState as? MusicRemoteCast.State.Casting)
-        ?.destination == MusicRemoteCast.DestinationType.GoogleCast
-    val isDlnaCasting = (remoteCastState as? MusicRemoteCast.State.Casting)
-        ?.destination == MusicRemoteCast.DestinationType.Dlna
-    var googleIsPlaying by remember { mutableStateOf(false) }
-    var googlePositionMs by remember { mutableLongStateOf(0L) }
-    var googleDurationMs by remember { mutableLongStateOf(0L) }
-
-    LaunchedEffect(isGoogleCasting) {
-        while (isGoogleCasting) {
-            val client = runCatching {
-                CastContext.getSharedInstance(context.applicationContext)
-                    .sessionManager.currentCastSession?.remoteMediaClient
-            }.getOrNull()
-            val status = client?.mediaStatus
-            googleIsPlaying = status?.playerState == MediaStatus.PLAYER_STATE_PLAYING
-            googlePositionMs = status?.streamPosition?.coerceAtLeast(0L) ?: 0L
-            googleDurationMs = client?.mediaInfo?.streamDuration?.coerceAtLeast(0L) ?: 0L
-            delay(500)
-        }
-    }
+    val remotePlaybackState by MusicRemoteCast.remoteState.collectAsState()
+    val hasRemoteNetworkPlayback = remotePlaybackState != null
 
     val displayIsPlaying = when {
         isSonosCasting -> sonosIsPlaying
-        isGoogleCasting -> googleIsPlaying
-        isDlnaCasting -> dlnaIsPlaying
+        hasRemoteNetworkPlayback -> remotePlaybackState?.isPlaying ?: false
         else -> isPlaying
     }
     val displayPositionMs = when {
         isSonosCasting -> sonosPosMs
-        isGoogleCasting -> googlePositionMs
-        isDlnaCasting -> dlnaPosMs
+        hasRemoteNetworkPlayback -> remotePlaybackState?.positionMs ?: 0L
         else -> positionMs
     }
     val displayDurationMs = when {
         isSonosCasting -> sonosDurMs
-        isGoogleCasting -> googleDurationMs
-        isDlnaCasting -> dlnaDurMs
+        hasRemoteNetworkPlayback -> remotePlaybackState?.durationMs ?: 0L
         else -> durationMs
     }
 
@@ -459,6 +421,17 @@ fun NowPlayingShell(
             repeatMode = repeatMode,
             isLiked = isLiked,
             controller = controller,
+            isNetworkCasting = hasRemoteNetworkPlayback,
+            castDeviceName = remotePlaybackState?.deviceName,
+            onPlayPause = {
+                if (hasRemoteNetworkPlayback) MusicRemoteCast.togglePlayPause()
+                else if (isPlaying) controller.pause() else controller.play()
+            },
+            onSeek = { target ->
+                if (hasRemoteNetworkPlayback) MusicRemoteCast.seekTo(target)
+                else controller.seekTo(target)
+            },
+            onDisconnect = { MusicRemoteCast.disconnect() },
             onSkipNext = { skipToNext() },
             onSkipPrevious = { skipToPrevious() },
             onClose = onClose,
@@ -741,6 +714,38 @@ fun NowPlayingShell(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                             )
+                            if (isNetworkCasting) {
+                                Spacer(Modifier.height(6.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(Color.Black.copy(alpha = 0.28f))
+                                        .clickable { showSonos = true }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.CastConnected,
+                                        contentDescription = null,
+                                        tint = Color(0xFF66D9A6),
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        if (remotePlaybackState?.isBuffering == true) {
+                                            "Loading on ${remotePlaybackState?.deviceName ?: "TV"}…"
+                                        } else {
+                                            "Playing on ${remotePlaybackState?.deviceName ?: "TV"}"
+                                        },
+                                        color = Color(0xFFB8F3D8),
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         }
                         Spacer(Modifier.width(12.dp))
                         PillButton(
@@ -808,18 +813,8 @@ fun NowPlayingShell(
                             if (isSonosCasting) {
                                 if (displayDurationMs > 0)
                                     SonosRepository.seek((v * displayDurationMs).toLong())
-                            } else if (isGoogleCasting) {
-                                val target = (v * displayDurationMs).toLong()
-                                runCatching {
-                                    CastContext.getSharedInstance(context.applicationContext)
-                                        .sessionManager.currentCastSession?.remoteMediaClient
-                                        ?.seek(MediaSeekOptions.Builder().setPosition(target).build())
-                                }
-                            } else if (isDlnaCasting) {
-                                val device = DlnaRepository.selectedDevice.value
-                                if (device != null && displayDurationMs > 0) {
-                                    scope.launch { DlnaController.seek(device, (v * displayDurationMs).toLong()) }
-                                }
+                            } else if (hasRemoteNetworkPlayback && displayDurationMs > 0) {
+                                MusicRemoteCast.seekTo((v * displayDurationMs).toLong())
                             } else if (durationMs > 0) {
                                 controller.seekTo((v * durationMs).toLong())
                             }
@@ -859,20 +854,8 @@ fun NowPlayingShell(
                                 if (isSonosCasting) {
                                     if (sonosTrackUpdating || sonosIsPlaying) SonosRepository.pause()
                                     else SonosRepository.resume()
-                                } else if (isGoogleCasting) {
-                                    val client = runCatching {
-                                        CastContext.getSharedInstance(context.applicationContext)
-                                            .sessionManager.currentCastSession?.remoteMediaClient
-                                    }.getOrNull()
-                                    if (googleIsPlaying) client?.pause() else client?.play()
-                                } else if (isDlnaCasting) {
-                                    val device = DlnaRepository.selectedDevice.value
-                                    if (device != null) {
-                                        scope.launch {
-                                            if (dlnaIsPlaying) DlnaController.pause(device)
-                                            else DlnaController.play(device)
-                                        }
-                                    }
+                                } else if (hasRemoteNetworkPlayback) {
+                                    MusicRemoteCast.togglePlayPause()
                                 } else {
                                     if (isPlaying) controller.pause() else controller.play()
                                 }
@@ -1003,6 +986,9 @@ fun NowPlayingShell(
             videoId = trackVideoId,
             title = title,
             watchUrl = sonosCastWatchUrl,
+            artist = artist,
+            album = album,
+            artworkUrl = artwork,
             onDismiss = { showSonos = false },
         )
     }
@@ -1472,6 +1458,11 @@ private fun NowPlayingTvLayout(
     repeatMode: Int,
     isLiked: Boolean,
     controller: Player,
+    isNetworkCasting: Boolean,
+    castDeviceName: String?,
+    onPlayPause: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onDisconnect: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
     onClose: () -> Unit,
@@ -1504,6 +1495,31 @@ private fun NowPlayingTvLayout(
         ) {
             // Artist + song title
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (isNetworkCasting) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(Color(0xFF16382B))
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.CastConnected,
+                            contentDescription = null,
+                            tint = Color(0xFF66D9A6),
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Playing on ${castDeviceName ?: "TV"}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color(0xFFB8F3D8),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 Text(
                     artist.ifBlank { "Unknown artist" },
                     style = MaterialTheme.typography.titleLarge,
@@ -1523,11 +1539,17 @@ private fun NowPlayingTvLayout(
             // Progress bar + timestamps
             val progress = if (durationMs > 0L) (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                    color = Color.White,
-                    trackColor = Color.White.copy(alpha = 0.2f),
+                Slider(
+                    value = progress,
+                    onValueChange = { value ->
+                        if (durationMs > 0L) onSeek((value * durationMs).toLong())
+                    },
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.White,
+                        activeTrackColor = Color.White,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.2f),
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(formatTime(positionMs), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(0.5f))
@@ -1547,7 +1569,7 @@ private fun NowPlayingTvLayout(
                     Modifier
                         .size(72.dp)
                         .background(Color.White, CircleShape)
-                        .clickable { if (isPlaying) controller.pause() else controller.play() },
+                        .clickable(onClick = onPlayPause),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -1603,6 +1625,11 @@ private fun NowPlayingTvLayout(
                     )
                 }
                 Spacer(Modifier.weight(1f))
+                if (isNetworkCasting) {
+                    TextButton(onClick = onDisconnect) {
+                        Text("Disconnect", color = Color(0xFFFF8A80))
+                    }
+                }
                 IconButton(onClick = onClose, modifier = Modifier.size(44.dp)) {
                     Icon(Icons.Default.Close, "Close", tint = Color.White.copy(0.5f), modifier = Modifier.size(22.dp))
                 }

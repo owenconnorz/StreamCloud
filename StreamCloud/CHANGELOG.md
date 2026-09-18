@@ -1,5 +1,19 @@
 # StreamCloud
 
+## V1751 — Android TV and DLNA music casting controls
+
+### Remote playback
+- **Casting progress stays live** — Android TV and DLNA receivers now report their current position, duration, play state, and buffering state throughout playback.
+- **Full transport controls** — the phone and Android TV interfaces can Play/Pause, seek, skip Previous or Next, and Disconnect while the receiver owns playback.
+- **Track changes stay in sync** — queue transitions update the active Cast or DLNA destination without briefly routing commands back to the phone player.
+
+### Receiver experience
+- **Complete music metadata** — title, artist, album, and artwork are sent to supported Google Cast and DLNA receivers.
+- **Responsive casting UI** — Now Playing, mini-player, TV, and casting handoff surfaces share the same receiver-owned state and identify the active destination.
+- **More reliable sessions** — delayed receiver status no longer resets progress, and Cast suspension, reconnection, handoff, and disconnect paths clean up only the session they own.
+
+APK: `StreamCloud-release.apk`
+
 ## V1740 — YouTube Music downloads and playback recovery
 
 ### YouTube Music

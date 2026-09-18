@@ -504,6 +504,8 @@ internal fun loadRemoteMedia(
     artworkUrl: String?,
     contentType: String?,
     mediaType: Int = com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE,
+    artist: String = "",
+    album: String = "",
 ) {
 
 
@@ -518,6 +520,12 @@ internal fun loadRemoteMedia(
         mediaType,
     ).apply {
         putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title)
+        if (artist.isNotBlank()) {
+            putString(com.google.android.gms.cast.MediaMetadata.KEY_ARTIST, artist)
+        }
+        if (album.isNotBlank()) {
+            putString(com.google.android.gms.cast.MediaMetadata.KEY_ALBUM_TITLE, album)
+        }
         if (!artworkUrl.isNullOrBlank()) {
             addImage(com.google.android.gms.common.images.WebImage(android.net.Uri.parse(artworkUrl)))
         }
@@ -614,7 +622,9 @@ fun CastRemoteController(
                 playerState = state
                 if (status != null) {
                     val pos = status.streamPosition.coerceAtLeast(0L)
-                    val dur = client.mediaInfo?.streamDuration?.coerceAtLeast(0L) ?: 0L
+                    val dur = client.mediaInfo?.streamDuration
+                        ?.takeIf { it > 0L }
+                        ?: durationMs
                     positionMs = pos
                     durationMs = dur
                     isPlaying  = state == MediaStatus.PLAYER_STATE_PLAYING
