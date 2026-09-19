@@ -1,5 +1,13 @@
 # StreamCloud
 
+## V1782 — Android TV search and settings improvements
+
+### Android TV
+- **Theme-colored search focus** — the search field and movie or series result cards now use the selected Movies theme for their visible focus border and pill treatment.
+- **Keyboard and remote Back behave consistently** — submitting with the TV keyboard Search action or pressing remote Back while the search field is focused closes the keyboard, refreshes the query, and moves focus to the first result.
+- **Cleaner TV navigation** — the redundant top-left back button is hidden on Android TV while remaining available on mobile and tablet layouts.
+- **TV-focused settings** — mobile-only settings such as Android Auto, Backup and restore, App logs, Picture in Picture, gesture controls, Discord Rich Presence, and external-browser options are hidden from the TV settings interface.
+
 ## V1772 — Android TV colored focus pills
 
 ### Android TV
