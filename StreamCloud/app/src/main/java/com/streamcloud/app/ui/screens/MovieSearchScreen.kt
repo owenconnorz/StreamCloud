@@ -105,7 +105,7 @@ fun MovieSearchScreen(
         }
     }
 
-    fun submitSearch() {
+    val submitSearch: () -> Unit = {
         val submittedQuery = query.trim()
         if (submittedQuery.length >= 2) {
             // Keyboard Search and the TV remote Back key use the same path:
