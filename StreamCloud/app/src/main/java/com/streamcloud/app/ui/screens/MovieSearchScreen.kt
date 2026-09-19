@@ -188,13 +188,13 @@ fun MovieSearchScreen(
                         ),
                     )
                 },
-                navigationIcon = if (!isTv) {
-                    {
+                navigationIcon = {
+                    if (!isTv) {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
-                } else null,
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
