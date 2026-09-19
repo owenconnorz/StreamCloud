@@ -82,9 +82,10 @@ fun MovieSearchScreen(
         else -> null
     }
 
-    // On TV the text field auto-focus traps D-pad input and prevents navigating
-    // down to search results. Skip it so focus starts free.
-    LaunchedEffect(Unit) { if (!isTv) runCatching { focusRequester.requestFocus() } }
+    // Start on the search field on every form factor. The TV key handler below
+    // explicitly moves Down into history/results, so the field remains usable
+    // without trapping remote navigation.
+    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
     // Pressing Search on an Android TV keyboard clears the TextField focus. Once
     // the first result is composed, put focus on the actual card so the next
@@ -106,8 +107,9 @@ fun MovieSearchScreen(
         }
     }
 
-    val submitSearch: () -> Unit = {
-        val submittedQuery = query.trim()
+    val submitSearch: (String) -> Unit = { rawQuery ->
+        val submittedQuery = rawQuery.trim()
+        query = submittedQuery
         if (submittedQuery.length >= 2) {
             // Keyboard Search and the TV remote Back key use the same path:
             // refresh every provider, save the query, then move focus to the
@@ -122,90 +124,112 @@ fun MovieSearchScreen(
     // On TV, Back while the search field owns focus means “close the keyboard
     // and show results”, not “leave the search screen”.
     BackHandler(enabled = isTv && searchFieldFocused) {
-        submitSearch()
+        submitSearch(query)
+    }
+
+    val searchField: @Composable (Modifier) -> Unit = { fieldModifier ->
+        TextField(
+            value = query,
+            onValueChange = {
+                query = it
+                focusResultsAfterSearch = false
+            },
+            modifier = fieldModifier
+                .focusRequester(focusRequester)
+                .onPreviewKeyEvent { event ->
+                    if (isTv && event.type == KeyEventType.KeyDown) {
+                        when (event.key) {
+                            Key.Back, Key.Escape -> {
+                                submitSearch(query)
+                                true
+                            }
+                            Key.DirectionDown -> runCatching {
+                                if (query.length < 2) {
+                                    firstHistoryFocusRequester.requestFocus()
+                                } else {
+                                    firstResultFocusRequester.requestFocus()
+                                }
+                                true
+                            }.getOrDefault(false)
+                            else -> false
+                        }
+                    } else {
+                        false
+                    }
+                }
+                .onFocusChanged { searchFieldFocused = it.isFocused }
+                .tvFocusBorder(RoundedCornerShape(28.dp)),
+            placeholder = {
+                Text(
+                    "Search movies, series & add-ons",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            singleLine = true,
+            leadingIcon = {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { query = "" }) {
+                        Icon(Icons.Default.Close, "Clear")
+                    }
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(
+                onSearch = { submitSearch(query) },
+            ),
+            shape = RoundedCornerShape(28.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent,
+                cursorColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
     }
 
     MoviesThemeWrapper(moviesThemeName) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    TextField(
-                        value = query,
-                        onValueChange = {
-                            query = it
-                            focusResultsAfterSearch = false
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth(if (isTv) 0.72f else 1f)
-                            .then(if (isTv) Modifier.height(48.dp) else Modifier)
-                            .focusRequester(focusRequester)
-                            .onPreviewKeyEvent { event ->
-                                if (isTv && event.type == KeyEventType.KeyDown) {
-                                    when (event.key) {
-                                        Key.Back, Key.Escape -> {
-                                            submitSearch()
-                                            true
-                                        }
-                                        Key.DirectionDown -> runCatching {
-                                            if (query.length < 2) {
-                                                firstHistoryFocusRequester.requestFocus()
-                                            } else {
-                                                firstResultFocusRequester.requestFocus()
-                                            }
-                                            true
-                                        }.getOrDefault(false)
-                                        else -> false
-                                    }
-                                } else {
-                                    false
-                                }
-                            }
-                            .onFocusChanged { searchFieldFocused = it.isFocused }
-                            .tvFocusBorder(RoundedCornerShape(28.dp)),
-                        placeholder = { Text("Search movies, series, addons…") },
-                        singleLine = true,
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        trailingIcon = {
-                            if (query.isNotEmpty()) {
-                                IconButton(onClick = { query = "" }) {
-                                    Icon(Icons.Default.Close, "Clear")
-                                }
-                            }
-                        },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(
-                            onSearch = { submitSearch() },
-                        ),
-                        shape = RoundedCornerShape(28.dp),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent,
-                            cursorColor = MaterialTheme.colorScheme.primary,
-                        ),
+            if (isTv) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    searchField(
+                        Modifier
+                            .fillMaxWidth(0.82f)
+                            .widthIn(max = 620.dp)
+                            .height(52.dp),
                     )
-                },
-                navigationIcon = {
-                    if (!isTv) {
+                }
+            } else {
+                TopAppBar(
+                    title = {
+                        searchField(Modifier.fillMaxWidth())
+                    },
+                    navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
-            )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    ),
+                )
+            }
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
@@ -214,7 +238,7 @@ fun MovieSearchScreen(
                 history = state.searchHistory,
                 padding = padding,
                 firstItemFocusRequester = firstHistoryFocusRequester,
-                onSelect = { query = it },
+                onSelect = { submitSearch(it) },
                 onRemove = { vm.removeFromSearchHistory(it) },
                 onClearAll = { vm.clearSearchHistory() },
             )
@@ -266,20 +290,9 @@ private fun RecentSearches(
     }
 
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    LaunchedEffect(isTv, history.firstOrNull()) {
-        if (isTv && history.isNotEmpty()) {
-            for (attempt in 0 until 10) {
-                delay(if (attempt == 0) 200L else 100L)
-                val focused = runCatching {
-                    firstItemFocusRequester.requestFocus()
-                    true
-                }.getOrDefault(false)
-                if (focused) {
-                    break
-                }
-            }
-        }
-    }
+    val tvContentWidth = Modifier
+        .fillMaxWidth(0.82f)
+        .widthIn(max = 620.dp)
 
     LazyColumn(
         contentPadding = PaddingValues(
@@ -287,11 +300,12 @@ private fun RecentSearches(
             bottom = 32.dp,
         ),
         modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(),
+        horizontalAlignment = if (isTv) Alignment.CenterHorizontally else Alignment.Start,
     ) {
         item(key = "history-header") {
             Row(
                 Modifier
-                    .fillMaxWidth()
+                    .then(if (isTv) tvContentWidth else Modifier.fillMaxWidth())
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -336,7 +350,14 @@ private fun RecentSearches(
                 },
                 modifier = Modifier
                     .then(
-                        if (isTv && idx == 0) {
+                        if (isTv) {
+                            tvContentWidth
+                        } else {
+                            Modifier.fillMaxWidth()
+                        }
+                    )
+                    .then(
+                        if (idx == 0) {
                             Modifier.focusRequester(firstItemFocusRequester)
                         } else {
                             Modifier
