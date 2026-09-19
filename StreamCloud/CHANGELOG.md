@@ -1,6 +1,6 @@
 # StreamCloud
 
-## V1791 — Android TV movie player and navigation improvements
+## V1792 — Android TV movie player and navigation improvements
 
 ### Movie player
 - **Remaining time counts down correctly** — the right-hand playback timestamp now shows the time left in the film instead of repeating the full duration.
