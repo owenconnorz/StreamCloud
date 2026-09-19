@@ -24,6 +24,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -61,6 +64,7 @@ fun MovieSearchScreen(
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
+    val resultsFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
 
@@ -87,7 +91,19 @@ fun MovieSearchScreen(
                         onValueChange = { query = it },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester),
+                            .focusRequester(focusRequester)
+                            .onPreviewKeyEvent { event ->
+                                if (
+                                    isTv &&
+                                    event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionDown
+                                ) {
+                                    runCatching { resultsFocusRequester.requestFocus() }
+                                        .getOrDefault(false)
+                                } else {
+                                    false
+                                }
+                            },
                         placeholder = { Text("Search movies, series, addons…") },
                         singleLine = true,
                         leadingIcon = {
@@ -154,6 +170,7 @@ fun MovieSearchScreen(
                 state = state,
                 query = query,
                 padding = padding,
+                resultsFocusRequester = resultsFocusRequester,
                 onMovieClick = onMovieClick,
                 onTvClick = onTvClick,
                 onLoadMoreMovies = vm::loadMoreMovies,
@@ -277,6 +294,7 @@ private fun CombinedResultsList(
     state: com.streamcloud.app.ui.viewmodel.MoviesState,
     query: String,
     padding: PaddingValues,
+    resultsFocusRequester: FocusRequester,
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit,
     onLoadMoreMovies: () -> Unit,
@@ -296,8 +314,6 @@ private fun CombinedResultsList(
     // the user is actively typing in the TextField and we must not steal focus (which
     // would close the on-screen keyboard every time a new batch of results arrives).
     // The user presses D-pad Down from the search field to reach results naturally.
-    val anchorFocusRequester = remember { FocusRequester() }
-
     if (!hasAny && !anyLoading) {
         Box(
             Modifier.fillMaxSize().padding(padding),
@@ -326,7 +342,7 @@ private fun CombinedResultsList(
         // immediately moves into the first card row below it.
         if (isTv) {
             item(key = "tv-focus-anchor") {
-                Box(Modifier.size(1.dp).focusRequester(anchorFocusRequester).focusable())
+                Box(Modifier.size(1.dp).focusRequester(resultsFocusRequester).focusable())
             }
         }
 
