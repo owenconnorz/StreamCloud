@@ -811,7 +811,7 @@ fun NativePlayerScreen(
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             TimestampChip(formatTime(positionMs))
-                            TimestampChip(formatTime(durationMs))
+                            TimestampChip(formatTime((durationMs - positionMs).coerceAtLeast(0L)))
                         }
                         Spacer(Modifier.height(14.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
