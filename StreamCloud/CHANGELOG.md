@@ -1,5 +1,17 @@
 # StreamCloud
 
+## V1791 — Android TV movie player and navigation improvements
+
+### Movie player
+- **Remaining time counts down correctly** — the right-hand playback timestamp now shows the time left in the film instead of repeating the full duration.
+- **Cleaner TV controls** — the Portrait/Landscape control is hidden from the Android TV movie player because TV playback is already landscape-focused.
+- **Source picker keeps remote focus** — opening the source picker moves the remote focus into the source panel and keeps it there until Back is pressed.
+- **Player focus restores cleanly** — closing the source picker returns focus to the movie-player controls.
+
+### Navigation
+- **TV movie search navigation** — remote Down from the search field moves to the first real recent search or result.
+- **Separated Music actions** — the Music screen’s Search, DJ, History, and Trending buttons now have clear spacing.
+
 ## V1781 — Android TV search and settings improvements
 
 ### Android TV
