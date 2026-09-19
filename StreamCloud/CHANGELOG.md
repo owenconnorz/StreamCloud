@@ -1,5 +1,12 @@
 # StreamCloud
 
+## V1769 — Android TV movie search focus fix
+
+### Android TV
+- **D-pad Down now highlights results** — completed searches move focus directly to the first real movie or series card instead of an invisible list anchor.
+- **Search/Enter works reliably** — after submitting a query with the Android TV keyboard, focus is restored to the first available result once it loads.
+- **Nested result rows remain navigable** — the first-card handoff leaves normal left/right and row-to-row D-pad navigation intact.
+
 ## V1764 — Separate mobile and Android TV APKs
 
 ### Release packaging
