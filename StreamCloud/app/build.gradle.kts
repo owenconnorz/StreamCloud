@@ -52,11 +52,12 @@ android {
         create("tv") {
             dimension = "device"
             buildConfigField("Boolean", "TV_BUILD", "true")
-            // TV release APKs target the ARM64 devices used by current Android TVs.
-            // Keeping unused native ABIs out of this installable APK makes updates
-            // materially smaller than the universal mobile build.
+            // TV release APKs support both modern ARM64 TVs and older Fire TV devices
+            // whose 64-bit-capable CPU still runs a 32-bit Android userspace.
+            // Keep x86 architectures out while retaining armeabi-v7a compatibility
+            // for first-generation Fire TV Cube and similar devices.
             ndk {
-                abiFilters += setOf("arm64-v8a")
+                abiFilters += setOf("arm64-v8a", "armeabi-v7a")
             }
         }
     }

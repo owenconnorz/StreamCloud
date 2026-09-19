@@ -1,5 +1,11 @@
 # StreamCloud
 
+## V1771 — Fire TV Cube installation compatibility
+
+### Android TV
+- **First-generation Fire TV Cube support** — the TV APK now includes both 64-bit ARM and 32-bit ARM native libraries.
+- **Broader TV compatibility** — older Fire TV devices with a 32-bit Android userspace can install the TV APK while x86 architectures remain excluded.
+
 ## V1769 — Android TV movie search focus fix
 
 ### Android TV
