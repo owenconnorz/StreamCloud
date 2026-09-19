@@ -1684,7 +1684,6 @@ private fun TvNetflixTopNav(
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .tvFocusBorder(RoundedCornerShape(50))
                             .clip(RoundedCornerShape(50))
                             .background(
                                 when {
@@ -1693,6 +1692,7 @@ private fun TvNetflixTopNav(
                                     else -> Color.Transparent
                                 }
                             )
+                            .tvFocusBorder(RoundedCornerShape(50))
                             .onFocusChanged { itemFocused = it.isFocused }
                             .clickable { onTabSelected(tab.route) }
                             .padding(horizontal = 20.dp, vertical = 8.dp),
@@ -1732,8 +1732,8 @@ private fun TvNavRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .tvFocusBorder(RoundedCornerShape(10.dp))
             .background(bg)
+            .tvFocusBorder(RoundedCornerShape(10.dp))
             .onKeyEvent { event ->
                 event.type == KeyEventType.KeyDown && (
                     (trapUp && event.key == Key.DirectionUp) ||
@@ -1784,6 +1784,7 @@ private fun NuvioNavItem(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .background(selectedBg)
+            .tvFocusBorder(RoundedCornerShape(50))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {
@@ -1861,6 +1862,7 @@ private fun ProfileNavItem(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .background(selectedBg)
+            .tvFocusBorder(RoundedCornerShape(50))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {

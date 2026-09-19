@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.streamcloud.app.ui.theme.tvFocusBorder
 
 data class MovieThemeEntry(
     val id: String,
@@ -119,7 +120,9 @@ private fun ThemeSwatchRow(
                 val isSelected = selected == theme.id
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clickable { onSelect(theme.id) },
+                    modifier = Modifier
+                        .tvFocusBorder(RoundedCornerShape(14.dp))
+                        .clickable { onSelect(theme.id) },
                 ) {
                     Box(
                         modifier = Modifier

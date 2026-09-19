@@ -6,12 +6,15 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -27,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 val TvOverscanPadding = 24.dp
+val LocalTvFocusColor = staticCompositionLocalOf { Color.White }
 private const val TvFocusScale = 1.035f
 private const val TvHorizontalRepeatGateMs = 80L
 private const val TvVerticalRepeatGateMs = 112L
@@ -38,6 +42,9 @@ fun Modifier.tvFocusBorder(
 ): Modifier = composed {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     if (!isTv) return@composed this
+    val focusColor = LocalTvFocusColor.current.takeUnless { it == Color.White }
+        ?: color.takeUnless { it == Color.White }
+        ?: MaterialTheme.colorScheme.primary
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (focused) TvFocusScale else 1f,
@@ -60,9 +67,13 @@ fun Modifier.tvFocusBorder(
             scaleX = scale
             scaleY = scale
         }
+        .background(
+            color = if (focused) focusColor.copy(alpha = 0.20f) else Color.Transparent,
+            shape = shape,
+        )
         .border(
             width = animatedBorderWidth,
-            color = if (focused) color else Color.Transparent,
+            color = if (focused) focusColor else Color.Transparent,
             shape = shape,
         )
 }

@@ -1,5 +1,13 @@
 # StreamCloud
 
+## V1772 — Android TV colored focus pills
+
+### Android TV
+- **Nuvio-style controller focus** — focused navigation items, settings rows, controls, and content targets now use the selected theme color with a filled pill background and animated border.
+- **Theme-controlled focus color** — the Appearance → Color Theme selection now controls the TV controller focus color across the app.
+- **Remote-friendly settings** — theme swatches, the settings back control, updater install button, and other previously plain controls now expose the same visible focus treatment.
+- **Updater release notes** — available update notes are shown directly in the settings updater panel with a scrollable “What’s new” section.
+
 ## V1771 — Fire TV Cube installation compatibility
 
 ### Android TV

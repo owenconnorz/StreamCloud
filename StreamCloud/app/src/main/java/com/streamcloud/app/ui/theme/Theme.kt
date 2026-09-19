@@ -9,6 +9,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -141,6 +142,7 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     val hasArtwork      by AlbumArtThemeBus.hasArtwork.collectAsState()
     val themeMode       by sl.settings.theme.collectAsState(initial = "dark")
     val colorPaletteId  by sl.settings.colorPalette.collectAsState(initial = "default")
+    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
     val isSystemDark = isSystemInDarkTheme()
 
     // Always auto-detect — no manual override allowed.
@@ -235,6 +237,14 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
             ) else scheme
         }
     }
+    // TV controller focus follows the same Color Theme used by the movie
+    // navigation pill, so the selected theme stays visually consistent across
+    // content, settings, navigation, and updater surfaces.
+    val tvFocusColor = AllMoviesThemes
+        .firstOrNull { it.id == moviesThemeName }
+        ?.primary
+        ?: if (colorPalette == "dynamic") colors.primary
+        else palettes[colorPalette]?.primary ?: colors.primary
 
     val view = LocalView.current
     if (!view.isInEditMode) {
@@ -248,7 +258,9 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
         }
     }
     ProvideUiFormFactor(formFactor) {
-        MaterialTheme(colorScheme = colors, typography = AioTypography, content = content)
+        CompositionLocalProvider(LocalTvFocusColor provides tvFocusColor) {
+            MaterialTheme(colorScheme = colors, typography = AioTypography, content = content)
+        }
     }
 }
 

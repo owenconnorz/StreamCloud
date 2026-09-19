@@ -680,6 +680,12 @@ fun SettingsHubScreen(
                             scope.launch { sl.settings.setMoviesTheme(id) }
                         },
                     )
+                    Text(
+                        "This theme also controls the colored TV controller focus pill.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
                 }
             }
 
@@ -3064,7 +3070,10 @@ private fun SubPageScaffold(
                 .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.tvFocusBorder(CircleShape),
+            ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -3103,7 +3112,9 @@ private fun ThemeModeItem(
     val iconTint = if (useLightIcon) Color.White else Color(0xFF1A1210)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier
+            .tvFocusBorder(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
     ) {
         Box(
             Modifier
@@ -3157,6 +3168,7 @@ private fun PaletteItem(
         Modifier
             .size(50.dp)
             .clip(CircleShape)
+            .tvFocusBorder(CircleShape)
             .border(
                 width = if (selected) 2.5.dp else 1.dp,
                 color = if (selected) accent else outline.copy(alpha = 0.5f),
@@ -3195,6 +3207,7 @@ private fun PaletteDynamicItem(
             .size(50.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .tvFocusBorder(CircleShape)
             .border(
                 width = if (selected) 2.5.dp else 1.dp,
                 color = if (selected) accent else outline.copy(alpha = 0.5f),
@@ -3640,6 +3653,28 @@ private fun UpdaterRow() {
                 Spacer(Modifier.height(4.dp))
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             }
+            if (!update?.notes.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "What's new",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    update?.notes.orEmpty(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 112.dp)
+                        .background(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                            RoundedCornerShape(10.dp),
+                        )
+                        .padding(10.dp)
+                        .verticalScroll(rememberScrollState()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         when {
             checking || downloading -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -3660,6 +3695,7 @@ private fun UpdaterRow() {
                     }
                 },
                 shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.tvFocusBorder(RoundedCornerShape(10.dp)),
             ) { Text("Install") }
             else -> Icon(
                 Icons.Default.ChevronRight,
