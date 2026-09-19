@@ -54,6 +54,7 @@ private fun decodeMusicSpeedDial(raw: String): List<YtmSong> =
         }
         .distinctBy { it.videoId }
         .take(MAX_MUSIC_SPEED_DIAL_ITEMS)
+        .toList()
 
 object SettingsKeys {
     val BACKEND_URL = stringPreferencesKey("backend_url")
