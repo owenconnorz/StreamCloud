@@ -98,10 +98,9 @@ jobs:
           fi
           exit 0
 
-      - name: Build Debug + Release APKs
+      - name: Build Release APKs + unit tests
         run: >-
-          ./gradlew assembleMobileDebug assembleTvDebug assembleMobileRelease assembleTvRelease
-          testMobileDebugUnitTest testTvDebugUnitTest
+          ./gradlew assembleMobileRelease assembleTvRelease testMobileDebugUnitTest
           --tests 'com.streamcloud.app.data.api.PornhubRepositoryTest'
           --tests 'com.streamcloud.app.ui.viewmodel.TmdbSearchPaginationTest'
           --tests 'com.streamcloud.app.ui.components.MovieArtworkTest'
@@ -112,10 +111,6 @@ jobs:
       - name: Collect APK artifacts
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk \
-            "artifacts/StreamCloud-mobile-debug-${{ github.run_number }}.apk"
-          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk \
-            "artifacts/StreamCloud-tv-debug-${{ github.run_number }}.apk"
           cp app/build/outputs/apk/mobile/release/app-mobile-release.apk \
             "artifacts/StreamCloud-mobile-release.apk"
           cp app/build/outputs/apk/tv/release/app-tv-release.apk \
