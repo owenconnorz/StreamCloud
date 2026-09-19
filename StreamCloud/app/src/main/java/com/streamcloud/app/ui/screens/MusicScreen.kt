@@ -1740,7 +1740,10 @@ private fun YtHomePlaylistCard(
                 modifier = Modifier.fillMaxSize(),
             )
             if (overlayTitle) {
-                SpeedDialTextOverlay(title = pl.title)
+                SpeedDialTextOverlay(
+                    title = pl.title,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
             }
         }
         if (!overlayTitle) {
@@ -1775,10 +1778,10 @@ private fun YtHomePlaylistCard(
 private fun SpeedDialTextOverlay(
     title: String,
     subtitle: String? = null,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        Modifier
-            .align(Alignment.BottomCenter)
+        modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
@@ -1855,6 +1858,7 @@ private fun YtHomeSongCard(
                 SpeedDialTextOverlay(
                     title = song.title,
                     subtitle = song.artist,
+                    modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
             com.streamcloud.app.ui.components.SongRowMenu(
