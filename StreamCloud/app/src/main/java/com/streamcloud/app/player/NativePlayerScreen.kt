@@ -1545,7 +1545,12 @@ private fun SourcesPickerSheet(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
                 ) {
                     items(addonFilters, key = { it }) { name ->
-                        SourceFilterChip(name, name == activeFilter, sourceErrors.containsKey(name) && name != "All") { activeFilter = name }
+                        SourceFilterChip(
+                            label = name,
+                            selected = name == activeFilter,
+                            hasError = sourceErrors.containsKey(name) && name != "All",
+                            onClick = { activeFilter = name },
+                        )
                     }
                 }
                 Spacer(Modifier.height(8.dp))
