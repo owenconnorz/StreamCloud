@@ -24,6 +24,16 @@ defaults:
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: mobile
+            assemble_task: assembleMobileRelease
+            test_task: testMobileDebugUnitTest
+          - flavor: tv
+            assemble_task: assembleTvRelease
+            test_task: ""
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (LFS disabled — libtorrserver.so extracted from release APK below)
@@ -98,9 +108,10 @@ jobs:
           fi
           exit 0
 
-      - name: Build Release APKs + unit tests
+      - name: Build mobile release APK + unit tests
+        if: matrix.flavor == 'mobile'
         run: >-
-          ./gradlew assembleMobileRelease assembleTvRelease testMobileDebugUnitTest
+          ./gradlew ${{ matrix.assemble_task }} ${{ matrix.test_task }}
           --tests 'com.streamcloud.app.data.api.PornhubRepositoryTest'
           --tests 'com.streamcloud.app.ui.viewmodel.TmdbSearchPaginationTest'
           --tests 'com.streamcloud.app.ui.components.MovieArtworkTest'
@@ -108,24 +119,44 @@ jobs:
           --tests 'com.streamcloud.app.ads.AdPolicyTest'
           --no-daemon --stacktrace --no-build-cache
 
+      - name: Build TV release APK
+        if: matrix.flavor == 'tv'
+        run: >-
+          ./gradlew ${{ matrix.assemble_task }}
+          --no-daemon --stacktrace --no-build-cache
+
       - name: Collect APK artifacts
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/mobile/release/app-mobile-release.apk \
-            "artifacts/StreamCloud-mobile-release.apk"
-          cp app/build/outputs/apk/tv/release/app-tv-release.apk \
-            "artifacts/StreamCloud-tv-release.apk"
+          cp "app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk" \
+            "artifacts/StreamCloud-${{ matrix.flavor }}-release.apk"
           ls -la artifacts/
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: StreamCloud-apks
+          name: StreamCloud-${{ matrix.flavor }}-apk
           path: StreamCloud/artifacts/*.apk
           retention-days: 30
 
+  publish:
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout changelog
+        uses: actions/checkout@v5
+        with:
+          lfs: false
+
+      - name: Download release APKs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: StreamCloud-*-apk
+          path: StreamCloud/artifacts
+          merge-multiple: true
+
       - name: Publish StreamCloud GitHub Release
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release == true }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: V${{ github.run_number }}
