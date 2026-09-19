@@ -1006,7 +1006,10 @@ private fun MusicHeader(
             .padding(start = 20.dp, top = 8.dp, end = 4.dp, bottom = 4.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(end = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
