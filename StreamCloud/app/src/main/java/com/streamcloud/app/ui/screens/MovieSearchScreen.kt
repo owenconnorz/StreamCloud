@@ -270,8 +270,10 @@ private fun RecentSearches(
         if (isTv && history.isNotEmpty()) {
             for (attempt in 0 until 10) {
                 delay(if (attempt == 0) 200L else 100L)
-                val focused = runCatching { firstItemFocusRequester.requestFocus() }
-                    .getOrDefault(false)
+                val focused = runCatching {
+                    firstItemFocusRequester.requestFocus()
+                    true
+                }.getOrDefault(false)
                 if (focused) {
                     break
                 }
