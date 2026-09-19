@@ -8,11 +8,52 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.streamcloud.app.BuildConfig
 import com.streamcloud.app.data.plugins.PinnedCsSection
 import com.streamcloud.app.data.plugins.csHomeSectionsJson
+import com.streamcloud.app.data.ytmusic.YtmSong
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
+import java.net.URLDecoder
+import java.net.URLEncoder
 
 private val Context.dataStore by preferencesDataStore("streamcloud_settings")
+
+private const val MAX_MUSIC_SPEED_DIAL_ITEMS = 12
+
+private fun encodeMusicSpeedDial(songs: List<YtmSong>): String =
+    songs.joinToString("\n") { song ->
+        listOf(
+            song.videoId,
+            song.title,
+            song.artist,
+            song.album.orEmpty(),
+            song.thumbnail.orEmpty(),
+            song.durationSeconds?.toString().orEmpty(),
+            song.isVideo.toString(),
+        ).joinToString("|") { URLEncoder.encode(it, "UTF-8") }
+    }
+
+private fun decodeMusicSpeedDial(raw: String): List<YtmSong> =
+    raw.lineSequence()
+        .mapNotNull { line ->
+            val fields = line.split("|")
+            if (fields.size != 7) return@mapNotNull null
+            val videoId = runCatching { URLDecoder.decode(fields[0], "UTF-8") }.getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            fun decode(index: Int): String =
+                runCatching { URLDecoder.decode(fields[index], "UTF-8") }.getOrDefault("")
+            YtmSong(
+                videoId = videoId,
+                title = decode(1),
+                artist = decode(2),
+                album = decode(3).takeIf { it.isNotBlank() },
+                thumbnail = decode(4).takeIf { it.isNotBlank() },
+                durationSeconds = decode(5).toLongOrNull(),
+                isVideo = decode(6).toBoolean(),
+            )
+        }
+        .distinctBy { it.videoId }
+        .take(MAX_MUSIC_SPEED_DIAL_ITEMS)
 
 object SettingsKeys {
     val BACKEND_URL = stringPreferencesKey("backend_url")
@@ -73,6 +114,7 @@ object SettingsKeys {
 
 
     val CANVAS_ENABLED = booleanPreferencesKey("canvas_enabled")
+    val YT_MUSIC_CANVAS_ENABLED = booleanPreferencesKey("yt_music_canvas_enabled")
     val POSTER_STYLE = stringPreferencesKey("poster_style")
 
     val DYNAMIC_MINI_PLAYER_THEME = booleanPreferencesKey("dynamic_mini_player_theme")
@@ -104,6 +146,7 @@ object SettingsKeys {
     val MUSIC_SEARCH_HISTORY  = stringPreferencesKey("music_search_history")
     val MOVIE_SEARCH_HISTORY  = stringPreferencesKey("movie_search_history")
     val DJ_VOICE_PRESET       = stringPreferencesKey("dj_voice_preset")
+    val MUSIC_SPEED_DIAL      = stringPreferencesKey("music_speed_dial")
 
     // Movies / video
     val MOVIES_THEME          = stringPreferencesKey("movies_theme")
@@ -444,7 +487,21 @@ class SettingsRepository(private val context: Context) {
 
     val canvasEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.CANVAS_ENABLED] ?: true }
 
-    suspend fun setCanvasEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.CANVAS_ENABLED] = b }
+    suspend fun setCanvasEnabled(b: Boolean) = context.dataStore.edit {
+        it[SettingsKeys.CANVAS_ENABLED] = b
+        if (b) it[SettingsKeys.YT_MUSIC_CANVAS_ENABLED] = false
+    }
+
+    val ytMusicCanvasEnabled: Flow<Boolean> =
+        context.dataStore.data.map { it[SettingsKeys.YT_MUSIC_CANVAS_ENABLED] ?: false }
+
+    suspend fun setYtMusicCanvasEnabled(b: Boolean) = context.dataStore.edit { prefs ->
+        if (b && (prefs[SettingsKeys.CANVAS_ENABLED] ?: true)) {
+            prefs[SettingsKeys.YT_MUSIC_CANVAS_ENABLED] = false
+        } else {
+            prefs[SettingsKeys.YT_MUSIC_CANVAS_ENABLED] = b
+        }
+    }
 
     val posterStyle: Flow<String> = context.dataStore.data.map { it[SettingsKeys.POSTER_STYLE] ?: "portrait" }
 
@@ -453,6 +510,24 @@ class SettingsRepository(private val context: Context) {
     val dynamicMiniPlayerTheme: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.DYNAMIC_MINI_PLAYER_THEME] ?: true }
 
     suspend fun setDynamicMiniPlayerTheme(b: Boolean) = context.dataStore.edit { it[SettingsKeys.DYNAMIC_MINI_PLAYER_THEME] = b }
+
+    val musicSpeedDial: Flow<List<YtmSong>> =
+        context.dataStore.data.map { decodeMusicSpeedDial(it[SettingsKeys.MUSIC_SPEED_DIAL].orEmpty()) }
+
+    suspend fun pinMusicSpeedDial(song: YtmSong) = context.dataStore.edit { prefs ->
+        val updated = buildList {
+            add(song)
+            addAll(decodeMusicSpeedDial(prefs[SettingsKeys.MUSIC_SPEED_DIAL].orEmpty())
+                .filterNot { it.videoId == song.videoId })
+        }.take(MAX_MUSIC_SPEED_DIAL_ITEMS)
+        prefs[SettingsKeys.MUSIC_SPEED_DIAL] = encodeMusicSpeedDial(updated)
+    }
+
+    suspend fun unpinMusicSpeedDial(videoId: String) = context.dataStore.edit { prefs ->
+        val updated = decodeMusicSpeedDial(prefs[SettingsKeys.MUSIC_SPEED_DIAL].orEmpty())
+            .filterNot { it.videoId == videoId }
+        prefs[SettingsKeys.MUSIC_SPEED_DIAL] = encodeMusicSpeedDial(updated)
+    }
 
     val navLabels: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NAV_LABELS] ?: true }
 

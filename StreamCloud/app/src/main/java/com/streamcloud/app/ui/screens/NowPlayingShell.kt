@@ -325,6 +325,7 @@ fun NowPlayingShell(
     var videoStreamUrl  by remember(mediaId) { mutableStateOf<String?>(null) }
     var videoStreamUserAgent by remember(mediaId) { mutableStateOf<String?>(null) }
     var showVideoPlayer by remember(mediaId) { mutableStateOf(false) }
+    var ytMusicCanvasSuppressed by remember(mediaId) { mutableStateOf(false) }
     // Ordinary songs may expose a YouTube video stream too. Canvas stays as their default
     // surface until the listener explicitly chooses to watch the video.
     var manualVideoRequested by remember(mediaId) { mutableStateOf(false) }
@@ -356,6 +357,7 @@ fun NowPlayingShell(
 
 
     val canvasEnabled   by sl.settings.canvasEnabled.collectAsState(initial = true)
+    val ytMusicCanvasEnabled by sl.settings.ytMusicCanvasEnabled.collectAsState(initial = false)
     val spotifyCookie   by sl.settings.spotifyCookie.collectAsState(initial = "")
 
     // Keep the in-memory repository cookie in sync with DataStore (survives app restarts)
@@ -377,13 +379,21 @@ fun NowPlayingShell(
             SpotifyCanvasRepository.getCanvasUrl(trackVideoId, title, artist)
         }.getOrNull()
     }
-    // An explicit music-video selection or manually opened video wins over Canvas. A visual
-    // format on an ordinary song alone does not, because that would turn every song into video.
-    val activeCanvas = if (
+    // Spotify Canvas and YouTube Music video Canvas are mutually exclusive. Spotify keeps
+    // priority if an older install somehow has both preferences enabled.
+    val activeSpotifyCanvas = if (
         canvasEnabled &&
         !selectedMusicVideo &&
         !showVideoPlayer
     ) canvasUrl else null
+    val activeYtMusicCanvas = if (
+        ytMusicCanvasEnabled &&
+        !canvasEnabled &&
+        selectedMusicVideo &&
+        !ytMusicCanvasSuppressed &&
+        videoStreamUrl != null
+    ) videoStreamUrl else null
+    val activeCanvas = activeSpotifyCanvas ?: activeYtMusicCanvas
 
     // When canvas is playing its background is always dark; use white text.
     // Without canvas the gradient bg varies, so derive from the dominant artwork colour.
@@ -462,7 +472,11 @@ fun NowPlayingShell(
 
         if (activeCanvas != null) {
             // CanvasVideoLayer uses TextureView (renders inline with Compose, not below it)
-            CanvasVideoLayer(url = activeCanvas, modifier = Modifier.fillMaxSize())
+            CanvasVideoLayer(
+                url = activeCanvas,
+                userAgent = videoStreamUserAgent.takeIf { activeYtMusicCanvas != null },
+                modifier = Modifier.fillMaxSize(),
+            )
 
             // Gradient: darker at top (top bar) and bottom (controls), transparent in middle
             Box(
@@ -932,7 +946,8 @@ fun NowPlayingShell(
                     // Video / canvas toggle
                     NpIconButton(
                         onClick = {
-                            if (activeCanvas != null) manualVideoRequested = !manualVideoRequested
+                            if (activeYtMusicCanvas != null) ytMusicCanvasSuppressed = true
+                            else if (activeSpotifyCanvas != null) manualVideoRequested = !manualVideoRequested
                             else showVideoPlayer = !showVideoPlayer
                             controlsVisible = true
                             hideKey++
@@ -1734,23 +1749,31 @@ private fun MusicVideoPlayer(
 // by any opaque Compose background. TextureView renders within the Compose hierarchy.
 @OptIn(UnstableApi::class)
 @Composable
-private fun CanvasVideoLayer(url: String, modifier: Modifier = Modifier) {
+private fun CanvasVideoLayer(
+    url: String,
+    userAgent: String? = null,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
 
-    val player = remember {
-        ExoPlayer.Builder(context).build().apply {
-            repeatMode = Player.REPEAT_MODE_ONE
-            volume = 0f
-        }
+    val player = remember(url, userAgent) {
+        val dataSourceFactory = DefaultHttpDataSource.Factory().setUserAgent(userAgent.orEmpty())
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .build()
+            .apply {
+                repeatMode = Player.REPEAT_MODE_ONE
+                volume = 0f
+            }
     }
 
-    LaunchedEffect(url) {
+    LaunchedEffect(url, userAgent) {
         player.setMediaItem(MediaItem.fromUri(url))
         player.prepare()
         player.playWhenReady = true
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(url, userAgent) {
         onDispose { player.release() }
     }
 

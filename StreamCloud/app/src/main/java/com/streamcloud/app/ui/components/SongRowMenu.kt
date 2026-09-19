@@ -47,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.data.ytmusic.YtmSong
@@ -83,6 +85,8 @@ fun SongRowMenu(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val settings = remember(context) { ServiceLocator.get(context.applicationContext).settings }
+    val speedDial by settings.musicSpeedDial.collectAsState(initial = emptyList())
     var open by remember { mutableStateOf(false) }
 
     var downloaded by remember(song.videoId) { mutableStateOf(false) }
@@ -267,10 +271,22 @@ fun SongRowMenu(
 
                 MenuActionRow(
                     icon = Icons.Default.Speed,
-                    title = "Pin to Speed dial",
+                    title = if (speedDial.any { it.videoId == song.videoId }) {
+                        "Remove from Speed dial"
+                    } else {
+                        "Pin to Speed dial"
+                    },
                 ) {
                     open = false
-                    Toast.makeText(context, "${song.title} pinned to Speed dial", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        if (speedDial.any { it.videoId == song.videoId }) {
+                            settings.unpinMusicSpeedDial(song.videoId)
+                            Toast.makeText(context, "${song.title} removed from Speed dial", Toast.LENGTH_SHORT).show()
+                        } else {
+                            settings.pinMusicSpeedDial(song)
+                            Toast.makeText(context, "${song.title} pinned to Speed dial", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
 
                 MenuActionRow(

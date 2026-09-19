@@ -166,6 +166,7 @@ fun MusicScreen(
     var djQuickMixLoading by remember { mutableStateOf(false) }
     val dlScope = rememberCoroutineScope()
     val settings = remember(context) { ServiceLocator.get(context).settings }
+    val speedDial by settings.musicSpeedDial.collectAsState(initial = emptyList())
     val djViewModel: DjViewModel = viewModel(factory = DjViewModel.factory(context))
     val djState by djViewModel.state.collectAsState()
     val djVoicePresetName by settings.djVoicePreset.collectAsState(initial = DjVoicePreset.BrightHost.name)
@@ -554,6 +555,32 @@ fun MusicScreen(
                         quickChips = quickChips,
                         onPick = { query = it; vm.search(it) },
                     )
+                }
+
+                if (speedDial.isNotEmpty()) {
+                    item(key = "music_speed_dial_title") { SectionTitle("Speed dial") }
+                    item(key = "music_speed_dial") {
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val cardWidth = ((maxWidth - 56.dp) / 3).coerceAtLeast(100.dp)
+                            LazyRow(
+                                modifier = Modifier.tvFocusGroup(),
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                itemsIndexed(
+                                    speedDial,
+                                    key = { _, song -> "speed_dial_${song.videoId}" },
+                                ) { index, song ->
+                                    YtHomeSongCard(
+                                        song = song,
+                                        queue = speedDial,
+                                        startIndex = index,
+                                        modifier = Modifier.width(cardWidth),
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
 

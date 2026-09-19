@@ -217,6 +217,7 @@ fun SettingsHubScreen(
     var syncedLyrics        by remember { mutableStateOf(true) }
     var loudnessNorm        by remember { mutableStateOf(false) }
     var canvasEnabled       by remember { mutableStateOf(false) }
+    var ytMusicCanvasEnabled by remember { mutableStateOf(false) }
     var posterStyle         by remember { mutableStateOf("portrait") }
     var moviesTheme         by remember { mutableStateOf("violet") }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
@@ -345,6 +346,7 @@ fun SettingsHubScreen(
         syncedLyrics        = sl.settings.syncedLyrics.first()
         loudnessNorm        = sl.settings.loudnessNormalization.first()
         canvasEnabled       = sl.settings.canvasEnabled.first()
+        ytMusicCanvasEnabled = sl.settings.ytMusicCanvasEnabled.first()
         posterStyle         = sl.settings.posterStyle.first()
         moviesTheme         = sl.settings.moviesTheme.first()
         safeSearch          = sl.settings.safeSearch.first()
@@ -1007,7 +1009,35 @@ fun SettingsHubScreen(
                         title = "Spotify Canvas",
                         subtitle = "Show a short looping video behind the now-playing screen",
                         checked = canvasEnabled,
-                        onChange = { canvasEnabled = it; scope.launch { sl.settings.setCanvasEnabled(it) } },
+                        onChange = {
+                            canvasEnabled = it
+                            if (it) ytMusicCanvasEnabled = false
+                            scope.launch { sl.settings.setCanvasEnabled(it) }
+                        },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.PlayCircle,
+                        tint = Color(0xFFFF0033),
+                        title = "YouTube Music Canvas",
+                        subtitle = if (canvasEnabled) {
+                            "Turn off Spotify Canvas first"
+                        } else {
+                            "Show YouTube Music videos full-screen behind the now-playing controls"
+                        },
+                        checked = ytMusicCanvasEnabled,
+                        onChange = { enabled ->
+                            if (enabled && canvasEnabled) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Turn off Spotify Canvas first",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                ytMusicCanvasEnabled = enabled
+                                scope.launch { sl.settings.setYtMusicCanvasEnabled(enabled) }
+                            }
+                        },
                     )
                     SettingDivider()
                     SettingNav(
