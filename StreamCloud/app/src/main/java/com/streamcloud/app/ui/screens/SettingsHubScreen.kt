@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.screens
 
+import com.streamcloud.app.ads.AdvertisingSettings
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -1839,6 +1840,8 @@ fun SettingsHubScreen(
                 title = "Privacy",
                 onBack = { currentPage = null },
             ) {
+                AdvertisingSettings()
+                Spacer(Modifier.height(16.dp))
                 SettingsGroup {
                     SettingToggle(
                         icon = Icons.Default.History, tint = ColourPrivacy,

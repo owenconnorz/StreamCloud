@@ -1,5 +1,9 @@
 package com.streamcloud.app.ui.screens
 
+import com.streamcloud.app.ads.AdPlacement
+import com.streamcloud.app.ads.AdvertisingBanner
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -216,6 +220,12 @@ fun AdultScreen(
         }
         Spacer(Modifier.height(16.dp))
 
+        // The age and PIN checks above also protect the advertising placement.
+        // Keep it in the browse layout, never over a video or player controls.
+        if (LocalUiFormFactor.current != UiFormFactor.Tv && !showAllPornhubCategories) {
+            AdvertisingBanner(placement = AdPlacement.Adult)
+        }
+
         if (state.source == AdultSource.Pornhub && showAllPornhubCategories) {
             PornhubCategoriesPage(
                 categories = state.pornhubCategories,
@@ -387,7 +397,8 @@ fun AdultScreen(
         EpornerDetailSheet(
             item       = item,
             context    = context,
-            onDownload = { vm.downloadVideo(item) },
+            onDownload = { vm.downloadVideo(item) }
+                .takeIf { item.source == AdultSource.Pornhub },
             onPlay     = {
                 vm.recordHistory(item)
                 detailItem = null
@@ -1141,71 +1152,85 @@ private fun EpornerDetailSheet(
 
             Spacer(Modifier.height(20.dp))
 
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+            if (item.source == AdultSource.Pornhub) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick  = onPlay,
+                        modifier = Modifier.weight(1f),
+                        colors   = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C5CFF)),
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Play", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    OutlinedButton(
+                        onClick  = {
+                            scope.launch {
+                                val db  = LibraryDb.get(context)
+                                val wid = adultWatchlistId(item)
+                                if (saved) {
+                                    db.watchlist().remove(wid)
+                                } else {
+                                    db.watchlist().add(
+                                        WatchlistEntity(
+                                            tmdbId    = wid,
+                                            title     = item.title,
+                                            posterUrl = item.thumbnail,
+                                            mediaType = item.source.name.lowercase(),
+                                            csPlugin  = item.source.name.lowercase(),
+                                            csUrl     = item.embedUrl.orEmpty(),
+                                        )
+                                    )
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(
+                            if (saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            null,
+                            modifier = Modifier.size(18.dp),
+                            tint     = if (saved) Color(0xFF7C5CFF) else MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (saved) "Saved" else "Save")
+                    }
+                }
+
+                onDownload?.let { dl ->
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick  = dl,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Download Video")
+                        }
+                    }
+                }
+            } else {
                 Button(
                     onClick  = onPlay,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                     colors   = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C5CFF)),
                 ) {
                     Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Play", fontWeight = FontWeight.SemiBold)
-                }
-
-                OutlinedButton(
-                    onClick  = {
-                        scope.launch {
-                            val db  = LibraryDb.get(context)
-                            val wid = adultWatchlistId(item)
-                            if (saved) {
-                                db.watchlist().remove(wid)
-                            } else {
-                                db.watchlist().add(
-                                    WatchlistEntity(
-                                        tmdbId    = wid,
-                                        title     = item.title,
-                                        posterUrl = item.thumbnail,
-                                        mediaType = item.source.name.lowercase(),
-                                        csPlugin  = item.source.name.lowercase(),
-                                        csUrl     = item.embedUrl.orEmpty(),
-                                    )
-                                )
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Icon(
-                        if (saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                        null,
-                        modifier = Modifier.size(18.dp),
-                        tint     = if (saved) Color(0xFF7C5CFF) else MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (saved) "Saved" else "Save")
-                }
-            }
-
-            onDownload?.let { dl ->
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                ) {
-                    OutlinedButton(
-                        onClick  = dl,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Download Video")
-                    }
                 }
             }
         }

@@ -1,6 +1,8 @@
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.streamcloud.app.ui.screens
 
+import com.streamcloud.app.ads.AdPlacement
+import com.streamcloud.app.ads.AdvertisingBanner
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -252,6 +254,12 @@ fun MoviesScreen(
                     // On TV the transparent top nav bar overlays the content — give enough
                     // clearance so the first row isn't hidden behind it.
                     item { Spacer(Modifier.statusBarsPadding().height(if (isTv) 90.dp else 56.dp)) }
+                }
+
+                if (!isTv) {
+                    item(key = "movies_advertisement") {
+                        AdvertisingBanner(placement = AdPlacement.Movies)
+                    }
                 }
 
                 state.notice?.let {

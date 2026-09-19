@@ -105,6 +105,7 @@ jobs:
           --tests 'com.streamcloud.app.ui.viewmodel.TmdbSearchPaginationTest'
           --tests 'com.streamcloud.app.ui.components.MovieArtworkTest'
           --tests 'com.streamcloud.app.ui.screens.MovieDetailDownloadGuardTest'
+          --tests 'com.streamcloud.app.ads.AdPolicyTest'
           --no-daemon --stacktrace --no-build-cache
 
       - name: Collect APK artifacts

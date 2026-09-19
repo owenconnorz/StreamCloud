@@ -32,13 +32,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -62,7 +59,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.ExtractorLink
@@ -100,7 +96,6 @@ import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
-import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -325,23 +320,6 @@ fun MovieDetailScreen(
         }
     }
 
-    val moviesVm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
-    val watchlistIds = moviesVm.state.collectAsState().value.watchlist.map { it.tmdbId }.toSet()
-    val inCustomWatchlist by remember(movieId) {
-        LibraryDb.get(context.applicationContext).movieWatchlists().isInAnyWatchlist(movieId)
-    }.collectAsState(initial = false)
-    val inWatchlist = (movie?.id?.let { it in watchlistIds } ?: false) || inCustomWatchlist
-    val chooseWatchlists: () -> Unit = {
-        movie?.let {
-            watchlistPickerEntry = WatchlistEntity(
-                tmdbId = it.id,
-                title = it.displayTitle,
-                posterUrl = it.posterUrl,
-                mediaType = mediaType,
-            )
-        }
-    }
-
     var actionsExpanded by remember { mutableStateOf(false) }
     var magnetSource by remember { mutableStateOf<PlayerSource?>(null) }
     var downloadError by remember { mutableStateOf<String?>(null) }
@@ -349,21 +327,6 @@ fun MovieDetailScreen(
     val downloadEntry by downloadDao.watchById(movieId).collectAsState(initial = null)
     val downloadProgressMap by MovieDownloader.progressFlow.collectAsState(initial = emptyMap())
     val downloadProgress = downloadProgressMap[movieId]
-
-    fun openMovieDownloadPicker() {
-        imdbId ?: run {
-            resolverMessage = "Loading IMDB id… try again in a second."
-            return
-        }
-        if (installedAddons.isEmpty() && installedNuvio.isEmpty() && installedCsPlugins.isEmpty()) {
-            resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed."
-            return
-        }
-        resolverMessage = null
-        pickerForDownload = true
-        pickerSeason = null; pickerEpisode = null; pickerEpTitle = null
-        showStreamPicker = true
-    }
 
     fun openEpisodeDownloadPicker(seasonNum: Int, episodeNum: Int, episodeTitle: String?) {
         imdbId ?: run {
@@ -518,50 +481,6 @@ fun MovieDetailScreen(
                 }
 
                 Spacer(Modifier.height(16.dp))
-
-                // Save and Download stay directly reachable instead of being hidden
-                // behind the phone overflow action.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = chooseWatchlists,
-                        enabled = movie != null,
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                    ) {
-                        Icon(
-                            if (inWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (inWatchlist) "Saved · Manage" else "Save")
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            if (mediaType == "tv") {
-                                if (tvSeasons.isEmpty()) {
-                                    resolverMessage = "Episodes are still loading. Try Download again in a moment."
-                                } else {
-                                    showDownloadEpisodePicker = true
-                                }
-                            } else {
-                                openMovieDownloadPicker()
-                            }
-                        },
-                        enabled = movie != null,
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Download")
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
 
                 // ── Play button ───────────────────────────────────────────────
                 val addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size
