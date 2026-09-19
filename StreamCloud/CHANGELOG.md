@@ -1,6 +1,6 @@
 # StreamCloud
 
-## V1782 — Android TV search and settings improvements
+## V1781 — Android TV search and settings improvements
 
 ### Android TV
 - **Theme-colored search focus** — the search field and movie or series result cards now use the selected Movies theme for their visible focus border and pill treatment.
