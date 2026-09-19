@@ -243,8 +243,8 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     val tvFocusColor = AllMoviesThemes
         .firstOrNull { it.id == moviesThemeName }
         ?.primary
-        ?: if (colorPalette == "dynamic") colors.primary
-        else palettes[colorPalette]?.primary ?: colors.primary
+        ?: if (colorPaletteId == "dynamic") colors.primary
+        else palettes[colorPaletteId]?.primary ?: colors.primary
 
     val view = LocalView.current
     if (!view.isInEditMode) {
