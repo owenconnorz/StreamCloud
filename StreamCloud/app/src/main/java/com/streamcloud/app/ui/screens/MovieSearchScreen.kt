@@ -65,14 +65,34 @@ fun MovieSearchScreen(
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
+    var focusResultsAfterSearch by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    val resultsFocusRequester = remember { FocusRequester() }
+    val firstResultFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val firstResultKey = when {
+        state.tvSearchResults.isNotEmpty() -> "series-${state.tvSearchResults.first().id}"
+        state.searchResults.isNotEmpty() -> "movies-${state.searchResults.first().id}"
+        state.csSearchResults.isNotEmpty() -> "cloudstream-${state.csSearchResults.size}"
+        state.stremioSearchResults.isNotEmpty() -> "stremio-${state.stremioSearchResults.size}"
+        else -> null
+    }
 
     // On TV the text field auto-focus traps D-pad input and prevents navigating
     // down to search results. Skip it so focus starts free.
     LaunchedEffect(Unit) { if (!isTv) runCatching { focusRequester.requestFocus() } }
+
+    // Pressing Search on an Android TV keyboard clears the TextField focus. Once
+    // the first result is composed, put focus on the actual card so the next
+    // D-pad press is not dependent on spatial navigation across nested LazyRows.
+    LaunchedEffect(focusResultsAfterSearch, firstResultKey) {
+        if (isTv && focusResultsAfterSearch && firstResultKey != null) {
+            delay(100)
+            val focused = runCatching { firstResultFocusRequester.requestFocus() }
+                .getOrDefault(false)
+            if (focused) focusResultsAfterSearch = false
+        }
+    }
 
     LaunchedEffect(query) {
         if (query.length >= 2) {
@@ -90,7 +110,10 @@ fun MovieSearchScreen(
                 title = {
                     TextField(
                         value = query,
-                        onValueChange = { query = it },
+                        onValueChange = {
+                            query = it
+                            focusResultsAfterSearch = false
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
@@ -134,6 +157,7 @@ fun MovieSearchScreen(
                                     // when the keyboard Search button is pressed.
                                     vm.search(submittedQuery, forceRefresh = true)
                                     vm.saveToHistory(submittedQuery)
+                                    focusResultsAfterSearch = true
                                 }
                                 focusManager.clearFocus()
                             },
@@ -175,7 +199,7 @@ fun MovieSearchScreen(
                 state = state,
                 query = query,
                 padding = padding,
-                resultsFocusRequester = resultsFocusRequester,
+                firstResultFocusRequester = firstResultFocusRequester,
                 onMovieClick = onMovieClick,
                 onTvClick = onTvClick,
                 onLoadMoreMovies = vm::loadMoreMovies,
@@ -299,7 +323,7 @@ private fun CombinedResultsList(
     state: com.streamcloud.app.ui.viewmodel.MoviesState,
     query: String,
     padding: PaddingValues,
-    resultsFocusRequester: FocusRequester,
+    firstResultFocusRequester: FocusRequester,
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit,
     onLoadMoreMovies: () -> Unit,
@@ -314,11 +338,13 @@ private fun CombinedResultsList(
     val hasAny = state.searchResults.isNotEmpty() || state.tvSearchResults.isNotEmpty() ||
         state.csSearchResults.isNotEmpty() || state.stremioSearchResults.isNotEmpty() ||
         state.moviePagination.error != null || state.tvPagination.error != null
-
-    // TV: D-pad anchor for the results list. Focus is NOT requested automatically here —
-    // the user is actively typing in the TextField and we must not steal focus (which
-    // would close the on-screen keyboard every time a new batch of results arrives).
-    // The user presses D-pad Down from the search field to reach results naturally.
+    val firstResultSection = when {
+        state.tvSearchResults.isNotEmpty() -> "series"
+        state.searchResults.isNotEmpty() -> "movies"
+        csGrouped.isNotEmpty() -> "cloudstream"
+        stremioGrouped.isNotEmpty() -> "stremio"
+        else -> null
+    }
     if (!hasAny && !anyLoading) {
         Box(
             Modifier.fillMaxSize().padding(padding),
@@ -343,14 +369,6 @@ private fun CombinedResultsList(
         modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(verticalOnly = true),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
-        // TV: 1dp invisible anchor receives the initial focus request so D-pad Down
-        // immediately moves into the first card row below it.
-        if (isTv) {
-            item(key = "tv-focus-anchor") {
-                Box(Modifier.size(1.dp).focusRequester(resultsFocusRequester).focusable())
-            }
-        }
-
         // ── Series (TMDB TV) ──────────────────────────────────────────────
         if (state.tvSearchResults.isNotEmpty() || state.seriesLoading ||
             state.tvPagination.error != null
@@ -365,6 +383,9 @@ private fun CombinedResultsList(
                             imageUrl = movie.backdropUrl,
                             fallbackImageUrl = movie.posterUrl,
                             title = movie.displayTitle,
+                            focusRequester = if (
+                                isTv && firstResultSection == "series" && movie == state.tvSearchResults.firstOrNull()
+                            ) firstResultFocusRequester else null,
                             onClick = { onTvClick(movie.id) },
                         )
                     }
@@ -395,6 +416,9 @@ private fun CombinedResultsList(
                             imageUrl = movie.backdropUrl,
                             fallbackImageUrl = movie.posterUrl,
                             title = movie.displayTitle,
+                            focusRequester = if (
+                                isTv && firstResultSection == "movies" && movie == state.searchResults.firstOrNull()
+                            ) firstResultFocusRequester else null,
                             onClick = { onMovieClick(movie.id) },
                         )
                     }
@@ -422,6 +446,9 @@ private fun CombinedResultsList(
                         NuvioCard(
                             imageUrl = r.item.posterUrl,
                             title = r.item.name,
+                            focusRequester = if (
+                                isTv && firstResultSection == "cloudstream" && r == results.firstOrNull()
+                            ) firstResultFocusRequester else null,
                             onClick = { onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl) },
                         )
                     }
@@ -445,6 +472,9 @@ private fun CombinedResultsList(
                         NuvioCard(
                             imageUrl = r.item.poster,
                             title = r.item.name,
+                            focusRequester = if (
+                                isTv && firstResultSection == "stremio" && r == results.firstOrNull()
+                            ) firstResultFocusRequester else null,
                             onClick = { onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster) },
                         )
                     }
@@ -512,6 +542,7 @@ private fun NuvioCard(
     title: String,
     onClick: () -> Unit,
     fallbackImageUrl: String? = null,
+    focusRequester: FocusRequester? = null,
 ) {
     val cardWidth = 185.dp
     Column(modifier = Modifier.width(cardWidth)) {
@@ -521,6 +552,7 @@ private fun NuvioCard(
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
                 .tvFocusBorder(RoundedCornerShape(10.dp))
                 .clickable(onClick = onClick),
         ) {
