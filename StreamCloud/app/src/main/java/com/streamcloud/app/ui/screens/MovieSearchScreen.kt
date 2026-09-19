@@ -268,10 +268,12 @@ private fun RecentSearches(
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     LaunchedEffect(isTv, history.firstOrNull()) {
         if (isTv && history.isNotEmpty()) {
-            repeat(10) {
-                delay(if (it == 0) 200L else 100L)
-                if (runCatching { firstItemFocusRequester.requestFocus() }.getOrDefault(false)) {
-                    return@LaunchedEffect
+            for (attempt in 0 until 10) {
+                delay(if (attempt == 0) 200L else 100L)
+                val focused = runCatching { firstItemFocusRequester.requestFocus() }
+                    .getOrDefault(false)
+                if (focused) {
+                    break
                 }
             }
         }
