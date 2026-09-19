@@ -407,6 +407,7 @@ fun SettingsHubScreen(
 
     var currentPage by remember { mutableStateOf<SettingsPage?>(null) }
     var handledBackRequest by remember { mutableStateOf(backRequest) }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
 
     BackHandler(enabled = currentPage != null) { currentPage = null }
     LaunchedEffect(currentPage) {
@@ -511,32 +512,36 @@ fun SettingsHubScreen(
                         checked = hwDecoding,
                         onChange = { hwDecoding = it; scope.launch { sl.settings.setHardwareDecodingEnabled(it) } },
                     )
-                    SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.FitScreen, tint = ColourPlayer,
-                        title = "Picture in Picture",
-                        checked = pipEnabled,
-                        onChange = { pipEnabled = it; scope.launch { sl.settings.setPipEnabled(it) } },
-                    )
+                    if (!isTv) {
+                        SettingDivider()
+                        SettingToggle(
+                            icon = Icons.Default.FitScreen, tint = ColourPlayer,
+                            title = "Picture in Picture",
+                            checked = pipEnabled,
+                            onChange = { pipEnabled = it; scope.launch { sl.settings.setPipEnabled(it) } },
+                        )
+                    }
                 }
-                Spacer(Modifier.height(16.dp))
-                SettingsGroup {
-                    SubSectionLabel("Gestures")
-                    SettingToggle(
-                        icon = Icons.Default.VolumeUp, tint = ColourPlayer,
-                        title = "Volume gesture",
-                        subtitle = "Swipe up or down on the left side of the player",
-                        checked = gestureVolume,
-                        onChange = { gestureVolume = it; scope.launch { sl.settings.setGestureVolumeEnabled(it) } },
-                    )
-                    SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.Brightness6, tint = ColourPlayer,
-                        title = "Brightness gesture",
-                        subtitle = "Swipe up or down on the right side of the player",
-                        checked = gestureBrightness,
-                        onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
-                    )
+                if (!isTv) {
+                    Spacer(Modifier.height(16.dp))
+                    SettingsGroup {
+                        SubSectionLabel("Gestures")
+                        SettingToggle(
+                            icon = Icons.Default.VolumeUp, tint = ColourPlayer,
+                            title = "Volume gesture",
+                            subtitle = "Swipe up or down on the left side of the player",
+                            checked = gestureVolume,
+                            onChange = { gestureVolume = it; scope.launch { sl.settings.setGestureVolumeEnabled(it) } },
+                        )
+                        SettingDivider()
+                        SettingToggle(
+                            icon = Icons.Default.Brightness6, tint = ColourPlayer,
+                            title = "Brightness gesture",
+                            subtitle = "Swipe up or down on the right side of the player",
+                            checked = gestureBrightness,
+                            onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
+                        )
+                    }
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
@@ -1338,24 +1343,26 @@ fun SettingsHubScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(16.dp))
-                SettingsGroup {
-                    val rpcSubtitle = when {
-                        discordToken.isBlank() -> "Not configured"
-                        !discordRpcEnabled -> "Disabled"
-                        discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTED -> "Connected"
-                        discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTING -> "Connecting…"
-                        discordRpcStatus == DiscordRpcService.RpcStatus.ERROR ->
-                            discordRpcError.ifBlank { "Connection error" }
-                        else -> "Disconnected"
+                if (!isTv) {
+                    Spacer(Modifier.height(16.dp))
+                    SettingsGroup {
+                        val rpcSubtitle = when {
+                            discordToken.isBlank() -> "Not configured"
+                            !discordRpcEnabled -> "Disabled"
+                            discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTED -> "Connected"
+                            discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTING -> "Connecting…"
+                            discordRpcStatus == DiscordRpcService.RpcStatus.ERROR ->
+                                discordRpcError.ifBlank { "Connection error" }
+                            else -> "Disconnected"
+                        }
+                        SettingNav(
+                            icon = Icons.Default.Chat,
+                            tint = Color(0xFF5865F2),
+                            title = "Discord Rich Presence",
+                            subtitle = rpcSubtitle,
+                            onClick = { showDiscordDialog = true },
+                        )
                     }
-                    SettingNav(
-                        icon = Icons.Default.Chat,
-                        tint = Color(0xFF5865F2),
-                        title = "Discord Rich Presence",
-                        subtitle = rpcSubtitle,
-                        onClick = { showDiscordDialog = true },
-                    )
                 }
 
                 // ── Trakt.tv dialog ──────────────────────────────────────────────────────
@@ -1897,14 +1904,16 @@ fun SettingsHubScreen(
                             scope.launch { sl.settings.setAdultLockEnabled(it) }
                         },
                     )
-                    SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.OpenInBrowser, tint = ColourPrivacy,
-                        title = "Open external links in browser",
-                        subtitle = "Otherwise opens inside an in-app webview",
-                        checked = extLinks,
-                        onChange = { extLinks = it; scope.launch { sl.settings.setExternalLinksInBrowser(it) } },
-                    )
+                    if (!isTv) {
+                        SettingDivider()
+                        SettingToggle(
+                            icon = Icons.Default.OpenInBrowser, tint = ColourPrivacy,
+                            title = "Open external links in browser",
+                            subtitle = "Otherwise opens inside an in-app webview",
+                            checked = extLinks,
+                            onChange = { extLinks = it; scope.launch { sl.settings.setExternalLinksInBrowser(it) } },
+                        )
+                    }
                 }
             }
 
@@ -2895,9 +2904,22 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         )),
     )
 
-    val filtered = if (searchQuery.isBlank()) sections else {
-        val q = searchQuery.trim().lowercase()
+    // TV has no car connection, touch gestures, or convenient file/debug workflows.
+    // Keep those capabilities available on phones while keeping the TV hub focused
+    // on settings that can be used comfortably with a remote.
+    val tvHiddenTitles = setOf("Android Auto", "Backup and restore", "App logs")
+    val visibleSections = if (isTv) {
         sections.mapNotNull { section ->
+            section.copy(items = section.items.filterNot { it.title in tvHiddenTitles })
+                .takeIf { it.items.isNotEmpty() }
+        }
+    } else {
+        sections
+    }
+
+    val filtered = if (searchQuery.isBlank()) visibleSections else {
+        val q = searchQuery.trim().lowercase()
+        visibleSections.mapNotNull { section ->
             val matching = section.items.filter {
                 it.title.lowercase().contains(q) || it.subtitle.lowercase().contains(q)
             }
