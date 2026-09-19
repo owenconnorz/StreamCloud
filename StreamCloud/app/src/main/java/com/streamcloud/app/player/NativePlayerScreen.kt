@@ -501,18 +501,6 @@ fun NativePlayerScreen(
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val playerFocusRequester = remember { FocusRequester() }
     val primaryPlaybackFocusRequester = remember { FocusRequester() }
-    // Keep TV focus on a visible control while controls are shown. When they
-    // auto-hide, return focus to the full-screen key target so a remote press
-    // can reveal the overlay again.
-    LaunchedEffect(isTv, controlsVisible) {
-        if (!isTv) return@LaunchedEffect
-        repeat(10) {
-            val requester = if (controlsVisible) primaryPlaybackFocusRequester else playerFocusRequester
-            if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
-            delay(120)
-        }
-    }
-
     var locked            by remember { mutableStateOf(false) }
     var showSourcesSheet  by remember { mutableStateOf(false) }
     var showSpeedSheet    by remember { mutableStateOf(false) }
@@ -521,6 +509,20 @@ fun NativePlayerScreen(
     var showSubtitleStyle by remember { mutableStateOf(false) }
     var showSidePanel     by remember { mutableStateOf(false) }
     var sidePanelTab      by remember { mutableStateOf(0) }
+    val playerOverlayOpen = showSourcesSheet || showSpeedSheet || showSubsSheet ||
+        showAudioSheet || showSubtitleStyle
+
+    // Keep TV focus on a visible control while controls are shown. When they
+    // auto-hide, return focus to the full-screen key target so a remote press
+    // can reveal the overlay again.
+    LaunchedEffect(isTv, controlsVisible, playerOverlayOpen) {
+        if (!isTv || playerOverlayOpen) return@LaunchedEffect
+        repeat(10) {
+            val requester = if (controlsVisible) primaryPlaybackFocusRequester else playerFocusRequester
+            if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
+            delay(120)
+        }
+    }
 
     // Series label for top bar
     val episodeLabel = when {
@@ -818,7 +820,11 @@ fun NativePlayerScreen(
                             PlayerToolbarPill(
                                 onSourcesClick       = if (sources.isNotEmpty()) {{ showSourcesSheet = true; bumpInteraction() }} else null,
                                 isLandscape          = isLandscape,
-                                onRotate             = { isLandscape = !isLandscape; bumpInteraction() },
+                                onRotate             = if (!isTv) {
+                                    { isLandscape = !isLandscape; bumpInteraction() }
+                                } else {
+                                    null
+                                },
                                 isFill               = resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL,
                                 onFitClick           = {
                                     resizeMode = if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT)
@@ -1388,6 +1394,22 @@ private fun SourcesPickerSheet(
         if (activeFilter == "All") safeSources else safeSources.filter { it.addonName == activeFilter }
     }
     val currentAddonError = if (activeFilter != "All") sourceErrors[activeFilter] else null
+    val firstFilterFocusRequester = remember { FocusRequester() }
+    val firstSourceFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isTv, activeFilter, filtered.firstOrNull()?.id) {
+        if (isTv) {
+            repeat(10) { attempt ->
+                delay(if (attempt == 0) 100L else 80L)
+                val requester = if (filtered.isNotEmpty()) {
+                    firstSourceFocusRequester
+                } else {
+                    firstFilterFocusRequester
+                }
+                if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
+            }
+        }
+    }
 
     if (isTv) {
         // TV: Nuvio-style right-side panel — the video/backdrop stays visible on
@@ -1448,8 +1470,14 @@ private fun SourcesPickerSheet(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
                     modifier = Modifier.tvFocusGroup(),
                 ) {
-                    items(addonFilters, key = { it }) { name ->
-                        SourceFilterChip(name, name == activeFilter, sourceErrors.containsKey(name) && name != "All") { activeFilter = name }
+                    itemsIndexed(addonFilters, key = { _, it -> it }) { idx, name ->
+                        SourceFilterChip(
+                            label = name,
+                            selected = name == activeFilter,
+                            hasError = sourceErrors.containsKey(name) && name != "All",
+                            focusRequester = if (idx == 0) firstFilterFocusRequester else null,
+                            onClick = { activeFilter = name },
+                        )
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -1458,8 +1486,13 @@ private fun SourcesPickerSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 24.dp),
                 ) {
-                    items(filtered, key = { it.id }) { src ->
-                        StreamPickerRow(src = src, selected = src.id == selectedSourceId, onClick = { onPick(src) })
+                    itemsIndexed(filtered, key = { _, it -> it.id }) { idx, src ->
+                        StreamPickerRow(
+                            src = src,
+                            selected = src.id == selectedSourceId,
+                            focusRequester = if (idx == 0) firstSourceFocusRequester else null,
+                            onClick = { onPick(src) },
+                        )
                     }
                     if (filtered.isEmpty()) {
                         item {
@@ -1540,8 +1573,17 @@ private fun SourcesPickerSheet(
 }
 
 @Composable
-private fun SourceFilterChip(label: String, selected: Boolean, hasError: Boolean = false, onClick: () -> Unit) {
-    Box(Modifier.clip(RoundedCornerShape(50)).tvFocusBorder(RoundedCornerShape(50))
+private fun SourceFilterChip(
+    label: String,
+    selected: Boolean,
+    hasError: Boolean = false,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
+    Box(Modifier
+        .clip(RoundedCornerShape(50))
+        .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
+        .tvFocusBorder(RoundedCornerShape(50))
         .background(when { selected -> Color.White; hasError -> Color(0xFF3B1515); else -> Color.White.copy(alpha = 0.12f) })
         .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1552,9 +1594,17 @@ private fun SourceFilterChip(label: String, selected: Boolean, hasError: Boolean
 }
 
 @Composable
-private fun StreamPickerRow(src: PlayerSource, selected: Boolean, onClick: () -> Unit) {
+private fun StreamPickerRow(
+    src: PlayerSource,
+    selected: Boolean,
+    focusRequester: FocusRequester? = null,
+    onClick: () -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).tvFocusBorder(RoundedCornerShape(12.dp))
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
+            .tvFocusBorder(RoundedCornerShape(12.dp))
             .background(if (selected) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.06f))
             .clickable(onClick = onClick).padding(12.dp)) {
         Icon(if (src.isMagnet) Icons.Default.Bolt else Icons.Default.PlayArrow, null,
