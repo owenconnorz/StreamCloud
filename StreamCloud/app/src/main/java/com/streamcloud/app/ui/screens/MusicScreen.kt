@@ -66,6 +66,8 @@ import com.streamcloud.app.audio.DjVoicePreset
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.ytmusic.HomeSection
 import com.streamcloud.app.data.ytmusic.MoodChip
+import com.streamcloud.app.data.ytmusic.YtmPlaylist
+import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.viewmodel.DjSession
 import com.streamcloud.app.ui.viewmodel.DjViewModel
 import com.streamcloud.app.ui.theme.tvFocusBorder
@@ -122,6 +124,42 @@ private data class PendingDjAnnouncement(
     val announcement: String,
 )
 
+internal sealed interface MusicSpeedDialEntry {
+    val key: String
+
+    data class Playlist(val value: YtmPlaylist) : MusicSpeedDialEntry {
+        override val key: String = "playlist:${value.id}"
+    }
+
+    data class Song(val value: YtmSong) : MusicSpeedDialEntry {
+        override val key: String = "song:${value.videoId}"
+    }
+}
+
+internal fun buildMusicSpeedDial(
+    pinnedSongs: List<YtmSong>,
+    sections: List<HomeSection>,
+): List<MusicSpeedDialEntry> {
+    if (pinnedSongs.isNotEmpty()) {
+        return pinnedSongs.map { MusicSpeedDialEntry.Song(it) }
+    }
+
+    val playlists = sections
+        .filterIsInstance<HomeSection.PlaylistRail>()
+        .flatMap { it.items }
+        .distinctBy { it.id }
+        .take(3)
+        .map { MusicSpeedDialEntry.Playlist(it) }
+    val songs = sections
+        .filterIsInstance<HomeSection.SongRail>()
+        .flatMap { it.items }
+        .distinctBy { it.videoId }
+        .take(6)
+        .map { MusicSpeedDialEntry.Song(it) }
+
+    return (playlists + songs).take(9)
+}
+
 private fun YtTrack.matchesDjMediaId(mediaId: String): Boolean {
     if (url == mediaId) return true
     val trackVideoId = url.substringAfter("v=", "").substringBefore("&")
@@ -167,6 +205,12 @@ fun MusicScreen(
     val dlScope = rememberCoroutineScope()
     val settings = remember(context) { ServiceLocator.get(context).settings }
     val speedDial by settings.musicSpeedDial.collectAsState(initial = emptyList())
+    val speedDialEntries = remember(speedDial, state.ytHome.sections) {
+        buildMusicSpeedDial(speedDial, state.ytHome.sections)
+    }
+    val speedDialSongs = remember(speedDialEntries) {
+        speedDialEntries.filterIsInstance<MusicSpeedDialEntry.Song>().map { it.value }
+    }
     val djViewModel: DjViewModel = viewModel(factory = DjViewModel.factory(context))
     val djState by djViewModel.state.collectAsState()
     val djVoicePresetName by settings.djVoicePreset.collectAsState(initial = DjVoicePreset.BrightHost.name)
@@ -557,26 +601,59 @@ fun MusicScreen(
                     )
                 }
 
-                if (speedDial.isNotEmpty()) {
+                if (speedDialEntries.isNotEmpty()) {
                     item(key = "music_speed_dial_title") { SectionTitle("Speed dial") }
                     item(key = "music_speed_dial") {
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
-                            val cardWidth = ((maxWidth - 56.dp) / 3).coerceAtLeast(100.dp)
+                            val pages = speedDialEntries.chunked(9)
                             LazyRow(
                                 modifier = Modifier.tvFocusGroup(),
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 itemsIndexed(
-                                    speedDial,
-                                    key = { _, song -> "speed_dial_${song.videoId}" },
-                                ) { index, song ->
-                                    YtHomeSongCard(
-                                        song = song,
-                                        queue = speedDial,
-                                        startIndex = index,
-                                        modifier = Modifier.width(cardWidth),
-                                    )
+                                    pages,
+                                    key = { pageIndex, _ -> "speed_dial_page_$pageIndex" },
+                                ) { _, page ->
+                                    Row(
+                                        Modifier.width(maxWidth),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        page.chunked(3).forEach { column ->
+                                            Column(
+                                                Modifier.weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                            ) {
+                                                column.forEach { entry ->
+                                                    when (entry) {
+                                                        is MusicSpeedDialEntry.Playlist -> {
+                                                            YtHomePlaylistCard(
+                                                                pl = entry.value,
+                                                                onClick = {
+                                                                    onOpenPlaylist(
+                                                                        entry.value.id,
+                                                                        entry.value.title,
+                                                                        entry.value.thumbnail,
+                                                                    )
+                                                                },
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                            )
+                                                        }
+                                                        is MusicSpeedDialEntry.Song -> {
+                                                            YtHomeSongCard(
+                                                                song = entry.value,
+                                                                queue = speedDialSongs,
+                                                                startIndex = speedDialSongs.indexOfFirst {
+                                                                    it.videoId == entry.value.videoId
+                                                                },
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1637,12 +1714,12 @@ private fun LibraryRow(
 
 @Composable
 private fun YtHomePlaylistCard(
-    pl: com.streamcloud.app.data.ytmusic.YtmPlaylist,
+    pl: YtmPlaylist,
     onClick: () -> Unit = {},
+    modifier: Modifier = Modifier.width(150.dp),
 ) {
     Column(
-        Modifier
-            .width(150.dp)
+        modifier
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
@@ -1651,7 +1728,8 @@ private fun YtHomePlaylistCard(
             contentDescription = pl.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(150.dp)
+                .fillMaxWidth()
+                .aspectRatio(1f)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         )
@@ -1685,8 +1763,8 @@ private fun YtHomePlaylistCard(
 
 @Composable
 private fun YtHomeSongCard(
-    song: com.streamcloud.app.data.ytmusic.YtmSong,
-    queue: List<com.streamcloud.app.data.ytmusic.YtmSong>,
+    song: YtmSong,
+    queue: List<YtmSong>,
     startIndex: Int,
     modifier: Modifier = Modifier,
 ) {

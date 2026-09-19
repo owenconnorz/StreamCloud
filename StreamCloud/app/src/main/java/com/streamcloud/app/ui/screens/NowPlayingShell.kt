@@ -315,6 +315,9 @@ fun NowPlayingShell(
         }
     }
 
+    val canvasEnabled by sl.settings.canvasEnabled.collectAsState(initial = true)
+    val ytMusicCanvasEnabled by sl.settings.ytMusicCanvasEnabled.collectAsState(initial = false)
+    val spotifyCookie by sl.settings.spotifyCookie.collectAsState(initial = "")
 
     var showActions by remember { mutableStateOf(false) }
 
@@ -333,16 +336,23 @@ fun NowPlayingShell(
     LaunchedEffect(
         selectedVideoId,
         trackVideoId,
+        explicitMusicVideoId,
         selectedMusicVideo,
         manualVideoRequested,
+        ytMusicCanvasEnabled,
+        canvasEnabled,
     ) {
         isMusicVideo   = null
         videoStreamUrl = null
         videoStreamUserAgent = null
         showVideoPlayer = false
+        ytMusicCanvasSuppressed = false
         val videoIdToResolve = when {
             selectedMusicVideo -> selectedVideoId
             manualVideoRequested -> trackVideoId
+            ytMusicCanvasEnabled &&
+                !canvasEnabled &&
+                explicitMusicVideoId.isNotBlank() -> trackVideoId
             else -> ""
         }
         if (videoIdToResolve.isBlank()) return@LaunchedEffect
@@ -354,11 +364,6 @@ fun NowPlayingShell(
         videoStreamUserAgent = result.userAgent
         showVideoPlayer = result.url != null
     }
-
-
-    val canvasEnabled   by sl.settings.canvasEnabled.collectAsState(initial = true)
-    val ytMusicCanvasEnabled by sl.settings.ytMusicCanvasEnabled.collectAsState(initial = false)
-    val spotifyCookie   by sl.settings.spotifyCookie.collectAsState(initial = "")
 
     // Keep the in-memory repository cookie in sync with DataStore (survives app restarts)
     LaunchedEffect(spotifyCookie) {
@@ -389,7 +394,7 @@ fun NowPlayingShell(
     val activeYtMusicCanvas = if (
         ytMusicCanvasEnabled &&
         !canvasEnabled &&
-        selectedMusicVideo &&
+        explicitMusicVideoId.isNotBlank() &&
         !ytMusicCanvasSuppressed &&
         videoStreamUrl != null
     ) videoStreamUrl else null
