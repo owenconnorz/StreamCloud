@@ -124,7 +124,7 @@ fun MovieSearchScreen(
                                     event.key == Key.DirectionDown
                                 ) {
                                     runCatching {
-                                        resultsFocusRequester.requestFocus()
+                                        firstResultFocusRequester.requestFocus()
                                         true
                                     }
                                         .getOrDefault(false)
