@@ -88,9 +88,8 @@ fun MovieSearchScreen(
     LaunchedEffect(focusResultsAfterSearch, firstResultKey) {
         if (isTv && focusResultsAfterSearch && firstResultKey != null) {
             delay(100)
-            val focused = runCatching { firstResultFocusRequester.requestFocus() }
-                .getOrDefault(false)
-            if (focused) focusResultsAfterSearch = false
+            runCatching { firstResultFocusRequester.requestFocus() }
+            focusResultsAfterSearch = false
         }
     }
 
