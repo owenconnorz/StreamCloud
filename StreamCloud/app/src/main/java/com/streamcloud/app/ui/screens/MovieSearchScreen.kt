@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -66,6 +68,7 @@ fun MovieSearchScreen(
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
+    var searchFieldFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -102,6 +105,25 @@ fun MovieSearchScreen(
         }
     }
 
+    fun submitSearch() {
+        val submittedQuery = query.trim()
+        if (submittedQuery.length >= 2) {
+            // Keyboard Search and the TV remote Back key use the same path:
+            // refresh every provider, save the query, then move focus to the
+            // first result once the result rail has been composed.
+            vm.search(submittedQuery, forceRefresh = true)
+            vm.saveToHistory(submittedQuery)
+            focusResultsAfterSearch = true
+        }
+        focusManager.clearFocus(force = true)
+    }
+
+    // On TV, Back while the search field owns focus means “close the keyboard
+    // and show results”, not “leave the search screen”.
+    BackHandler(enabled = isTv && searchFieldFocused) {
+        submitSearch()
+    }
+
     MoviesThemeWrapper(moviesThemeName) {
     Scaffold(
         topBar = {
@@ -117,20 +139,24 @@ fun MovieSearchScreen(
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
                             .onPreviewKeyEvent { event ->
-                                if (
-                                    isTv &&
-                                    event.type == KeyEventType.KeyDown &&
-                                    event.key == Key.DirectionDown
-                                ) {
-                                    runCatching {
-                                        firstResultFocusRequester.requestFocus()
-                                        true
+                                if (isTv && event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.Back, Key.Escape -> {
+                                            submitSearch()
+                                            true
+                                        }
+                                        Key.DirectionDown -> runCatching {
+                                            firstResultFocusRequester.requestFocus()
+                                            true
+                                        }.getOrDefault(false)
+                                        else -> false
                                     }
-                                        .getOrDefault(false)
                                 } else {
                                     false
                                 }
-                            },
+                            }
+                            .onFocusChanged { searchFieldFocused = it.isFocused }
+                            .tvFocusBorder(RoundedCornerShape(28.dp)),
                         placeholder = { Text("Search movies, series, addons…") },
                         singleLine = true,
                         leadingIcon = {
@@ -149,17 +175,7 @@ fun MovieSearchScreen(
                         },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
-                            onSearch = {
-                                val submittedQuery = query.trim()
-                                if (submittedQuery.length >= 2) {
-                                    // Re-run every provider (TMDB, installed addons, and Stremio)
-                                    // when the keyboard Search button is pressed.
-                                    vm.search(submittedQuery, forceRefresh = true)
-                                    vm.saveToHistory(submittedQuery)
-                                    focusResultsAfterSearch = true
-                                }
-                                focusManager.clearFocus()
-                            },
+                            onSearch = { submitSearch() },
                         ),
                         shape = RoundedCornerShape(28.dp),
                         colors = TextFieldDefaults.colors(
@@ -172,11 +188,13 @@ fun MovieSearchScreen(
                         ),
                     )
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                navigationIcon = if (!isTv) {
+                    {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
-                },
+                } else null,
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
