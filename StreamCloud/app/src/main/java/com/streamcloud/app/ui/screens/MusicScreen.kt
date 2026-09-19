@@ -629,6 +629,7 @@ fun MusicScreen(
                                                         is MusicSpeedDialEntry.Playlist -> {
                                                             YtHomePlaylistCard(
                                                                 pl = entry.value,
+                                                                overlayTitle = true,
                                                                 onClick = {
                                                                     onOpenPlaylist(
                                                                         entry.value.id,
@@ -647,6 +648,7 @@ fun MusicScreen(
                                                                     it.videoId == entry.value.videoId
                                                                 },
                                                                 modifier = Modifier.fillMaxWidth(),
+                                                                overlayTitle = true,
                                                             )
                                                         }
                                                     }
@@ -1716,6 +1718,7 @@ private fun LibraryRow(
 private fun YtHomePlaylistCard(
     pl: YtmPlaylist,
     modifier: Modifier = Modifier.width(150.dp),
+    overlayTitle: Boolean = false,
     onClick: () -> Unit = {},
 ) {
     Column(
@@ -1723,40 +1726,87 @@ private fun YtHomePlaylistCard(
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
-        AsyncImage(
-            model = pl.thumbnail,
-            contentDescription = pl.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
+        Box(
+            Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            pl.title,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-
-
-
-        val displaySubtitle = if (pl.cachedTrackCount != null) {
-            pl.subtitle
-                ?.replace(Regex("\\d+\\s+songs?", RegexOption.IGNORE_CASE), "${pl.cachedTrackCount} songs")
-                ?: "${pl.cachedTrackCount} songs"
-        } else pl.subtitle
-        displaySubtitle?.let {
+        ) {
+            AsyncImage(
+                model = pl.thumbnail,
+                contentDescription = pl.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (overlayTitle) {
+                SpeedDialTextOverlay(title = pl.title)
+            }
+        }
+        if (!overlayTitle) {
+            Spacer(Modifier.height(6.dp))
             Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                pl.title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            val displaySubtitle = if (pl.cachedTrackCount != null) {
+                pl.subtitle
+                    ?.replace(Regex("\\d+\\s+songs?", RegexOption.IGNORE_CASE), "${pl.cachedTrackCount} songs")
+                    ?: "${pl.cachedTrackCount} songs"
+            } else pl.subtitle
+            displaySubtitle?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedDialTextOverlay(
+    title: String,
+    subtitle: String? = null,
+) {
+    Box(
+        Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.82f),
+                    ),
+                ),
+            )
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+    ) {
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            subtitle?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.82f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -1767,6 +1817,7 @@ private fun YtHomeSongCard(
     queue: List<YtmSong>,
     startIndex: Int,
     modifier: Modifier = Modifier,
+    overlayTitle: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1787,7 +1838,7 @@ private fun YtHomeSongCard(
             .then(modifier)
             .tvFocusBorder(RoundedCornerShape(10.dp))
             .clickable { onPlay() }
-            .padding(bottom = 10.dp),
+            .padding(bottom = if (overlayTitle) 0.dp else 10.dp),
     ) {
         Box {
             AsyncImage(
@@ -1800,6 +1851,12 @@ private fun YtHomeSongCard(
                     .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             )
+            if (overlayTitle) {
+                SpeedDialTextOverlay(
+                    title = song.title,
+                    subtitle = song.artist,
+                )
+            }
             com.streamcloud.app.ui.components.SongRowMenu(
                 song = song,
                 onPlay = { onPlay() },
@@ -1808,22 +1865,24 @@ private fun YtHomeSongCard(
                     .size(36.dp),
             )
         }
-        Spacer(Modifier.height(6.dp))
-        Column(Modifier.fillMaxWidth()) {
-            Text(
-                song.title,
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                song.artist,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (!overlayTitle) {
+            Spacer(Modifier.height(6.dp))
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    song.title,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    song.artist,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
