@@ -1715,8 +1715,8 @@ private fun LibraryRow(
 @Composable
 private fun YtHomePlaylistCard(
     pl: YtmPlaylist,
-    onClick: () -> Unit = {},
     modifier: Modifier = Modifier.width(150.dp),
+    onClick: () -> Unit = {},
 ) {
     Column(
         modifier
