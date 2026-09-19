@@ -71,6 +71,7 @@ fun MovieSearchScreen(
     var searchFieldFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocusRequester = remember { FocusRequester() }
+    val firstHistoryFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val firstResultKey = when {
@@ -136,7 +137,8 @@ fun MovieSearchScreen(
                             focusResultsAfterSearch = false
                         },
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .fillMaxWidth(if (isTv) 0.72f else 1f)
+                            .then(if (isTv) Modifier.height(48.dp) else Modifier)
                             .focusRequester(focusRequester)
                             .onPreviewKeyEvent { event ->
                                 if (isTv && event.type == KeyEventType.KeyDown) {
@@ -146,7 +148,11 @@ fun MovieSearchScreen(
                                             true
                                         }
                                         Key.DirectionDown -> runCatching {
-                                            firstResultFocusRequester.requestFocus()
+                                            if (query.length < 2) {
+                                                firstHistoryFocusRequester.requestFocus()
+                                            } else {
+                                                firstResultFocusRequester.requestFocus()
+                                            }
                                             true
                                         }.getOrDefault(false)
                                         else -> false
@@ -207,6 +213,7 @@ fun MovieSearchScreen(
             RecentSearches(
                 history = state.searchHistory,
                 padding = padding,
+                firstItemFocusRequester = firstHistoryFocusRequester,
                 onSelect = { query = it },
                 onRemove = { vm.removeFromSearchHistory(it) },
                 onClearAll = { vm.clearSearchHistory() },
@@ -237,6 +244,7 @@ fun MovieSearchScreen(
 private fun RecentSearches(
     history: List<String>,
     padding: PaddingValues,
+    firstItemFocusRequester: FocusRequester,
     onSelect: (String) -> Unit,
     onRemove: (String) -> Unit,
     onClearAll: () -> Unit,
@@ -258,11 +266,14 @@ private fun RecentSearches(
     }
 
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val anchorFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(isTv) {
-        if (isTv) {
-            delay(200)
-            try { anchorFocusRequester.requestFocus() } catch (_: Exception) {}
+    LaunchedEffect(isTv, history.firstOrNull()) {
+        if (isTv && history.isNotEmpty()) {
+            repeat(10) {
+                delay(if (it == 0) 200L else 100L)
+                if (runCatching { firstItemFocusRequester.requestFocus() }.getOrDefault(false)) {
+                    return@LaunchedEffect
+                }
+            }
         }
     }
 
@@ -273,11 +284,6 @@ private fun RecentSearches(
         ),
         modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(),
     ) {
-        if (isTv) {
-            item(key = "tv-focus-anchor") {
-                Box(Modifier.size(1.dp).focusRequester(anchorFocusRequester).focusable())
-            }
-        }
         item(key = "history-header") {
             Row(
                 Modifier
@@ -324,7 +330,16 @@ private fun RecentSearches(
                         )
                     }
                 },
-                modifier = Modifier.clickable { onSelect(item) },
+                modifier = Modifier
+                    .then(
+                        if (isTv && idx == 0) {
+                            Modifier.focusRequester(firstItemFocusRequester)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .tvFocusBorder(RoundedCornerShape(12.dp))
+                    .clickable { onSelect(item) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             )
         }
