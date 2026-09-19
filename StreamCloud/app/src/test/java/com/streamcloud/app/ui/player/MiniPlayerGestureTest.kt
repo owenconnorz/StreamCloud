@@ -30,10 +30,18 @@ class MiniPlayerGestureTest {
     }
 
     @Test
-    fun sharedSurfacePastHalfSettlesExpanded() {
+    fun sharedSurfaceBeforeNewCollapseThresholdSettlesExpanded() {
         assertEquals(
             MiniPlayerVerticalAction.Expand,
-            settlePlayerSurfaceProgress(progress = 0.51f, velocityYpxPerMs = 0f),
+            settlePlayerSurfaceProgress(progress = 0.61f, velocityYpxPerMs = 0f),
+        )
+    }
+
+    @Test
+    fun shortDownwardDragJustUnderMidScreenSettlesAtMiniAnchor() {
+        assertEquals(
+            MiniPlayerVerticalAction.SnapBack,
+            settlePlayerSurfaceProgress(progress = 0.59f, velocityYpxPerMs = 0f),
         )
     }
 
