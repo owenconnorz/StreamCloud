@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (LFS disabled — libtorrserver.so extracted from release APK below)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           lfs: false
 
@@ -62,7 +62,7 @@ jobs:
           rm /tmp/reference.apk
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -100,7 +100,8 @@ jobs:
 
       - name: Build Debug + Release APKs
         run: >-
-          ./gradlew assembleDebug assembleRelease testDebugUnitTest
+          ./gradlew assembleMobileDebug assembleTvDebug assembleMobileRelease assembleTvRelease
+          testMobileDebugUnitTest testTvDebugUnitTest
           --tests 'com.streamcloud.app.data.api.PornhubRepositoryTest'
           --tests 'com.streamcloud.app.ui.viewmodel.TmdbSearchPaginationTest'
           --tests 'com.streamcloud.app.ui.components.MovieArtworkTest'
@@ -111,12 +112,14 @@ jobs:
       - name: Collect APK artifacts
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk              "artifacts/StreamCloud-debug-${{ github.run_number }}.apk" || true
-          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk                "artifacts/StreamCloud-release.apk"
-          elif [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
-            cp app/build/outputs/apk/release/app-release-unsigned.apk          "artifacts/StreamCloud-release.apk"
-          fi
+          cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk \
+            "artifacts/StreamCloud-mobile-debug-${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk \
+            "artifacts/StreamCloud-tv-debug-${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/mobile/release/app-mobile-release.apk \
+            "artifacts/StreamCloud-mobile-release.apk"
+          cp app/build/outputs/apk/tv/release/app-tv-release.apk \
+            "artifacts/StreamCloud-tv-release.apk"
           ls -la artifacts/
 
       - name: Upload APK Artifacts
@@ -133,5 +136,7 @@ jobs:
           tag_name: V${{ github.run_number }}
           name: StreamCloud V${{ github.run_number }}
           body_path: StreamCloud/CHANGELOG.md
-          files: StreamCloud/artifacts/StreamCloud-release.apk
+          files: |
+            StreamCloud/artifacts/StreamCloud-mobile-release.apk
+            StreamCloud/artifacts/StreamCloud-tv-release.apk
           fail_on_unmatched_files: true

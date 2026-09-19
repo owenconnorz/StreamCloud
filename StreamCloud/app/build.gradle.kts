@@ -43,6 +43,24 @@ android {
         buildConfigField("String", "GITHUB_REPO",  "\"$ghName\"")
     }
 
+    flavorDimensions += "device"
+    productFlavors {
+        create("mobile") {
+            dimension = "device"
+            buildConfigField("Boolean", "TV_BUILD", "false")
+        }
+        create("tv") {
+            dimension = "device"
+            buildConfigField("Boolean", "TV_BUILD", "true")
+            // TV release APKs target the ARM64 devices used by current Android TVs.
+            // Keeping unused native ABIs out of this installable APK makes updates
+            // materially smaller than the universal mobile build.
+            ndk {
+                abiFilters += setOf("arm64-v8a")
+            }
+        }
+    }
+
     signingConfigs {
         // Fallback debug-style keystore committed at StreamCloud/streamcloud-debug.jks.
         // Successive CI builds use the same key, so the in-app updater can install updates

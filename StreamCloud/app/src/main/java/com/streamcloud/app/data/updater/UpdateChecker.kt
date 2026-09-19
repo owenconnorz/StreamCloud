@@ -2,6 +2,7 @@ package com.streamcloud.app.data.updater
 
 import android.app.PendingIntent
 import android.content.Context
+import android.content.res.Configuration
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
@@ -102,7 +103,12 @@ class UpdateChecker(private val context: Context) {
 
     private fun pickBestApk(assets: List<GhAsset>): GhAsset? {
         val apks = assets.filter { it.name.endsWith(".apk", ignoreCase = true) }
-        return apks.firstOrNull { it.name.contains("release-signed", true) }
+        val isTv = BuildConfig.TV_BUILD ||
+            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+            Configuration.UI_MODE_TYPE_TELEVISION
+        val targetName = if (isTv) "tv-release" else "mobile-release"
+        return apks.firstOrNull { it.name.contains(targetName, true) }
+            ?: apks.firstOrNull { it.name.contains("release-signed", true) }
             ?: apks.firstOrNull { it.name.contains("release", true) && !it.name.contains("UNSIGNED", true) }
             ?: apks.firstOrNull { it.name.contains("debug", true) }
             ?: apks.firstOrNull()
