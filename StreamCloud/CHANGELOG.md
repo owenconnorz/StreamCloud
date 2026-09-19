@@ -1,5 +1,18 @@
 # StreamCloud
 
+## V1764 — Separate mobile and Android TV APKs
+
+### Release packaging
+- **Separate device APKs** — mobile and Android TV builds are now published as distinct release assets.
+- **Smaller TV updates** — the Android TV APK targets ARM64 devices and excludes unused native architectures, reducing the download and install size substantially.
+- **Safer automatic updates** — the in-app updater selects the TV APK on television devices and the mobile APK on phones and tablets.
+- **Update compatibility preserved** — both variants keep the existing StreamCloud package ID and release signing configuration.
+
+### Android TV
+- **Search navigation works with a remote** — pressing D-pad Down from the search field now moves focus into the first result row.
+
+APK assets: `StreamCloud-mobile-release.apk`, `StreamCloud-tv-release.apk`
+
 ## V1752 — Android TV and DLNA music casting controls
 
 ### Remote playback
