@@ -20,13 +20,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.streamcloud.app.data.api.AdultItem
+import com.streamcloud.app.data.network.BrowserHeaders
 import com.streamcloud.app.data.api.PornhubHomeSection
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
@@ -126,6 +129,19 @@ fun ProviderHomeFeed(
 
 @Composable
 private fun ProviderHomeVideoCard(item: AdultItem, modifier: Modifier, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val imageUrl = item.thumbnail ?: item.previewImage
+    val imageModel = remember(imageUrl) {
+        if (imageUrl.isNullOrBlank()) {
+            null
+        } else {
+            ImageRequest.Builder(context)
+                .data(imageUrl)
+                .addHeader("User-Agent", BrowserHeaders.USER_AGENT)
+                .addHeader("Referer", "https://www.pornhub.com/")
+                .build()
+        }
+    }
     Column(
         modifier
             .tvFocusBorder(RoundedCornerShape(10.dp))
@@ -137,7 +153,7 @@ private fun ProviderHomeVideoCard(item: AdultItem, modifier: Modifier, onClick: 
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             SubcomposeAsyncImage(
-                model = item.thumbnail ?: item.previewImage,
+                model = imageModel,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

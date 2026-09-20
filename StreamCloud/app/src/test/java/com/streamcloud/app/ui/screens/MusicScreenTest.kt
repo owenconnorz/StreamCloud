@@ -118,6 +118,42 @@ class MusicScreenTest {
         assertEquals("song:song-18", entries.last().key)
     }
 
+    @Test
+    fun standaloneVideoEntriesRemainDistinctFromPlaylistEntries() {
+        val entries = buildMusicSpeedDial(
+            pinnedSongs = emptyList(),
+            sections = listOf(
+                HomeSection.PlaylistRail(
+                    "Listen again",
+                    listOf(
+                        YtmPlaylist(
+                            id = "video123456",
+                            title = "Standalone song",
+                            thumbnail = null,
+                            subtitle = "Song • Artist",
+                            isVideo = true,
+                        ),
+                        YtmPlaylist(
+                            id = "playlist-1",
+                            title = "Real playlist",
+                            thumbnail = null,
+                            subtitle = "10 songs",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf("playlist:video123456", "playlist:playlist-1"),
+            entries.map { it.key },
+        )
+        assertEquals(
+            listOf(true, false),
+            entries.map { (it as MusicSpeedDialEntry.Playlist).value.isVideo },
+        )
+    }
+
     private fun ytmSong(videoId: String) = YtmSong(
         videoId = videoId,
         title = videoId,

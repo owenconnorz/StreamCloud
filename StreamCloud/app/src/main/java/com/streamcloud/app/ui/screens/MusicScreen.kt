@@ -166,6 +166,17 @@ internal fun buildMusicSpeedDial(
     return (playlists + songs).take(MUSIC_SPEED_DIAL_MAX_ITEMS)
 }
 
+private fun YtmPlaylist.asStandaloneSong(): YtmSong =
+    YtmSong(
+        videoId = id,
+        title = title,
+        artist = subtitle.orEmpty(),
+        album = null,
+        thumbnail = thumbnail,
+        durationSeconds = null,
+        isVideo = true,
+    )
+
 private fun YtTrack.matchesDjMediaId(mediaId: String): Boolean {
     if (url == mediaId) return true
     val trackVideoId = url.substringAfter("v=", "").substringBefore("&")
@@ -216,6 +227,21 @@ fun MusicScreen(
     }
     val speedDialSongs = remember(speedDialEntries) {
         speedDialEntries.filterIsInstance<MusicSpeedDialEntry.Song>().map { it.value }
+    }
+    fun openPlaylistOrPlay(item: YtmPlaylist) {
+        if (item.isVideo) {
+            dlScope.launch {
+                runCatching {
+                    com.streamcloud.app.data.ytmusic.YtPlayback.playPlaylist(
+                        context,
+                        listOf(item.asStandaloneSong()),
+                        0,
+                    )
+                }
+            }
+        } else {
+            onOpenPlaylist(item.id, item.title, item.thumbnail)
+        }
     }
     val djViewModel: DjViewModel = viewModel(factory = DjViewModel.factory(context))
     val djState by djViewModel.state.collectAsState()
@@ -623,11 +649,7 @@ fun MusicScreen(
                                                 pl = entry.value,
                                                 overlayTitle = true,
                                                 onClick = {
-                                                    onOpenPlaylist(
-                                                        entry.value.id,
-                                                        entry.value.title,
-                                                        entry.value.thumbnail,
-                                                    )
+                                                    openPlaylistOrPlay(entry.value)
                                                 },
                                                 modifier = Modifier.width(184.dp),
                                             )
@@ -677,11 +699,7 @@ fun MusicScreen(
                                                                     pl = entry.value,
                                                                     overlayTitle = true,
                                                                     onClick = {
-                                                                        onOpenPlaylist(
-                                                                            entry.value.id,
-                                                                            entry.value.title,
-                                                                            entry.value.thumbnail,
-                                                                        )
+                                                                        openPlaylistOrPlay(entry.value)
                                                                     },
                                                                     modifier = Modifier.fillMaxWidth(),
                                                                 )
@@ -781,7 +799,7 @@ fun MusicScreen(
                                 ) {
                                     items(section.items) { pl ->
                                         YtHomePlaylistCard(pl) {
-                                            onOpenPlaylist(pl.id, pl.title, pl.thumbnail)
+                                            openPlaylistOrPlay(pl)
                                         }
                                     }
                                 }

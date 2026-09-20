@@ -1018,6 +1018,18 @@ private fun PornhubCategoryCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val imageModel = remember(category.thumbnail) {
+        if (category.thumbnail.isNullOrBlank()) {
+            null
+        } else {
+            ImageRequest.Builder(context)
+                .data(category.thumbnail)
+                .addHeader("User-Agent", BrowserHeaders.USER_AGENT)
+                .addHeader("Referer", "https://www.pornhub.com/")
+                .build()
+        }
+    }
     Box(
         modifier
             .aspectRatio(16f / 9f)
@@ -1027,7 +1039,7 @@ private fun PornhubCategoryCard(
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
-            model = category.thumbnail,
+            model = imageModel,
             contentDescription = category.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
@@ -1096,8 +1108,18 @@ private fun EpornerDetailSheet(
                 .padding(bottom = 32.dp)
         ) {
             if (!item.thumbnail.isNullOrBlank()) {
+                val imageModel = remember(item.thumbnail) {
+                    ImageRequest.Builder(context).apply {
+                        if (item.source == AdultSource.Pornhub) {
+                            addHeader("User-Agent", BrowserHeaders.USER_AGENT)
+                            addHeader("Referer", "https://www.pornhub.com/")
+                        }
+                    }
+                        .data(item.thumbnail)
+                        .build()
+                }
                 AsyncImage(
-                    model              = item.thumbnail,
+                    model              = imageModel,
                     contentDescription = item.title,
                     contentScale       = ContentScale.Crop,
                     modifier = Modifier

@@ -1266,6 +1266,7 @@ fun StreamCloudApp() {
                             title = title,
                             headers = resolvedHeaders,
                             onBack = { nav.popBackStack() },
+                            forceDirectPlay = id.startsWith("pornhub://"),
                             onRefresh = if (id.startsWith("pornhub://")) {
                                 { resolveAttempt++ }
                             } else {

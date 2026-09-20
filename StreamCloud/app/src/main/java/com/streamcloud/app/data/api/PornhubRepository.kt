@@ -197,7 +197,7 @@ object PornhubRepository {
                 .url(currentUrl)
                 .header("User-Agent", BrowserHeaders.USER_AGENT)
                 .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
-                .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+                .header("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
                 .header("Referer", "$BASE_URL/")
                 .header("Cookie", pornhubRequestCookieHeader(sessionCookieHeader(currentUrl)))
                 .build()
@@ -535,26 +535,35 @@ private fun normalizePornhubAssetUrl(raw: String): String? {
 }
 
 internal fun parsePornhubMediaDefinitions(html: String): List<PornhubStreamSource> {
-    val marker = Regex("""["']?mediaDefinitions["']?\s*:\s*""").find(html) ?: return emptyList()
-    val start = html.indexOf('[', marker.range.last + 1)
-    if (start < 0) return emptyList()
-    val jsonText = extractBalancedJsonArray(html, start) ?: return emptyList()
-    val array = runCatching {
-        Json { ignoreUnknownKeys = true; isLenient = true }.parseToJsonElement(jsonText) as? JsonArray
-    }.getOrNull() ?: return emptyList()
-    return array.mapNotNull { raw ->
-        val item = raw as? JsonObject ?: return@mapNotNull null
-        val url = item["videoUrl"].firstHttpsString()
-            ?: return@mapNotNull null
-        val qualityPrimitive = item["quality"] as? JsonPrimitive
-        val quality = qualityPrimitive?.intOrNull
-            ?: qualityPrimitive?.contentOrNull?.filter(Char::isDigit)?.toIntOrNull()
-            ?: 0
-        val format = (item["format"] as? JsonPrimitive)
-            ?.contentOrNull
-            .orEmpty()
-            .lowercase()
-        PornhubStreamSource(url = url, format = format, quality = quality)
+    val jsonArrays = buildList {
+        Regex("""["']?mediaDefinitions["']?\s*:\s*""").find(html)?.let { marker ->
+            val start = html.indexOf('[', marker.range.last + 1)
+            if (start >= 0) extractBalancedJsonArray(html, start)?.let(::add)
+        }
+        // Some Pornhub responses return the media-definition array directly
+        // instead of embedding it in the video page.
+        html.trim().takeIf { it.startsWith("[") }?.let(::add)
+    }
+    val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    return jsonArrays.flatMap { jsonText ->
+        val array = runCatching {
+            json.parseToJsonElement(jsonText) as? JsonArray
+        }.getOrNull() ?: return@flatMap emptyList()
+        array.mapNotNull { raw ->
+            val item = raw as? JsonObject ?: return@mapNotNull null
+            val url = item["videoUrl"].firstHttpsString()
+                ?.takeUnless { it.contains("get_media_definitions", ignoreCase = true) }
+                ?: return@mapNotNull null
+            val qualityPrimitive = item["quality"] as? JsonPrimitive
+            val quality = qualityPrimitive?.intOrNull
+                ?: qualityPrimitive?.contentOrNull?.filter(Char::isDigit)?.toIntOrNull()
+                ?: 0
+            val format = (item["format"] as? JsonPrimitive)
+                ?.contentOrNull
+                .orEmpty()
+                .lowercase()
+            PornhubStreamSource(url = url, format = format, quality = quality)
+        }
     }.distinctBy { it.url }
 }
 

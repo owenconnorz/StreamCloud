@@ -171,7 +171,15 @@ object YtMusicHomeRepository {
             subtitle?.contains("Single", ignoreCase = true) == true
         // Items in "Music videos for you" sections have only a videoId — no browseId or playlistId.
         // Flag them so the click handler plays them directly instead of opening a playlist page.
-        val isVideo = browseId == null && playlistId == null && videoId != null
+        val subtitlePrefix = subtitle
+            ?.split("•", "·")
+            ?.firstOrNull()
+            ?.trim()
+        val subtitleLooksLikeSong = subtitlePrefix.equals("Song", ignoreCase = true) ||
+            subtitlePrefix.equals("Video", ignoreCase = true)
+        val isVideo = videoId != null && (
+            browseId == null && playlistId == null || subtitleLooksLikeSong
+        )
         return YtmPlaylist(
             id = id,
             title = title,

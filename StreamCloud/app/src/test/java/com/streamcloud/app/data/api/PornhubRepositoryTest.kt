@@ -162,6 +162,20 @@ class PornhubRepositoryTest {
     }
 
     @Test
+    fun directMediaDefinitionResponsesAreParsedAsPlayableSources() {
+        val sources = parsePornhubMediaDefinitions(
+            """
+            [
+              {"format":"mp4","quality":"720","videoUrl":"https://cdn.example.com/video.mp4?token=abc"}
+            ]
+            """.trimIndent(),
+        )
+
+        assertEquals(1, sources.size)
+        assertEquals("https://cdn.example.com/video.mp4?token=abc", sources.single().url)
+    }
+
+    @Test
     fun protocolRelativeVideoUrlsAreNormalizedForPlayback() {
         val html = """
             <script>
