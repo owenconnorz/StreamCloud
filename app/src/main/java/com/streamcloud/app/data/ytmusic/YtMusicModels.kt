@@ -10,9 +10,10 @@ data class YtmPlaylist(
 
     val subtitle: String?,
     val isAlbum: Boolean = false,
-    /** True when this item is a standalone music video (videoId only, no browse/playlist ID).
-     *  Clicking it should play the video directly, not open a playlist page. */
+    /** True when this item is a standalone music video. */
     val isVideo: Boolean = false,
+    /** True when this item is a standalone audio track rather than a playlist page. */
+    val isTrack: Boolean = false,
 
     val cachedTrackCount: Int? = null,
 )
@@ -32,6 +33,12 @@ data class YtmSong(
     val thumbnail: String?,
     val durationSeconds: Long?,
     val isVideo: Boolean = false,
+    /**
+     * Identifies this occurrence within an editable YouTube Music playlist.
+     * A song can appear multiple times, so the video ID alone is not always sufficient to remove
+     * the intended playlist entry.
+     */
+    val playlistSetVideoId: String? = null,
 )
 
 /**

@@ -78,7 +78,19 @@ object YtMusicHomeRepository {
                     token = page.findContinuationToken()
                 }
             }
-            YtMusicHomeFeed(sections = sections)
+            val hasPlayableRail = sections.any {
+                when (it) {
+                    is HomeSection.PlaylistRail -> it.items.isNotEmpty()
+                    is HomeSection.SongRail -> it.items.isNotEmpty()
+                    is HomeSection.MoodChips -> false
+                }
+            }
+            YtMusicHomeFeed(
+                sections = sections,
+                failureReason = if (hasPlayableRail) null else {
+                    "YouTube Music returned no playable sections."
+                },
+            )
         } catch (e: Throwable) {
             Log.w(TAG, "home feed crashed", e)
             YtMusicHomeFeed(failureReason = e.message)
@@ -113,7 +125,7 @@ object YtMusicHomeRepository {
                 val items = contents.mapNotNull { raw ->
                     val r = (raw as? JsonObject)?.get("musicTwoRowItemRenderer") as? JsonObject
                         ?: return@mapNotNull null
-                    parseTwoRowPlaylist(r)
+                    parseTwoRowPlaylist(r, title)
                 }.distinctBy { it.id }
                 HomeSection.PlaylistRail(title, items)
             }
@@ -132,7 +144,7 @@ object YtMusicHomeRepository {
         }
     }
 
-    private fun parseTwoRowPlaylist(renderer: JsonObject): YtmPlaylist? {
+    private fun parseTwoRowPlaylist(renderer: JsonObject, sectionTitle: String): YtmPlaylist? {
         val titleEl = renderer["title"] ?: return null
         val title = titleEl.runsText() ?: return null
         val subtitle = renderer["subtitle"].runsText()
@@ -153,13 +165,28 @@ object YtMusicHomeRepository {
         val videoId = titleEl.musicVideoId()
             ?: renderer["navigationEndpoint"].musicVideoId()
             ?: renderer["playNavigationEndpoint"].musicVideoId()
-        val id = browseId ?: playlistId?.toMusicBrowseId() ?: videoId ?: return null
-
         val isAlbum = subtitle?.contains("Album", ignoreCase = true) == true ||
             subtitle?.contains("Single", ignoreCase = true) == true
-        // Items in "Music videos for you" sections have only a videoId — no browseId or playlistId.
-        // Flag them so the click handler plays them directly instead of opening a playlist page.
-        val isVideo = browseId == null && playlistId == null && videoId != null
+        val subtitlePrefix = subtitle
+            ?.split("•", "·")
+            ?.firstOrNull()
+            ?.trim()
+        val hasBrowseTarget = browseId != null || playlistId != null
+        val sectionLooksLikeVideo = sectionTitle.contains("music video", ignoreCase = true) ||
+            sectionTitle.contains("videos", ignoreCase = true)
+        val subtitleLooksLikeVideo = subtitlePrefix.equals("Video", ignoreCase = true) ||
+            subtitlePrefix?.contains("music video", ignoreCase = true) == true
+        val isVideo = videoId != null && (
+            subtitleLooksLikeVideo || (!hasBrowseTarget && sectionLooksLikeVideo)
+        )
+        val isTrack = videoId != null && !isVideo && (
+            !hasBrowseTarget ||
+                subtitlePrefix.equals("Song", ignoreCase = true)
+        )
+        val id = when {
+            isVideo || isTrack -> videoId
+            else -> browseId ?: playlistId?.toMusicBrowseId() ?: videoId
+        } ?: return null
         return YtmPlaylist(
             id = id,
             title = title,
@@ -167,6 +194,7 @@ object YtMusicHomeRepository {
             subtitle = subtitle,
             isAlbum = isAlbum,
             isVideo = isVideo,
+            isTrack = isTrack,
         )
     }
 
