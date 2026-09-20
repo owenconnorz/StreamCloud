@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +38,8 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -48,6 +51,7 @@ import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -159,6 +163,7 @@ fun StreamCloudApp() {
     var settingsHasSubPage by remember { mutableStateOf(false) }
     var settingsBackRequest by remember { mutableStateOf(0) }
     var settingsFocusRequest by remember { mutableStateOf(0) }
+    var showExitConfirmation by remember { mutableStateOf(false) }
     val isMediaRoute = currentRoute != null && (
         currentRoute == Tab.Movies.route ||
         currentRoute.startsWith("cloudstream") ||
@@ -338,6 +343,38 @@ fun StreamCloudApp() {
     var showProfilePicker by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         if (sl.profiles.currentProfiles().isNotEmpty()) showProfilePicker = true
+    }
+
+    val isAppRoot = currentRoute != null &&
+        tabs.any { it.route == currentRoute } &&
+        !(currentRoute == Tab.Settings.route && settingsHasSubPage) &&
+        !showProfilePicker
+
+    BackHandler(enabled = isAppRoot) {
+        showExitConfirmation = true
+    }
+
+    if (showExitConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirmation = false },
+            title = { Text("Exit app") },
+            text = { Text("Do you want to exit the app?") },
+            dismissButton = {
+                TextButton(onClick = { showExitConfirmation = false }) {
+                    Text("No")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showExitConfirmation = false
+                        (context as? Activity)?.finish()
+                    },
+                ) {
+                    Text("Yes")
+                }
+            },
+        )
     }
 
     Box(Modifier.fillMaxSize()) {
