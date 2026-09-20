@@ -48,6 +48,7 @@ fun GlobalNowPlayingSheet(
     playerSurfaceState: PlayerSurfaceState,
     onOpenSettings: () -> Unit = {},
     onOpenArtistSearch: (String) -> Unit = {},
+    onDismissPlayback: () -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -90,10 +91,17 @@ fun GlobalNowPlayingSheet(
 
     val npScrollState = rememberScrollState()
     var surfaceHeightPx by remember { mutableStateOf(0) }
+    val latestController by rememberUpdatedState(controller)
+    val latestOnDismissPlayback by rememberUpdatedState(onDismissPlayback)
     val settleSurface: (Float) -> Unit = { velocityY ->
-        when (settlePlayerSurfaceProgress(playerSurfaceState.progress, velocityY)) {
-            MiniPlayerVerticalAction.Expand -> playerSurfaceState.expand()
-            MiniPlayerVerticalAction.SnapBack -> playerSurfaceState.collapse()
+        if (velocityY > 0f && playerSurfaceState.progress <= 0.25f) {
+            latestController?.stop()
+            latestOnDismissPlayback()
+        } else {
+            when (settlePlayerSurfaceProgress(playerSurfaceState.progress, velocityY)) {
+                MiniPlayerVerticalAction.Expand -> playerSurfaceState.expand()
+                MiniPlayerVerticalAction.SnapBack -> playerSurfaceState.collapse()
+            }
         }
     }
     val collapseAtTopConnection = remember(npScrollState, surfaceHeightPx) {

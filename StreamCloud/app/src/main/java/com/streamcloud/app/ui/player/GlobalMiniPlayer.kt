@@ -85,6 +85,14 @@ fun GlobalMiniPlayer(
     var album by remember { mutableStateOf<String?>(null) }
     var artworkUri by remember { mutableStateOf<String?>(null) }
 
+    fun applyMediaItem(item: androidx.media3.common.MediaItem?) {
+        val metadata = item?.mediaMetadata ?: return
+        title = metadata.title?.toString()
+        artist = metadata.artist?.toString()
+        album = metadata.albumTitle?.toString()
+        artworkUri = metadata.artworkUri?.toString()
+    }
+
     val isPlaying by PlaybackBus.isPlaying.collectAsState()
     val nowMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
     val sonosCastState by SonosRepository.castState.collectAsState()
@@ -161,10 +169,7 @@ fun GlobalMiniPlayer(
         runCatching { MusicController.get(context.applicationContext) }
             .onSuccess { c ->
                 controller = c
-                title = c.mediaMetadata.title?.toString()
-                artist = c.mediaMetadata.artist?.toString()
-                album = c.mediaMetadata.albumTitle?.toString()
-                artworkUri = c.mediaMetadata.artworkUri?.toString()
+                applyMediaItem(c.currentMediaItem)
             }
     }
 
@@ -174,6 +179,13 @@ fun GlobalMiniPlayer(
             onDispose {}
         } else {
             val listener = object : Player.Listener {
+                override fun onMediaItemTransition(
+                    mediaItem: androidx.media3.common.MediaItem?,
+                    reason: Int,
+                ) {
+                    applyMediaItem(mediaItem ?: activeController.currentMediaItem)
+                }
+
                 override fun onMediaMetadataChanged(md: androidx.media3.common.MediaMetadata) {
                     title = md.title?.toString()
                     artist = md.artist?.toString()
@@ -183,6 +195,14 @@ fun GlobalMiniPlayer(
             }
             activeController.addListener(listener)
             onDispose { activeController.removeListener(listener) }
+        }
+    }
+
+    LaunchedEffect(controller, nowMediaId) {
+        val activeController = controller ?: return@LaunchedEffect
+        val mediaItem = activeController.currentMediaItem ?: return@LaunchedEffect
+        if (nowMediaId == null || mediaItem.mediaId == nowMediaId) {
+            applyMediaItem(mediaItem)
         }
     }
 
@@ -230,7 +250,7 @@ fun GlobalMiniPlayer(
                 )
                 .clip(RoundedCornerShape(20.dp))
                 .background(bgColor)
-                .pointerInput(controller, onExpand, playerSurfaceState, screenHeightPx) {
+                .pointerInput(controller, onExpand, onDismiss, playerSurfaceState, screenHeightPx) {
                     detectDragGestures(
                         onDragStart = {
                             dragStartTime = System.currentTimeMillis()
@@ -296,6 +316,7 @@ fun GlobalMiniPlayer(
                                             )
                                         ) {
                                             onDismiss()
+                                            controller?.stop()
                                         } else {
                                             val velocityY = if (dragDuration > 0) {
                                                 totalGestureY / dragDuration
