@@ -1,5 +1,13 @@
 # StreamCloud
 
+## V1817 — Android TV music focus and search hotfix
+
+### Android TV
+- **Music D-pad navigation works again** — pressing Down from the TV navigation now lands on the Music actions and continues into the content rails.
+- **Music Search opens ready to use** — the search field is visible and focused immediately on TV, without an extra search-icon press.
+- **Dynamic search styling** — the TV Music Search screen now follows the active app theme accent and uses matching focus treatment.
+- **Cleaner search header** — removed the redundant TV back button while retaining remote Back navigation.
+
 ## V1813 — Android TV music navigation hotfix
 
 ### Android TV
