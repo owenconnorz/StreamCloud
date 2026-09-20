@@ -1,5 +1,13 @@
 # StreamCloud
 
+## V1812 — Android TV music navigation hotfix
+
+### Android TV
+- **Music navigation is clearer** — removed the duplicate Music search action and route the single top-navigation search button to Music Search or Movie Search based on the active section.
+- **Mini-player stays docked** — starting music no longer opens Now Playing automatically; the top-left mini-player remains available for remote access to the full player.
+- **Compact Speed dial** — music shortcuts now use a horizontal TV-friendly rail instead of oversized 3×3 cards.
+- **Remote focus is visible** — playback controls, progress seeking, toggles, and action chips now use stronger focus borders and filled pills.
+
 ## V1809 — Android TV music player redesign
 
 ### Music
