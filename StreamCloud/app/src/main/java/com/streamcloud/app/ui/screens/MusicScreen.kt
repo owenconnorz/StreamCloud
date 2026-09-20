@@ -1169,6 +1169,13 @@ private fun MusicHeader(
                     modifier = Modifier.weight(1f),
                 )
             }
+            if (!isTv) {
+                MusicHeaderAction(
+                    icon = Icons.Default.Search,
+                    contentDescription = "Search music",
+                    onClick = onSearchClick,
+                )
+            }
             MusicHeaderAction(
                 icon = Icons.Default.AutoAwesome,
                 contentDescription = "Play a personalized StreamCloud DJ mix; hold for DJ options",
@@ -1177,13 +1184,6 @@ private fun MusicHeader(
                 onClick = onDjClick,
                 onLongClick = onDjLongClick,
             )
-            if (!isTv) {
-                MusicHeaderAction(
-                    icon = Icons.Default.Search,
-                    contentDescription = "Search music",
-                    onClick = onSearchClick,
-                )
-            }
             MusicHeaderAction(
                 icon = Icons.Default.History,
                 contentDescription = "Recently played",
