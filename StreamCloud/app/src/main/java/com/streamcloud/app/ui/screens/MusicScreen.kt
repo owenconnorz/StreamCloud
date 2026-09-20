@@ -520,7 +520,7 @@ fun MusicScreen(
             Modifier
                 .fillMaxSize()
                 .tvFocusGroup()
-                .tvDpadRepeatThrottle(),
+                .tvDpadRepeatThrottle(verticalOnly = true),
             contentPadding = PaddingValues(bottom = if (nowPlaying != null) 180.dp else 80.dp),
         ) {
             item {
@@ -530,6 +530,7 @@ fun MusicScreen(
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                     djLoading = djQuickMixLoading || djStarting,
                     isTv = isTv,
+                    tvNavFocusRequester = tvNavFocusRequester,
                     onDjClick = {
                         if (!djQuickMixLoading && !djStarting) {
                             showDj = true
@@ -1134,6 +1135,7 @@ private fun MusicHeader(
     onTrendingClick: () -> Unit = {},
     isTv: Boolean = false,
     djLoading: Boolean = false,
+    tvNavFocusRequester: FocusRequester? = null,
     onDjClick: () -> Unit = {},
     onDjLongClick: () -> Unit = {},
 ) {
@@ -1168,6 +1170,7 @@ private fun MusicHeader(
                 icon = Icons.Default.AutoAwesome,
                 contentDescription = "Play a personalized StreamCloud DJ mix; hold for DJ options",
                 loading = djLoading,
+                focusRequester = if (isTv) tvNavFocusRequester else null,
                 onClick = onDjClick,
                 onLongClick = onDjLongClick,
             )

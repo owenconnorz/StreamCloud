@@ -51,13 +51,16 @@ import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.launch
 
 internal fun shouldExpandMusicSearchBar(
     initialQuery: String,
     formFactor: UiFormFactor,
-): Boolean = initialQuery.isNotBlank() || formFactor == UiFormFactor.Mobile
+): Boolean = initialQuery.isNotBlank() ||
+    formFactor == UiFormFactor.Mobile ||
+    formFactor == UiFormFactor.Tv
 
 @OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
@@ -99,8 +102,9 @@ fun MusicSearchScreen(
 
     val nowArtwork = state.nowPlayingTrack?.thumbnail
     val dominant  by rememberDominant(nowArtwork)
+    val themeAccent = MaterialTheme.colorScheme.primary
     val animAccent by animateColorAsState(
-        targetValue = dominant,
+        targetValue = if (formFactor == UiFormFactor.Tv) themeAccent else dominant,
         animationSpec = tween(durationMillis = 700),
         label = "search-accent",
     )
@@ -165,19 +169,22 @@ fun MusicSearchScreen(
                             .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onBackground,
-                            )
+                        if (formFactor != UiFormFactor.Tv) {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                )
+                            }
                         }
                         TextField(
                             value = query,
                             onValueChange = { query = it },
                             modifier = Modifier
                                 .weight(1f)
-                                .focusRequester(focusRequester),
+                                .focusRequester(focusRequester)
+                                .tvFocusBorder(RoundedCornerShape(28.dp), borderWidth = 3.dp),
                             placeholder = {
                                 Text(
                                     "Search songs, artists, albums...",
@@ -233,12 +240,14 @@ fun MusicSearchScreen(
                             .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onBackground,
-                            )
+                        if (formFactor != UiFormFactor.Tv) {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                )
+                            }
                         }
                         Spacer(Modifier.weight(1f))
                         IconButton(onClick = { searchBarVisible = true }) {
@@ -265,7 +274,10 @@ fun MusicSearchScreen(
                 top    = padding.calculateTopPadding() + 4.dp,
                 bottom = padding.calculateBottomPadding() + 8.dp,
             ),
-            modifier = Modifier.fillMaxSize().tvFocusGroup(),
+            modifier = Modifier
+                .fillMaxSize()
+                .tvFocusGroup()
+                .tvDpadRepeatThrottle(verticalOnly = true),
         ) {
             if (query.isBlank()) {
                 // ── Search history ──

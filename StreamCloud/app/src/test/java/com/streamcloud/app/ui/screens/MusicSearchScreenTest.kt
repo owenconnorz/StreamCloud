@@ -15,7 +15,7 @@ class MusicSearchScreenTest {
     @Test
     fun largerLayoutsStartWithCompactSearchAction() {
         assertFalse(shouldExpandMusicSearchBar("", UiFormFactor.Tablet))
-        assertFalse(shouldExpandMusicSearchBar("", UiFormFactor.Tv))
+        assertTrue(shouldExpandMusicSearchBar("", UiFormFactor.Tv))
     }
 
     @Test
