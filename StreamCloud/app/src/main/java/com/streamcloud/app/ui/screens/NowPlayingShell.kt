@@ -1553,11 +1553,6 @@ private fun NowPlayingTvLayout(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "StreamCloud",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                    color = Color.White,
-                )
                 Spacer(Modifier.weight(1f))
                 TvPlayerTopLabel("Home")
                 TvPlayerTopLabel("Search")
@@ -1638,7 +1633,9 @@ private fun NowPlayingTvLayout(
                         activeTrackColor = Color.White,
                         inactiveTrackColor = Color.White.copy(alpha = 0.28f),
                     ),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .tvFocusBorder(RoundedCornerShape(14.dp), borderWidth = 4.dp),
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(formatTime(positionMs), color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelLarge)
@@ -1776,6 +1773,8 @@ private fun TvPlayerIconButton(
         onClick = onClick,
         modifier = Modifier
             .size(56.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.13f))
             .tvFocusBorder(CircleShape),
     ) {
         Icon(
@@ -1795,7 +1794,10 @@ private fun TvPlayerActionChip(
 ) {
     TextButton(
         onClick = onClick,
-        modifier = Modifier.tvFocusBorder(RoundedCornerShape(50)),
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color.White.copy(alpha = 0.13f))
+            .tvFocusBorder(RoundedCornerShape(50), borderWidth = 3.dp),
     ) {
         Text(
             label,

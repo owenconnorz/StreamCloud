@@ -7,11 +7,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
 import com.streamcloud.app.audio.MusicController
-import com.streamcloud.app.ui.player.PlayerExpandBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -42,8 +40,6 @@ object LocalAudioPlayback {
                 )
                 controller.prepare()
                 controller.play()
-                delay(150)
-                PlayerExpandBus.requestExpand()
             }
         }
     }

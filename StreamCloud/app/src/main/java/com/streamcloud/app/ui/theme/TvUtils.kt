@@ -68,11 +68,11 @@ fun Modifier.tvFocusBorder(
             scaleY = scale
         }
         .background(
-            color = if (focused) focusColor.copy(alpha = 0.20f) else Color.Transparent,
+            color = if (focused) focusColor.copy(alpha = 0.34f) else Color.Transparent,
             shape = shape,
         )
         .border(
-            width = animatedBorderWidth,
+            width = if (focused) maxOf(animatedBorderWidth, 3.dp) else animatedBorderWidth,
             color = if (focused) focusColor else Color.Transparent,
             shape = shape,
         )

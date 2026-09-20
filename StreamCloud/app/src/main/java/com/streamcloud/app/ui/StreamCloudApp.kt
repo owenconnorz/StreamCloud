@@ -268,6 +268,13 @@ fun StreamCloudApp() {
         r.startsWith("collection-folder/") ||
         r.startsWith("collection-tabbed/")
     }
+    val isMusicRoute = remember(currentRoute) {
+        val r = currentRoute ?: return@remember false
+        r == Tab.Music.route ||
+            r == "music-search" ||
+            r.startsWith("yt-playlist/") ||
+            r.startsWith("artist/")
+    }
 
     val navPillColor by animateColorAsState(
         targetValue = when {
@@ -340,14 +347,6 @@ fun StreamCloudApp() {
     ) { padding ->
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
         val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-        // On TV, automatically open the full music player as soon as a track starts —
-        // the mini-player is invisible on TV so we jump straight to the now-playing sheet.
-        val tvNowPlayingId by com.streamcloud.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState()
-        LaunchedEffect(tvNowPlayingId) {
-            if (isTv && !tvNowPlayingId.isNullOrBlank()) {
-                com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
-            }
-        }
         val showRail = useRail &&
             (currentRoute == null || tabs.any { it.route == currentRoute })
         val firstRailFocus = remember { FocusRequester() }
@@ -899,7 +898,6 @@ fun StreamCloudApp() {
                             val th = URLEncoder.encode(thumbnail.orEmpty(), "UTF-8")
                             nav.navigate("yt-playlist/$i/$t?thumb=$th")
                         },
-                        onSearchClick = { nav.navigate("music-search") },
                         onSearchWithQuery = { q -> nav.navigate("music-search?q=${java.net.URLEncoder.encode(q, "UTF-8")}") },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
@@ -1458,7 +1456,14 @@ fun StreamCloudApp() {
                         firstTabFocus         = firstTvNavFocus,
                         contentFocusRequester = tvNavHeroFocus,
                         onTabSelected         = { route -> navigateToTab(nav, route) },
-                        onSearchClick         = { nav.navigate("movie-search") },
+                        onSearchClick         = {
+                            if (currentRoute == Tab.Music.route) {
+                                nav.navigate("music-search")
+                            } else {
+                                nav.navigate("movie-search")
+                            }
+                        },
+                        showBranding          = !isMusicRoute,
                         modifier              = Modifier.align(Alignment.TopStart).fillMaxWidth(),
                     )
                     if (showMiniPlayer) {
@@ -1631,6 +1636,7 @@ private fun TvNetflixTopNav(
     contentFocusRequester: FocusRequester,
     onTabSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
+    showBranding: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     var navHasFocus by remember { mutableStateOf(false) }
@@ -1670,14 +1676,15 @@ private fun TvNetflixTopNav(
                 .statusBarsPadding()
                 .padding(horizontal = TvOverscanPadding, vertical = 14.dp),
         ) {
-            // App name anchored to the left edge
-            Text(
-                "StreamCloud",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
-                modifier = Modifier.align(Alignment.CenterStart),
-            )
+            if (showBranding) {
+                Text(
+                    "StreamCloud",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                )
+            }
 
             // Search icon + tab labels — absolutely centred in the bar
             Row(

@@ -187,7 +187,6 @@ fun MusicScreen(
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
     onOpenPlaylist: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
     onProfileClick: () -> Unit = {},
-    onSearchClick: () -> Unit = {},
     onSearchWithQuery: (String) -> Unit = {},
     tvNavFocusRequester: FocusRequester? = null,
 ) {
@@ -528,9 +527,9 @@ fun MusicScreen(
                 MusicHeader(
                     onProfileClick = onProfileClick,
                     onHistoryClick = { showHistory = true },
-                    onSearchClick = onSearchClick,
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                     djLoading = djQuickMixLoading || djStarting,
+                    isTv = isTv,
                     // When no remote music is available, the recovery action below is the
                     // most useful landing point from the TV nav bar.
                     tvNavFocusRequester = if (isTv && !hasRemoteHomeContent) {
@@ -604,58 +603,101 @@ fun MusicScreen(
                 if (speedDialEntries.isNotEmpty()) {
                     item(key = "music_speed_dial_title") { SectionTitle("Speed dial") }
                     item(key = "music_speed_dial") {
-                        BoxWithConstraints(Modifier.fillMaxWidth()) {
-                            val pages = speedDialEntries.chunked(9)
+                        if (isTv) {
                             LazyRow(
                                 modifier = Modifier.tvFocusGroup(),
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                itemsIndexed(
-                                    pages,
-                                    key = { pageIndex, _ -> "speed_dial_page_$pageIndex" },
-                                ) { _, page ->
-                                    Row(
-                                        Modifier.width(maxWidth),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    ) {
-                                        page.chunked(3).forEach { column ->
-                                            Column(
-                                                Modifier.weight(1f),
-                                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                            ) {
-                                                column.forEach { entry ->
-                                                    when (entry) {
-                                                        is MusicSpeedDialEntry.Playlist -> {
-                                                            YtHomePlaylistCard(
-                                                                pl = entry.value,
-                                                                overlayTitle = true,
-                                                                onClick = {
-                                                                    onOpenPlaylist(
-                                                                        entry.value.id,
-                                                                        entry.value.title,
-                                                                        entry.value.thumbnail,
-                                                                    )
-                                                                },
-                                                                modifier = Modifier.fillMaxWidth(),
-                                                            )
-                                                        }
-                                                        is MusicSpeedDialEntry.Song -> {
-                                                            YtHomeSongCard(
-                                                                song = entry.value,
-                                                                queue = speedDialSongs,
-                                                                startIndex = speedDialSongs.indexOfFirst {
-                                                                    it.videoId == entry.value.videoId
-                                                                },
-                                                                modifier = Modifier.fillMaxWidth(),
-                                                                overlayTitle = true,
-                                                            )
+                                items(
+                                    speedDialEntries,
+                                    key = { it.key },
+                                ) { entry ->
+                                    when (entry) {
+                                        is MusicSpeedDialEntry.Playlist -> {
+                                            YtHomePlaylistCard(
+                                                pl = entry.value,
+                                                overlayTitle = true,
+                                                onClick = {
+                                                    onOpenPlaylist(
+                                                        entry.value.id,
+                                                        entry.value.title,
+                                                        entry.value.thumbnail,
+                                                    )
+                                                },
+                                                modifier = Modifier.width(184.dp),
+                                            )
+                                        }
+                                        is MusicSpeedDialEntry.Song -> {
+                                            YtHomeSongCard(
+                                                song = entry.value,
+                                                queue = speedDialSongs,
+                                                startIndex = speedDialSongs.indexOfFirst {
+                                                    it.videoId == entry.value.videoId
+                                                },
+                                                modifier = Modifier.width(184.dp),
+                                                overlayTitle = true,
+                                            )
+                                        }
+                                            }
+                                        }
+                                    }
+                        } else {
+                            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                                val pages = speedDialEntries.chunked(9)
+                                LazyRow(
+                                    modifier = Modifier.tvFocusGroup(),
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    itemsIndexed(
+                                        pages,
+                                        key = { pageIndex, _ -> "speed_dial_page_$pageIndex" },
+                                    ) { _, page ->
+                                        Row(
+                                            Modifier.width(maxWidth),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            page.chunked(3).forEach { column ->
+                                                Column(
+                                                    Modifier.weight(1f),
+                                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                                ) {
+                                                    column.forEach { entry ->
+                                                        when (entry) {
+                                                            is MusicSpeedDialEntry.Playlist -> {
+                                                                YtHomePlaylistCard(
+                                                                    pl = entry.value,
+                                                                    overlayTitle = true,
+                                                                    onClick = {
+                                                                        onOpenPlaylist(
+                                                                            entry.value.id,
+                                                                            entry.value.title,
+                                                                            entry.value.thumbnail,
+                                                                        )
+                                                                    },
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                )
+                                                            }
+                                                            is MusicSpeedDialEntry.Song -> {
+                                                                YtHomeSongCard(
+                                                                    song = entry.value,
+                                                                    queue = speedDialSongs,
+                                                                    startIndex = speedDialSongs.indexOfFirst {
+                                                                        it.videoId == entry.value.videoId
+                                                                    },
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    overlayTitle = true,
+                                                                )
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
                                     }
+                                }
+                            }
                                 }
                             }
                         }
@@ -1098,39 +1140,39 @@ private fun playTrack(player: androidx.media3.common.Player, track: YtTrack, aud
 private fun MusicHeader(
     onProfileClick: () -> Unit,
     onHistoryClick: () -> Unit,
-    onSearchClick: () -> Unit = {},
     onTrendingClick: () -> Unit = {},
+    isTv: Boolean = false,
     djLoading: Boolean = false,
     onDjClick: () -> Unit = {},
     onDjLongClick: () -> Unit = {},
-    tvNavFocusRequester: FocusRequester? = null,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 20.dp, top = 8.dp, end = 4.dp, bottom = 4.dp),
+            .padding(
+                start = if (isTv) 0.dp else 20.dp,
+                top = if (isTv) 68.dp else 8.dp,
+                end = if (isTv) 0.dp else 4.dp,
+                bottom = 4.dp,
+            ),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(end = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = if (isTv) 16.dp else 12.dp),
+            horizontalArrangement = if (isTv) Arrangement.Center else Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "Music",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-            MusicHeaderAction(
-                icon = Icons.Default.Search,
-                contentDescription = "Search music",
-                focusRequester = tvNavFocusRequester,
-                onClick = onSearchClick,
-            )
+            if (!isTv) {
+                Text(
+                    "Music",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             MusicHeaderAction(
                 icon = Icons.Default.AutoAwesome,
                 contentDescription = "Play a personalized StreamCloud DJ mix; hold for DJ options",
@@ -1175,9 +1217,9 @@ private fun MusicHeaderAction(
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
             .tvFocusBorder(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
             .actionGesture(),
         contentAlignment = Alignment.Center,
     ) {
