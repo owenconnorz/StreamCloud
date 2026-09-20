@@ -170,11 +170,13 @@ fun MusicSearchScreen(
         }
     }
 
+    fun handleRecognizedSearch(recognizedQuery: String) {
+        query = recognizedQuery
+        submitSearch(recognizedQuery)
+    }
+
     MusicRecognitionHost(
-        onSearchWithQuery = { recognizedQuery ->
-            query = recognizedQuery
-            submitSearch(recognizedQuery)
-        },
+        onSearchWithQuery = ::handleRecognizedSearch,
     ) { onRecognitionClick ->
         Box(
             Modifier
