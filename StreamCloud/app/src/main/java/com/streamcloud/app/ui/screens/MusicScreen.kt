@@ -1733,8 +1733,13 @@ private fun YtHomePlaylistCard(
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            AsyncImage(
-                model = pl.thumbnail,
+            HomeThumbnail(
+                primary = pl.thumbnail,
+                fallback = if (pl.isVideo && pl.id.length == 11) {
+                    "https://i.ytimg.com/vi/${pl.id}/hqdefault.jpg"
+                } else {
+                    null
+                },
                 contentDescription = pl.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -1844,8 +1849,9 @@ private fun YtHomeSongCard(
             .padding(bottom = if (overlayTitle) 0.dp else 10.dp),
     ) {
         Box {
-            AsyncImage(
-                model = song.thumbnail,
+            HomeThumbnail(
+                primary = song.thumbnail,
+                fallback = "https://i.ytimg.com/vi/${song.videoId}/hqdefault.jpg",
                 contentDescription = song.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -1889,5 +1895,31 @@ private fun YtHomeSongCard(
             }
         }
     }
+}
+
+@Composable
+private fun HomeThumbnail(
+    primary: String?,
+    fallback: String?,
+    contentDescription: String?,
+    contentScale: ContentScale,
+    modifier: Modifier,
+) {
+    val models = remember(primary, fallback) {
+        listOfNotNull(
+            primary?.takeIf { it.isNotBlank() },
+            fallback?.takeIf { it.isNotBlank() },
+        ).distinct()
+    }
+    var modelIndex by remember(primary, fallback) { mutableIntStateOf(0) }
+    AsyncImage(
+        model = models.getOrNull(modelIndex),
+        contentDescription = contentDescription,
+        contentScale = contentScale,
+        onError = {
+            if (modelIndex < models.lastIndex) modelIndex += 1
+        },
+        modifier = modifier,
+    )
 }
 

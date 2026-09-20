@@ -73,6 +73,30 @@ class MiniPlayerGestureTest {
     }
 
     @Test
+    fun downwardSwipeAtMiniAnchorDismissesPlayer() {
+        assertEquals(
+            true,
+            shouldDismissMiniPlayer(
+                totalY = MINI_PLAYER_DISMISS_THRESHOLD_PX + 1f,
+                totalX = 10f,
+                surfaceProgress = 0f,
+            ),
+        )
+    }
+
+    @Test
+    fun downwardSwipeWhileExpandedOnlyCollapsesPlayer() {
+        assertEquals(
+            false,
+            shouldDismissMiniPlayer(
+                totalY = MINI_PLAYER_DISMISS_THRESHOLD_PX + 1f,
+                totalX = 10f,
+                surfaceProgress = 0.2f,
+            ),
+        )
+    }
+
+    @Test
     fun swipeLeftBeyondThresholdSeeksNext() {
         val action = resolveMiniPlayerSwipeAction(
             totalX = -(SWIPE_HORIZONTAL_SEEK_THRESHOLD_PX + 1f),

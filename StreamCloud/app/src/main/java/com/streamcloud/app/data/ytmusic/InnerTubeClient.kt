@@ -342,17 +342,22 @@ internal fun JsonElement?.bestThumbnail(): String? {
  */
 internal fun JsonElement.bestThumbnailAnywhere(): String? {
     val urls = mutableListOf<String>()
-    findAll("thumbnails")
-        .filterIsInstance<JsonArray>()
-        .forEach { arr ->
-            arr.filterIsInstance<JsonObject>()
-                .forEach { obj ->
-                    obj["url"]?.jsonPrimitive?.contentOrNull
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { urls += it }
-                }
+    walk { element ->
+        val obj = element as? JsonObject ?: return@walk
+        val url = obj["url"]?.jsonPrimitive?.contentOrNull
+        if (url != null && isThumbnailUrl(url)) {
+            urls += url
         }
+    }
     return urls.lastOrNull()?.upgradeToHqSize()
+}
+
+private fun isThumbnailUrl(url: String): Boolean {
+    return url.startsWith("https://") && (
+        "googleusercontent.com" in url ||
+            "ggpht.com" in url ||
+            "ytimg.com" in url
+        )
 }
 
 private fun String.upgradeToHqSize(): String {

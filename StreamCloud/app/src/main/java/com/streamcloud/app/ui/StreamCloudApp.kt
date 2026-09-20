@@ -174,6 +174,10 @@ fun StreamCloudApp() {
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
     val miniNowPlayingId by com.streamcloud.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState(initial = null)
+    var dismissedMiniPlayerId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(miniNowPlayingId) {
+        dismissedMiniPlayerId = null
+    }
 
 
 
@@ -316,7 +320,8 @@ fun StreamCloudApp() {
     val showMiniPlayer = currentRoute != null &&
         !isMediaRoute &&
         !isSettingsOrAdult &&
-        miniNowPlayingId != null
+        miniNowPlayingId != null &&
+        miniNowPlayingId != dismissedMiniPlayerId
 
     // Profile picker — show on launch when profiles exist; also triggered from Settings
     var showProfilePicker by remember { mutableStateOf(false) }
@@ -1419,6 +1424,7 @@ fun StreamCloudApp() {
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                             },
+                            onDismiss = { dismissedMiniPlayerId = miniNowPlayingId },
                         )
                     }
                 }
@@ -1450,6 +1456,7 @@ fun StreamCloudApp() {
                                 onExpand = {
                                     com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                                 },
+                                onDismiss = { dismissedMiniPlayerId = miniNowPlayingId },
                             )
                         }
                         val showBar = currentRoute == null ||

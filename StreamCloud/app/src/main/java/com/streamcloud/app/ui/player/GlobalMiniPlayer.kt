@@ -69,6 +69,7 @@ fun GlobalMiniPlayer(
     modifier: Modifier = Modifier,
     playerSurfaceState: PlayerSurfaceState,
     onExpand: () -> Unit = { PlayerExpandBus.requestExpand() },
+    onDismiss: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -287,19 +288,29 @@ fun GlobalMiniPlayer(
                                         }
                                     }
                                     MiniPlayerDragAxis.Vertical -> {
-                                        val velocityY = if (dragDuration > 0) {
-                                            totalGestureY / dragDuration
-                                        } else {
-                                            0f
-                                        }
-                                        when (
-                                            settlePlayerSurfaceProgress(
-                                                progress = playerSurfaceState.progress,
-                                                velocityYpxPerMs = velocityY,
+                                        if (
+                                            shouldDismissMiniPlayer(
+                                                totalY = totalGestureY,
+                                                totalX = totalGestureX,
+                                                surfaceProgress = playerSurfaceState.progress,
                                             )
                                         ) {
-                                            MiniPlayerVerticalAction.Expand -> playerSurfaceState.expand()
-                                            MiniPlayerVerticalAction.SnapBack -> playerSurfaceState.collapse()
+                                            onDismiss()
+                                        } else {
+                                            val velocityY = if (dragDuration > 0) {
+                                                totalGestureY / dragDuration
+                                            } else {
+                                                0f
+                                            }
+                                            when (
+                                                settlePlayerSurfaceProgress(
+                                                    progress = playerSurfaceState.progress,
+                                                    velocityYpxPerMs = velocityY,
+                                                )
+                                            ) {
+                                                MiniPlayerVerticalAction.Expand -> playerSurfaceState.expand()
+                                                MiniPlayerVerticalAction.SnapBack -> playerSurfaceState.collapse()
+                                            }
                                         }
                                     }
                                     MiniPlayerDragAxis.Undecided -> Unit
