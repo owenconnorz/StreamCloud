@@ -138,7 +138,7 @@ fun MusicSearchScreen(
                 val focused = runCatching {
                     firstContentFocusRequester.requestFocus()
                 }.getOrDefault(false)
-                if (focused) {
+                if (focused == true) {
                     focusContentAfterSearch = false
                     return@LaunchedEffect
                 }
