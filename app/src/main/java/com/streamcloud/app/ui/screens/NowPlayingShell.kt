@@ -330,17 +330,12 @@ fun NowPlayingShell(
     var videoStreamUrl  by remember(mediaId) { mutableStateOf<String?>(null) }
     var videoStreamUserAgent by remember(mediaId) { mutableStateOf<String?>(null) }
     var showVideoPlayer by remember(mediaId) { mutableStateOf(false) }
-    var ytMusicCanvasSuppressed by remember(mediaId) { mutableStateOf(false) }
-    // Ordinary songs may expose a YouTube video stream too. Canvas stays as their default
-    // surface until the listener explicitly chooses to watch the video.
-    var manualVideoRequested by remember(mediaId) { mutableStateOf(false) }
 
     LaunchedEffect(
         selectedVideoId,
         trackVideoId,
         explicitMusicVideoId,
         selectedMusicVideo,
-        manualVideoRequested,
         ytMusicCanvasEnabled,
         canvasEnabled,
     ) {
@@ -348,15 +343,9 @@ fun NowPlayingShell(
         videoStreamUrl = null
         videoStreamUserAgent = null
         showVideoPlayer = false
-        ytMusicCanvasSuppressed = false
-        val videoIdToResolve = when {
-            selectedMusicVideo -> selectedVideoId
-            manualVideoRequested -> trackVideoId
-            ytMusicCanvasEnabled &&
-                !canvasEnabled &&
-                explicitMusicVideoId.isNotBlank() -> trackVideoId
-            else -> ""
-        }
+        // The media item is the source of truth. A normal song can have a matching
+        // YouTube video, but it must not be promoted to the video surface.
+        val videoIdToResolve = selectedVideoId.takeIf { selectedMusicVideo }.orEmpty()
         if (videoIdToResolve.isBlank()) return@LaunchedEffect
         val result = withContext(Dispatchers.IO) {
             YtPlayerUtils.resolveVideoStream(videoIdToResolve)
@@ -364,9 +353,7 @@ fun NowPlayingShell(
         isMusicVideo   = result.isMusicVideo
         videoStreamUrl = result.url
         videoStreamUserAgent = result.userAgent
-        // Keep the visual stream ready for the top-right video/music toggle, but start
-        // ordinary music playback on the album-art surface instead of opening video mode.
-        showVideoPlayer = false
+        showVideoPlayer = result.url != null
     }
 
     // Keep the in-memory repository cookie in sync with DataStore (survives app restarts)
@@ -398,8 +385,8 @@ fun NowPlayingShell(
     val activeYtMusicCanvas = if (
         ytMusicCanvasEnabled &&
         !canvasEnabled &&
+        selectedMusicVideo &&
         explicitMusicVideoId.isNotBlank() &&
-        !ytMusicCanvasSuppressed &&
         videoStreamUrl != null
     ) videoStreamUrl else null
     val activeCanvas = activeSpotifyCanvas ?: activeYtMusicCanvas
@@ -547,23 +534,6 @@ fun NowPlayingShell(
                                 isPlaying = isPlaying,
                             )
                         }
-                        // Close button — top-right corner of the video card
-                        Box(
-                            Modifier.fillMaxWidth(0.85f).aspectRatio(16f / 9f),
-                            contentAlignment = Alignment.TopEnd,
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    showVideoPlayer = false
-                                    if (!selectedMusicVideo) manualVideoRequested = false
-                                },
-                                modifier = Modifier
-                                    .padding(6.dp)
-                                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
-                            ) {
-                                Icon(Icons.Default.Close, "Close video", tint = Color.White)
-                            }
-                        }
                     }
                 } else {
                     // ── Album artwork (default) ─────────────────────────────────────────────
@@ -622,24 +592,6 @@ fun NowPlayingShell(
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
                             )
-                            // Play-circle badge — visible only for confirmed music videos
-                            if (isMusicVideo == true) {
-                                Box(
-                                    Modifier
-                                        .fillMaxSize()
-                                        .clickable { showVideoPlayer = true },
-                                    contentAlignment = Alignment.BottomEnd,
-                                ) {
-                                    Icon(
-                                        Icons.Default.PlayCircle,
-                                        contentDescription = "Watch music video",
-                                        tint = Color.White.copy(alpha = 0.88f),
-                                        modifier = Modifier
-                                            .padding(12.dp)
-                                            .size(44.dp),
-                                    )
-                                }
-                            }
                         }
                     }
                 }
@@ -944,8 +896,8 @@ fun NowPlayingShell(
             }
         }
 
-        // ── Permanent top-right buttons — never fade with canvas controls ──
-        if (activeCanvas != null || videoStreamUrl != null) {
+        // ── Permanent top-right controls for canvas playback ──
+        if (activeCanvas != null) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -953,41 +905,19 @@ fun NowPlayingShell(
                     .padding(end = 4.dp, top = 4.dp),
                 contentAlignment = Alignment.TopEnd,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Video / canvas toggle
-                    NpIconButton(
-                        onClick = {
-                            if (activeYtMusicCanvas != null) ytMusicCanvasSuppressed = true
-                            else if (activeSpotifyCanvas != null) manualVideoRequested = !manualVideoRequested
-                            else showVideoPlayer = !showVideoPlayer
-                            controlsVisible = true
-                            hideKey++
-                        },
-                        tint = onBg,
-                    ) {
-                        Icon(
-                            Icons.Default.PlayCircle,
-                            contentDescription = if (activeCanvas != null && manualVideoRequested) "Return to Canvas"
-                            else if (showVideoPlayer) "Hide video" else "Watch video",
-                        )
-                    }
-                    // Pin — only relevant when canvas auto-hides controls
-                    if (activeCanvas != null) {
-                        NpIconButton(
-                            onClick = {
-                                controlsPinned = !controlsPinned
-                                playerPrefs.edit().putBoolean("controls_pinned", controlsPinned).apply()
-                                controlsVisible = true
-                                hideKey++
-                            },
-                            tint = onBg,
-                        ) {
-                            Icon(
-                                if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
-                                contentDescription = if (controlsPinned) "Unpin controls" else "Pin controls",
-                            )
-                        }
-                    }
+                NpIconButton(
+                    onClick = {
+                        controlsPinned = !controlsPinned
+                        playerPrefs.edit().putBoolean("controls_pinned", controlsPinned).apply()
+                        controlsVisible = true
+                        hideKey++
+                    },
+                    tint = onBg,
+                ) {
+                    Icon(
+                        if (controlsPinned) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = if (controlsPinned) "Unpin controls" else "Pin controls",
+                    )
                 }
             }
         }

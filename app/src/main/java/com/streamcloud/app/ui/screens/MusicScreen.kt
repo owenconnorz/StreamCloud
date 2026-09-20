@@ -791,10 +791,7 @@ fun MusicScreen(
                     when (section) {
                         is HomeSection.MoodChips -> Unit
                         is HomeSection.PlaylistRail -> {
-                            val normalizedSectionTitle = section.title
-                                .filter(Char::isLetterOrDigit)
-                                .lowercase()
-                            val isListenTogether = normalizedSectionTitle.contains("listentogether")
+                            val isListenTogether = section.title.isListenTogetherSection()
                             item(key = "yt_prail_title_$idx") {
                                 if (isListenTogether) {
                                     StationSectionTitle(section.title)
@@ -838,10 +835,18 @@ fun MusicScreen(
                             }
                         }
                         is HomeSection.SongRail -> {
-                            item(key = "yt_srail_title_$idx") { SectionTitle(section.title) }
+                            val isListenTogether = section.title.isListenTogetherSection()
+                            item(key = "yt_srail_title_$idx") {
+                                if (isListenTogether) StationSectionTitle(section.title)
+                                else SectionTitle(section.title)
+                            }
                             item(key = "yt_srail_${idx}") {
                                 BoxWithConstraints(Modifier.fillMaxWidth()) {
-                                    val cardWidth = ((maxWidth - 68.dp) / 4).coerceAtLeast(76.dp)
+                                    val cardWidth = if (isListenTogether) {
+                                        (maxWidth * 0.70f).coerceIn(280.dp, 360.dp)
+                                    } else {
+                                        ((maxWidth - 68.dp) / 4).coerceAtLeast(76.dp)
+                                    }
                                     LazyRow(
                                         modifier = Modifier.tvFocusGroup(),
                                         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -856,6 +861,7 @@ fun MusicScreen(
                                                 queue = section.items,
                                                 startIndex = index,
                                                 modifier = Modifier.width(cardWidth),
+                                                landscape = isListenTogether,
                                             )
                                         }
                                     }
@@ -1934,6 +1940,11 @@ private fun StationSectionTitle(text: String) {
     }
 }
 
+private fun String.isListenTogetherSection(): Boolean {
+    val normalized = filter(Char::isLetterOrDigit).lowercase()
+    return normalized.contains("listentogether") || normalized.contains("station")
+}
+
 @Composable
 private fun SpeedDialTextOverlay(
     title: String,
@@ -1981,6 +1992,7 @@ private fun YtHomeSongCard(
     startIndex: Int,
     modifier: Modifier = Modifier,
     overlayTitle: Boolean = false,
+    landscape: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2011,7 +2023,7 @@ private fun YtHomeSongCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
+                    .aspectRatio(if (landscape) 16f / 9f else 1f)
                     .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             )
