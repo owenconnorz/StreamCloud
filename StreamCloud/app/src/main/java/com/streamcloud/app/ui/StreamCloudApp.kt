@@ -1461,6 +1461,16 @@ fun StreamCloudApp() {
                         onSearchClick         = { nav.navigate("movie-search") },
                         modifier              = Modifier.align(Alignment.TopStart).fillMaxWidth(),
                     )
+                    if (showMiniPlayer) {
+                        com.streamcloud.app.ui.player.TvMiniPlayer(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(start = 48.dp, top = 78.dp),
+                            onExpand = {
+                                com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
+                            },
+                        )
+                    }
                 }
 
                 // Nuvio-style flat bottom nav bar

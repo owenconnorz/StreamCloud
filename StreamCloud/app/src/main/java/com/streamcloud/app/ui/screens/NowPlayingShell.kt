@@ -95,6 +95,7 @@ import com.streamcloud.app.ui.player.MusicActionsSheet
 import com.streamcloud.app.ui.player.SonosDevicePickerSheet
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.data.ytmusic.YtPlayerUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -450,6 +451,8 @@ fun NowPlayingShell(
             onSkipNext = { skipToNext() },
             onSkipPrevious = { skipToPrevious() },
             onClose = onClose,
+            onOpenArtistSearch = onOpenArtistSearch,
+            npScrollState = npScrollState,
         )
         return
     }
@@ -1486,79 +1489,144 @@ private fun NowPlayingTvLayout(
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
     onClose: () -> Unit,
+    onOpenArtistSearch: (String) -> Unit,
+    npScrollState: androidx.compose.foundation.ScrollState,
 ) {
-    Row(
+    val progress = if (durationMs > 0L) {
+        (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0A0A))
-            .padding(horizontal = 72.dp, vertical = 52.dp),
-        horizontalArrangement = Arrangement.spacedBy(64.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .background(Color(0xFF11171D)),
     ) {
-        // ── Left: Album art ───────────────────────────────────────────────────
         AsyncImage(
             model = artwork,
-            contentDescription = title,
+            contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .fillMaxHeight(0.72f)
-                .aspectRatio(1f)
-                .shadow(40.dp, RoundedCornerShape(20.dp))
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFF1A1A1A)),
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = 0.42f
+                    scaleX = 1.18f
+                    scaleY = 1.18f
+                },
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xF211171D),
+                            Color(0xB811171D),
+                            Color(0x4011171D),
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0x9911171D),
+                            Color.Transparent,
+                            Color(0xE611171D),
+                        ),
+                    ),
+                ),
         )
 
-        // ── Right: Info + controls ────────────────────────────────────────────
         Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(npScrollState)
+                .padding(horizontal = 64.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            // Artist + song title
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (isNetworkCasting) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(Color(0xFF16382B))
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.CastConnected,
-                            contentDescription = null,
-                            tint = Color(0xFF66D9A6),
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "Playing on ${castDeviceName ?: "TV"}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFFB8F3D8),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    artist.ifBlank { "Unknown artist" },
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White.copy(alpha = 0.55f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    title.ifBlank { "—" },
-                    style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                    "StreamCloud",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
                     color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.weight(1f))
+                TvPlayerTopLabel("Home")
+                TvPlayerTopLabel("Search")
+                TvPlayerTopLabel("Your Library")
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .tvFocusBorder(CircleShape),
+                ) {
+                    Icon(Icons.Default.Close, "Close player", tint = Color.White.copy(alpha = 0.82f))
+                }
             }
 
-            // Progress bar + timestamps
-            val progress = if (durationMs > 0L) (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Spacer(Modifier.height(20.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                AsyncImage(
+                    model = artwork,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(154.dp)
+                        .shadow(30.dp, RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF273039)),
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (isNetworkCasting) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(Color(0xFF16382B))
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                        ) {
+                            Icon(Icons.Default.CastConnected, null, tint = Color(0xFF66D9A6), modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Playing on ${castDeviceName ?: "TV"}",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color(0xFFB8F3D8),
+                            )
+                        }
+                    }
+                    Text(
+                        title.ifBlank { "—" },
+                        style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        artist.ifBlank { "Unknown artist" },
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Color.White.copy(alpha = 0.72f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Slider(
                     value = progress,
                     onValueChange = { value ->
@@ -1567,94 +1635,172 @@ private fun NowPlayingTvLayout(
                     colors = SliderDefaults.colors(
                         thumbColor = Color.White,
                         activeTrackColor = Color.White,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.2f),
+                        inactiveTrackColor = Color.White.copy(alpha = 0.28f),
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(formatTime(positionMs), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(0.5f))
-                    Text(formatTime(durationMs), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(0.5f))
+                    Text(formatTime(positionMs), color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelLarge)
+                    Text(formatTime(durationMs), color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelLarge)
                 }
             }
 
-            // Main playback controls: prev / play-pause / next
             Row(
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onSkipPrevious, modifier = Modifier.size(56.dp)) {
-                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = Color.White, modifier = Modifier.size(38.dp))
-                }
+                TvPlayerIconButton(Icons.Default.SkipPrevious, "Previous", onSkipPrevious)
                 Box(
                     Modifier
                         .size(72.dp)
-                        .background(Color.White, CircleShape)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .tvFocusBorder(CircleShape)
                         .clickable(onClick = onPlayPause),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.Black,
-                        modifier = Modifier.size(44.dp),
+                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        if (isPlaying) "Pause" else "Play",
+                        tint = Color(0xFF11171D),
+                        modifier = Modifier.size(42.dp),
                     )
                 }
-                IconButton(onClick = onSkipNext, modifier = Modifier.size(56.dp)) {
-                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(38.dp))
-                }
-            }
-
-            // Secondary controls: like / shuffle / repeat / close
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(modifier = Modifier.size(44.dp), onClick = { /* like toggle */ }) {
-                    Icon(
-                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Like",
-                        tint = if (isLiked) MaterialTheme.colorScheme.primary else Color.White.copy(0.6f),
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-                IconButton(
-                    modifier = Modifier.size(44.dp),
-                    onClick = { controller.shuffleModeEnabled = !shuffleOn },
-                ) {
-                    Icon(
-                        Icons.Default.Shuffle, "Shuffle",
-                        tint = if (shuffleOn) MaterialTheme.colorScheme.primary else Color.White.copy(0.6f),
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-                IconButton(
-                    modifier = Modifier.size(44.dp),
-                    onClick = {
+                TvPlayerIconButton(Icons.Default.SkipNext, "Next", onSkipNext)
+                Spacer(Modifier.weight(1f))
+                TvPlayerIconButton(
+                    if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    if (isLiked) "Unlike" else "Like",
+                    {},
+                    active = isLiked,
+                )
+                TvPlayerIconButton(Icons.Default.Shuffle, "Shuffle", { controller.shuffleModeEnabled = !shuffleOn }, active = shuffleOn)
+                TvPlayerIconButton(
+                    if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                    "Repeat",
+                    {
                         controller.repeatMode = when (repeatMode) {
                             Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
                             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
                             else -> Player.REPEAT_MODE_OFF
                         }
                     },
-                ) {
-                    Icon(
-                        imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                        contentDescription = "Repeat",
-                        tint = if (repeatMode != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.primary else Color.White.copy(0.6f),
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-                Spacer(Modifier.weight(1f))
+                    active = repeatMode != Player.REPEAT_MODE_OFF,
+                )
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TvPlayerActionChip("Lyrics", {})
+                TvPlayerActionChip("Queue", {})
                 if (isNetworkCasting) {
-                    TextButton(onClick = onDisconnect) {
-                        Text("Disconnect", color = Color(0xFFFF8A80))
-                    }
+                    TvPlayerActionChip("Disconnect", onDisconnect, destructive = true)
                 }
-                IconButton(onClick = onClose, modifier = Modifier.size(44.dp)) {
-                    Icon(Icons.Default.Close, "Close", tint = Color.White.copy(0.5f), modifier = Modifier.size(22.dp))
+            }
+
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black.copy(alpha = 0.28f))
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    "About the artist",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    AsyncImage(
+                        model = artwork,
+                        contentDescription = artist,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(126.dp)
+                            .clip(RoundedCornerShape(14.dp)),
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            artist.ifBlank { "Unknown artist" },
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color.White,
+                        )
+                        Text(
+                            "Explore more music from this artist",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.White.copy(alpha = 0.72f),
+                        )
+                        TextButton(
+                            onClick = { if (artist.isNotBlank()) onOpenArtistSearch(artist) },
+                            modifier = Modifier.tvFocusBorder(RoundedCornerShape(50)),
+                        ) {
+                            Text("Go to artist", color = Color.White)
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TvPlayerTopLabel(label: String) {
+    Text(
+        label,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        style = MaterialTheme.typography.titleMedium,
+        color = Color.White.copy(alpha = 0.78f),
+    )
+}
+
+@Composable
+private fun TvPlayerIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    active: Boolean = false,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(56.dp)
+            .tvFocusBorder(CircleShape),
+    ) {
+        Icon(
+            icon,
+            contentDescription,
+            tint = if (active) Color(0xFF66E6A8) else Color.White.copy(alpha = 0.9f),
+            modifier = Modifier.size(30.dp),
+        )
+    }
+}
+
+@Composable
+private fun TvPlayerActionChip(
+    label: String,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.tvFocusBorder(RoundedCornerShape(50)),
+    ) {
+        Text(
+            label,
+            color = if (destructive) Color(0xFFFF9E95) else Color.White,
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 
