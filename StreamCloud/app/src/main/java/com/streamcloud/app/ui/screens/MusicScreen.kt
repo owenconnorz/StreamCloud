@@ -187,6 +187,7 @@ fun MusicScreen(
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
     onOpenPlaylist: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
     onProfileClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
     onSearchWithQuery: (String) -> Unit = {},
     tvNavFocusRequester: FocusRequester? = null,
 ) {
@@ -531,6 +532,7 @@ fun MusicScreen(
                     djLoading = djQuickMixLoading || djStarting,
                     isTv = isTv,
                     tvNavFocusRequester = tvNavFocusRequester,
+                    onSearchClick = onSearchClick,
                     onDjClick = {
                         if (!djQuickMixLoading && !djStarting) {
                             showDj = true
@@ -1133,6 +1135,7 @@ private fun MusicHeader(
     onProfileClick: () -> Unit,
     onHistoryClick: () -> Unit,
     onTrendingClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
     isTv: Boolean = false,
     djLoading: Boolean = false,
     tvNavFocusRequester: FocusRequester? = null,
@@ -1174,6 +1177,13 @@ private fun MusicHeader(
                 onClick = onDjClick,
                 onLongClick = onDjLongClick,
             )
+            if (!isTv) {
+                MusicHeaderAction(
+                    icon = Icons.Default.Search,
+                    contentDescription = "Search music",
+                    onClick = onSearchClick,
+                )
+            }
             MusicHeaderAction(
                 icon = Icons.Default.History,
                 contentDescription = "Recently played",

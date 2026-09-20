@@ -899,6 +899,7 @@ fun StreamCloudApp() {
                             nav.navigate("yt-playlist/$i/$t?thumb=$th")
                         },
                         onSearchWithQuery = { q -> nav.navigate("music-search?q=${java.net.URLEncoder.encode(q, "UTF-8")}") },
+                        onSearchClick = { nav.navigate("music-search") },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
                 }
