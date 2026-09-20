@@ -30,8 +30,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +59,7 @@ import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 internal fun shouldExpandMusicSearchBar(
@@ -91,6 +98,7 @@ fun MusicSearchScreen(
     var searchBarVisible by remember(initialQuery, formFactor) {
         mutableStateOf(shouldExpandMusicSearchBar(initialQuery, formFactor))
     }
+    var focusContentAfterSearch by remember { mutableStateOf(false) }
 
     // Reset view-all when query changes
     LaunchedEffect(query) {
@@ -109,9 +117,34 @@ fun MusicSearchScreen(
         label = "search-accent",
     )
     val focusRequester = remember { FocusRequester() }
+    val firstContentFocusRequester = remember { FocusRequester() }
+    val firstContentKey = when {
+        query.isNotBlank() -> "filters-${state.searchMode}"
+        searchHistory.isNotEmpty() -> "history-${searchHistory.first()}"
+        state.suggestions.isNotEmpty() -> "suggestion-${state.suggestions.first()}"
+        else -> null
+    }
 
     LaunchedEffect(searchBarVisible) {
-        if (searchBarVisible) runCatching { focusRequester.requestFocus() }
+        if (searchBarVisible) {
+            delay(100)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+
+    LaunchedEffect(focusContentAfterSearch, firstContentKey) {
+        if (formFactor == UiFormFactor.Tv && focusContentAfterSearch && firstContentKey != null) {
+            repeat(10) {
+                val focused = runCatching {
+                    firstContentFocusRequester.requestFocus()
+                }.getOrDefault(false)
+                if (focused) {
+                    focusContentAfterSearch = false
+                    return@LaunchedEffect
+                }
+                delay(100)
+            }
+        }
     }
 
     LaunchedEffect(initialQuery) {
@@ -133,6 +166,7 @@ fun MusicSearchScreen(
         if (q.trim().length >= 2) {
             scope.launch { sl.settings.addMusicSearchHistory(q.trim()) }
             vm.search(q)
+            focusContentAfterSearch = true
         }
     }
 
@@ -166,7 +200,18 @@ fun MusicSearchScreen(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                            .then(
+                                if (formFactor == UiFormFactor.Tv) {
+                                    Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                                } else {
+                                    Modifier.padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp)
+                                },
+                            ),
+                        horizontalArrangement = if (formFactor == UiFormFactor.Tv) {
+                            Arrangement.Center
+                        } else {
+                            Arrangement.Start
+                        },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (formFactor != UiFormFactor.Tv) {
@@ -181,9 +226,34 @@ fun MusicSearchScreen(
                         TextField(
                             value = query,
                             onValueChange = { query = it },
-                            modifier = Modifier
-                                .weight(1f)
+                            modifier = (if (formFactor == UiFormFactor.Tv) {
+                                Modifier
+                                    .fillMaxWidth(0.82f)
+                                    .widthIn(max = 620.dp)
+                                    .height(52.dp)
+                            } else {
+                                Modifier.weight(1f)
+                            })
                                 .focusRequester(focusRequester)
+                                .onPreviewKeyEvent { event ->
+                                    if (formFactor == UiFormFactor.Tv &&
+                                        event.type == KeyEventType.KeyDown
+                                    ) {
+                                        when (event.key) {
+                                            Key.Back, Key.Escape -> {
+                                                submitSearch(query)
+                                                true
+                                            }
+                                            Key.DirectionDown -> runCatching {
+                                                firstContentFocusRequester.requestFocus()
+                                                true
+                                            }.getOrDefault(false)
+                                            else -> false
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                }
                                 .tvFocusBorder(RoundedCornerShape(28.dp), borderWidth = 3.dp),
                             placeholder = {
                                 Text(
@@ -304,10 +374,19 @@ fun MusicSearchScreen(
                             }
                         }
                     }
-                    items(searchHistory, key = { "hist_$it" }) { term ->
+                    itemsIndexed(searchHistory, key = { index, term -> "hist_${index}_$term" }) { index, term ->
                         Row(
                             Modifier
                                 .fillMaxWidth()
+                                .then(
+                                    if (formFactor == UiFormFactor.Tv && index == 0) {
+                                        Modifier
+                                            .focusRequester(firstContentFocusRequester)
+                                            .focusProperties { up = focusRequester }
+                                    } else {
+                                        Modifier
+                                    },
+                                )
                                 .tvFocusBorder(RoundedCornerShape(12.dp))
                                 .clickable { query = term; submitSearch(term) }
                                 .padding(start = 20.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
@@ -359,8 +438,15 @@ fun MusicSearchScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(state.suggestions) { s ->
+                            itemsIndexed(state.suggestions) { index, s ->
                                 SuggestionChip(
+                                    modifier = if (formFactor == UiFormFactor.Tv && index == 0) {
+                                        Modifier
+                                            .focusRequester(firstContentFocusRequester)
+                                            .focusProperties { up = focusRequester }
+                                    } else {
+                                        Modifier
+                                    },
                                     onClick = { query = s; submitSearch(s) },
                                     label = { Text(s) },
                                 )
@@ -376,6 +462,16 @@ fun MusicSearchScreen(
                     SearchFilterPills(
                         selectedMode = state.searchMode,
                         onModeSelected = { vm.setSearchMode(it) },
+                        firstFocusRequester = if (formFactor == UiFormFactor.Tv) {
+                            firstContentFocusRequester
+                        } else {
+                            null
+                        },
+                        searchFocusRequester = if (formFactor == UiFormFactor.Tv) {
+                            focusRequester
+                        } else {
+                            null
+                        },
                     )
                 }
 
@@ -555,6 +651,8 @@ private fun SearchSectionHeader(title: String, showingAll: Boolean, onViewAll: (
 private fun SearchFilterPills(
     selectedMode: com.streamcloud.app.ui.viewmodel.SearchMode,
     onModeSelected: (com.streamcloud.app.ui.viewmodel.SearchMode) -> Unit,
+    firstFocusRequester: FocusRequester? = null,
+    searchFocusRequester: FocusRequester? = null,
 ) {
     val modes = listOf(
         com.streamcloud.app.ui.viewmodel.SearchMode.All     to "All",
@@ -568,8 +666,21 @@ private fun SearchFilterPills(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(modes) { (mode, label) ->
+        itemsIndexed(modes) { index, (mode, label) ->
             FilterChip(
+                modifier = if (index == 0 && firstFocusRequester != null) {
+                    Modifier
+                        .focusRequester(firstFocusRequester)
+                        .then(
+                            if (searchFocusRequester != null) {
+                                Modifier.focusProperties { up = searchFocusRequester }
+                            } else {
+                                Modifier
+                            },
+                        )
+                } else {
+                    Modifier
+                },
                 selected = selectedMode == mode,
                 onClick  = { onModeSelected(mode) },
                 label    = { Text(label) },
