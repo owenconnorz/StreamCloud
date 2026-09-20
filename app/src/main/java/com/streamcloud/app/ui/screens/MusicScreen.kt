@@ -791,7 +791,10 @@ fun MusicScreen(
                     when (section) {
                         is HomeSection.MoodChips -> Unit
                         is HomeSection.PlaylistRail -> {
-                            val isListenTogether = section.title.equals("Listen together", ignoreCase = true)
+                            val normalizedSectionTitle = section.title
+                                .filter(Char::isLetterOrDigit)
+                                .lowercase()
+                            val isListenTogether = normalizedSectionTitle.contains("listentogether")
                             item(key = "yt_prail_title_$idx") {
                                 if (isListenTogether) {
                                     StationSectionTitle(section.title)
