@@ -1,5 +1,13 @@
 # StreamCloud
 
+## V1809 — Android TV music player redesign
+
+### Music
+- **Spotify-style TV Now Playing** — artwork-led backdrop, prominent track metadata, wide progress controls, and clearer playback actions make music easier to use from a TV remote.
+- **Quick return to playback** — a compact, focusable mini-player appears in the top-left of TV home screens whenever music is active and opens the full player without stopping playback.
+- **Artist access from the TV player** — the new “About the artist” section provides a direct route to the artist search page.
+- **Casting controls retained** — play/pause, seeking, skip, disconnect, shuffle, repeat, and like actions continue to use the existing playback and receiver state.
+
 ## V1792 — Android TV movie player and navigation improvements
 
 ### Movie player
