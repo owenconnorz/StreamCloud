@@ -648,6 +648,9 @@ object PornhubPlaybackResolver {
         PornhubRepository.resolve(
             videoId = videoId,
             fallbackPageUrl = fallbackPageUrl,
-            preferProgressive = true,
+            // Pornhub's MP4-labelled media definition is often the browser-only
+            // /video/get_media endpoint. HLS definitions are direct CDN playlists
+            // and are the safest native-player source.
+            preferProgressive = false,
         )
 }

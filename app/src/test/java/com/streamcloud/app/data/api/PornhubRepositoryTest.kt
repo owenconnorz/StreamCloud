@@ -262,4 +262,16 @@ class PornhubRepositoryTest {
 
         assertEquals("https://cdn.example.com/720.mp4", selected?.url)
     }
+
+    @Test
+    fun hlsIsPreferredWhenNativePlaybackUsesProviderDefaults() {
+        val selected = choosePornhubSource(
+            sources = listOf(
+                PornhubStreamSource("https://cdn.example.com/1080.m3u8", "hls", 1080),
+                PornhubStreamSource("https://cdn.example.com/720.mp4", "mp4", 720),
+            ),
+        )
+
+        assertEquals("https://cdn.example.com/1080.m3u8", selected?.url)
+    }
 }
