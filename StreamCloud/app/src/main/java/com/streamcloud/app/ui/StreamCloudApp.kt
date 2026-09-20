@@ -366,6 +366,26 @@ fun StreamCloudApp() {
         // Netflix-style TV nav: track which item last had startup focus so Up-from-hero focuses nav
         var firstMovieFocused by remember { mutableStateOf(false) }
         LaunchedEffect(currentRoute) { firstMovieFocused = false }
+        var tvMusicPlayerWasExpanded by remember { mutableStateOf(false) }
+        LaunchedEffect(isTv, currentRoute, playerSurfaceState.progress) {
+            if (!isTv || currentRoute != Tab.Music.route) return@LaunchedEffect
+
+            if (playerSurfaceState.progress > 0.02f) {
+                tvMusicPlayerWasExpanded = true
+                return@LaunchedEffect
+            }
+            if (!tvMusicPlayerWasExpanded) return@LaunchedEffect
+
+            tvMusicPlayerWasExpanded = false
+            repeat(10) {
+                kotlinx.coroutines.delay(120L)
+                val focused = runCatching {
+                    tvNavHeroFocus.requestFocus()
+                    true
+                }.getOrDefault(false)
+                if (focused) return@LaunchedEffect
+            }
+        }
         // Incremented whenever the nav bar regains focus so MoviesScreen can scroll back to top.
         var navScrollToTopVersion by remember { mutableStateOf(0) }
         Row(
