@@ -431,10 +431,8 @@ internal fun parsePornhubCategories(html: String): List<PornhubCategory> {
             ?.groupValues
             ?.getOrNull(1)
             ?.trim()
-        val thumbnail = sequenceOf("data-src", "data-original", "data-thumb_url", "src")
-            .map { image?.attr(it).orEmpty() }
-            .firstOrNull { it.startsWith("http") || it.startsWith("//") }
-            ?.let { if (it.startsWith("//")) "https:$it" else it }
+        val thumbnail = pornhubImageUrl(link)
+            ?: link.parent()?.let(::pornhubImageUrl)
         PornhubCategory(
             id = id,
             title = title,
@@ -464,11 +462,7 @@ private fun parsePornhubCard(element: Element): AdultItem? {
         link.attr("title"),
         element.selectFirst("img")?.attr("alt"),
     ).filterNotNull().map(String::trim).firstOrNull(String::isNotBlank) ?: return null
-    val image = element.selectFirst("img")
-    val thumbnail = sequenceOf("data-src", "data-thumb_url", "data-mediumthumb", "src")
-        .map { image?.attr(it).orEmpty() }
-        .firstOrNull { it.startsWith("http") || it.startsWith("//") }
-        ?.let { if (it.startsWith("//")) "https:$it" else it }
+    val thumbnail = pornhubImageUrl(element)
     val duration = element.selectFirst("span[class*=time], var.duration")?.text()?.trim()
         ?.takeIf(String::isNotBlank)
     val views = element.selectFirst("div.videoViews, div.views, span.views")?.text()
@@ -498,6 +492,48 @@ private fun parsePornhubCard(element: Element): AdultItem? {
     )
 }
 
+private val PORNHUB_IMAGE_ATTRIBUTES = listOf(
+    "data-poster",
+    "data-poster-url",
+    "data-thumbnail",
+    "data-thumb",
+    "data-thumb_url",
+    "data-mediumthumb",
+    "data-mediumthumb-url",
+    "data-preview",
+    "data-image",
+    "data-original",
+    "data-src",
+    "src",
+)
+
+private fun pornhubImageUrl(element: Element): String? {
+    val nodes = sequence {
+        yield(element)
+        element.select("img, source").forEach { yield(it) }
+    }
+    return nodes
+        .flatMap { node ->
+            PORNHUB_IMAGE_ATTRIBUTES.asSequence().map { attribute -> node.attr(attribute) }
+        }
+        .mapNotNull(::normalizePornhubAssetUrl)
+        .firstOrNull()
+}
+
+private fun normalizePornhubAssetUrl(raw: String): String? {
+    val value = raw.trim()
+        .removeSurrounding("\"")
+        .replace("\\/", "/")
+        .replace("\\u0026", "&")
+        .replace("&amp;", "&")
+    return when {
+        value.startsWith("//") -> "https:$value"
+        value.startsWith("http://") -> "https://${value.removePrefix("http://")}"
+        value.startsWith("https://") -> value
+        else -> null
+    }
+}
+
 internal fun parsePornhubMediaDefinitions(html: String): List<PornhubStreamSource> {
     val marker = Regex("""["']?mediaDefinitions["']?\s*:\s*""").find(html) ?: return emptyList()
     val start = html.indexOf('[', marker.range.last + 1)
@@ -509,8 +545,6 @@ internal fun parsePornhubMediaDefinitions(html: String): List<PornhubStreamSourc
     return array.mapNotNull { raw ->
         val item = raw as? JsonObject ?: return@mapNotNull null
         val url = item["videoUrl"].firstHttpsString()
-            ?.replace("\\/", "/")
-            ?.replace("\\u0026", "&")
             ?: return@mapNotNull null
         val qualityPrimitive = item["quality"] as? JsonPrimitive
         val quality = qualityPrimitive?.intOrNull
@@ -525,7 +559,7 @@ internal fun parsePornhubMediaDefinitions(html: String): List<PornhubStreamSourc
 }
 
 private fun JsonElement?.firstHttpsString(): String? = when (this) {
-    is JsonPrimitive -> contentOrNull?.takeIf { it.startsWith("https://") }
+    is JsonPrimitive -> contentOrNull?.let(::normalizePornhubAssetUrl)
     is JsonArray -> firstNotNullOfOrNull { it.firstHttpsString() }
     is JsonObject -> sequenceOf("videoUrl", "url", "src")
         .firstNotNullOfOrNull { key -> this[key].firstHttpsString() }
@@ -599,5 +633,9 @@ private fun String.toHttpUrlOrNull() = runCatching { toHttpUrl() }.getOrNull()
 
 object PornhubPlaybackResolver {
     suspend fun resolve(videoId: String, fallbackPageUrl: String): PornhubResolvedPlayback =
-        PornhubRepository.resolve(videoId, fallbackPageUrl)
+        PornhubRepository.resolve(
+            videoId = videoId,
+            fallbackPageUrl = fallbackPageUrl,
+            preferProgressive = true,
+        )
 }

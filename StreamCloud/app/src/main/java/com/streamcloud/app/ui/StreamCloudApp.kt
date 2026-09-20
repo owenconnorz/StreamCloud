@@ -38,9 +38,9 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -1266,6 +1266,11 @@ fun StreamCloudApp() {
                             title = title,
                             headers = resolvedHeaders,
                             onBack = { nav.popBackStack() },
+                            onRefresh = if (id.startsWith("pornhub://")) {
+                                { resolveAttempt++ }
+                            } else {
+                                null
+                            },
                         )
                     } else if (resolveError != null) {
                         Column(

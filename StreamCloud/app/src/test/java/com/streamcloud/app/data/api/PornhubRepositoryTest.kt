@@ -162,6 +162,23 @@ class PornhubRepositoryTest {
     }
 
     @Test
+    fun protocolRelativeVideoUrlsAreNormalizedForPlayback() {
+        val html = """
+            <script>
+              var player = {
+                mediaDefinitions: [
+                  {"format":"mp4","quality":"720","videoUrl":"//cdn.example.com/video.mp4"}
+                ]
+              };
+            </script>
+        """.trimIndent()
+
+        val source = parsePornhubMediaDefinitions(html).single()
+
+        assertEquals("https://cdn.example.com/video.mp4", source.url)
+    }
+
+    @Test
     fun categoryCardsKeepPornhubImagesAndCounts() {
         val html = """
             <a href="/categories/amateur" data-title="Amateur">
@@ -175,5 +192,36 @@ class PornhubRepositoryTest {
         assertEquals("Amateur", category.title)
         assertEquals("556,382 Videos", category.countLabel)
         assertEquals("https://cdn.example.com/amateur.jpg", category.thumbnail)
+    }
+
+    @Test
+    fun videoCardsUseLazyLoadedPosterAttributesForThumbnails() {
+        val html = """
+            <ul>
+              <li data-video-vkey="poster-key" data-poster="//cdn.example.com/poster.jpg">
+                <a href="/view_video.php?viewkey=poster-key" title="Poster sample">
+                  <img data-thumbnail="https://cdn.example.com/fallback.jpg" alt="Poster sample">
+                </a>
+              </li>
+            </ul>
+        """.trimIndent()
+
+        val item = parsePornhubListing(html).single()
+
+        assertEquals("https://cdn.example.com/poster.jpg", item.thumbnail)
+        assertEquals(item.thumbnail, item.previewImage)
+    }
+
+    @Test
+    fun progressivePornhubSourceCanBePreferredForNativePlayback() {
+        val selected = choosePornhubSource(
+            sources = listOf(
+                PornhubStreamSource("https://cdn.example.com/1080.m3u8", "hls", 1080),
+                PornhubStreamSource("https://cdn.example.com/720.mp4", "mp4", 720),
+            ),
+            preferProgressive = true,
+        )
+
+        assertEquals("https://cdn.example.com/720.mp4", selected?.url)
     }
 }

@@ -63,12 +63,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.api.PornhubCategory
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
+import com.streamcloud.app.data.network.BrowserHeaders
 import com.streamcloud.app.ui.screens.adult.RedditFeedView
 import com.streamcloud.app.ui.screens.adult.RedGifsFeedView
 import com.streamcloud.app.ui.screens.adult.ProviderHomeFeed
@@ -1381,6 +1383,19 @@ private fun PinLockScreen(onUnlock: (String) -> Boolean) {
 private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
     val cardBg  = MaterialTheme.colorScheme.surface
     val textFg  = MaterialTheme.colorScheme.onSurface
+    val context = LocalContext.current
+    val thumbnailModel = remember(v.thumbnail, v.source) {
+        if (v.source == AdultSource.Pornhub && !v.thumbnail.isNullOrBlank()) {
+            ImageRequest.Builder(context)
+                .data(v.thumbnail)
+                .addHeader("User-Agent", BrowserHeaders.USER_AGENT)
+                .addHeader("Referer", "https://www.pornhub.com/")
+                .crossfade(true)
+                .build()
+        } else {
+            v.thumbnail
+        }
+    }
 
     Column(
         Modifier
@@ -1396,7 +1411,7 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
             AsyncImage(
-                model              = v.thumbnail,
+                model              = thumbnailModel,
                 contentDescription = v.title,
                 contentScale       = ContentScale.Crop,
                 modifier           = Modifier.fillMaxSize(),
