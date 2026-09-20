@@ -1,5 +1,11 @@
 # StreamCloud
 
+## Android TV mini-player and Library layout
+
+### Android TV
+- **Library header makes room for playback** — removed the duplicate Library heading and StreamCloud branding on the TV Library page so the mini-player fits without crowding the centered search and tabs.
+- **Compact mini-player metadata** — long track titles and artist names now scroll automatically, while the distracting playback bars have been removed.
+
 ## V1821 — Android TV search button hotfix
 
 ### Android TV
