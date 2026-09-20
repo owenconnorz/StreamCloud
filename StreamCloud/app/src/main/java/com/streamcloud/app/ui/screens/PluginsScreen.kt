@@ -310,6 +310,8 @@ private fun CloudStreamPluginsPage(
     var addName    by remember { mutableStateOf("") }
     var addUrl     by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    var showRepoDialog by remember { mutableStateOf(false) }
 
     var pluginHasSettings by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -323,6 +325,59 @@ private fun CloudStreamPluginsPage(
                 }
             }
         }
+    }
+
+    // On TV: keep text fields out of the scrolling page so D-pad navigation
+    // does not focus an input and open the keyboard unexpectedly.
+    if (showRepoDialog) {
+        AlertDialog(
+            onDismissRequest = { showRepoDialog = false },
+            title = { Text("Add CloudStream Repository") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = addName,
+                        onValueChange = { addName = it },
+                        label = { Text("Display name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    OutlinedTextField(
+                        value = addUrl,
+                        onValueChange = { addUrl = it },
+                        label = { Text("repo.json URL") },
+                        placeholder = { Text("https://example.com/repo.json") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        vm.addRepo(addName, addUrl)
+                        addName = ""
+                        addUrl = ""
+                        showRepoDialog = false
+                    },
+                    enabled = addName.isNotBlank() && addUrl.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color.Black,
+                        disabledContainerColor = Color.White.copy(alpha = 0.42f),
+                        disabledContentColor = Color.Black.copy(alpha = 0.45f),
+                    ),
+                ) {
+                    Text("Add Repository")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRepoDialog = false }) { Text("Cancel") }
+            },
+        )
     }
 
     Scaffold(
@@ -375,46 +430,67 @@ private fun CloudStreamPluginsPage(
                 SectionLabel("Add CloudStream Repository")
             }
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    OutlinedTextField(
-                        value = addName,
-                        onValueChange = { addName = it },
-                        label = { Text("Display name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    OutlinedTextField(
-                        value = addUrl,
-                        onValueChange = { addUrl = it },
-                        label = { Text("repo.json URL") },
-                        placeholder = { Text("https://example.com/repo.json") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                    )
+                if (isTv) {
                     Button(
-                        onClick = {
-                            vm.addRepo(addName, addUrl)
-                            addName = ""
-                            addUrl = ""
-                        },
+                        onClick = { showRepoDialog = true },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = addName.isNotBlank() && addUrl.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(containerColor = ColourCloudStream),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black,
+                        ),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Add Repository")
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = addName,
+                            onValueChange = { addName = it },
+                            label = { Text("Display name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        OutlinedTextField(
+                            value = addUrl,
+                            onValueChange = { addUrl = it },
+                            label = { Text("repo.json URL") },
+                            placeholder = { Text("https://example.com/repo.json") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        Button(
+                            onClick = {
+                                vm.addRepo(addName, addUrl)
+                                addName = ""
+                                addUrl = ""
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = addName.isNotBlank() && addUrl.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = Color.Black,
+                                disabledContainerColor = Color.White.copy(alpha = 0.42f),
+                                disabledContentColor = Color.Black.copy(alpha = 0.45f),
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add Repository")
+                        }
                     }
                 }
             }
@@ -517,8 +593,61 @@ private fun StremioAddonsPage(
     state: PluginsState,
     onBack: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     var stremioUrl by remember { mutableStateOf("") }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    var showAddonDialog by remember { mutableStateOf(false) }
+
+    // On TV: keep the manifest field inside a dialog so scrolling the page
+    // never focuses it and opens the keyboard unexpectedly.
+    if (showAddonDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddonDialog = false },
+            title = { Text("Add Stremio Addon") },
+            text = {
+                OutlinedTextField(
+                    value = stremioUrl,
+                    onValueChange = { stremioUrl = it },
+                    label = { Text("Manifest URL") },
+                    placeholder = { Text("https://your-addon.com/manifest.json") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        vm.addStremioAddon(stremioUrl)
+                        stremioUrl = ""
+                        showAddonDialog = false
+                    },
+                    enabled = stremioUrl.isNotBlank() && !state.addingStremio,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color.Black,
+                        disabledContainerColor = Color.White.copy(alpha = 0.42f),
+                        disabledContentColor = Color.Black.copy(alpha = 0.45f),
+                    ),
+                ) {
+                    if (state.addingStremio) {
+                        CircularProgressIndicator(
+                            Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.Black,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Installing…")
+                    } else {
+                        Text("Install Addon")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddonDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -559,44 +688,69 @@ private fun StremioAddonsPage(
             // Add Addon section
             item { SectionLabel("Add Addon") }
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    OutlinedTextField(
-                        value = stremioUrl,
-                        onValueChange = { stremioUrl = it },
-                        label = { Text("Manifest URL") },
-                        placeholder = { Text("https://your-addon.com/manifest.json") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    Text(
-                        "Paste any Stremio addon manifest URL, e.g. torrentio.strem.fun/manifest.json",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                if (isTv) {
                     Button(
-                        onClick = { vm.addStremioAddon(stremioUrl); stremioUrl = "" },
+                        onClick = { showAddonDialog = true },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = stremioUrl.isNotBlank() && !state.addingStremio,
-                        colors = ButtonDefaults.buttonColors(containerColor = ColourStremio),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black,
+                        ),
                         shape = RoundedCornerShape(12.dp),
                     ) {
-                        if (state.addingStremio) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Installing…")
-                        } else {
-                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Install Addon")
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Install Addon")
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = stremioUrl,
+                            onValueChange = { stremioUrl = it },
+                            label = { Text("Manifest URL") },
+                            placeholder = { Text("https://your-addon.com/manifest.json") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        Text(
+                            "Paste any Stremio addon manifest URL, e.g. torrentio.strem.fun/manifest.json",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = { vm.addStremioAddon(stremioUrl); stremioUrl = "" },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = stremioUrl.isNotBlank() && !state.addingStremio,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = Color.Black,
+                                disabledContainerColor = Color.White.copy(alpha = 0.42f),
+                                disabledContentColor = Color.Black.copy(alpha = 0.45f),
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            if (state.addingStremio) {
+                                CircularProgressIndicator(
+                                    Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.Black,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Installing…")
+                            } else {
+                                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Install Addon")
+                            }
                         }
                     }
                 }
