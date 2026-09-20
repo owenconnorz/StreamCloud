@@ -1,6 +1,6 @@
 # StreamCloud
 
-## V1829 — Mobile Music search
+## V1828 — Mobile Music search
 
 ### Music
 - **Search restored on mobile** — the Music header now includes a dedicated search button again.
