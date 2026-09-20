@@ -534,7 +534,7 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setNavLabels(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NAV_LABELS] = b }
 
-    val navLiquidGlass: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NAV_LIQUID_GLASS] ?: false }
+    val navLiquidGlass: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NAV_LIQUID_GLASS] ?: true }
 
     suspend fun setNavLiquidGlass(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NAV_LIQUID_GLASS] = b }
 

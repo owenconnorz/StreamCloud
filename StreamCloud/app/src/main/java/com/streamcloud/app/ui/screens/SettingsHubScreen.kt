@@ -203,7 +203,7 @@ fun SettingsHubScreen(
     var pureBlackMiniPlayer by remember { mutableStateOf(false) }
     var dynamicMiniTheme    by remember { mutableStateOf(true) }
     var navLabels           by remember { mutableStateOf(true) }
-    var navLiquidGlass      by remember { mutableStateOf(false) }
+    var navLiquidGlass      by remember { mutableStateOf(true) }
     var newPlayerDesign     by remember { mutableStateOf(true) }
     var skipSilence         by remember { mutableStateOf(false) }
     var keepScreenOn        by remember { mutableStateOf(false) }

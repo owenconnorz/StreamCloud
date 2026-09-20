@@ -246,7 +246,7 @@ fun StreamCloudApp() {
         }
     }
 
-    val navLiquidGlass by sl.settings.navLiquidGlass.collectAsState(initial = false)
+    val navLiquidGlass by sl.settings.navLiquidGlass.collectAsState(initial = true)
     val hazeState = remember { HazeState() }
 
     // Dynamic album-art theme — distinct colour per UI layer (Metrolist-style)
@@ -1566,7 +1566,7 @@ fun StreamCloudApp() {
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(50))
                                             .hazeEffect(state = hazeState) { blurRadius = 50.dp }
-                                            .background(Color(0xFF0D0D0D).copy(alpha = 0.78f)),
+                                             .background(navPillColor.copy(alpha = 0.82f)),
                                     ) {
                                         Row(
                                             Modifier
