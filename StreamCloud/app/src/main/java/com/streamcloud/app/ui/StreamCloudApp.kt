@@ -1718,20 +1718,20 @@ private fun TvNetflixTopNav(
                     },
             ) {
                 // Search icon item (first focusable — gets firstTabFocus)
-                var searchFocused by remember { mutableStateOf(false) }
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                         .focusRequester(firstTabFocus)
-                        .tvFocusBorder(RoundedCornerShape(8.dp))
-                        .onFocusChanged { searchFocused = it.isFocused }
-                        .clickable { onSearchClick() }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                        .tvFocusBorder(CircleShape)
+                        .clickable { onSearchClick() },
                 ) {
                     Icon(
                         Icons.Default.Search,
                         contentDescription = "Search",
-                        tint = if (searchFocused) Color.White else Color.White.copy(alpha = 0.60f),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(22.dp),
                     )
                 }
