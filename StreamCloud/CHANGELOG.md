@@ -1,5 +1,11 @@
 # StreamCloud
 
+## V1829 — Mobile Music search
+
+### Music
+- **Search restored on mobile** — the Music header now includes a dedicated search button again.
+- **Full-page search opens directly** — tapping the button opens the existing Music Search screen without changing the home feed.
+
 ## Android TV mini-player and Library layout
 
 ### Android TV
