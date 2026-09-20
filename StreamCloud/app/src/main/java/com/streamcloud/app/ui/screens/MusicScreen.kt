@@ -530,13 +530,6 @@ fun MusicScreen(
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                     djLoading = djQuickMixLoading || djStarting,
                     isTv = isTv,
-                    // When no remote music is available, the recovery action below is the
-                    // most useful landing point from the TV nav bar.
-                    tvNavFocusRequester = if (isTv && !hasRemoteHomeContent) {
-                        null
-                    } else {
-                        tvNavFocusRequester
-                    },
                     onDjClick = {
                         if (!djQuickMixLoading && !djStarting) {
                             showDj = true
@@ -601,7 +594,9 @@ fun MusicScreen(
                 }
 
                 if (speedDialEntries.isNotEmpty()) {
-                    item(key = "music_speed_dial_title") { SectionTitle("Speed dial") }
+                    item(key = "music_speed_dial_title") {
+                        SectionTitle("Speed dial")
+                    }
                     item(key = "music_speed_dial") {
                         if (isTv) {
                             LazyRow(
@@ -639,9 +634,9 @@ fun MusicScreen(
                                                 overlayTitle = true,
                                             )
                                         }
-                                            }
-                                        }
                                     }
+                                }
+                            }
                         } else {
                             BoxWithConstraints(Modifier.fillMaxWidth()) {
                                 val pages = speedDialEntries.chunked(9)
@@ -698,13 +693,9 @@ fun MusicScreen(
                                     }
                                 }
                             }
-                                }
-                            }
                         }
                     }
                 }
-
-
                 if (state.liked.isNotEmpty()) {
                     item { SectionTitle("Liked songs") }
                     itemsIndexed(
