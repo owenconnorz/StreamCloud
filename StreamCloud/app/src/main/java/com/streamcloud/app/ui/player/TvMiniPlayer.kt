@@ -1,6 +1,7 @@
 package com.streamcloud.app.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,7 +18,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,13 +28,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
 import com.streamcloud.app.audio.MusicController
-import com.streamcloud.app.audio.PlaybackBus
 import com.streamcloud.app.ui.theme.tvFocusBorder
 
 @OptIn(UnstableApi::class)
@@ -44,7 +42,6 @@ fun TvMiniPlayer(
     onExpand: () -> Unit = { PlayerExpandBus.requestExpand() },
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val isPlaying by PlaybackBus.isPlaying.collectAsState()
     var controller by remember { mutableStateOf<Player?>(null) }
     var title by remember { mutableStateOf<String?>(null) }
     var artist by remember { mutableStateOf<String?>(null) }
@@ -89,7 +86,7 @@ fun TvMiniPlayer(
 
     Row(
         modifier = modifier
-            .width(300.dp)
+            .width(230.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xE61B2026))
             .tvFocusBorder(RoundedCornerShape(12.dp), borderWidth = 3.dp)
@@ -117,7 +114,7 @@ fun TvMiniPlayer(
                 style = androidx.compose.material3.MaterialTheme.typography.titleSmall
                     .copy(fontWeight = FontWeight.Bold),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
             )
             Spacer(Modifier.height(2.dp))
             Text(
@@ -125,19 +122,8 @@ fun TvMiniPlayer(
                 color = Color.White.copy(alpha = 0.68f),
                 style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
             )
-        }
-        Spacer(Modifier.width(10.dp))
-        Row(
-            modifier = Modifier.height(30.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val barColor = if (isPlaying) Color(0xFF66E6A8) else Color.White.copy(alpha = 0.45f)
-            Box(Modifier.width(3.dp).height(if (isPlaying) 20.dp else 8.dp).background(barColor, RoundedCornerShape(3.dp)))
-            Box(Modifier.width(3.dp).height(if (isPlaying) 27.dp else 8.dp).background(barColor, RoundedCornerShape(3.dp)))
-            Box(Modifier.width(3.dp).height(if (isPlaying) 15.dp else 8.dp).background(barColor, RoundedCornerShape(3.dp)))
         }
     }
 }
