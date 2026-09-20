@@ -268,13 +268,17 @@ fun LibraryScreen(
                 .padding(start = 20.dp, top = 8.dp, end = 14.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "Library",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
+            if (!isTv) {
+                Text(
+                    "Library",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
             Row(
                 modifier = Modifier.tvFocusGroup(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),

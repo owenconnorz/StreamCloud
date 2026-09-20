@@ -1463,7 +1463,7 @@ fun StreamCloudApp() {
                                 nav.navigate("movie-search")
                             }
                         },
-                        showBranding          = !isMusicRoute,
+                        showBranding          = !isMusicRoute && currentRoute != Tab.Library.route,
                         showMiniPlayer        = showMiniPlayer && navExpanded,
                         miniPlayer            = {
                             com.streamcloud.app.ui.player.TvMiniPlayer(
