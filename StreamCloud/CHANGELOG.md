@@ -1,5 +1,11 @@
 # StreamCloud
 
+## V1821 — Android TV search button hotfix
+
+### Android TV
+- **Round search control** — the top navigation search button now matches the circular Music action buttons below it while staying in the same position.
+- **Consistent focus styling** — the search control uses the same filled surface and circular remote-focus border as the surrounding TV actions.
+
 ## V1817 — Android TV music focus and search hotfix
 
 ### Android TV
