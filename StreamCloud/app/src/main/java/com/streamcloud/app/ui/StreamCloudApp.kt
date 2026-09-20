@@ -1464,18 +1464,16 @@ fun StreamCloudApp() {
                             }
                         },
                         showBranding          = !isMusicRoute,
+                        showMiniPlayer        = showMiniPlayer && navExpanded,
+                        miniPlayer            = {
+                            com.streamcloud.app.ui.player.TvMiniPlayer(
+                                onExpand = {
+                                    com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
+                                },
+                            )
+                        },
                         modifier              = Modifier.align(Alignment.TopStart).fillMaxWidth(),
                     )
-                    if (showMiniPlayer) {
-                        com.streamcloud.app.ui.player.TvMiniPlayer(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(start = 48.dp, top = 78.dp),
-                            onExpand = {
-                                com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
-                            },
-                        )
-                    }
                 }
 
                 // Nuvio-style flat bottom nav bar
@@ -1637,6 +1635,8 @@ private fun TvNetflixTopNav(
     onTabSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
     showBranding: Boolean = true,
+    showMiniPlayer: Boolean = false,
+    miniPlayer: @Composable (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var navHasFocus by remember { mutableStateOf(false) }
@@ -1676,14 +1676,22 @@ private fun TvNetflixTopNav(
                 .statusBarsPadding()
                 .padding(horizontal = TvOverscanPadding, vertical = 14.dp),
         ) {
-            if (showBranding) {
-                Text(
-                    "StreamCloud",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    modifier = Modifier.align(Alignment.CenterStart),
-                )
+            Row(
+                modifier = Modifier.align(Alignment.CenterStart),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (showBranding) {
+                    Text(
+                        "StreamCloud",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                    )
+                }
+                if (showMiniPlayer) {
+                    miniPlayer?.invoke()
+                }
             }
 
             // Search icon + tab labels — absolutely centred in the bar
