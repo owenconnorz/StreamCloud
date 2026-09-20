@@ -121,6 +121,7 @@ import com.streamcloud.app.ui.theme.UiFormFactor
 import kotlinx.coroutines.flow.first
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -166,6 +167,7 @@ fun SettingsHubScreen(
     onOpenPornhubLogin: () -> Unit = {},
     onSubPageChanged: (Boolean) -> Unit = {},
     backRequest: Int = 0,
+    focusRequest: Int = 0,
     tvNavFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
@@ -414,6 +416,17 @@ fun SettingsHubScreen(
     BackHandler(enabled = currentPage != null) { currentPage = null }
     LaunchedEffect(currentPage) {
         onSubPageChanged(currentPage != null)
+    }
+    LaunchedEffect(currentPage, focusRequest) {
+        if (!isTv || currentPage != null || tvNavFocusRequester == null) return@LaunchedEffect
+        repeat(10) {
+            val focused = runCatching {
+                tvNavFocusRequester.requestFocus()
+                true
+            }.getOrDefault(false)
+            if (focused) return@LaunchedEffect
+            delay(100)
+        }
     }
     LaunchedEffect(backRequest) {
         if (backRequest != handledBackRequest) {

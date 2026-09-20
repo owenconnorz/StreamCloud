@@ -158,6 +158,7 @@ fun StreamCloudApp() {
     val currentRoute = backStack?.destination?.route
     var settingsHasSubPage by remember { mutableStateOf(false) }
     var settingsBackRequest by remember { mutableStateOf(0) }
+    var settingsFocusRequest by remember { mutableStateOf(0) }
     val isMediaRoute = currentRoute != null && (
         currentRoute == Tab.Movies.route ||
         currentRoute.startsWith("cloudstream") ||
@@ -300,7 +301,10 @@ fun StreamCloudApp() {
         }
     }
     // Always expand when navigating to a new top-level tab
-    LaunchedEffect(currentRoute) { navExpanded = true }
+    LaunchedEffect(currentRoute) {
+        navExpanded = true
+        if (currentRoute == Tab.Settings.route) settingsFocusRequest++
+    }
 
     // Swipeable tabs (all tabs except Settings)
     val swipeableTabs = remember(tabs) { tabs.filter { it.route != Tab.Settings.route } }
@@ -1390,6 +1394,7 @@ fun StreamCloudApp() {
                             onOpenPornhubLogin = { nav.navigate("pornhub-login") },
                             onSubPageChanged  = { settingsHasSubPage = it },
                             backRequest       = settingsBackRequest,
+                            focusRequest      = settingsFocusRequest,
                             tvNavFocusRequester = tvNavHeroFocus,
                         )
                     }

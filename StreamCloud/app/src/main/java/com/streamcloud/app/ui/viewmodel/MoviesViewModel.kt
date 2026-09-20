@@ -93,6 +93,7 @@ data class MoviesState(
     val continueWatching: List<WatchProgressEntity> = emptyList(),
     val searchResults: List<TmdbMovie> = emptyList(),
     val tvSearchResults: List<TmdbMovie> = emptyList(),
+    val searchCorrection: String? = null,
     val csSearchResults: List<CsSearchResult> = emptyList(),
     val stremioSearchResults: List<StremioSearchResult> = emptyList(),
     val searchHistory: List<String> = emptyList(),
@@ -419,6 +420,7 @@ class MoviesViewModel(
             _state.update {
                 it.copy(
                     searchResults = emptyList(), tvSearchResults = emptyList(),
+                    searchCorrection = null,
                     csSearchResults = emptyList(), stremioSearchResults = emptyList(),
                     moviesLoading = false, seriesLoading = false,
                     moviePagination = TmdbSearchPagination(),
@@ -428,7 +430,13 @@ class MoviesViewModel(
             }
             return
         }
-        val q = query.trim()
+        val rawQuery = query.trim()
+        val correctedQuery = if (forceRefresh) {
+            findClosestSearchTitle(rawQuery, knownSearchTitles())
+        } else {
+            null
+        }
+        val q = correctedQuery ?: rawQuery
         val cacheKey = q.lowercase()
         if (forceRefresh) tmdbCache.remove(cacheKey)
         // A submitted search must replace every live type-ahead section. In particular,
@@ -438,6 +446,7 @@ class MoviesViewModel(
             it.copy(
                 searchResults = emptyList(),
                 tvSearchResults = emptyList(),
+                searchCorrection = correctedQuery,
                 csSearchResults = emptyList(),
                 stremioSearchResults = emptyList(),
                 moviesLoading = true,
@@ -600,6 +609,17 @@ class MoviesViewModel(
             }
         }
     }
+
+    private fun knownSearchTitles(): List<String> = buildList {
+        addAll(_state.value.searchHistory)
+        addAll(_state.value.trending.map { it.displayTitle })
+        addAll(_state.value.popular.map { it.displayTitle })
+        addAll(_state.value.topRated.map { it.displayTitle })
+        addAll(_state.value.nowPlaying.map { it.displayTitle })
+        addAll(_state.value.heroBanner.map { it.title })
+        addAll(_state.value.collections.flatMap { row -> row.items.map { it.displayTitle } })
+        addAll(_state.value.watchlist.map { it.title })
+    }.filter { it.isNotBlank() }.distinct()
 
     fun loadMoreMovies() {
         loadMoreTmdb(isTv = false)

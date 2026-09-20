@@ -426,6 +426,16 @@ private fun CombinedResultsList(
         modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(verticalOnly = true),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
+        state.searchCorrection?.let { correctedQuery ->
+            item(key = "search-correction") {
+                Text(
+                    "Showing results for \"$correctedQuery\"",
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         // ── Series (TMDB TV) ──────────────────────────────────────────────
         if (state.tvSearchResults.isNotEmpty() || state.seriesLoading ||
             state.tvPagination.error != null
