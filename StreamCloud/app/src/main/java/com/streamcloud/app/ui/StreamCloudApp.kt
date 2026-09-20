@@ -52,12 +52,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
@@ -133,8 +136,8 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
-import com.streamcloud.app.ui.theme.AllMoviesThemes
 import com.streamcloud.app.ui.theme.TvOverscanPadding
+import com.streamcloud.app.ui.theme.palettes
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
@@ -249,31 +252,26 @@ fun StreamCloudApp() {
     val navLiquidGlass by sl.settings.navLiquidGlass.collectAsState(initial = true)
     val hazeState = remember { HazeState() }
 
-    // Dynamic album-art theme — distinct colour per UI layer (Metrolist-style)
-    val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
-    val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
     val showNavLabels by sl.settings.navLabels.collectAsState(initial = true)
-
-    // Movie theme colour for the nav pill — used when on any movie-related route
     val moviesThemeNameForPill by sl.settings.moviesTheme.collectAsState(initial = "violet")
-    val movieNavPillColor = remember(moviesThemeNameForPill) {
-        AllMoviesThemes.find { it.id == moviesThemeNameForPill }?.container ?: Color(0xFF3E2070)
+    val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "default")
+    val appearanceTheme by sl.settings.theme.collectAsState(initial = "dark")
+    val systemIsDark = isSystemInDarkTheme()
+    val navAccentColor = remember(appearancePalette, appearanceTheme, systemIsDark) {
+        if (appearancePalette == "dynamic" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val useDark = when (appearanceTheme) {
+                "light" -> false
+                "system" -> systemIsDark
+                else -> true
+            }
+            if (useDark) dynamicDarkColorScheme(context).primary
+            else dynamicLightColorScheme(context).primary
+        } else {
+            palettes[appearancePalette]?.primary
+                ?: palettes["default"]!!.primary
+        }
     }
-    val isMoviesRoute = remember(currentRoute) {
-        val r = currentRoute ?: return@remember false
-        r == Tab.Movies.route ||
-        r == "movie-search" ||
-        r == "collections" ||
-        r.startsWith("movie/") ||
-        r.startsWith("tv/") ||
-        r.startsWith("cs-detail/") ||
-        r.startsWith("cs-section/") ||
-        r.startsWith("catalog/") ||
-        r.startsWith("stremio-detail/") ||
-        r.startsWith("cloudstream") ||
-        r.startsWith("collection-folder/") ||
-        r.startsWith("collection-tabbed/")
-    }
+    val navPillColor = Color(0xFF1B1B1F)
     val isMusicRoute = remember(currentRoute) {
         val r = currentRoute ?: return@remember false
         r == Tab.Music.route ||
@@ -281,16 +279,6 @@ fun StreamCloudApp() {
             r.startsWith("yt-playlist/") ||
             r.startsWith("artist/")
     }
-
-    val navPillColor by animateColorAsState(
-        targetValue = when {
-            isMoviesRoute    -> movieNavPillColor
-            dynamicMiniTheme -> navPillBgColor
-            else             -> Color(0xFF1C1C1E)
-        },
-        animationSpec = tween(600),
-        label = "navPillBg",
-    )
 
     // Scroll-driven nav expand/collapse — expands when scrolling up, collapses on scroll down
     var navExpanded by remember { mutableStateOf(true) }
@@ -1566,8 +1554,13 @@ fun StreamCloudApp() {
                                             .padding(horizontal = pillHPad)
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(50))
-                                            .hazeEffect(state = hazeState) { blurRadius = 50.dp }
-                                             .background(navPillColor.copy(alpha = 0.82f)),
+                                             .hazeEffect(state = hazeState) { blurRadius = 50.dp }
+                                             .background(navPillColor.copy(alpha = 0.74f))
+                                             .border(
+                                                 width = 1.dp,
+                                                 color = Color.White.copy(alpha = 0.14f),
+                                                 shape = RoundedCornerShape(50),
+                                             ),
                                     ) {
                                         Row(
                                             Modifier
@@ -1582,6 +1575,8 @@ fun StreamCloudApp() {
                                                     ProfileNavItem(
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
+                                                        accentColor = navAccentColor,
+                                                        modifier = Modifier.weight(1f),
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
                                                 } else {
@@ -1590,6 +1585,8 @@ fun StreamCloudApp() {
                                                         label = tab.label,
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
+                                                        accentColor = navAccentColor,
+                                                        modifier = Modifier.weight(1f),
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
                                                 }
@@ -1617,6 +1614,8 @@ fun StreamCloudApp() {
                                                     ProfileNavItem(
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
+                                                        accentColor = navAccentColor,
+                                                        modifier = Modifier.weight(1f),
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
                                                 } else {
@@ -1625,6 +1624,8 @@ fun StreamCloudApp() {
                                                         label = tab.label,
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
+                                                        accentColor = navAccentColor,
+                                                        modifier = Modifier.weight(1f),
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
                                                 }
@@ -1877,19 +1878,22 @@ private fun NuvioNavItem(
     selected: Boolean,
     showLabel: Boolean = true,
     glassActive: Boolean = false,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val iconTint by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF8E8E93),
+        targetValue = if (selected) accentColor else Color(0xFFB1B1B7),
         label = "navIconTint",
     )
     val selectedBg by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
+        targetValue = if (selected) accentColor.copy(alpha = 0.24f) else Color.Transparent,
         label = "navItemBg",
     )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
+        modifier = modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(50))
             .background(selectedBg)
             .tvFocusBorder(RoundedCornerShape(50))
@@ -1922,6 +1926,8 @@ private fun ProfileNavItem(
     selected: Boolean,
     showLabel: Boolean,
     glassActive: Boolean = false,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1956,18 +1962,19 @@ private fun ProfileNavItem(
     val avatar = if (ytAvatar.isNotBlank()) ytAvatar else deviceAvatar
 
     val iconTint by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF8E8E93),
+        targetValue = if (selected) accentColor else Color(0xFFB1B1B7),
         label = "profileNavIconTint",
     )
     val selectedBg by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
+        targetValue = if (selected) accentColor.copy(alpha = 0.24f) else Color.Transparent,
         label = "profileNavItemBg",
     )
     val itemLabel = if (avatar.isNotBlank()) "Profile" else "Settings"
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
+        modifier = modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(50))
             .background(selectedBg)
             .tvFocusBorder(RoundedCornerShape(50))
