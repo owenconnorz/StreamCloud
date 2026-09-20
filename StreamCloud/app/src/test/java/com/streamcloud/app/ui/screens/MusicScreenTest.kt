@@ -95,6 +95,29 @@ class MusicScreenTest {
         )
     }
 
+    @Test
+    fun speedDialProvidesThreeSwipePagesOfEntries() {
+        val entries = buildMusicSpeedDial(
+            pinnedSongs = emptyList(),
+            sections = listOf(
+                HomeSection.PlaylistRail(
+                    "Playlists",
+                    (1..10).map { index ->
+                        YtmPlaylist("playlist-$index", "Playlist $index", null, null)
+                    },
+                ),
+                HomeSection.SongRail(
+                    "Songs",
+                    (1..20).map { index -> ytmSong("song-$index") },
+                ),
+            ),
+        )
+
+        assertEquals(27, entries.size)
+        assertEquals("playlist:playlist-1", entries.first().key)
+        assertEquals("song:song-18", entries.last().key)
+    }
+
     private fun ytmSong(videoId: String) = YtmSong(
         videoId = videoId,
         title = videoId,

@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -118,6 +120,8 @@ internal fun buildCombinedMusicSuggestions(quickChips: List<MoodChip>): List<Str
         .distinctBy { it.trim().lowercase() }
 
 private const val DJ_ANNOUNCEMENT_INTERVAL = 2
+private const val MUSIC_SPEED_DIAL_PAGE_SIZE = 9
+private const val MUSIC_SPEED_DIAL_MAX_ITEMS = MUSIC_SPEED_DIAL_PAGE_SIZE * 3
 
 private data class PendingDjAnnouncement(
     val session: DjSession,
@@ -141,23 +145,25 @@ internal fun buildMusicSpeedDial(
     sections: List<HomeSection>,
 ): List<MusicSpeedDialEntry> {
     if (pinnedSongs.isNotEmpty()) {
-        return pinnedSongs.map { MusicSpeedDialEntry.Song(it) }
+        return pinnedSongs
+            .take(MUSIC_SPEED_DIAL_MAX_ITEMS)
+            .map { MusicSpeedDialEntry.Song(it) }
     }
 
     val playlists = sections
         .filterIsInstance<HomeSection.PlaylistRail>()
         .flatMap { it.items }
         .distinctBy { it.id }
-        .take(3)
+        .take(9)
         .map { MusicSpeedDialEntry.Playlist(it) }
     val songs = sections
         .filterIsInstance<HomeSection.SongRail>()
         .flatMap { it.items }
         .distinctBy { it.videoId }
-        .take(6)
+        .take(18)
         .map { MusicSpeedDialEntry.Song(it) }
 
-    return (playlists + songs).take(9)
+    return (playlists + songs).take(MUSIC_SPEED_DIAL_MAX_ITEMS)
 }
 
 private fun YtTrack.matchesDjMediaId(mediaId: String): Boolean {
@@ -642,18 +648,21 @@ fun MusicScreen(
                             }
                         } else {
                             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                                val pages = speedDialEntries.chunked(9)
-                                LazyRow(
-                                    modifier = Modifier.tvFocusGroup(),
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    itemsIndexed(
-                                        pages,
-                                        key = { pageIndex, _ -> "speed_dial_page_$pageIndex" },
-                                    ) { _, page ->
+                                val pages = speedDialEntries.chunked(MUSIC_SPEED_DIAL_PAGE_SIZE)
+                                val pagerState = rememberPagerState(pageCount = { pages.size })
+
+                                Column(Modifier.fillMaxWidth()) {
+                                    HorizontalPager(
+                                        state = pagerState,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .tvFocusGroup(),
+                                        pageSpacing = 12.dp,
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                    ) { pageIndex ->
+                                        val page = pages[pageIndex]
                                         Row(
-                                            Modifier.width(maxWidth),
+                                            Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
                                             page.chunked(3).forEach { column ->
@@ -691,6 +700,33 @@ fun MusicScreen(
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+
+                                    if (pages.size > 1) {
+                                        Spacer(Modifier.height(10.dp))
+                                        Row(
+                                            Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.Center,
+                                        ) {
+                                            pages.forEachIndexed { index, _ ->
+                                                val active = index == pagerState.currentPage
+                                                Box(
+                                                    Modifier
+                                                        .padding(horizontal = 4.dp)
+                                                        .height(6.dp)
+                                                        .width(if (active) 22.dp else 6.dp)
+                                                        .clip(RoundedCornerShape(50))
+                                                        .background(
+                                                            if (active) {
+                                                                MaterialTheme.colorScheme.primary
+                                                            } else {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    .copy(alpha = 0.4f)
+                                                            },
+                                                        ),
+                                                )
                                             }
                                         }
                                     }

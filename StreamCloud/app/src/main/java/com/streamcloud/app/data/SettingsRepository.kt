@@ -17,7 +17,7 @@ import java.net.URLEncoder
 
 private val Context.dataStore by preferencesDataStore("streamcloud_settings")
 
-private const val MAX_MUSIC_SPEED_DIAL_ITEMS = 12
+private const val MAX_MUSIC_SPEED_DIAL_ITEMS = 27
 
 private fun encodeMusicSpeedDial(songs: List<YtmSong>): String =
     songs.joinToString("\n") { song ->
