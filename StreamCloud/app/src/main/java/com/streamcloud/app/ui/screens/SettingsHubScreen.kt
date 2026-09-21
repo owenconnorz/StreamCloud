@@ -199,8 +199,6 @@ fun SettingsHubScreen(
     var themeMode           by remember { mutableStateOf("dark") }
     var colorPalette        by remember { mutableStateOf("default") }
     var highRefreshRate     by remember { mutableStateOf(true) }
-    var newMiniPlayer       by remember { mutableStateOf(true) }
-    var pureBlackMiniPlayer by remember { mutableStateOf(false) }
     var dynamicMiniTheme    by remember { mutableStateOf(true) }
     var navLabels           by remember { mutableStateOf(true) }
     var navLiquidGlass      by remember { mutableStateOf(true) }
@@ -332,8 +330,6 @@ fun SettingsHubScreen(
         themeMode           = sl.settings.theme.first()
         colorPalette        = sl.settings.colorPalette.first()
         highRefreshRate     = sl.settings.highRefreshRate.first()
-        newMiniPlayer       = sl.settings.newMiniPlayerDesign.first()
-        pureBlackMiniPlayer = sl.settings.pureBlackMiniPlayer.first()
         dynamicMiniTheme    = sl.settings.dynamicMiniPlayerTheme.first()
         navLabels           = sl.settings.navLabels.first()
         navLiquidGlass      = sl.settings.navLiquidGlass.first()
@@ -969,20 +965,6 @@ fun SettingsHubScreen(
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
                     SubSectionLabel("Mini-player")
-                    SettingToggle(
-                        icon = Icons.Default.AspectRatio, tint = ColourAppearance,
-                        title = "New mini player design",
-                        checked = newMiniPlayer,
-                        onChange = { newMiniPlayer = it; scope.launch { sl.settings.setNewMiniPlayerDesign(it) } },
-                    )
-                    SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.DarkMode, tint = ColourAppearance,
-                        title = "Pure black mini-player",
-                        checked = pureBlackMiniPlayer,
-                        onChange = { pureBlackMiniPlayer = it; scope.launch { sl.settings.setPureBlackMiniPlayer(it) } },
-                    )
-                    SettingDivider()
                     SettingToggle(
                         icon = Icons.Default.Palette, tint = ColourAppearance,
                         title = "Dynamic theme",
@@ -2431,7 +2413,14 @@ fun SettingsHubScreen(
     if (showCrossfadeDialog) {
         QualityDialog(
             title = "Crossfade duration",
-            options = listOf("0" to "Off", "3" to "3 seconds", "5" to "5 seconds", "8" to "8 seconds"),
+            options = listOf(
+                "0" to "Off",
+                "3" to "3 seconds",
+                "5" to "5 seconds",
+                "8" to "8 seconds",
+                "10" to "10 seconds",
+                "12" to "12 seconds",
+            ),
             selected = crossfadeDuration,
             onSelect = { crossfadeDuration = it; scope.launch { sl.settings.setCrossfadeDuration(it) }; showCrossfadeDialog = false },
             onDismiss = { showCrossfadeDialog = false },

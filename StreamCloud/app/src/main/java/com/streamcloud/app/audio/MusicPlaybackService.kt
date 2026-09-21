@@ -96,6 +96,12 @@ internal fun resolvedStreamDataLength(
         ?: requestedLength
 }
 
+private fun equalPowerFadeIn(fraction: Float): Float =
+    kotlin.math.sin((fraction.coerceIn(0f, 1f) * Math.PI / 2.0)).toFloat()
+
+private fun equalPowerFadeOut(fraction: Float): Float =
+    kotlin.math.cos((fraction.coerceIn(0f, 1f) * Math.PI / 2.0)).toFloat()
+
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaLibraryService() {
 
@@ -134,8 +140,9 @@ class MusicPlaybackService : MediaLibraryService() {
     private var xfNextMediaItem: MediaItem? = null   // guard against double-init
     private var xfHandoffPending: Boolean = false    // waiting for primary to buffer
     private var xfHandoffXfPlayer: ExoPlayer? = null // secondary ref during handoff
+    private var xfHandoffStartMs: Long = 0L          // wall-clock when the final handoff fade began
+    private var xfHandoffTargetPositionMs: Long = -1L
     private lateinit var exoPlayer: ExoPlayer
-
 
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
     @Volatile private var ytHomeFeed: YtMusicHomeFeed = YtMusicHomeFeed()
@@ -306,6 +313,8 @@ class MusicPlaybackService : MediaLibraryService() {
                             xfCrossfading = false
                             xfHandoffPending = false
                             xfNextMediaItem = null
+                            xfHandoffStartMs = 0L
+                            xfHandoffTargetPositionMs = -1L
                             exoPlayer.volume = 1f
                         }
                     }
@@ -334,11 +343,14 @@ class MusicPlaybackService : MediaLibraryService() {
                             if (xf != null && xf.playbackState != Player.STATE_IDLE) {
                                 val syncPos = xf.currentPosition.coerceAtLeast(0L)
                                 exoPlayer.volume = 0f
-                                if (syncPos > 300L) exoPlayer.seekTo(syncPos)
+                                xfHandoffTargetPositionMs = syncPos
+                                if (syncPos > 0L) exoPlayer.seekTo(syncPos)
                                 xfHandoffPending = true
                                 xfHandoffXfPlayer = xf
+                                xfHandoffStartMs = 0L
                             } else {
                                 xf?.release()
+                                xfHandoffTargetPositionMs = -1L
                                 exoPlayer.volume = 1f
                             }
                         } else {
@@ -415,6 +427,8 @@ class MusicPlaybackService : MediaLibraryService() {
                             xfHandoffXfPlayer?.let { xf -> xf.stop(); xf.release() }
                             xfHandoffXfPlayer = null
                             xfHandoffPending = false
+                            xfHandoffStartMs = 0L
+                            xfHandoffTargetPositionMs = -1L
                             exoPlayer.volume = 1f
                         }
                     }
@@ -443,12 +457,30 @@ class MusicPlaybackService : MediaLibraryService() {
                 if (xfHandoffPending) {
                     val hf = xfHandoffXfPlayer
                     when {
-                        exoPlayer.playbackState == Player.STATE_READY && exoPlayer.isPlaying -> {
-                            // Primary has buffered at the sync position — complete swap.
-                            exoPlayer.volume = 1f
-                            hf?.stop(); hf?.release()
-                            xfHandoffXfPlayer = null
-                            xfHandoffPending = false
+                        exoPlayer.playbackState == Player.STATE_READY &&
+                            exoPlayer.isPlaying &&
+                            kotlin.math.abs(
+                                exoPlayer.currentPosition - xfHandoffTargetPositionMs,
+                            ) <= 500L -> {
+                            // Primary has buffered at the sync position. Blend it back in
+                            // instead of switching players at full volume in one frame; the
+                            // abrupt switch was audible as a click or wobble at track start.
+                            if (xfHandoffStartMs == 0L) {
+                                xfHandoffStartMs = System.currentTimeMillis()
+                            }
+                            val handoffFraction = (
+                                (System.currentTimeMillis() - xfHandoffStartMs).toFloat() /
+                                    CROSSFADE_HANDOFF_DURATION_MS.toFloat()
+                                ).coerceIn(0f, 1f)
+                            exoPlayer.volume = equalPowerFadeIn(handoffFraction)
+                            hf?.volume = equalPowerFadeOut(handoffFraction)
+                            if (handoffFraction >= 1f) {
+                                hf?.stop(); hf?.release()
+                                xfHandoffXfPlayer = null
+                                xfHandoffPending = false
+                                xfHandoffStartMs = 0L
+                                xfHandoffTargetPositionMs = -1L
+                            }
                         }
                         hf != null && hf.isPlaying -> {
                             // Primary still buffering — keep secondary audible so there's no gap.
@@ -459,6 +491,8 @@ class MusicPlaybackService : MediaLibraryService() {
                             exoPlayer.volume = 1f
                             xfHandoffXfPlayer = null
                             xfHandoffPending = false
+                            xfHandoffStartMs = 0L
+                            xfHandoffTargetPositionMs = -1L
                         }
                     }
                     continue
@@ -478,8 +512,8 @@ class MusicPlaybackService : MediaLibraryService() {
                     val xf = xfPlayer
                     val elapsed = System.currentTimeMillis() - xfStartMs
                     val fraction = (elapsed.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
-                    exoPlayer.volume = (1f - fraction).coerceIn(0f, 1f)
-                    xf?.volume = fraction
+                    exoPlayer.volume = equalPowerFadeOut(fraction)
+                    xf?.volume = equalPowerFadeIn(fraction)
                     continue
                 }
 
@@ -513,7 +547,9 @@ class MusicPlaybackService : MediaLibraryService() {
                 }
                 if (nextIdx < 0) {
                     // No next track — just let the track end naturally.
-                    exoPlayer.volume = (remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
+                    exoPlayer.volume = equalPowerFadeOut(
+                        1f - (remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f),
+                    )
                     continue
                 }
 
@@ -531,9 +567,12 @@ class MusicPlaybackService : MediaLibraryService() {
                                 DefaultMediaSourceFactory(this@MusicPlaybackService)
                                     .setDataSourceFactory(dataSourceFactory)
                             )
+                            .setAudioAttributes(musicAudioAttrs, false)
                             .build()
                         // Initial volume mirrors how far into the crossfade window we already are.
-                        xf.volume = (1f - remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
+                        xf.volume = equalPowerFadeIn(
+                            (1f - remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f),
+                        )
                         xf.setMediaItem(attachUri(nextItem))
                         xf.prepare()
                         xf.playWhenReady = true
@@ -541,7 +580,9 @@ class MusicPlaybackService : MediaLibraryService() {
                     }
                 }
                 // Fade out primary while crossfade is underway.
-                exoPlayer.volume = (remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f)
+                exoPlayer.volume = equalPowerFadeOut(
+                    (1f - remaining.toFloat() / cfMs.toFloat()).coerceIn(0f, 1f),
+                )
             }
         }
 
@@ -2143,6 +2184,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
     companion object {
         private const val TAG    = "MusicPlaybackService"
+        private const val CROSSFADE_HANDOFF_DURATION_MS = 350L
         // Keep a small byte runway for the immediate next songs. A 50 MiB speculative warm-up
         // competes with a cold first stream on constrained mobile and TV connections.
         private const val BUFFERED_PREFETCH_TRACK_COUNT = 1

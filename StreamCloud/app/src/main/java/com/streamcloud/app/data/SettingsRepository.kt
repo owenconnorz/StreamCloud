@@ -86,8 +86,6 @@ object SettingsKeys {
 
 
     val HIGH_REFRESH_RATE       = booleanPreferencesKey("high_refresh_rate")
-    val NEW_MINI_PLAYER_DESIGN  = booleanPreferencesKey("new_mini_player_design")
-    val PURE_BLACK_MINI_PLAYER  = booleanPreferencesKey("pure_black_mini_player")
     val NEW_PLAYER_DESIGN       = booleanPreferencesKey("new_player_design")
 
 
@@ -363,13 +361,9 @@ class SettingsRepository(private val context: Context) {
 
 
     val highRefreshRate: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HIGH_REFRESH_RATE] ?: true }
-    val newMiniPlayerDesign: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NEW_MINI_PLAYER_DESIGN] ?: true }
-    val pureBlackMiniPlayer: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.PURE_BLACK_MINI_PLAYER] ?: false }
     val newPlayerDesign: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NEW_PLAYER_DESIGN] ?: true }
 
     suspend fun setHighRefreshRate(b: Boolean) = context.dataStore.edit { it[SettingsKeys.HIGH_REFRESH_RATE] = b }
-    suspend fun setNewMiniPlayerDesign(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NEW_MINI_PLAYER_DESIGN] = b }
-    suspend fun setPureBlackMiniPlayer(b: Boolean) = context.dataStore.edit { it[SettingsKeys.PURE_BLACK_MINI_PLAYER] = b }
     suspend fun setNewPlayerDesign(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NEW_PLAYER_DESIGN] = b }
 
 
