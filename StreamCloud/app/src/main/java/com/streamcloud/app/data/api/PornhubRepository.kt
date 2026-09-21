@@ -47,6 +47,7 @@ data class PornhubStreamSource(
 data class PornhubResolvedPlayback(
     val url: String,
     val headers: Map<String, String>,
+    val alternateSources: List<PornhubStreamSource> = emptyList(),
 )
 
 class PornhubUnavailableException(message: String) : Exception(message)
@@ -121,9 +122,14 @@ object PornhubRepository {
             )
         }
         val sources = parsePornhubMediaDefinitions(html)
-        val chosen = choosePornhubSource(sources, preferProgressive)
+        val orderedSources = orderPornhubSources(sources, preferProgressive)
+        val chosen = orderedSources.firstOrNull()
             ?: throw PornhubUnavailableException("Pornhub did not provide a playable stream.")
-        PornhubResolvedPlayback(chosen.url, playbackHeaders(pageUrl, chosen.url))
+        PornhubResolvedPlayback(
+            url = chosen.url,
+            headers = playbackHeaders(pageUrl, chosen.url),
+            alternateSources = orderedSources.drop(1),
+        )
     }
 
     /**
@@ -552,7 +558,10 @@ internal fun parsePornhubMediaDefinitions(html: String): List<PornhubStreamSourc
         array.mapNotNull { raw ->
             val item = raw as? JsonObject ?: return@mapNotNull null
             val url = item["videoUrl"].firstHttpsString()
-                ?.takeUnless { it.contains("get_media_definitions", ignoreCase = true) }
+                ?.takeUnless {
+                    it.contains("get_media_definitions", ignoreCase = true) ||
+                        it.contains("/video/get_media", ignoreCase = true)
+                }
                 ?: return@mapNotNull null
             val qualityPrimitive = item["quality"] as? JsonPrimitive
             val quality = qualityPrimitive?.intOrNull
@@ -578,7 +587,12 @@ private fun JsonElement?.firstHttpsString(): String? = when (this) {
 internal fun choosePornhubSource(
     sources: List<PornhubStreamSource>,
     preferProgressive: Boolean = false,
-): PornhubStreamSource? {
+): PornhubStreamSource? = orderPornhubSources(sources, preferProgressive).firstOrNull()
+
+internal fun orderPornhubSources(
+    sources: List<PornhubStreamSource>,
+    preferProgressive: Boolean = false,
+): List<PornhubStreamSource> {
     val playable = sources.filterNot { it.url.endsWith(".json", ignoreCase = true) }
     val progressive = playable.filter {
         it.format.contains("mp4") || it.url.substringBefore('?').endsWith(".mp4", ignoreCase = true)
@@ -586,11 +600,12 @@ internal fun choosePornhubSource(
     val hls = playable.filter {
         it.format.contains("hls") || it.url.substringBefore('?').endsWith(".m3u8", ignoreCase = true)
     }
-    return if (preferProgressive) {
-        progressive.maxByOrNull { it.quality } ?: hls.maxByOrNull { it.quality }
+    val preferred = if (preferProgressive) {
+        progressive.sortedByDescending { it.quality } + hls.sortedByDescending { it.quality }
     } else {
-        hls.maxByOrNull { it.quality } ?: progressive.maxByOrNull { it.quality }
+        hls.sortedByDescending { it.quality } + progressive.sortedByDescending { it.quality }
     }
+    return preferred.distinctBy { it.url }
 }
 
 internal fun hasNextPornhubPage(html: String, currentPage: Int): Boolean {
@@ -645,6 +660,9 @@ object PornhubPlaybackResolver {
         PornhubRepository.resolve(
             videoId = videoId,
             fallbackPageUrl = fallbackPageUrl,
-            preferProgressive = true,
+            // Pornhub's MP4-labelled media definition is often the browser-only
+            // /video/get_media endpoint. HLS definitions are direct CDN playlists
+            // and are the safest native-player source.
+            preferProgressive = false,
         )
 }

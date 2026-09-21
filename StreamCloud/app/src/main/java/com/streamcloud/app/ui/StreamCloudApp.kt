@@ -1223,24 +1223,46 @@ fun StreamCloudApp() {
                     var resolvedHeaders by remember(id, embed) {
                         mutableStateOf<Map<String, String>>(emptyMap())
                     }
+                    var resolvedSources by remember(id, embed) {
+                        mutableStateOf<List<com.streamcloud.app.player.PlayerSource>>(emptyList())
+                    }
                     var resolveError by remember(id, embed) { mutableStateOf<String?>(null) }
                     var resolveAttempt by remember(id, embed) { mutableStateOf(0) }
                     LaunchedEffect(id, embed, resolveAttempt) {
                         resolvedUrl = null
                         resolvedHeaders = emptyMap()
+                        resolvedSources = emptyList()
                         resolveError = null
-                        runCatching<Pair<String, Map<String, String>>> {
+                        runCatching<Triple<String, Map<String, String>, List<com.streamcloud.app.player.PlayerSource>>> {
                             if (id.startsWith("pornhub://")) {
                                 com.streamcloud.app.data.api.PornhubPlaybackResolver.resolve(id, embed)
-                                    .let { it.url to it.headers }
+                                    .let { playback ->
+                                        Triple(
+                                            playback.url,
+                                            playback.headers,
+                                            playback.alternateSources.map { source ->
+                                                com.streamcloud.app.player.PlayerSource(
+                                                    id = "pornhub:${source.quality}:${source.url.hashCode()}",
+                                                    url = source.url,
+                                                    label = "${source.quality}p",
+                                                    addonName = "Pornhub",
+                                                    qualityTag = "${source.quality}p",
+                                                    headers = playback.headers,
+                                                )
+                                            },
+                                        )
+                                    }
                             } else {
                                 com.streamcloud.app.data.api.EpornerPlaybackResolver.resolve(id, embed)
-                                    .let { it.url to it.headers }
+                                    .let { playback ->
+                                        Triple(playback.url, playback.headers, emptyList())
+                                    }
                             }
                         }
                             .onSuccess {
                                 resolvedUrl = it.first
                                 resolvedHeaders = it.second
+                                resolvedSources = it.third
                             }
                             .onFailure {
                                 resolveError = it.message
@@ -1253,6 +1275,7 @@ fun StreamCloudApp() {
                             streamUrl = resolvedUrl!!,
                             title = title,
                             headers = resolvedHeaders,
+                            sources = resolvedSources,
                             onBack = { nav.popBackStack() },
                             forceDirectPlay = id.startsWith("pornhub://"),
                             onRefresh = if (id.startsWith("pornhub://")) {
