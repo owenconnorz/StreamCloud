@@ -1,10 +1,15 @@
 # StreamCloud
 
-## V1828 — Mobile Music search
+## Latest — YouTube Music player and station cards
 
 ### Music
-- **Search restored on mobile** — the Music header now includes a dedicated search button again.
-- **Full-page search opens directly** — tapping the button opens the existing Music Search screen without changing the home feed.
+- **Album songs stay audio-first** — ordinary songs now open with album artwork and audio controls instead of loading a visual music-video player.
+- **Automatic music-video surfaces** — explicitly classified music videos use the visual player automatically, without a manual video/music switch.
+- **Wide Listen together cards** — station cards now use a wide 16:9 banner layout on both playlist and song-based home rails.
+- **More reliable home-feed playback metadata** — the YouTube Music models and home parser now stay aligned with the player’s song-versus-video classification.
+
+### Release packaging
+- Mobile and Android TV release APKs are published as separate assets.
 
 ## Android TV mini-player and Library layout
 
