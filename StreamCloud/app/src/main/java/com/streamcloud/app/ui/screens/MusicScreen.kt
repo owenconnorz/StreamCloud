@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -174,7 +175,7 @@ private fun YtmPlaylist.asStandaloneSong(): YtmSong =
         album = null,
         thumbnail = thumbnail,
         durationSeconds = null,
-        isVideo = true,
+        isVideo = isVideo,
     )
 
 private fun YtTrack.matchesDjMediaId(mediaId: String): Boolean {
@@ -229,7 +230,7 @@ fun MusicScreen(
         speedDialEntries.filterIsInstance<MusicSpeedDialEntry.Song>().map { it.value }
     }
     fun openPlaylistOrPlay(item: YtmPlaylist) {
-        if (item.isVideo) {
+        if (item.isVideo || item.isTrack) {
             dlScope.launch {
                 runCatching {
                     com.streamcloud.app.data.ytmusic.YtPlayback.playPlaylist(
@@ -790,26 +791,62 @@ fun MusicScreen(
                     when (section) {
                         is HomeSection.MoodChips -> Unit
                         is HomeSection.PlaylistRail -> {
-                            item(key = "yt_prail_title_$idx") { SectionTitle(section.title) }
+                            val isListenTogether = section.title.isListenTogetherSection()
+                            item(key = "yt_prail_title_$idx") {
+                                if (isListenTogether) {
+                                    StationSectionTitle(section.title)
+                                } else {
+                                    SectionTitle(section.title)
+                                }
+                            }
                             item(key = "yt_prail_$idx") {
-                                LazyRow(
-                                    modifier = Modifier.tvFocusGroup(),
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    items(section.items) { pl ->
-                                        YtHomePlaylistCard(pl) {
-                                            openPlaylistOrPlay(pl)
+                                if (isListenTogether) {
+                                    BoxWithConstraints {
+                                        val cardWidth = (maxWidth * 0.70f).coerceIn(280.dp, 360.dp)
+                                        LazyRow(
+                                            modifier = Modifier.tvFocusGroup(),
+                                            contentPadding = PaddingValues(horizontal = 16.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            items(section.items) { pl ->
+                                                YtHomePlaylistCard(
+                                                    pl = pl,
+                                                    modifier = Modifier.width(cardWidth),
+                                                    landscape = true,
+                                                ) {
+                                                    openPlaylistOrPlay(pl)
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    LazyRow(
+                                        modifier = Modifier.tvFocusGroup(),
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        items(section.items) { pl ->
+                                            YtHomePlaylistCard(pl) {
+                                                openPlaylistOrPlay(pl)
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                         is HomeSection.SongRail -> {
-                            item(key = "yt_srail_title_$idx") { SectionTitle(section.title) }
+                            val isListenTogether = section.title.isListenTogetherSection()
+                            item(key = "yt_srail_title_$idx") {
+                                if (isListenTogether) StationSectionTitle(section.title)
+                                else SectionTitle(section.title)
+                            }
                             item(key = "yt_srail_${idx}") {
                                 BoxWithConstraints(Modifier.fillMaxWidth()) {
-                                    val cardWidth = ((maxWidth - 68.dp) / 4).coerceAtLeast(76.dp)
+                                    val cardWidth = if (isListenTogether) {
+                                        (maxWidth * 0.70f).coerceIn(280.dp, 360.dp)
+                                    } else {
+                                        ((maxWidth - 68.dp) / 4).coerceAtLeast(76.dp)
+                                    }
                                     LazyRow(
                                         modifier = Modifier.tvFocusGroup(),
                                         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -824,6 +861,7 @@ fun MusicScreen(
                                                 queue = section.items,
                                                 startIndex = index,
                                                 modifier = Modifier.width(cardWidth),
+                                                landscape = isListenTogether,
                                             )
                                         }
                                     }
@@ -1818,6 +1856,7 @@ private fun LibraryRow(
 private fun YtHomePlaylistCard(
     pl: YtmPlaylist,
     modifier: Modifier = Modifier.width(150.dp),
+    landscape: Boolean = false,
     overlayTitle: Boolean = false,
     onClick: () -> Unit = {},
 ) {
@@ -1829,7 +1868,7 @@ private fun YtHomePlaylistCard(
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f)
+                .aspectRatio(if (landscape) 16f / 9f else 1f)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
@@ -1880,6 +1919,33 @@ private fun YtHomePlaylistCard(
 }
 
 @Composable
+private fun StationSectionTitle(text: String) {
+    Column(
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+    ) {
+        Text(
+            "STATION",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.4.sp,
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+private fun String.isListenTogetherSection(): Boolean {
+    val normalized = filter(Char::isLetterOrDigit).lowercase()
+    return normalized.contains("listentogether") || normalized.contains("station")
+}
+
+@Composable
 private fun SpeedDialTextOverlay(
     title: String,
     subtitle: String? = null,
@@ -1926,6 +1992,7 @@ private fun YtHomeSongCard(
     startIndex: Int,
     modifier: Modifier = Modifier,
     overlayTitle: Boolean = false,
+    landscape: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1956,7 +2023,7 @@ private fun YtHomeSongCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
+                    .aspectRatio(if (landscape) 16f / 9f else 1f)
                     .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             )
