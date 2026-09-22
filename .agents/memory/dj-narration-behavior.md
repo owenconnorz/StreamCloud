@@ -22,3 +22,12 @@ guard interpreting automatic recommendations as a user-selected queue replacemen
 
 **How to apply:** Only extend while a personalized DJ session owns the queue; keep ordinary queue
 changes as an explicit exit from DJ mode.
+
+Transition narration must never pause the Media3 player. Use speech audio attributes that let Android
+duck media when appropriate, and cancel only when the user or an external interruption pauses playback.
+
+**Why:** Pausing and restarting the player around every host update creates audible gaps and can lose
+the current handoff position.
+
+**How to apply:** Let TTS complete independently over the active track, and vary host updates across
+two or three automatic transitions rather than using a fixed two-track cadence.
