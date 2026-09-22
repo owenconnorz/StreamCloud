@@ -349,7 +349,7 @@ class SettingsRepository(private val context: Context) {
         it.remove(SettingsKeys.YT_MUSIC_USER_AVATAR)
     }
 
-    val colorPalette: Flow<String> = context.dataStore.data.map { it[SettingsKeys.COLOR_PALETTE] ?: "default" }
+    val colorPalette: Flow<String> = context.dataStore.data.map { it[SettingsKeys.COLOR_PALETTE] ?: "ocean" }
     suspend fun setColorPalette(s: String) = context.dataStore.edit { it[SettingsKeys.COLOR_PALETTE] = s }
 
 

@@ -52,15 +52,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
@@ -255,22 +252,10 @@ fun StreamCloudApp() {
 
     val showNavLabels by sl.settings.navLabels.collectAsState(initial = true)
     val moviesThemeNameForPill by sl.settings.moviesTheme.collectAsState(initial = "violet")
-    val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "default")
-    val appearanceTheme by sl.settings.theme.collectAsState(initial = "dark")
-    val systemIsDark = isSystemInDarkTheme()
-    val navAccentColor = remember(appearancePalette, appearanceTheme, systemIsDark) {
-        if (appearancePalette == "dynamic" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val useDark = when (appearanceTheme) {
-                "light" -> false
-                "system" -> systemIsDark
-                else -> true
-            }
-            if (useDark) dynamicDarkColorScheme(context).primary
-            else dynamicLightColorScheme(context).primary
-        } else {
-            palettes[appearancePalette]?.primary
-                ?: palettes["default"]!!.primary
-        }
+    val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "ocean")
+    val navAccentColor = remember(appearancePalette) {
+        palettes[appearancePalette]?.primary
+            ?: palettes["ocean"]!!.primary
     }
     val navPillColor = Color(0xFF1B1B1F)
     val isMusicRoute = remember(currentRoute) {
@@ -279,6 +264,13 @@ fun StreamCloudApp() {
             r == "music-search" ||
             r.startsWith("yt-playlist/") ||
             r.startsWith("artist/")
+    }
+    val albumArtAccent by AlbumArtThemeBus.accent.collectAsState()
+    val hasAlbumArt by AlbumArtThemeBus.hasArtwork.collectAsState()
+    val musicNavAccentColor = if (isMusicRoute && hasAlbumArt) {
+        albumArtAccent
+    } else {
+        navAccentColor
     }
 
     // Scroll-driven nav expand/collapse — expands when scrolling up, collapses on scroll down
@@ -1595,11 +1587,17 @@ fun StreamCloudApp() {
                                         ) {
                                             tabs.forEach { tab ->
                                                 val selected = currentRoute == tab.route
+                                                val tabAccentColor =
+                                                    if (tab.route == Tab.Music.route && isMusicRoute) {
+                                                        musicNavAccentColor
+                                                    } else {
+                                                        navAccentColor
+                                                    }
                                                 if (tab.route == Tab.Settings.route) {
                                                     ProfileNavItem(
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
-                                                        accentColor = navAccentColor,
+                                                        accentColor = tabAccentColor,
                                                         modifier = Modifier.weight(1f),
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
@@ -1609,7 +1607,7 @@ fun StreamCloudApp() {
                                                         label = tab.label,
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
-                                                        accentColor = navAccentColor,
+                                                        accentColor = tabAccentColor,
                                                         modifier = Modifier.weight(1f),
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
@@ -1634,11 +1632,17 @@ fun StreamCloudApp() {
                                         ) {
                                             tabs.forEach { tab ->
                                                 val selected = currentRoute == tab.route
+                                                val tabAccentColor =
+                                                    if (tab.route == Tab.Music.route && isMusicRoute) {
+                                                        musicNavAccentColor
+                                                    } else {
+                                                        navAccentColor
+                                                    }
                                                 if (tab.route == Tab.Settings.route) {
                                                     ProfileNavItem(
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
-                                                        accentColor = navAccentColor,
+                                                        accentColor = tabAccentColor,
                                                         modifier = Modifier.weight(1f),
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )
@@ -1648,7 +1652,7 @@ fun StreamCloudApp() {
                                                         label = tab.label,
                                                         selected = selected,
                                                         showLabel = effectiveShowLabel,
-                                                        accentColor = navAccentColor,
+                                                        accentColor = tabAccentColor,
                                                         modifier = Modifier.weight(1f),
                                                         onClick = { navigateToTab(nav, tab.route) },
                                                     )

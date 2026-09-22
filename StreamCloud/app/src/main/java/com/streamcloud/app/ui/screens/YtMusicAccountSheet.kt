@@ -2,7 +2,6 @@ package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,9 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Login
-import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -35,10 +31,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -48,14 +48,15 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.streamcloud.app.ui.theme.Teal
+import androidx.media3.common.util.UnstableApi
+import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 
 private val StreamCloudSheet = Color(0xFF0B1514)
 private val StreamCloudCard = Color(0xFF101F1D)
-private val StreamCloudCardPressed = Color(0xFF18302D)
 private val StreamCloudOnSheet = Color(0xFFE8F2F0)
 private val StreamCloudMuted = Color(0xFF9CB2AE)
 
+@OptIn(UnstableApi::class)
 @Composable
 fun YtMusicAccountSheet(
     userName: String,
@@ -67,6 +68,21 @@ fun YtMusicAccountSheet(
     onSignOut: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    val albumArtAccent by AlbumArtThemeBus.accent.collectAsState()
+    val albumArtNavBackground by AlbumArtThemeBus.navPillBg.collectAsState()
+    val hasAlbumArt by AlbumArtThemeBus.hasArtwork.collectAsState()
+    val accent = if (hasAlbumArt) albumArtAccent else MaterialTheme.colorScheme.primary
+    val sheetColor = if (hasAlbumArt) {
+        lerp(StreamCloudSheet, albumArtNavBackground, 0.70f)
+    } else {
+        StreamCloudSheet
+    }
+    val cardColor = if (hasAlbumArt) {
+        lerp(StreamCloudCard, albumArtNavBackground, 0.82f)
+    } else {
+        StreamCloudCard
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -76,7 +92,7 @@ fun YtMusicAccountSheet(
                 .fillMaxWidth(0.94f)
                 .height(620.dp)
                 .clip(RoundedCornerShape(30.dp)),
-            color = StreamCloudSheet,
+            color = sheetColor,
             tonalElevation = 8.dp,
         ) {
             Column(
@@ -107,7 +123,7 @@ fun YtMusicAccountSheet(
                 Spacer(Modifier.height(12.dp))
 
                 Surface(
-                    color = StreamCloudCard,
+                    color = cardColor,
                     shape = RoundedCornerShape(24.dp),
                 ) {
                     Row(
@@ -119,6 +135,7 @@ fun YtMusicAccountSheet(
                         AccountAvatar(
                             avatarUrl = avatarUrl,
                             size = 58.dp,
+                            accent = accent,
                         )
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
@@ -148,8 +165,12 @@ fun YtMusicAccountSheet(
                             Button(
                                 onClick = onSignIn,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Teal,
-                                    contentColor = Color(0xFF06201D),
+                                    containerColor = accent,
+                                    contentColor = if (accent.luminance() > 0.45f) {
+                                        Color.Black
+                                    } else {
+                                        Color.White
+                                    },
                                 ),
                             ) {
                                 Text("Sign in", fontWeight = FontWeight.SemiBold)
@@ -165,6 +186,8 @@ fun YtMusicAccountSheet(
                         icon = Icons.Default.SwapHoriz,
                         title = "Switch YouTube account",
                         subtitle = "Sign in with a different YouTube Music account",
+                        cardColor = cardColor,
+                        accent = accent,
                         onClick = onSwitchAccount,
                     )
                 }
@@ -177,12 +200,16 @@ fun YtMusicAccountSheet(
                         "Sign in to sync recommendations and your library"
                     },
                     trailing = if (signedIn) "On" else "Off",
+                    cardColor = cardColor,
+                    accent = accent,
                     onClick = if (signedIn) null else onSignIn,
                 )
                 AccountActionRow(
                     icon = Icons.Default.Extension,
                     title = "StreamCloud integrations",
                     subtitle = "Manage connected services",
+                    cardColor = cardColor,
+                    accent = accent,
                     onClick = {
                         onDismiss()
                         onOpenSettings()
@@ -192,6 +219,8 @@ fun YtMusicAccountSheet(
                     icon = Icons.Default.Settings,
                     title = "StreamCloud settings",
                     subtitle = "Playback, appearance, downloads and more",
+                    cardColor = cardColor,
+                    accent = accent,
                     onClick = {
                         onDismiss()
                         onOpenSettings()
@@ -215,6 +244,8 @@ private fun AccountActionRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
+    cardColor: Color,
+    accent: Color,
     trailing: String? = null,
     onClick: (() -> Unit)?,
 ) {
@@ -222,7 +253,7 @@ private fun AccountActionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(StreamCloudCard)
+            .background(cardColor)
             .then(
                 if (onClick != null) Modifier.clickable(onClick = onClick)
                 else Modifier,
@@ -234,13 +265,13 @@ private fun AccountActionRow(
             modifier = Modifier
                 .size(42.dp)
                 .clip(RoundedCornerShape(13.dp))
-                .background(Color(0xFF19312E)),
+                .background(lerp(cardColor, accent, 0.22f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Teal,
+                tint = accent,
                 modifier = Modifier.size(22.dp),
             )
         }
@@ -265,7 +296,7 @@ private fun AccountActionRow(
                 text = it,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
-                color = Teal,
+                color = accent,
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
@@ -277,6 +308,7 @@ private fun AccountActionRow(
 private fun AccountAvatar(
     avatarUrl: String,
     size: androidx.compose.ui.unit.Dp,
+    accent: Color,
 ) {
     val context = LocalContext.current
     if (avatarUrl.isNotBlank()) {
@@ -297,13 +329,13 @@ private fun AccountAvatar(
             modifier = Modifier
                 .size(size)
                 .clip(CircleShape)
-                .background(Color(0xFF19312E)),
+                .background(lerp(StreamCloudCard, accent, 0.22f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = Icons.Default.AccountCircle,
                 contentDescription = "YouTube Music profile",
-                tint = Teal,
+                tint = accent,
                 modifier = Modifier.size(size * 0.72f),
             )
         }

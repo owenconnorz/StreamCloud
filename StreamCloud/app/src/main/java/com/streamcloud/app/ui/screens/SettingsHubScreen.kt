@@ -909,47 +909,17 @@ fun SettingsHubScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(Modifier.height(14.dp))
-                        Row(
-                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            PaletteDynamicItem(
-                                selected = colorPalette == "dynamic",
-                                accent   = MaterialTheme.colorScheme.primary,
-                                outline  = MaterialTheme.colorScheme.outlineVariant,
-                                onClick  = {
-                                    colorPalette = "dynamic"; dynamicColor = true
-                                    scope.launch {
-                                        sl.settings.setColorPalette("dynamic")
-                                        sl.settings.setDynamicColor(true)
-                                    }
-                                },
-                            )
-                            listOf(
-                                Triple("default", Color(0xFF8B6E6A), Color(0xFFC97B6C)),
-                                Triple("warm",    Color(0xFFE8B87A), Color(0xFFD4824A)),
-                                Triple("coral",   Color(0xFFE8A0A0), Color(0xFFD45858)),
-                                Triple("violet",  Color(0xFFB8A0DC), Color(0xFF7B54C2)),
-                                Triple("blue",    Color(0xFF8AB4E8), Color(0xFF3B6CAC)),
-                                Triple("indigo",  Color(0xFF8888CC), Color(0xFF3B3B9C)),
-                            ).forEach { (id, topC, bottomC) ->
-                                PaletteItem(
-                                    topColor = topC, bottomColor = bottomC,
-                                    selected = colorPalette == id,
-                                    accent   = MaterialTheme.colorScheme.primary,
-                                    outline  = MaterialTheme.colorScheme.outlineVariant,
-                                    onClick  = {
-                                        colorPalette = id
-                                        if (dynamicColor) {
-                                            dynamicColor = false
-                                            scope.launch { sl.settings.setDynamicColor(false) }
-                                        }
-                                        scope.launch { sl.settings.setColorPalette(id) }
-                                    },
-                                )
-                            }
-                        }
+                        MoviesThemePicker(
+                            selected = colorPalette,
+                            onSelect = { id ->
+                                colorPalette = id
+                                if (dynamicColor) {
+                                    dynamicColor = false
+                                    scope.launch { sl.settings.setDynamicColor(false) }
+                                }
+                                scope.launch { sl.settings.setColorPalette(id) }
+                            },
+                        )
                     }
                 }
                 Spacer(Modifier.height(16.dp))

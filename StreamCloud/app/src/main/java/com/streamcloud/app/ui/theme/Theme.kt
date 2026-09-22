@@ -83,6 +83,17 @@ internal val palettes: Map<String, PaletteAccents> = mapOf(
     "violet"  to PaletteAccents(Color(0xFF7B54C2),    Color(0xFF3E2070),       Color(0xFFB8A0DC)),
     "blue"    to PaletteAccents(Color(0xFF3B6CAC),    Color(0xFF1E3D6A),       Color(0xFF8AB4E8)),
     "indigo"  to PaletteAccents(Color(0xFF3B3B9C),    Color(0xFF1E1E60),       Color(0xFF8888CC)),
+    "white"   to PaletteAccents(Color(0xFF1B7A3A),    Color(0xFF0A3A18),       Color(0xFF1B7A3A)),
+    "crimson" to PaletteAccents(Color(0xFFDC2626),    Color(0xFF8B0A0A),       Color(0xFFDC2626)),
+    "ocean"   to PaletteAccents(Color(0xFF2196F3),    Color(0xFF0D5A8A),       Color(0xFF2196F3)),
+    "emerald" to PaletteAccents(Color(0xFF22C55E),    Color(0xFF166534),       Color(0xFF22C55E)),
+    "amber"   to PaletteAccents(Color(0xFFF59E0B),    Color(0xFF8B5E0A),       Color(0xFFF59E0B)),
+    "rose"    to PaletteAccents(Color(0xFFEC4899),    Color(0xFF8B2554),       Color(0xFFEC4899)),
+    "messenger" to PaletteAccents(Color(0xFF5B7AEA),  Color(0xFF2D3192),       Color(0xFF5B7AEA)),
+    "amethyst"  to PaletteAccents(Color(0xFF9B59B6),  Color(0xFF6C3483),       Color(0xFF9B59B6)),
+    "blossom"   to PaletteAccents(Color(0xFFFF7B54),  Color(0xFFCC3C1A),       Color(0xFFFF7B54)),
+    "lagoon"    to PaletteAccents(Color(0xFF14B8A6),  Color(0xFF0E6655),       Color(0xFF14B8A6)),
+    "sunset"    to PaletteAccents(Color(0xFFE8622D),  Color(0xFF8B2A05),       Color(0xFFE8622D)),
 )
 
 internal fun shouldUseAlbumArtDynamicTheme(
