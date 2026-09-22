@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import java.util.Locale
 import java.util.UUID
 
@@ -18,10 +19,10 @@ enum class DjVoicePreset(
 ) {
     // Keep the enum name for preference compatibility while making the default style
     // smoother and more alluring through Android's local TTS controls.
-    BrightHost("Velvet host", "Smooth, warm, and alluring", 0.90f, 0.90f),
-    Midnight("Midnight host", "Deep and cinematic", 0.82f, 0.88f),
-    Chill("Chill host", "Relaxed and smooth", 0.96f, 0.86f),
-    Hype("Hype host", "Fast and energetic", 1.14f, 1.13f),
+    BrightHost("Velvet host", "Warm, natural, and alluring", 0.95f, 0.96f),
+    Midnight("Midnight host", "Low, smooth, and cinematic", 0.88f, 0.93f),
+    Chill("Chill host", "Relaxed and intimate", 0.99f, 0.94f),
+    Hype("Hype host", "Bright and energetic", 1.08f, 1.05f),
 }
 
 /**
@@ -43,6 +44,7 @@ class DjNarrator(context: Context) {
                 mainHandler.post {
                     if (!closed && ::textToSpeech.isInitialized) {
                         textToSpeech.language = Locale.getDefault()
+                        chooseNaturalVoice(textToSpeech, Locale.getDefault())
                     }
                 }
             }
@@ -80,10 +82,15 @@ class DjNarrator(context: Context) {
         activeUtteranceId = utteranceId
         textToSpeech.setPitch(preset.pitch)
         textToSpeech.setSpeechRate(preset.rate)
+        val parameters = Bundle().apply {
+            // Use the engine's full utterance volume. This does not change the user's system
+            // volume, but prevents DJ speech from being quieter than normal TTS guidance.
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+        }
         val result = textToSpeech.speak(
             text.take(360),
             TextToSpeech.QUEUE_FLUSH,
-            Bundle(),
+            parameters,
             utteranceId,
         )
         if (result == TextToSpeech.ERROR) {
@@ -115,5 +122,21 @@ class DjNarrator(context: Context) {
         val action = completion ?: return
         completion = null
         mainHandler.post(action)
+    }
+
+    private fun chooseNaturalVoice(engine: TextToSpeech, locale: Locale) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.LOLLIPOP) return
+        val voice = runCatching {
+            engine.voices
+                .asSequence()
+                .filter { it.locale.language == locale.language }
+                .sortedWith(
+                    compareBy<Voice> { it.isNetworkConnectionRequired }
+                        .thenByDescending { it.quality }
+                        .thenBy { it.latency },
+                )
+                .firstOrNull()
+        }.getOrNull()
+        if (voice != null) engine.voice = voice
     }
 }

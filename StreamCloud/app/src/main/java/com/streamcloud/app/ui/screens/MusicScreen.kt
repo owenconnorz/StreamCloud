@@ -127,6 +127,7 @@ private const val MUSIC_SPEED_DIAL_MAX_ITEMS = MUSIC_SPEED_DIAL_PAGE_SIZE * 3
 private data class PendingDjAnnouncement(
     val session: DjSession,
     val announcement: String,
+    val pausePlayback: Boolean,
 )
 
 internal sealed interface MusicSpeedDialEntry {
@@ -291,6 +292,8 @@ fun MusicScreen(
     var djAnnouncementNumber by remember { mutableIntStateOf(0) }
     var lastDjTrack by remember { mutableStateOf<YtTrack?>(null) }
     var djAnnouncementInProgress by remember { mutableStateOf(false) }
+    var djPauseCommandPending by remember { mutableStateOf(false) }
+    var djResumeAfterAnnouncement by remember { mutableStateOf(false) }
     var pendingDjAnnouncement by remember { mutableStateOf<PendingDjAnnouncement?>(null) }
     val currentDjSession = rememberUpdatedState(activeDjSession)
     val currentDjVoicePreset = rememberUpdatedState(djVoicePreset)
@@ -300,6 +303,8 @@ fun MusicScreen(
         // prevents a stale TTS completion from replacing playback after the user chooses a track.
         djNarrator.cancel()
         djAnnouncementInProgress = false
+        djPauseCommandPending = false
+        djResumeAfterAnnouncement = false
         pendingDjAnnouncement = null
     }
 
@@ -321,21 +326,43 @@ fun MusicScreen(
                 val pending = pendingDjAnnouncement ?: return
                 if (
                     djAnnouncementInProgress ||
-                    !controller.playWhenReady ||
-                    controller.playbackState != Player.STATE_READY ||
                     currentDjSession.value != pending.session
                 ) {
                     return
                 }
+                if (
+                    !pending.pausePlayback &&
+                    (!controller.playWhenReady || controller.playbackState != Player.STATE_READY)
+                ) {
+                    return
+                }
+                if (pending.pausePlayback && !controller.playWhenReady) {
+                    pendingDjAnnouncement = null
+                    return
+                }
                 pendingDjAnnouncement = null
+                val shouldResume = pending.pausePlayback && controller.playWhenReady
+                djAnnouncementInProgress = true
+                djPauseCommandPending = pending.pausePlayback
+                djResumeAfterAnnouncement = shouldResume
+                if (pending.pausePlayback) controller.pause()
                 val willSpeak = djNarrator.speak(
                     pending.announcement,
                     currentDjVoicePreset.value,
                 ) {
+                    val resumePlayback = djAnnouncementInProgress &&
+                        djResumeAfterAnnouncement &&
+                        currentDjSession.value == pending.session
                     djAnnouncementInProgress = false
+                    djPauseCommandPending = false
+                    djResumeAfterAnnouncement = false
+                    if (resumePlayback) controller.play()
                 }
-                if (willSpeak) {
-                    djAnnouncementInProgress = true
+                if (!willSpeak) {
+                    djAnnouncementInProgress = false
+                    djPauseCommandPending = false
+                    djResumeAfterAnnouncement = false
+                    if (shouldResume) controller.play()
                 }
             }
             val listener = object : Player.Listener {
@@ -343,6 +370,14 @@ fun MusicScreen(
                     isPlaying = playing
                     if (!djAnnouncementInProgress) {
                         if (playing) startPendingDjAnnouncement()
+                        return
+                    }
+                    if (!playing && djPauseCommandPending) {
+                        djPauseCommandPending = false
+                    } else if (!playing) {
+                        // A user pause or external interruption takes precedence over the
+                        // between-song announcement and must not be followed by an auto-resume.
+                        cancelDjAnnouncement()
                     }
                 }
 
@@ -352,9 +387,11 @@ fun MusicScreen(
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                     if (!playWhenReady) {
-                        if (djAnnouncementInProgress) {
-                            // A real user or external pause should stop the host too. The host
-                            // no longer pauses the player itself, so this cannot be its own event.
+                        if (djAnnouncementInProgress && djPauseCommandPending) {
+                            djPauseCommandPending = false
+                        } else if (djAnnouncementInProgress) {
+                            // A real user or external pause should stop the host and prevent an
+                            // automatic resume after the between-song announcement.
                             cancelDjAnnouncement()
                         } else {
                             // Do not defer a queued DJ interruption until after a user pause.
@@ -459,10 +496,11 @@ fun MusicScreen(
                     pendingDjAnnouncement = PendingDjAnnouncement(
                         session = session,
                         announcement = buildDjFollowUpAnnouncement(
-                        previousTrack = previousTrack,
-                        currentTrack = currentTrack,
-                        announcementNumber = djAnnouncementNumber,
+                            previousTrack = previousTrack,
+                            currentTrack = currentTrack,
+                            announcementNumber = djAnnouncementNumber,
                         ),
+                        pausePlayback = true,
                     )
                     startPendingDjAnnouncement()
                 }

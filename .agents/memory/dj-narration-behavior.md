@@ -23,11 +23,21 @@ guard interpreting automatic recommendations as a user-selected queue replacemen
 **How to apply:** Only extend while a personalized DJ session owns the queue; keep ordinary queue
 changes as an explicit exit from DJ mode.
 
-Transition narration must never pause the Media3 player. Use speech audio attributes that let Android
-duck media when appropriate, and cancel only when the user or an external interruption pauses playback.
+Follow-up narration should run in a deliberate between-song gap: pause the newly selected item before
+it becomes audible, speak clearly, then resume that item. Do not speak over the song when the user
+has reported that narration is hard to hear.
 
-**Why:** Pausing and restarting the player around every host update creates audible gaps and can lose
-the current handoff position.
+**Why:** The DJ host needs to be intelligible, and pausing only at the transition avoids interrupting
+the previous song or losing the next track's queue position.
 
-**How to apply:** Let TTS complete independently over the active track, and vary host updates across
-two or three automatic transitions rather than using a fixed two-track cadence.
+**How to apply:** Vary host updates across two or three automatic transitions, preserve user pauses,
+and resume only when the pause was initiated by the DJ announcement itself.
+
+Voice realism must be improved through the device's installed TTS voices and prosody controls, not
+through imitation of a named person or a hardcoded proprietary voice.
+
+**Why:** Android devices expose different TTS engines and voice inventories; the app cannot guarantee
+a studio-quality voice, but it can prefer the best matching installed voice and keep speech audible.
+
+**How to apply:** Select a matching locale voice by quality and latency, tune pitch/rate per StreamCloud
+preset, and use full utterance volume without changing the user's system volume.
