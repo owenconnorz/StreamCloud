@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private const val INITIAL_TRACK_COUNT = 24
+private const val EXTENSION_TRACK_COUNT = 12
+
 data class DjSession(
     val request: String,
     val narration: String,
@@ -30,6 +33,7 @@ data class DjSession(
 
 data class DjUiState(
     val loading: Boolean = false,
+    val extending: Boolean = false,
     val session: DjSession? = null,
     val error: String? = null,
 )
@@ -152,10 +156,16 @@ class DjViewModel(context: Context) : ViewModel() {
                         }
                     }.awaitAll().flatten()
                 }
-                val tracks = (seedTracks + discoveredTracks)
-                    .filter { it.url.isNotBlank() }
-                    .distinctBy { it.url }
-                    .take(15)
+                val tracks = buildDjRadioQueue(
+                    familiar = seedTracks,
+                    discoveries = discoveredTracks
+                        .filter { it.url.isNotBlank() }
+                        .distinctBy { it.url }
+                        .filterNot { candidate ->
+                            seedTracks.any { seed -> seed.url == candidate.url }
+                        },
+                    limit = INITIAL_TRACK_COUNT,
+                )
                 if (tracks.isEmpty()) {
                     _state.update {
                         it.copy(
@@ -186,7 +196,7 @@ class DjViewModel(context: Context) : ViewModel() {
                     narration = narration,
                     tracks = tracks,
                     isPersonalized = true,
-                    sourceDescription = sourceDescription,
+                    sourceDescription = "$sourceDescription The DJ will keep finding the next chapter while you listen.",
                 )
                 _state.update {
                     it.copy(loading = false, session = session)
@@ -199,6 +209,107 @@ class DjViewModel(context: Context) : ViewModel() {
                     it.copy(
                         loading = false,
                         error = "The personalized DJ couldn't build a mix: ${error.message ?: "please try again."}",
+                    )
+                }
+                onComplete(null)
+            }
+        }
+    }
+
+    /**
+     * Extends an active personalized radio before its queue runs out. Fresh searches are built
+     * around the current chapter and local taste signals so the DJ feels continuous instead of
+     * looping a fixed playlist.
+     */
+    fun extendPersonalizedMix(
+        session: DjSession,
+        onComplete: (DjSession?) -> Unit = {},
+    ) {
+        if (!session.isPersonalized || _state.value.extending) return
+        _state.update { it.copy(extending = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val existingUrls = session.tracks.map(YtTrack::url).toSet()
+                val liked = trackDao.liked().first()
+                val listeningHistoryEnabled = serviceLocator.settings.listenHistoryEnabled.first() &&
+                    !serviceLocator.settings.pauseListenHistory.first()
+                val recent = if (listeningHistoryEnabled) trackDao.recent().first() else emptyList()
+                val signalTracks = buildList {
+                    addAll(session.tracks.takeLast(5))
+                    addAll(
+                        liked.map { entity ->
+                            YtTrack(
+                                title = entity.title,
+                                uploader = entity.artist,
+                                durationSec = entity.durationSec,
+                                url = entity.url,
+                                thumbnail = entity.thumbnail,
+                            )
+                        },
+                    )
+                    if (listeningHistoryEnabled) {
+                        addAll(
+                            recent.map { entity ->
+                                YtTrack(
+                                    title = entity.title,
+                                    uploader = entity.artist,
+                                    durationSec = entity.durationSec,
+                                    url = entity.url,
+                                    thumbnail = entity.thumbnail,
+                                )
+                            },
+                        )
+                    }
+                }.filter { it.url.isNotBlank() }.distinctBy(YtTrack::url).take(8)
+
+                val queries = buildList {
+                    signalTracks.take(4).forEach { track ->
+                        if (track.uploader.isNotBlank()) add("${track.uploader} similar music")
+                        if (track.title.isNotBlank() && track.uploader.isNotBlank()) {
+                            add("${track.title} ${track.uploader} mix")
+                        }
+                    }
+                    add("more ${session.request} music")
+                }.map(String::trim).filter { it.length >= 2 }.distinct().take(7)
+
+                val discoveries = coroutineScope {
+                    queries.map { query ->
+                        async {
+                            runCatching { NewPipeRepository.searchSongs(query) }
+                                .getOrDefault(emptyList())
+                                .take(8)
+                        }
+                    }.awaitAll().flatten()
+                }
+                    .filter { it.url.isNotBlank() && it.url !in existingUrls }
+                    .distinctBy(YtTrack::url)
+
+                val additions = buildDjRadioQueue(
+                    familiar = signalTracks.filterNot { it.url in existingUrls },
+                    discoveries = discoveries,
+                    limit = EXTENSION_TRACK_COUNT,
+                ).filterNot { it.url in existingUrls }
+
+                val extended = additions.takeIf { it.isNotEmpty() }?.let {
+                    session.copy(
+                        tracks = session.tracks + it,
+                        narration = buildFallbackNarration(
+                            "the next chapter of your ${session.request}",
+                            it,
+                        ),
+                        sourceDescription = "The DJ is blending your listening with fresh discoveries.",
+                    )
+                }
+                _state.update { it.copy(extending = false, session = extended ?: session) }
+                onComplete(extended)
+            } catch (error: CancellationException) {
+                _state.update { it.copy(extending = false) }
+                throw error
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(
+                        extending = false,
+                        error = "The DJ could not find the next chapter: ${error.message ?: "try again later."}",
                     )
                 }
                 onComplete(null)
@@ -240,7 +351,39 @@ class DjViewModel(context: Context) : ViewModel() {
 
     private fun buildFallbackNarration(request: String, tracks: List<YtTrack>): String {
         val first = tracks.first()
-        return "Here is a $request mix to get you started. Opening with ${first.title} by ${first.uploader}."
+        return "Here is a $request mix. Opening with ${first.title} by ${first.uploader}."
+    }
+
+    private fun buildDjRadioQueue(
+        familiar: List<YtTrack>,
+        discoveries: List<YtTrack>,
+        limit: Int,
+    ): List<YtTrack> {
+        val result = mutableListOf<YtTrack>()
+        val seen = mutableSetOf<String>()
+        var familiarIndex = 0
+        var discoveryIndex = 0
+
+        fun addNext(source: List<YtTrack>, index: Int): Int {
+            var next = index
+            while (next < source.size && result.size < limit) {
+                val track = source[next++]
+                if (track.url.isNotBlank() && seen.add(track.url)) result += track
+            }
+            return next
+        }
+
+        while (result.size < limit && (familiarIndex < familiar.size || discoveryIndex < discoveries.size)) {
+            if (familiarIndex < familiar.size) {
+                familiarIndex = addNext(familiar, familiarIndex)
+            }
+            repeat(2) {
+                if (discoveryIndex < discoveries.size) {
+                    discoveryIndex = addNext(discoveries, discoveryIndex)
+                }
+            }
+        }
+        return result.take(limit)
     }
 
     private fun String.isSafeDjNarration(): Boolean {

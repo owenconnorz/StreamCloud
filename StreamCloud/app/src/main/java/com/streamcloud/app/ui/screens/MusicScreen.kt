@@ -121,6 +121,7 @@ internal fun buildCombinedMusicSuggestions(quickChips: List<MoodChip>): List<Str
         .distinctBy { it.trim().lowercase() }
 
 private const val DJ_ANNOUNCEMENT_INTERVAL = 2
+private const val DJ_EXTENSION_TRIGGER_COUNT = 6
 private const val MUSIC_SPEED_DIAL_PAGE_SIZE = 9
 private const val MUSIC_SPEED_DIAL_MAX_ITEMS = MUSIC_SPEED_DIAL_PAGE_SIZE * 3
 
@@ -184,6 +185,17 @@ private fun YtTrack.matchesDjMediaId(mediaId: String): Boolean {
     val mediaVideoId = mediaId.substringAfter("v=", "").substringBefore("&")
     return trackVideoId.length == 11 && trackVideoId == mediaVideoId
 }
+
+private fun YtTrack.toDjYtmSong(): YtmSong =
+    YtmSong(
+        videoId = musicVideoId(url) ?: url,
+        title = title,
+        artist = uploader,
+        album = null,
+        thumbnail = thumbnail,
+        durationSeconds = durationSec,
+        isVideo = isVideo,
+    )
 
 private fun buildDjFollowUpAnnouncement(
     previousTrack: YtTrack,
@@ -272,6 +284,7 @@ fun MusicScreen(
     var activeDjSession by remember { mutableStateOf<DjSession?>(null) }
     var djSessionGeneration by remember { mutableIntStateOf(0) }
     var djQueueInstalled by remember { mutableStateOf(false) }
+    var djExtensionInProgress by remember { mutableStateOf(false) }
     var djTracksSinceAnnouncement by remember { mutableIntStateOf(0) }
     var djAnnouncementNumber by remember { mutableIntStateOf(0) }
     var lastDjTrack by remember { mutableStateOf<YtTrack?>(null) }
@@ -297,6 +310,7 @@ fun MusicScreen(
         djStarting = false
         djSessionGeneration += 1
         djQueueInstalled = false
+        djExtensionInProgress = false
         activeDjSession = null
         djTracksSinceAnnouncement = 0
         lastDjTrack = null
@@ -367,7 +381,10 @@ fun MusicScreen(
                     timeline: androidx.media3.common.Timeline,
                     reason: Int,
                 ) {
-                    val session = currentDjSession.value ?: return
+                    // Read the Compose state directly here. The queue extension updates the
+                    // expected session immediately before calling Media3, while
+                    // rememberUpdatedState may not have recomposed yet.
+                    val session = activeDjSession ?: return
                     if (reason != Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) return
                     if (controller.mediaItemCount == 0) {
                         if (djQueueInstalled) endDjSession()
@@ -389,7 +406,7 @@ fun MusicScreen(
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    val session = currentDjSession.value ?: return
+                    val session = activeDjSession ?: return
                     if (!djQueueInstalled) return
                     val currentTrack = mediaItem?.mediaId
                         ?.let { mediaId -> session.tracks.firstOrNull { it.matchesDjMediaId(mediaId) } }
@@ -403,6 +420,40 @@ fun MusicScreen(
                         djTracksSinceAnnouncement = 0
                         lastDjTrack = currentTrack
                         return
+                    }
+
+                    if (
+                        !djExtensionInProgress &&
+                        controller.mediaItemCount - controller.currentMediaItemIndex <= DJ_EXTENSION_TRIGGER_COUNT
+                    ) {
+                        djExtensionInProgress = true
+                        val extensionGeneration = djSessionGeneration
+                        djViewModel.extendPersonalizedMix(session) { extended ->
+                            val additions = extended?.tracks?.drop(session.tracks.size).orEmpty()
+                            if (
+                                additions.isNotEmpty() &&
+                                extensionGeneration == djSessionGeneration &&
+                                activeDjSession == session
+                            ) {
+                                // Update the expected session before Media3 receives the appended
+                                // items so the queue guard does not treat a DJ chapter as a user
+                                // selected queue replacement.
+                                activeDjSession = extended
+                                dlScope.launch {
+                                    runCatching {
+                                        com.streamcloud.app.data.ytmusic.YtPlayback.appendToQueue(
+                                            context,
+                                            additions.map(YtTrack::toDjYtmSong),
+                                        )
+                                    }.onFailure {
+                                        if (activeDjSession == extended) {
+                                            activeDjSession = session
+                                        }
+                                    }
+                                }
+                            }
+                            djExtensionInProgress = false
+                        }
                     }
 
                     djTracksSinceAnnouncement += 1
@@ -568,10 +619,14 @@ fun MusicScreen(
                     onSearchClick = onSearchClick,
                     onDjClick = {
                         if (!djQuickMixLoading && !djStarting) {
-                            showDj = true
                             djQuickMixLoading = true
-                            djViewModel.buildPersonalizedMix {
+                            djViewModel.buildPersonalizedMix { session ->
                                 djQuickMixLoading = false
+                                if (session != null) {
+                                    startDjMix(session)
+                                } else {
+                                    showDj = true
+                                }
                             }
                         }
                     },

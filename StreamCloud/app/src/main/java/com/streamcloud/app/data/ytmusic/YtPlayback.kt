@@ -200,6 +200,22 @@ object YtPlayback {
         }
     }
 
+    /**
+     * Appends a generated radio chapter without replacing the listener's current queue.
+     * Media3 receives the same metadata shape as normal YT Music playback, so the resolver,
+     * notification, downloads, and crossfade paths continue to work unchanged.
+     */
+    suspend fun appendToQueue(context: Context, songs: List<YtmSong>) {
+        if (songs.isEmpty()) return
+        val items = songs.map(::buildMediaItem)
+        withContext(Dispatchers.Main) {
+            val controller = MusicController.get(context.applicationContext)
+            if (controller.mediaItemCount == 0) return@withContext
+            controller.addMediaItems(items)
+        }
+        primeStreams(songs.take(2))
+    }
+
 
     suspend fun playPlaylist(context: Context, songs: List<YtmSong>, startIndex: Int = 0) {
         if (songs.isEmpty()) return
