@@ -87,6 +87,7 @@ import com.streamcloud.app.ui.screens.PluginPickerScreen
 import com.streamcloud.app.ui.screens.PluginsScreen
 import com.streamcloud.app.ui.screens.SettingsHubScreen
 import com.streamcloud.app.ui.screens.ProfilePickerScreen
+import com.streamcloud.app.ui.screens.YtMusicAccountSheet
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
@@ -1957,10 +1958,13 @@ private fun ProfileNavItem(
     val sl = remember(context) { ServiceLocator.get(context) }
     val ytAvatar by sl.settings.ytMusicUserAvatar.collectAsState(initial = "")
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
+    val ytName by sl.settings.ytMusicUserName.collectAsState(initial = "")
+    val scope = rememberCoroutineScope()
+    var showAccountMenu by remember { mutableStateOf(false) }
 
     // When ytMusicUserAvatar is blank (JS scraping during login didn't capture it),
-    // try the YouTube Music account/account_menu API with the stored cookie —
-    // this is the primary Metrolist approach.  Fall back to the device Google
+    // try the YouTube Music account/account_menu API with the stored cookie.
+    // Fall back to the device Google
     // account via AccountManager as a last resort.
     var deviceAvatar by remember { mutableStateOf("") }
     LaunchedEffect(ytAvatar, ytCookie) {
@@ -2001,7 +2005,7 @@ private fun ProfileNavItem(
             .clip(RoundedCornerShape(50))
             .background(selectedBg)
             .tvFocusBorder(RoundedCornerShape(50))
-            .clickable(onClick = onClick)
+            .clickable { showAccountMenu = true }
             .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {
         ProfileAvatarCircle(avatar = avatar, size = 28.dp, tint = iconTint)
@@ -2017,6 +2021,54 @@ private fun ProfileNavItem(
                 overflow = TextOverflow.Clip,
             )
         }
+    }
+
+    if (showAccountMenu) {
+        YtMusicAccountSheet(
+            userName = ytName,
+            avatarUrl = avatar,
+            signedIn = ytCookie.isNotBlank(),
+            onDismiss = { showAccountMenu = false },
+            onSignIn = {
+                showAccountMenu = false
+                context.startActivity(
+                    android.content.Intent(
+                        context,
+                        com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java,
+                    ),
+                )
+            },
+            onSwitchAccount = {
+                scope.launch {
+                    sl.settings.clearYtMusicAccount()
+                    com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = ""
+                    runCatching {
+                        android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                    }
+                    showAccountMenu = false
+                    context.startActivity(
+                        android.content.Intent(
+                            context,
+                            com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java,
+                        ),
+                    )
+                }
+            },
+            onSignOut = {
+                scope.launch {
+                    sl.settings.clearYtMusicAccount()
+                    com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = ""
+                    runCatching {
+                        android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                    }
+                    showAccountMenu = false
+                }
+            },
+            onOpenSettings = {
+                showAccountMenu = false
+                onClick()
+            },
+        )
     }
 }
 

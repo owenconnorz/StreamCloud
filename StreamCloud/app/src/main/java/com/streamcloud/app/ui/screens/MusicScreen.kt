@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
@@ -232,11 +233,15 @@ fun MusicScreen(
     var query by remember { mutableStateOf("") }
     var showHistory by remember { mutableStateOf(false) }
     var showDj by remember { mutableStateOf(false) }
+    var showAccountMenu by remember { mutableStateOf(false) }
     var djRequest by remember { mutableStateOf("") }
     var djStarting by remember { mutableStateOf(false) }
     var djQuickMixLoading by remember { mutableStateOf(false) }
     val dlScope = rememberCoroutineScope()
     val settings = remember(context) { ServiceLocator.get(context).settings }
+    val ytMusicUserName by settings.ytMusicUserName.collectAsState(initial = "")
+    val ytMusicUserAvatar by settings.ytMusicUserAvatar.collectAsState(initial = "")
+    val ytMusicCookie by settings.ytMusicCookie.collectAsState(initial = "")
     val speedDial by settings.musicSpeedDial.collectAsState(initial = emptyList())
     val speedDialEntries = remember(speedDial, state.ytHome.sections) {
         buildMusicSpeedDial(speedDial, state.ytHome.sections)
@@ -634,7 +639,8 @@ fun MusicScreen(
         ) {
             item {
                 MusicHeader(
-                    onProfileClick = onProfileClick,
+                    onProfileClick = { showAccountMenu = true },
+                    profileAvatar = ytMusicUserAvatar,
                     onHistoryClick = { showHistory = true },
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                     djLoading = djQuickMixLoading || djStarting,
@@ -1149,6 +1155,50 @@ fun MusicScreen(
                 },
             )
         }
+        if (showAccountMenu) {
+            YtMusicAccountSheet(
+                userName = ytMusicUserName,
+                avatarUrl = ytMusicUserAvatar,
+                signedIn = ytMusicCookie.isNotBlank(),
+                onDismiss = { showAccountMenu = false },
+                onSignIn = {
+                    showAccountMenu = false
+                    context.startActivity(
+                        android.content.Intent(
+                            context,
+                            com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java,
+                        ),
+                    )
+                },
+                onSwitchAccount = {
+                    dlScope.launch {
+                        settings.clearYtMusicAccount()
+                        com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = ""
+                        runCatching {
+                            android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                        }
+                        showAccountMenu = false
+                        context.startActivity(
+                            android.content.Intent(
+                                context,
+                                com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java,
+                            ),
+                        )
+                    }
+                },
+                onSignOut = {
+                    dlScope.launch {
+                        settings.clearYtMusicAccount()
+                        com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = ""
+                        runCatching {
+                            android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                        }
+                        showAccountMenu = false
+                    }
+                },
+                onOpenSettings = onProfileClick,
+            )
+        }
     }
 }
 
@@ -1304,6 +1354,7 @@ private fun playTrack(player: androidx.media3.common.Player, track: YtTrack, aud
 @Composable
 private fun MusicHeader(
     onProfileClick: () -> Unit,
+    profileAvatar: String,
     onHistoryClick: () -> Unit,
     onTrendingClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
@@ -1364,6 +1415,53 @@ private fun MusicHeader(
                 icon = Icons.Default.TrendingUp,
                 contentDescription = "Trending",
                 onClick = onTrendingClick,
+            )
+            MusicProfileAction(
+                avatarUrl = profileAvatar,
+                onClick = onProfileClick,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MusicProfileAction(
+    avatarUrl: String,
+    onClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .padding(start = 2.dp)
+            .size(44.dp)
+            .clip(CircleShape)
+            .tvFocusBorder(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (avatarUrl.isNotBlank()) {
+            AsyncImage(
+                model = coil.request.ImageRequest.Builder(context)
+                    .data(avatarUrl)
+                    .crossfade(true)
+                    .allowHardware(false)
+                    .build(),
+                contentDescription = "Open YouTube Music account",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape),
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = "Open YouTube Music account",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(6.dp),
             )
         }
     }
