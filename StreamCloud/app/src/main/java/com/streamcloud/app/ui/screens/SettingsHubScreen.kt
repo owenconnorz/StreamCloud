@@ -4952,7 +4952,7 @@ private fun NuvioAccountRow() {
             )
             Text(
                 if (signedIn) email.ifBlank { "Signed in" }
-                else "Sync plugins, addons, watch progress and watchlist",
+                else "Sync Nuvio plugins, Stremio addons, watch progress and watchlist",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

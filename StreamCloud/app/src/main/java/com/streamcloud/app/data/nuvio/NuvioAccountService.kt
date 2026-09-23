@@ -2,6 +2,7 @@ package com.streamcloud.app.data.nuvio
 
 import android.content.Context
 import android.util.Log
+import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.data.ServiceLocator
@@ -10,8 +11,6 @@ import com.streamcloud.app.data.library.UserCollectionEntity
 import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
-import com.streamcloud.app.data.plugins.PluginRepository
-import com.streamcloud.app.data.profiles.ProfileRepository
 import com.streamcloud.app.data.profiles.UserProfile
 import com.streamcloud.app.data.stremio.StremioRepository
 import kotlinx.coroutines.Dispatchers
@@ -268,8 +267,9 @@ class NuvioAccountService(private val context: Context) {
 
     suspend fun syncPull(accessToken: String): NuvioPullResult = withContext(Dispatchers.IO) {
         val stremioRepo = StremioRepository(context)
-        val pluginRepo = PluginRepository(context)
+        val nuvioRepo = ServiceLocator.get(context).nuvio
         val resolvedTmdbIds = mutableMapOf<String, Long?>()
+        val metadataCache = mutableMapOf<String, TmdbMovie?>()
 
         suspend fun resolveTmdbId(contentId: String, contentType: String): Long? {
             val cacheKey = "${contentType.lowercase()}|${contentId.trim()}"
@@ -277,6 +277,25 @@ class NuvioAccountService(private val context: Context) {
             val resolved = resolveTmdbIdFromNuvio(contentId, contentType)
             resolvedTmdbIds[cacheKey] = resolved
             return resolved
+        }
+
+        suspend fun resolveMetadata(tmdbId: Long, contentType: String): TmdbMovie? {
+            val cacheKey = "${contentType.lowercase()}|$tmdbId"
+            if (cacheKey in metadataCache) return metadataCache[cacheKey]
+            val sl = ServiceLocator.get(context)
+            val metadata = runCatching {
+                if (contentType.equals("series", ignoreCase = true) ||
+                    contentType.equals("tv", ignoreCase = true)
+                ) {
+                    sl.tmdb.tvDetails(tmdbId, sl.tmdbApiKey)
+                } else {
+                    sl.tmdb.details(tmdbId, sl.tmdbApiKey)
+                }
+            }.onFailure {
+                Log.w(TAG, "resolve Nuvio metadata $tmdbId: ${it.message}")
+            }.getOrNull()
+            metadataCache[cacheKey] = metadata
+            return metadata
         }
 
         var pulledAddons = 0
@@ -316,7 +335,7 @@ class NuvioAccountService(private val context: Context) {
             }
         }.onFailure { Log.w(TAG, "pull addons: ${it.message}") }
 
-        // ── CloudStream repos ───────────────────────────────────────────────
+        // ── Nuvio plugin repositories ───────────────────────────────────────
         runCatching {
             val text = rpc(
                 "sync_pull_plugins",
@@ -324,12 +343,12 @@ class NuvioAccountService(private val context: Context) {
                 accessToken,
             ).getOrThrow()
             val plugins = json.decodeFromString(ListSerializer(PullPlugin.serializer()), text)
-            val existingUrls = pluginRepo.repos.first().map { it.url }.toSet()
+            val existingUrls = nuvioRepo.savedRepos.first().map { it.url }.toSet()
             plugins.forEach { pulled ->
                 val url = pulled.url.trim()
                 if (url.isNotBlank() && url !in existingUrls) {
                     val name = pulled.name?.takeIf { it.isNotBlank() } ?: url.substringAfterLast("/").substringBefore(".")
-                    runCatching { pluginRepo.addRepo(name, url) }
+                    runCatching { nuvioRepo.addSavedRepo(url, name) }
                     pulledPlugins++
                 }
             }
@@ -352,21 +371,39 @@ class NuvioAccountService(private val context: Context) {
                 val mediaType = if (e.content_type == "series") "tv" else "movie"
                 val existing = progressDao.byId(tmdbId)
                 val updatedAt = e.last_watched.takeIf { it > 0 } ?: System.currentTimeMillis()
-                if (existing == null || existing.updatedAt < updatedAt) {
+                val shouldUseProgress = existing == null || existing.updatedAt < updatedAt
+                val needsMetadata = existing == null ||
+                    existing.title.isBlank() ||
+                    existing.title == "Movie" ||
+                    existing.title == "Series" ||
+                    existing.posterUrl.isNullOrBlank()
+                if (shouldUseProgress || needsMetadata) {
+                    val metadata = if (needsMetadata) {
+                        resolveMetadata(tmdbId, e.content_type)
+                    } else {
+                        null
+                    }
                     progressDao.upsert(
                         WatchProgressEntity(
                             tmdbId = tmdbId,
-                            title = e.name?.takeIf { it.isNotBlank() } ?: existing?.title ?: "",
-                            posterUrl = e.poster ?: existing?.posterUrl,
+                            title = e.name?.takeIf { it.isNotBlank() }
+                                ?: existing?.title?.takeIf { it.isNotBlank() && it != "Movie" && it != "Series" }
+                                ?: metadata?.displayTitle
+                                ?: if (mediaType == "tv") "Series" else "Movie",
+                            posterUrl = e.poster?.takeIf { it.isNotBlank() }
+                                ?: existing?.posterUrl
+                                ?: metadata?.posterUrl,
                             mediaType = mediaType,
-                            positionMs = e.position,
-                            durationMs = e.duration,
-                            updatedAt = updatedAt,
+                            positionMs = if (shouldUseProgress) e.position else existing!!.positionMs,
+                            durationMs = if (shouldUseProgress) e.duration else existing!!.durationMs,
+                            updatedAt = if (shouldUseProgress) updatedAt else existing!!.updatedAt,
                             sourceRoute = existing?.sourceRoute,
                         )
                     )
-                    val pct = if (e.duration > 0) e.position.toDouble() / e.duration else 0.0
-                    if (pct < 0.95) pulledProgress++
+                    if (shouldUseProgress) {
+                        val pct = if (e.duration > 0) e.position.toDouble() / e.duration else 0.0
+                        if (pct < 0.95) pulledProgress++
+                    }
                 }
             }
         }.onFailure { Log.w(TAG, "pull watch progress: ${it.message}") }
@@ -474,7 +511,7 @@ class NuvioAccountService(private val context: Context) {
 
     suspend fun syncAll(accessToken: String): NuvioSyncResult = withContext(Dispatchers.IO) {
         val db = LibraryDb.get(context)
-        val pluginRepo = PluginRepository(context)
+        val nuvioRepo = ServiceLocator.get(context).nuvio
         val stremioRepo = StremioRepository(context)
         var plugins = 0
         var addons = 0
@@ -492,7 +529,7 @@ class NuvioAccountService(private val context: Context) {
         }
 
         runCatching {
-            val repos = pluginRepo.repos.first()
+            val repos = nuvioRepo.savedRepos.first()
             val arr = buildJsonArray {
                 repos.forEachIndexed { i, repo ->
                     addJsonObject {
@@ -509,7 +546,7 @@ class NuvioAccountService(private val context: Context) {
                 accessToken,
             )
             plugins = repos.size
-        }
+        }.onFailure { Log.w(TAG, "push Nuvio plugins: ${it.message}") }
 
         runCatching {
             val addonList = stremioRepo.addons.first()
