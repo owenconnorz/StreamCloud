@@ -737,6 +737,7 @@ class NuvioAccountService(private val context: Context) {
         // A single cloud profile is unambiguous even when the local profile
         // was created with a different name or before cloud linking existed.
         return profiles.mapNotNull { it.nuvioProfileIndex }.singleOrNull()
+            ?: profiles.firstOrNull()?.nuvioProfileIndex
     }
 
     private suspend fun pullProfiles(accessToken: String): Int {

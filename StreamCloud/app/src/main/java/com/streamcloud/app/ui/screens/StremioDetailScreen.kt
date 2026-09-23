@@ -82,34 +82,66 @@ fun StremioDetailScreen(
             contentPadding = PaddingValues(bottom = 24.dp),
         ) {
             item {
-                Row(
-                    Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    AsyncImage(
-                        model = meta?.poster ?: initialPoster,
-                        contentDescription = meta?.name ?: initialTitle,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(width = 130.dp, height = 195.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                Column(Modifier.fillMaxWidth()) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
                             .background(MaterialTheme.colorScheme.surface),
-                    )
-                    Column(Modifier.weight(1f)) {
+                    ) {
+                        AsyncImage(
+                            model = meta?.background ?: meta?.poster ?: initialPoster,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        listOf(Color.Transparent, MaterialTheme.colorScheme.background),
+                                    ),
+                                ),
+                        )
+                    }
+                    Column(
+                        Modifier.padding(horizontal = 20.dp).offset(y = (-42).dp),
+                    ) {
                         Text(
                             meta?.name ?: initialTitle,
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground,
                         )
-                        Spacer(Modifier.height(6.dp))
-                        meta?.description?.let {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.padding(top = 6.dp),
+                        ) {
+                            meta?.releaseInfo?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            meta?.runtime?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            meta?.imdbRating?.takeIf { it.isNotBlank() }?.let {
+                                Text("★ $it", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        meta?.genres?.takeIf { it.isNotEmpty() }?.let {
                             Text(
-                                it,
+                                it.joinToString(" • "),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 6,
-                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        meta?.description?.takeIf { it.isNotBlank() }?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 12.dp),
                             )
                         }
                     }
@@ -117,7 +149,7 @@ fun StremioDetailScreen(
             }
             item {
                 Text(
-                    "Streams (${streams.size})",
+                    "Addon streams (${streams.size})",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,

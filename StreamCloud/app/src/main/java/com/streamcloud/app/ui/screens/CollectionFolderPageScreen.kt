@@ -73,8 +73,13 @@ internal suspend fun loadFolderRows(
         entries.mapIndexed { i, enc ->
             async {
                 val p = enc.split("|||")
+                val providerType = normaliseCollectionProviderType(
+                    raw = folder.providerType,
+                    parts = p,
+                    installedAddonIds = addons.map { it.id }.toSet(),
+                )
                 try {
-                    when (folder.providerType) {
+                    when (providerType) {
                         "cloudstream" -> {
                             val iname = p.getOrNull(0) ?: ""
                             val sname = p.getOrNull(1) ?: ""
@@ -128,8 +133,8 @@ internal suspend fun loadFolderRows(
                             FolderRow(label = label, tmdbItems = items, isTv = isTv, loading = false)
                         }
                     }
-                } catch (_: Throwable) {
-                    val label = when (folder.providerType) {
+                    } catch (_: Throwable) {
+                    val label = when (providerType) {
                         "cloudstream" -> p.getOrNull(2)?.ifBlank { null } ?: p.getOrNull(0) ?: "Section ${i + 1}"
                         "stremio"     -> p.getOrNull(3)?.ifBlank { null } ?: p.getOrNull(2) ?: "Catalog ${i + 1}"
                         "trakt"       -> traktSourceDisplayLabel(enc.trim())
@@ -139,6 +144,35 @@ internal suspend fun loadFolderRows(
                 }
             }
         }.awaitAll()
+    }
+}
+
+private fun normaliseCollectionProviderType(
+    raw: String,
+    parts: List<String>,
+    installedAddonIds: Set<String>,
+): String {
+    val value = raw.trim().lowercase()
+    return when {
+        value in setOf("cloudstream", "cloud_stream", "cloudstream_plugin") -> "cloudstream"
+        value in setOf("stremio", "stremio_addon", "stremio-addon", "stremio_catalog", "stremio-catalog") -> "stremio"
+        value == "trakt" -> "trakt"
+        value in setOf("", "tmdb", "nuvio", "nuvio_catalog", "nuvio-catalog") -> {
+            // Older Nuvio collection payloads used a generic provider type.
+            // The encoded Stremio catalog still carries the installed addon id.
+            if (parts.size >= 3 && parts.firstOrNull()?.let { it in installedAddonIds } == true) {
+                "stremio"
+            } else {
+                "tmdb"
+            }
+        }
+        else -> if (
+            parts.size >= 3 && parts.firstOrNull()?.let { it in installedAddonIds } == true
+        ) {
+            "stremio"
+        } else {
+            "tmdb"
+        }
     }
 }
 
