@@ -266,7 +266,7 @@ object NuvioRuntime {
         context: Context? = null,
     ): String {
         return try {
-            val sanitizedUrl = sanitizeNuvioUrlScheme(url)
+            val sanitizedUrl = normaliseNuvioFetchUrl(url)
             val rawHeaders = parseHeaders(headersJson)
             val headers = buildNuvioRequestHeaders(sanitizedUrl, method, rawHeaders).toMutableMap()
             val client = if (followRedirects) http else http.newBuilder().followRedirects(false).build()

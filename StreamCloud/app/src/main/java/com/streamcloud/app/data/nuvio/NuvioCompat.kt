@@ -77,15 +77,54 @@ internal fun tmdbMirrorFallbackUrl(url: String): String? {
     val uri = runCatching { URI(url) }.getOrNull() ?: return null
     val host = uri.host?.lowercase().orEmpty()
     val path = uri.path.orEmpty()
-    val isTmdbPath = Regex("""^/(3/)?(movie|tv|find|person|search|collection|discover)(/|$)""")
+    val isTmdbPath = Regex("""^/(3/)?(movie|tv|series|find|person|search|collection|discover)(/|$)""")
         .containsMatchIn(path)
     val isTmdbHost = host.contains("themoviedb.org")
     if (isTmdbHost || !isTmdbPath) return null
 
-    val normalizedPath = if (path.startsWith("/3/")) path else "/3$path"
-    val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+    val normalizedPath = (if (path.startsWith("/3/")) path else "/3$path")
+        .replace(Regex("""^/3/series(?=/|$)"""), "/3/tv")
+    val query = uri.rawQuery
+        ?.let { sanitizeTmdbApiQueryString(it) }
+        ?.let { "?$it" }
+        .orEmpty()
     val fragment = uri.rawFragment?.let { "#$it" }.orEmpty()
     return "https://api.themoviedb.org$normalizedPath$query$fragment"
+}
+
+/**
+ * Applies compatibility fixes to provider requests that target TMDB directly.
+ *
+ * Nuvio providers in the wild use both `/tv` and `/series`; TMDB only exposes
+ * the former. Some also carry the historical `api_kev` query typo. Keep these
+ * fixes scoped to TMDB-shaped requests so arbitrary provider APIs are not
+ * rewritten.
+ */
+internal fun normaliseNuvioFetchUrl(rawUrl: String): String {
+    val url = sanitizeNuvioUrlScheme(rawUrl)
+    val uri = runCatching { URI(url) }.getOrNull() ?: return url
+    val host = uri.host?.lowercase().orEmpty()
+    val path = uri.rawPath.orEmpty()
+    val isTmdbRequest =
+        host.contains("themoviedb.org") ||
+            Regex("""(^|/)3/(movie|tv|series|find|person|search|collection|discover)(/|$)""")
+                .containsMatchIn(path)
+    if (!isTmdbRequest) return url
+
+    val fixedPath = path.replace(
+        Regex("""(^|/)series(?=/|$)"""),
+        "$1tv",
+    )
+    val fixedQuery = uri.rawQuery?.let { sanitizeTmdbApiQueryString(it) }
+    val pathStart = url.indexOf('/', url.indexOf("://").let { if (it >= 0) it + 3 else 0 })
+    if (pathStart < 0) return url
+    val fragmentStart = url.indexOf('#', pathStart)
+    val prefix = url.substring(0, pathStart)
+    val suffix = buildString {
+        if (fixedQuery != null) append('?').append(fixedQuery)
+        if (fragmentStart >= 0) append(url.substring(fragmentStart))
+    }
+    return prefix + fixedPath + suffix
 }
 
 internal fun buildNuvioRequestHeaders(

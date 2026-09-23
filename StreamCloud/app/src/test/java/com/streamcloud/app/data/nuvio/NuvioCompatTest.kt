@@ -15,6 +15,28 @@ class NuvioCompatTest {
     }
 
     @Test
+    fun normalizesTmdbSeriesRouteToTvRoute() {
+        assertEquals(
+            "https://api.themoviedb.org/3/tv/249828?api_key=test",
+            normaliseNuvioFetchUrl("https://api.themoviedb.org/3/series/249828?api_key=test"),
+        )
+    }
+
+    @Test
+    fun fixesTmdbQueryTypoWhileNormalizingSeriesRoute() {
+        assertEquals(
+            "https://api.themoviedb.org/3/tv/249828?api_key=test",
+            normaliseNuvioFetchUrl("https://api.themoviedb.org/3/series/249828?api_kev=test"),
+        )
+    }
+
+    @Test
+    fun doesNotRewriteUnrelatedProviderUrls() {
+        val url = "https://example.com/series/249828?api_kev=test"
+        assertEquals(url, normaliseNuvioFetchUrl(url))
+    }
+
+    @Test
     fun injectsBrowserStyleDefaultsForNuvioRequests() {
         val headers = buildNuvioRequestHeaders(
             requestUrl = "https://vidfast.pro/movie/687163",
