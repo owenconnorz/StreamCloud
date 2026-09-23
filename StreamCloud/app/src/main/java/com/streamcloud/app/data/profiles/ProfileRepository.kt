@@ -72,6 +72,24 @@ class ProfileRepository(context: Context) {
         if (_activeId.value !in _profiles.value.map { it.id }) {
             setActiveProfile(_profiles.value.firstOrNull()?.id)
         }
+
+        // A Nuvio account with one cloud profile is unambiguous even when the
+        // local profile was renamed. Link the current local profile so account
+        // sync can continue to collections, library, and watch history instead
+        // of stopping at the profile pull.
+        if (remoteProfiles.size == 1) {
+            val activeId = _activeId.value ?: _profiles.value.firstOrNull()?.id
+            val active = _profiles.value.firstOrNull { it.id == activeId }
+            if (active != null && active.nuvioProfileIndex == null) {
+                _profiles.value = _profiles.value.map { profile ->
+                    if (profile.id == active.id) {
+                        profile.copy(nuvioProfileIndex = remoteProfiles.single().nuvioProfileIndex)
+                    } else {
+                        profile
+                    }
+                }
+            }
+        }
         persist()
     }
 
