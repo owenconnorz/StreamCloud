@@ -156,6 +156,26 @@ jobs:
           path: StreamCloud/artifacts
           merge-multiple: true
 
+      - name: Normalize release APK paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p StreamCloud/artifacts
+          for flavor in mobile tv; do
+            target="StreamCloud/artifacts/StreamCloud-${flavor}-release.apk"
+            source="$(find StreamCloud/artifacts -type f -name "StreamCloud-${flavor}-release.apk" -print -quit)"
+            if [[ -z "$source" ]]; then
+              echo "::error::Missing APK for ${flavor}"
+              find StreamCloud/artifacts -maxdepth 4 -type f -print
+              exit 1
+            fi
+            if [[ "$source" != "$target" ]]; then
+              cp "$source" "$target"
+            fi
+            test -s "$target"
+            echo "Ready: $target ($(stat -c%s "$target") bytes)"
+          done
+
       - name: Publish StreamCloud GitHub Release
         uses: softprops/action-gh-release@v2
         with:
