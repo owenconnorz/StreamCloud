@@ -55,6 +55,7 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
                 )
                 .build(),
         )
+        com.streamcloud.app.data.nuvio.NuvioAutoSync.installPeriodic(this)
 
         NewPipe.init(
             com.streamcloud.app.data.newpipe.NewPipeDownloader.instance,

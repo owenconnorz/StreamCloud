@@ -266,7 +266,6 @@ class NuvioAccountService(private val context: Context) {
     }
 
     suspend fun syncPull(accessToken: String): NuvioPullResult = withContext(Dispatchers.IO) {
-        val db = LibraryDb.get(context)
         val stremioRepo = StremioRepository(context)
         val pluginRepo = PluginRepository(context)
 
@@ -283,11 +282,17 @@ class NuvioAccountService(private val context: Context) {
             pulledProfiles = pullProfiles(accessToken)
         }.onFailure { Log.w(TAG, "pull profiles: ${it.message}") }
 
+        val profileIndex = activeCloudProfileIndex()
+        if (profileIndex == null) {
+            return@withContext NuvioPullResult(profiles = pulledProfiles)
+        }
+        val db = LibraryDb.get(context)
+
         // ── Stremio addons ──────────────────────────────────────────────────
         runCatching {
             val text = rpc(
                 "sync_pull_addons",
-                buildJsonObject { put("p_profile_id", 1) },
+                buildJsonObject { put("p_profile_id", profileIndex) },
                 accessToken,
             ).getOrThrow()
             val addons = json.decodeFromString(ListSerializer(PullAddon.serializer()), text)
@@ -305,7 +310,7 @@ class NuvioAccountService(private val context: Context) {
         runCatching {
             val text = rpc(
                 "sync_pull_plugins",
-                buildJsonObject { put("p_profile_id", 1) },
+                buildJsonObject { put("p_profile_id", profileIndex) },
                 accessToken,
             ).getOrThrow()
             val plugins = json.decodeFromString(ListSerializer(PullPlugin.serializer()), text)
@@ -325,7 +330,7 @@ class NuvioAccountService(private val context: Context) {
             val text = rpc(
                 "sync_pull_watch_progress",
                 buildJsonObject {
-                    put("p_profile_id", 1)
+                    put("p_profile_id", profileIndex)
                     put("p_limit", 500)
                 },
                 accessToken,
@@ -361,7 +366,7 @@ class NuvioAccountService(private val context: Context) {
             val text = rpc(
                 "sync_pull_library",
                 buildJsonObject {
-                    put("p_profile_id", 1)
+                    put("p_profile_id", profileIndex)
                     put("p_limit", 500)
                     put("p_offset", 0)
                 },
@@ -393,7 +398,7 @@ class NuvioAccountService(private val context: Context) {
         runCatching {
             val text = rpc(
                 "sync_pull_collections",
-                buildJsonObject { put("p_profile_id", 1) },
+                buildJsonObject { put("p_profile_id", profileIndex) },
                 accessToken,
             ).getOrThrow()
             val collections = json.decodeFromString(ListSerializer(PullCollection.serializer()), text)
@@ -436,7 +441,7 @@ class NuvioAccountService(private val context: Context) {
         }.onFailure { Log.w(TAG, "pull collections: ${it.message}") }
 
         runCatching {
-            pullWatchedItems(accessToken, db) { pulledWatched++ }
+            pullWatchedItems(accessToken, db, profileIndex) { pulledWatched++ }
         }.onFailure { Log.w(TAG, "pull watched items: ${it.message}") }
 
         NuvioPullResult(
@@ -464,6 +469,11 @@ class NuvioAccountService(private val context: Context) {
             profiles = pushProfiles(accessToken)
         }.onFailure { Log.w(TAG, "push profiles: ${it.message}") }
 
+        val profileIndex = activeCloudProfileIndex()
+        if (profileIndex == null) {
+            return@withContext NuvioSyncResult(profiles = profiles)
+        }
+
         runCatching {
             val repos = pluginRepo.repos.first()
             val arr = buildJsonArray {
@@ -478,7 +488,7 @@ class NuvioAccountService(private val context: Context) {
             }
             rpc(
                 "sync_push_plugins",
-                buildJsonObject { put("p_plugins", arr); put("p_profile_id", 1) },
+                buildJsonObject { put("p_plugins", arr); put("p_profile_id", profileIndex) },
                 accessToken,
             )
             plugins = repos.size
@@ -496,7 +506,7 @@ class NuvioAccountService(private val context: Context) {
             }
             rpc(
                 "sync_push_addons",
-                buildJsonObject { put("p_addons", arr); put("p_profile_id", 1) },
+                buildJsonObject { put("p_addons", arr); put("p_profile_id", profileIndex) },
                 accessToken,
             )
             addons = addonList.size
@@ -523,7 +533,7 @@ class NuvioAccountService(private val context: Context) {
             }
             rpc(
                 "sync_push_watch_progress",
-                buildJsonObject { put("p_entries", arr); put("p_profile_id", 1) },
+                buildJsonObject { put("p_entries", arr); put("p_profile_id", profileIndex) },
                 accessToken,
             )
             progress = entries.size
@@ -547,7 +557,7 @@ class NuvioAccountService(private val context: Context) {
             }
             rpc(
                 "sync_push_library_items",
-                buildJsonObject { put("p_items", arr); put("p_profile_id", 1) },
+                buildJsonObject { put("p_items", arr); put("p_profile_id", profileIndex) },
                 accessToken,
             )
             library = items.size
@@ -584,13 +594,13 @@ class NuvioAccountService(private val context: Context) {
             }
             rpc(
                 "sync_push_collections",
-                buildJsonObject { put("p_collections", arr); put("p_profile_id", 1) },
+                buildJsonObject { put("p_collections", arr); put("p_profile_id", profileIndex) },
                 accessToken,
             )
         }.onFailure { Log.w(TAG, "push collections: ${it.message}") }
 
         val watchedItems = runCatching {
-            pushWatchedItems(accessToken, db)
+            pushWatchedItems(accessToken, db, profileIndex)
         }.onFailure {
             Log.w(TAG, "push watched items: ${it.message}")
         }.getOrDefault(0)
@@ -606,17 +616,20 @@ class NuvioAccountService(private val context: Context) {
     }
 
     private suspend fun pushProfiles(accessToken: String): Int {
-        val localProfiles = ProfileRepository(context).currentProfiles().take(6)
+        val profileRepo = ProfileRepository(context)
+        val localProfiles = profileRepo.currentProfiles().take(6)
         if (localProfiles.isEmpty()) return 0
 
         val usedIndexes = localProfiles.mapNotNull { it.nuvioProfileIndex }.toMutableSet()
         var nextIndex = 1
+        val assignedIndexes = mutableMapOf<String, Int>()
         val payload = buildJsonArray {
             localProfiles.forEach { profile ->
                 val profileIndex = profile.nuvioProfileIndex ?: run {
                     while (nextIndex in usedIndexes) nextIndex++
                     nextIndex.also { usedIndexes += it; nextIndex++ }
                 }
+                assignedIndexes[profile.id] = profileIndex
                 addJsonObject {
                     put("profile_index", profileIndex)
                     put("name", profile.name)
@@ -634,7 +647,16 @@ class NuvioAccountService(private val context: Context) {
             },
             accessToken,
         ).getOrThrow()
+        profileRepo.setNuvioProfileIndexes(assignedIndexes)
         return localProfiles.size
+    }
+
+    private fun activeCloudProfileIndex(): Int? {
+        val repo = ProfileRepository(context)
+        val activeId = repo.currentActiveId()
+        return repo.currentProfiles()
+            .firstOrNull { it.id == activeId }
+            ?.nuvioProfileIndex
     }
 
     private suspend fun pullProfiles(accessToken: String): Int {
@@ -669,6 +691,7 @@ class NuvioAccountService(private val context: Context) {
     private suspend fun pushWatchedItems(
         accessToken: String,
         db: LibraryDb,
+        profileIndex: Int,
     ): Int {
         val items = db.watchedMovies().all().first()
         val payload = buildJsonArray {
@@ -685,7 +708,7 @@ class NuvioAccountService(private val context: Context) {
             "sync_push_watched_items",
             buildJsonObject {
                 put("p_items", payload)
-                put("p_profile_id", 1)
+                put("p_profile_id", profileIndex)
             },
             accessToken,
         ).getOrThrow()
@@ -695,6 +718,7 @@ class NuvioAccountService(private val context: Context) {
     private suspend fun pullWatchedItems(
         accessToken: String,
         db: LibraryDb,
+        profileIndex: Int,
         onItemPulled: () -> Unit,
     ) {
         val watchedDao = db.watchedMovies()
@@ -704,7 +728,7 @@ class NuvioAccountService(private val context: Context) {
             val text = rpc(
                 "sync_pull_watched_items",
                 buildJsonObject {
-                    put("p_profile_id", 1)
+                    put("p_profile_id", profileIndex)
                     put("p_page", page)
                     put("p_page_size", pageSize)
                 },

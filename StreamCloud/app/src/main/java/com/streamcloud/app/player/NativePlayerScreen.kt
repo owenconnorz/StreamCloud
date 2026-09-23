@@ -440,6 +440,7 @@ fun NativePlayerScreen(
                                     updatedAt = System.currentTimeMillis(), sourceRoute = progressKey.sourceRoute,
                                 )
                             )
+                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
                     }
                 }
             }
@@ -461,6 +462,7 @@ fun NativePlayerScreen(
                                             positionMs = pos, durationMs = dur,
                                             updatedAt = System.currentTimeMillis(), sourceRoute = progressKey.sourceRoute,
                                         ))
+                                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
                                     }
                                 }
                             }

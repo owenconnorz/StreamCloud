@@ -916,6 +916,7 @@ private fun MovieWatchlistsLibrarySection(
                             scope.launch {
                                 if (activeListId == null) ids.forEach { db.watchlist().remove(it) }
                                 else dao.removeItems(activeListId!!, ids)
+                                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                                 selectedIds = emptySet()
                                 selectionMode = false
                             }

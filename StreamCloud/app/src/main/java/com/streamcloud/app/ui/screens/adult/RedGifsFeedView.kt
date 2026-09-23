@@ -194,6 +194,7 @@ private fun RedGifsPostCard(item: AdultItem, isActive: Boolean = false, onPlayCl
                 csUrl     = item.streamUrl ?: item.previewImage ?: "",
             ))
         }
+        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
     }
 
     fun onShare() {

@@ -376,6 +376,7 @@ class MoviesViewModel(
             val alreadyIn = _state.value.watchlist.any { it.tmdbId == tmdbId }
             if (alreadyIn) db.remove(tmdbId)
             else db.add(WatchlistEntity(tmdbId = tmdbId, title = title, posterUrl = posterUrl, mediaType = mediaType))
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
     }
 
@@ -728,6 +729,7 @@ class MoviesViewModel(
     fun deleteWatchProgress(tmdbId: Long) {
         viewModelScope.launch {
             LibraryDb.get(appContext).watchProgress().remove(tmdbId)
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
     }
 
@@ -755,6 +757,7 @@ class MoviesViewModel(
                     updatedAt = System.currentTimeMillis(),
                 )
             )
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
     }
 

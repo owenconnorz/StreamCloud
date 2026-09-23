@@ -17,6 +17,8 @@ import androidx.room.Transaction
 import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.streamcloud.app.data.profiles.ProfileRepository
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "tracks")
@@ -796,14 +798,77 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
-        @Volatile private var INSTANCE: LibraryDb? = null
-        fun get(context: Context): LibraryDb = INSTANCE ?: synchronized(this) {
-            INSTANCE ?: Room.databaseBuilder(
-                context.applicationContext, LibraryDb::class.java, "streamcloud-library.db",
-            ).addMigrations(MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
-                .fallbackToDestructiveMigration()
-                .build()
-                .also { INSTANCE = it }
+        private const val LEGACY_DATABASE_NAME = "streamcloud-library.db"
+        private const val PROFILE_DATABASE_PREFIX = "streamcloud-profile-"
+        private const val PROFILE_PREFS = "sc_profiles"
+        private const val LEGACY_MIGRATION_TARGET = "legacy_library_migrated_to"
+
+        @Volatile private var INSTANCES: MutableMap<String, LibraryDb> = mutableMapOf()
+
+        fun get(context: Context): LibraryDb {
+            val appContext = context.applicationContext
+            val profileRepo = ProfileRepository(appContext)
+            val profileId = (
+                profileRepo.currentActiveId()
+                    ?: profileRepo.currentProfiles().firstOrNull()?.id
+            ).takeIf { !it.isNullOrBlank() } ?: "default"
+            val databaseName = databaseName(profileId)
+            return synchronized(this) {
+                INSTANCES[databaseName] ?: run {
+                    migrateLegacyDatabaseIfNeeded(appContext, profileId, databaseName)
+                    Room.databaseBuilder(
+                        appContext, LibraryDb::class.java, databaseName,
+                    ).addMigrations(MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                        .fallbackToDestructiveMigration()
+                        .build()
+                        .also { INSTANCES[databaseName] = it }
+                }
+            }
+        }
+
+        private fun databaseName(profileId: String): String {
+            val safeId = profileId
+                .lowercase()
+                .replace(Regex("[^a-z0-9_-]"), "_")
+                .take(48)
+                .ifBlank { "default" }
+            return if (safeId == "default") {
+                LEGACY_DATABASE_NAME
+            } else {
+                "$PROFILE_DATABASE_PREFIX$safeId.db"
+            }
+        }
+
+        /**
+         * Existing installs have one unscoped database. Give that data to the first
+         * profile that opens the new profile-scoped storage instead of silently
+         * throwing it away. Other profiles start with their own empty database.
+         */
+        private fun migrateLegacyDatabaseIfNeeded(
+            context: Context,
+            profileId: String,
+            targetName: String,
+        ) {
+            if (targetName == LEGACY_DATABASE_NAME) return
+            val prefs = context.getSharedPreferences(PROFILE_PREFS, Context.MODE_PRIVATE)
+            if (prefs.getString(LEGACY_MIGRATION_TARGET, null) != null) return
+
+            val source = context.getDatabasePath(LEGACY_DATABASE_NAME)
+            val target = context.getDatabasePath(targetName)
+            if (!source.exists() || target.exists()) return
+
+            target.parentFile?.mkdirs()
+            source.copyTo(target, overwrite = false)
+            copyDatabaseSidecar(source, target, "-wal")
+            copyDatabaseSidecar(source, target, "-shm")
+            prefs.edit().putString(LEGACY_MIGRATION_TARGET, profileId).apply()
+        }
+
+        private fun copyDatabaseSidecar(source: File, target: File, suffix: String) {
+            val sidecar = File(source.path + suffix)
+            if (sidecar.exists()) {
+                sidecar.copyTo(File(target.path + suffix), overwrite = false)
+            }
         }
     }
 }

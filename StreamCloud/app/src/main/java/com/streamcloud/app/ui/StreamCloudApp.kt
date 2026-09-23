@@ -100,6 +100,7 @@ import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -208,6 +209,9 @@ fun StreamCloudApp() {
 
 
         runCatching { com.streamcloud.app.ui.theme.AlbumArtThemeBus.attach(context) }
+    }
+    LaunchedEffect(activeProfile?.id) {
+        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context)
     }
 
     val tabs = remember(nsfwEnabled, navOrderCsv, navHiddenCsv) {
@@ -566,10 +570,11 @@ fun StreamCloudApp() {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxSize()) {
                         val startRoute = resolvedStartRoute
-                        if (startRoute != null) NavHost(
-                navController = nav,
-                startDestination = startRoute,
-            ) {
+                         key(activeProfile?.id ?: "no-profile") {
+                         if (startRoute != null) NavHost(
+                 navController = nav,
+                 startDestination = startRoute,
+             ) {
                 composable(Tab.Movies.route) {
                     MoviesScreen(
                         initialFocusRequester = firstMovieCardFocus,
@@ -621,7 +626,8 @@ fun StreamCloudApp() {
                             nav.navigate("collection-tabbed/$collectionId")
                         },
                     )
-                }
+             }
+                         }
                 composable(
                     "collection-folder/{folderId}",
                     arguments = listOf(navArgument("folderId") { type = NavType.LongType }),

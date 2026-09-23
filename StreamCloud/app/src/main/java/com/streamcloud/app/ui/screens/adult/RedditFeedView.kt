@@ -254,6 +254,7 @@ private fun RedditPostCard(item: AdultItem, isActive: Boolean = false, onPlayCli
                     )
                 )
             }
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
         }
     }
 

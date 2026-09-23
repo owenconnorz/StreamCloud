@@ -1212,6 +1212,7 @@ private fun EpornerDetailSheet(
                                         )
                                     )
                                 }
+                                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                             }
                         },
                         modifier = Modifier.weight(1f),

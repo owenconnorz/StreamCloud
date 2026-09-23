@@ -27,6 +27,14 @@ class ProfileRepository(context: Context) {
 
     fun currentActiveId(): String? = _activeId.value
 
+    fun setNuvioProfileIndexes(indexes: Map<String, Int>) {
+        if (indexes.isEmpty()) return
+        _profiles.value = _profiles.value.map { profile ->
+            indexes[profile.id]?.let { profile.copy(nuvioProfileIndex = it) } ?: profile
+        }
+        persist()
+    }
+
     /**
      * Merge the profiles returned by Nuvio without syncing PIN hashes.
      *

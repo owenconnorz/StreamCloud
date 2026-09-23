@@ -123,6 +123,7 @@ fun MovieWatchlistPickerDialog(
                 onClick = {
                     scope.launch {
                         db.reconcileMovieWatchlists(entry, selectedIds)
+                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                         onDismiss()
                     }
                 },
