@@ -6,6 +6,7 @@ import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.UserCollectionEntity
+import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.plugins.PluginRepository
@@ -62,6 +63,7 @@ data class NuvioSyncResult(
     val plugins: Int = 0,
     val addons: Int = 0,
     val watchProgress: Int = 0,
+    val watchedItems: Int = 0,
     val library: Int = 0,
 )
 
@@ -96,6 +98,14 @@ private data class PullWatchProgress(
     val last_watched: Long = 0L,
     val name: String? = null,
     val poster: String? = null,
+)
+
+@Serializable
+private data class PullWatchedItem(
+    val content_id: String = "",
+    val content_type: String = "movie",
+    val title: String = "",
+    val watched_at: Long = 0L,
 )
 
 @Serializable
@@ -296,7 +306,10 @@ class NuvioAccountService(private val context: Context) {
         runCatching {
             val text = rpc(
                 "sync_pull_watch_progress",
-                buildJsonObject { put("p_profile_id", 1) },
+                buildJsonObject {
+                    put("p_profile_id", 1)
+                    put("p_limit", 500)
+                },
                 accessToken,
             ).getOrThrow()
             val entries = json.decodeFromString(ListSerializer(PullWatchProgress.serializer()), text)
@@ -320,7 +333,7 @@ class NuvioAccountService(private val context: Context) {
                         )
                     )
                     val pct = if (e.duration > 0) e.position.toDouble() / e.duration else 0.0
-                    if (pct >= 0.95) pulledWatched++ else pulledProgress++
+                    if (pct < 0.95) pulledProgress++
                 }
             }
         }.onFailure { Log.w(TAG, "pull watch progress: ${it.message}") }
@@ -329,7 +342,11 @@ class NuvioAccountService(private val context: Context) {
         runCatching {
             val text = rpc(
                 "sync_pull_library",
-                buildJsonObject { put("p_profile_id", 1) },
+                buildJsonObject {
+                    put("p_profile_id", 1)
+                    put("p_limit", 500)
+                    put("p_offset", 0)
+                },
                 accessToken,
             ).getOrThrow()
             val items = json.decodeFromString(ListSerializer(PullLibraryItem.serializer()), text)
@@ -399,6 +416,10 @@ class NuvioAccountService(private val context: Context) {
                 }
             }
         }.onFailure { Log.w(TAG, "pull collections: ${it.message}") }
+
+        runCatching {
+            pullWatchedItems(accessToken, db) { pulledWatched++ }
+        }.onFailure { Log.w(TAG, "pull watched items: ${it.message}") }
 
         NuvioPullResult(
             watchProgress = pulledProgress,
@@ -501,7 +522,7 @@ class NuvioAccountService(private val context: Context) {
                 }
             }
             rpc(
-                "sync_push_library",
+                "sync_push_library_items",
                 buildJsonObject { put("p_items", arr); put("p_profile_id", 1) },
                 accessToken,
             )
@@ -544,7 +565,84 @@ class NuvioAccountService(private val context: Context) {
             )
         }.onFailure { Log.w(TAG, "push collections: ${it.message}") }
 
-        NuvioSyncResult(plugins = plugins, addons = addons, watchProgress = progress, library = library)
+        val watchedItems = runCatching {
+            pushWatchedItems(accessToken, db)
+        }.onFailure {
+            Log.w(TAG, "push watched items: ${it.message}")
+        }.getOrDefault(0)
+
+        NuvioSyncResult(
+            plugins = plugins,
+            addons = addons,
+            watchProgress = progress,
+            watchedItems = watchedItems,
+            library = library,
+        )
+    }
+
+    private suspend fun pushWatchedItems(
+        accessToken: String,
+        db: LibraryDb,
+    ): Int {
+        val items = db.watchedMovies().all().first()
+        val payload = buildJsonArray {
+            items.forEach { item ->
+                addJsonObject {
+                    put("content_id", "tmdb:${item.tmdbId}")
+                    put("content_type", if (item.mediaType == "tv") "series" else "movie")
+                    put("title", item.title)
+                    put("watched_at", item.watchedAt)
+                }
+            }
+        }
+        rpc(
+            "sync_push_watched_items",
+            buildJsonObject {
+                put("p_items", payload)
+                put("p_profile_id", 1)
+            },
+            accessToken,
+        ).getOrThrow()
+        return items.size
+    }
+
+    private suspend fun pullWatchedItems(
+        accessToken: String,
+        db: LibraryDb,
+        onItemPulled: () -> Unit,
+    ) {
+        val watchedDao = db.watchedMovies()
+        val pageSize = 200
+        var page = 1
+        do {
+            val text = rpc(
+                "sync_pull_watched_items",
+                buildJsonObject {
+                    put("p_profile_id", 1)
+                    put("p_page", page)
+                    put("p_page_size", pageSize)
+                },
+                accessToken,
+            ).getOrThrow()
+            val items = json.decodeFromString(
+                ListSerializer(PullWatchedItem.serializer()),
+                text,
+            )
+            items.forEach { item ->
+                val tmdbId = parseTmdbId(item.content_id) ?: return@forEach
+                watchedDao.mark(
+                    WatchedMovieEntity(
+                        tmdbId = tmdbId,
+                        title = item.title,
+                        posterUrl = null,
+                        mediaType = if (item.content_type == "series") "tv" else "movie",
+                        watchedAt = item.watched_at.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                    )
+                )
+                onItemPulled()
+            }
+            page++
+        } while (items.size == pageSize)
     }
 
     private fun parseTmdbId(contentId: String): Long? {

@@ -18,12 +18,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -63,6 +67,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -1651,42 +1656,16 @@ fun StreamCloudApp() {
                                                  shape = RoundedCornerShape(50),
                                              ),
                                     ) {
-                                        Row(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 4.dp, vertical = navPillVPad),
-                                            horizontalArrangement = Arrangement.SpaceEvenly,
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            tabs.forEach { tab ->
-                                                val selected = currentRoute == tab.route
-                                                val tabAccentColor =
-                                                    if (tab.route == Tab.Music.route && isMusicRoute) {
-                                                        musicNavAccentColor
-                                                    } else {
-                                                        navAccentColor
-                                                    }
-                                                if (tab.route == Tab.Settings.route) {
-                                                    ProfileNavItem(
-                                                        selected = selected,
-                                                        showLabel = effectiveShowLabel,
-                                                        accentColor = tabAccentColor,
-                                                        modifier = Modifier.weight(1f),
-                                                        onClick = { navigateToTab(nav, tab.route) },
-                                                    )
-                                                } else {
-                                                    NuvioNavItem(
-                                                        icon = tab.icon,
-                                                        label = tab.label,
-                                                        selected = selected,
-                                                        showLabel = effectiveShowLabel,
-                                                        accentColor = tabAccentColor,
-                                                        modifier = Modifier.weight(1f),
-                                                        onClick = { navigateToTab(nav, tab.route) },
-                                                    )
-                                                }
-                                            }
-                                        }
+                                        MobileNavTabScroller(
+                                            tabs = tabs,
+                                            currentRoute = currentRoute,
+                                            showLabel = effectiveShowLabel,
+                                            navAccentColor = navAccentColor,
+                                            musicNavAccentColor = musicNavAccentColor,
+                                            isMusicRoute = isMusicRoute,
+                                            navPillVPad = navPillVPad,
+                                            onTabSelected = { route -> navigateToTab(nav, route) },
+                                        )
                                     }
                                 } else {
                                     Surface(
@@ -1696,42 +1675,16 @@ fun StreamCloudApp() {
                                         tonalElevation = 4.dp,
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
-                                        Row(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 4.dp, vertical = navPillVPad),
-                                            horizontalArrangement = Arrangement.SpaceEvenly,
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            tabs.forEach { tab ->
-                                                val selected = currentRoute == tab.route
-                                                val tabAccentColor =
-                                                    if (tab.route == Tab.Music.route && isMusicRoute) {
-                                                        musicNavAccentColor
-                                                    } else {
-                                                        navAccentColor
-                                                    }
-                                                if (tab.route == Tab.Settings.route) {
-                                                    ProfileNavItem(
-                                                        selected = selected,
-                                                        showLabel = effectiveShowLabel,
-                                                        accentColor = tabAccentColor,
-                                                        modifier = Modifier.weight(1f),
-                                                        onClick = { navigateToTab(nav, tab.route) },
-                                                    )
-                                                } else {
-                                                    NuvioNavItem(
-                                                        icon = tab.icon,
-                                                        label = tab.label,
-                                                        selected = selected,
-                                                        showLabel = effectiveShowLabel,
-                                                        accentColor = tabAccentColor,
-                                                        modifier = Modifier.weight(1f),
-                                                        onClick = { navigateToTab(nav, tab.route) },
-                                                    )
-                                                }
-                                            }
-                                        }
+                                        MobileNavTabScroller(
+                                            tabs = tabs,
+                                            currentRoute = currentRoute,
+                                            showLabel = effectiveShowLabel,
+                                            navAccentColor = navAccentColor,
+                                            musicNavAccentColor = musicNavAccentColor,
+                                            isMusicRoute = isMusicRoute,
+                                            navPillVPad = navPillVPad,
+                                            onTabSelected = { route -> navigateToTab(nav, route) },
+                                        )
                                     }
                                 }
                             }
@@ -1969,6 +1922,71 @@ private fun navigateToTab(nav: NavHostController, route: String) {
         popUpTo(nav.graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
+    }
+}
+
+/**
+ * Mobile navigation shows five equal slots at a time. Additional tabs stay in the same pill
+ * and can be reached with a horizontal swipe, instead of shrinking every item to fit.
+ */
+@Composable
+private fun MobileNavTabScroller(
+    tabs: List<Tab>,
+    currentRoute: String?,
+    showLabel: Boolean,
+    navAccentColor: Color,
+    musicNavAccentColor: Color,
+    isMusicRoute: Boolean,
+    navPillVPad: androidx.compose.ui.unit.Dp,
+    onTabSelected: (String) -> Unit,
+) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(tabs, currentRoute) {
+        val selectedIndex = tabs.indexOfFirst { it.route == currentRoute }
+        if (selectedIndex >= 0) {
+            listState.animateScrollToItem(selectedIndex)
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val itemWidth = (maxWidth - 8.dp) / 5
+        LazyRow(
+            state = listState,
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = navPillVPad),
+            userScrollEnabled = tabs.size > 5,
+        ) {
+            itemsIndexed(
+                items = tabs,
+                key = { _, tab -> tab.route },
+            ) { _, tab ->
+                val selected = currentRoute == tab.route
+                val tabAccentColor = if (tab.route == Tab.Music.route && isMusicRoute) {
+                    musicNavAccentColor
+                } else {
+                    navAccentColor
+                }
+                if (tab.route == Tab.Settings.route) {
+                    ProfileNavItem(
+                        selected = selected,
+                        showLabel = showLabel,
+                        accentColor = tabAccentColor,
+                        modifier = Modifier.width(itemWidth),
+                        onClick = { onTabSelected(tab.route) },
+                    )
+                } else {
+                    NuvioNavItem(
+                        icon = tab.icon,
+                        label = tab.label,
+                        selected = selected,
+                        showLabel = showLabel,
+                        accentColor = tabAccentColor,
+                        modifier = Modifier.width(itemWidth),
+                        onClick = { onTabSelected(tab.route) },
+                    )
+                }
+            }
+        }
     }
 }
 

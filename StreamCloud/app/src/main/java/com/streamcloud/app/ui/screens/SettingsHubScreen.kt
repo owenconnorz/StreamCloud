@@ -4979,7 +4979,10 @@ private fun NuvioAccountRow() {
                             val down = pull.getOrThrow()
                             buildString {
                                 append("Synced ✓  ")
-                                append("↑${up.watchProgress} ↓${down.watchProgress} watched · ")
+                                append("↑${up.watchProgress} ↓${down.watchProgress} in-progress · ")
+                                if (up.watchedItems + down.watchedItems > 0) {
+                                    append("↑${up.watchedItems} ↓${down.watchedItems} watched · ")
+                                }
                                 append("↑${up.library} ↓${down.library} saved")
                                 if (down.collections > 0) append(" · ${down.collections} collections")
                                 if (up.plugins + down.plugins > 0) append(" · ${up.plugins + down.plugins} plugins")
@@ -5103,6 +5106,7 @@ private fun NuvioAccountRow() {
                                                 buildString {
                                                     append("Synced ✓  ")
                                                     if (d.watchProgress > 0) append("${d.watchProgress} watching · ")
+                                                    if (d.watchedItems > 0) append("${d.watchedItems} watched · ")
                                                     if (d.library > 0)       append("${d.library} saved · ")
                                                     if (d.collections > 0)   append("${d.collections} collections · ")
                                                     if (d.addons > 0)        append("${d.addons} addons · ")
