@@ -449,41 +449,44 @@ class NuvioAccountService(private val context: Context) {
                 accessToken,
             ).getOrThrow()
             val collections = json.decodeFromString(ListSerializer(PullCollection.serializer()), text)
-            if (collections.isNotEmpty()) {
-                val collectionDao = db.userCollections()
-                val folderDao = db.collectionFolders()
-                val deletedKeys = SettingsRepository(context).deletedManagedCollections.first()
-                val oldNuvio = collectionDao.bySourceAddon(NUVIO_CLOUD_SOURCE)
-                oldNuvio.forEach { col ->
-                    folderDao.deleteForCollection(col.id)
-                    collectionDao.delete(col.id)
-                }
-                collections.forEachIndexed { idx, col ->
-                    // Skip collections the user has manually deleted
-                    if ("$NUVIO_CLOUD_SOURCE::${col.name}" in deletedKeys) return@forEachIndexed
-                    val colId = collectionDao.upsert(
-                        UserCollectionEntity(
-                            name = col.name,
-                            isPinned = col.is_pinned,
-                            sortOrder = col.sort_order.takeIf { it >= 0 } ?: idx,
-                            sourceAddonId = NUVIO_CLOUD_SOURCE,
+            val collectionDao = db.userCollections()
+            val folderDao = db.collectionFolders()
+            val deletedKeys = SettingsRepository(context).deletedManagedCollections.first()
+
+            // Nuvio is authoritative for the collections it owns. Always remove the
+            // previous cloud set first, including when the server returns an empty
+            // list, so deleted remote collections do not remain as local ghosts.
+            val oldNuvio = collectionDao.bySourceAddon(NUVIO_CLOUD_SOURCE)
+            oldNuvio.forEach { col ->
+                folderDao.deleteForCollection(col.id)
+                collectionDao.delete(col.id)
+            }
+
+            collections.forEachIndexed { idx, col ->
+                // Skip collections the user has manually deleted.
+                if ("$NUVIO_CLOUD_SOURCE::${col.name}" in deletedKeys) return@forEachIndexed
+                val colId = collectionDao.upsert(
+                    UserCollectionEntity(
+                        name = col.name,
+                        isPinned = col.is_pinned,
+                        sortOrder = col.sort_order.takeIf { it >= 0 } ?: idx,
+                        sourceAddonId = NUVIO_CLOUD_SOURCE,
+                    )
+                )
+                col.folders.forEachIndexed { fIdx, folder ->
+                    folderDao.upsert(
+                        CollectionFolderEntity(
+                            collectionId = colId,
+                            name = folder.name,
+                            coverUrl = folder.cover_url,
+                            tileShape = folder.tile_shape,
+                            providerType = folder.provider_type,
+                            linkedCategoryId = folder.linked_category_id,
+                            sortOrder = folder.sort_order.takeIf { it >= 0 } ?: fIdx,
                         )
                     )
-                    col.folders.forEachIndexed { fIdx, folder ->
-                        folderDao.upsert(
-                            CollectionFolderEntity(
-                                collectionId = colId,
-                                name = folder.name,
-                                coverUrl = folder.cover_url,
-                                tileShape = folder.tile_shape,
-                                providerType = folder.provider_type,
-                                linkedCategoryId = folder.linked_category_id,
-                                sortOrder = folder.sort_order.takeIf { it >= 0 } ?: fIdx,
-                            )
-                        )
-                    }
-                    pulledCollections++
                 }
+                pulledCollections++
             }
         }.onFailure { Log.w(TAG, "pull collections: ${it.message}") }
 
@@ -620,11 +623,30 @@ class NuvioAccountService(private val context: Context) {
         runCatching {
             val collectionDao = db.userCollections()
             val folderDao = db.collectionFolders()
+
+            // Only Nuvio-owned collections belong in the Nuvio cloud dataset.
+            // Existing local collections are adopted on the first sync; Stremio
+            // and other provider-generated collections stay local and are never
+            // uploaded as if they were Nuvio collections.
             val allCols = collectionDao.all().first()
+            val nuvioCols = allCols
+                .filter { it.sourceAddonId.isBlank() || it.sourceAddonId == NUVIO_CLOUD_SOURCE }
+                .map { col ->
+                    if (col.sourceAddonId.isBlank()) {
+                        col.copy(sourceAddonId = NUVIO_CLOUD_SOURCE)
+                    } else {
+                        col
+                    }
+                }
+            nuvioCols
+                .filter { it.sourceAddonId == NUVIO_CLOUD_SOURCE }
+                .filter { it.id != 0L && allCols.firstOrNull { old -> old.id == it.id }?.sourceAddonId.isNullOrBlank() }
+                .forEach { collectionDao.upsert(it) }
+
             // Pre-fetch folders outside the buildJsonArray lambda (suspend calls not allowed inside)
-            val foldersByCol = allCols.associate { col -> col.id to folderDao.forCollectionOnce(col.id) }
+            val foldersByCol = nuvioCols.associate { col -> col.id to folderDao.forCollectionOnce(col.id) }
             val arr = buildJsonArray {
-                allCols.forEachIndexed { idx, col ->
+                nuvioCols.forEachIndexed { _, col ->
                     addJsonObject {
                         put("name", col.name)
                         put("is_pinned", col.isPinned)
