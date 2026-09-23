@@ -730,9 +730,13 @@ class NuvioAccountService(private val context: Context) {
     private fun activeCloudProfileIndex(): Int? {
         val repo = ServiceLocator.get(context).profiles
         val activeId = repo.currentActiveId()
-        return repo.currentProfiles()
-            .firstOrNull { it.id == activeId }
-            ?.nuvioProfileIndex
+        val profiles = repo.currentProfiles()
+        val activeIndex = profiles.firstOrNull { it.id == activeId }?.nuvioProfileIndex
+        if (activeIndex != null) return activeIndex
+
+        // A single cloud profile is unambiguous even when the local profile
+        // was created with a different name or before cloud linking existed.
+        return profiles.mapNotNull { it.nuvioProfileIndex }.singleOrNull()
     }
 
     private suspend fun pullProfiles(accessToken: String): Int {

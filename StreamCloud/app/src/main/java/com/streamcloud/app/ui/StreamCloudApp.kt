@@ -94,6 +94,7 @@ import com.streamcloud.app.ui.screens.PluginPickerScreen
 import com.streamcloud.app.ui.screens.PluginsScreen
 import com.streamcloud.app.ui.screens.SettingsHubScreen
 import com.streamcloud.app.ui.screens.ProfilePickerScreen
+import com.streamcloud.app.ui.screens.StremioUnifiedDetailScreen
 import com.streamcloud.app.ui.screens.YtMusicAccountSheet
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -924,25 +925,27 @@ fun StreamCloudApp() {
                     val m = URLDecoder.decode(entry.arguments!!.getString("metaId")!!, "UTF-8")
                     val tt = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
                     val pp = URLDecoder.decode(entry.arguments!!.getString("poster")!!, "UTF-8").trim()
-                    com.streamcloud.app.ui.screens.StremioDetailScreen(
+                    StremioUnifiedDetailScreen(
                         addonId = a,
                         type = t,
                         metaId = m,
                         initialTitle = tt,
                         initialPoster = pp.takeIf { it.isNotBlank() },
                         onBack = { nav.popBackStack() },
-                        onPlay = { url, title ->
-
-
-
-
+                        onPlay = { initialUrl, title, sources, progressKey ->
+                            com.streamcloud.app.player.MoviePlayerSession.set(
+                                sources,
+                                progressKey,
+                                tmdbId = progressKey.tmdbId,
+                                mediaType = progressKey.mediaType,
+                            )
+                            val u = URLEncoder.encode(initialUrl, "UTF-8")
+                            val tArg = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/movie/$u/$tArg")
+                        },
+                        onDirectStremioPlay = { url, title ->
                             val u = URLEncoder.encode("direct://$url", "UTF-8")
                             val tArg = URLEncoder.encode(title, "UTF-8")
-
-
-
-
-
                             nav.navigate("player/eporner/$u/x/$tArg")
                         },
                     )

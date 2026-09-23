@@ -217,6 +217,20 @@ fun CollectionsScreen(
     val scope = rememberCoroutineScope()
     var nav by remember { mutableStateOf<CollNav>(CollNav.List) }
 
+    // Pull profile-scoped collections when this screen opens. This makes a
+    // newly linked Nuvio account visible immediately instead of waiting for
+    // the periodic worker or a settings screen to trigger synchronization.
+    LaunchedEffect(Unit) {
+        val token = ServiceLocator.get(context.applicationContext)
+            .settings.nuvioAccessToken.first()
+            .trim()
+        if (token.isNotBlank()) {
+            runCatching {
+                NuvioAccountService.get(context.applicationContext).syncPull(token)
+            }
+        }
+    }
+
     when (val cur = nav) {
         is CollNav.List -> CollectionsList(
             db = db,
