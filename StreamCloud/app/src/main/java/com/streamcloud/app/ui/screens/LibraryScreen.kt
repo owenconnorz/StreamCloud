@@ -106,6 +106,8 @@ fun LibraryScreen(
     onPlayLocalFile: (filePath: String, title: String, tmdbId: Long, mediaType: String) -> Unit = { _, _, _, _ -> },
     onTvClick: (Long) -> Unit = {},
     onCsClick: (plugin: String, url: String, title: String, poster: String?) -> Unit = { _, _, _, _ -> },
+    onStremioClick: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit =
+        { _, _, _, _, _ -> },
     onDirectMediaClick: (url: String, title: String) -> Unit = { _, _ -> },
     onAdultProviderClick: (provider: String, url: String, title: String) -> Unit = { _, _, _ -> },
     tvNavFocusRequester: FocusRequester? = null,
@@ -447,6 +449,18 @@ fun LibraryScreen(
                         when (entry.mediaType) {
                             "tv" -> onTvClick(entry.tmdbId)
                             "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
+                            "stremio" -> {
+                                val parts = entry.csUrl.split("|||", limit = 2)
+                                if (parts.size == 2) {
+                                    onStremioClick(
+                                        entry.csPlugin,
+                                        parts[0],
+                                        parts[1],
+                                        entry.title,
+                                        entry.posterUrl,
+                                    )
+                                }
+                            }
                             "reddit", "redgifs" -> onDirectMediaClick(entry.csUrl, entry.title)
                             "eporner", "pornhub" ->
                                 onAdultProviderClick(entry.mediaType, entry.csUrl, entry.title)

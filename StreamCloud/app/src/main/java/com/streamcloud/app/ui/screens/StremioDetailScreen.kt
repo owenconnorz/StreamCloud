@@ -10,6 +10,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
@@ -25,6 +27,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.stremio.StremioMeta
 import com.streamcloud.app.data.stremio.StremioStream
 import kotlinx.coroutines.flow.first
@@ -43,6 +47,18 @@ fun StremioDetailScreen(
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
+    val libraryDb = remember { LibraryDb.get(context.applicationContext) }
+    val watchlistDao = remember { libraryDb.watchlist() }
+    val syntheticId = remember(addonId, metaId) {
+        val hash = "$addonId|$type|$metaId".hashCode().toLong()
+        if (hash < 0L) hash else -(hash + 1L)
+    }
+    val isDefaultWatchlisted by watchlistDao.isWatchlisted(syntheticId)
+        .collectAsState(initial = false)
+    val isCustomWatchlisted by libraryDb.movieWatchlists()
+        .isInAnyWatchlist(syntheticId)
+        .collectAsState(initial = false)
+    val isWatchlisted = isDefaultWatchlisted || isCustomWatchlisted
 
     var meta by remember(addonId, metaId) { mutableStateOf<StremioMeta?>(null) }
     var streams by remember(addonId, metaId) { mutableStateOf<List<StremioStream>>(emptyList()) }
@@ -50,6 +66,9 @@ fun StremioDetailScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var actionsExpanded by remember(addonId, metaId) { mutableStateOf(false) }
     var markedWatched by remember(addonId, metaId) { mutableStateOf(false) }
+    var watchlistPickerEntry by remember(addonId, metaId) {
+        mutableStateOf<WatchlistEntity?>(null)
+    }
 
     LaunchedEffect(addonId, metaId) {
         loadingStreams = true
@@ -142,6 +161,28 @@ fun StremioDetailScreen(
                                 )
                             }
                             if (actionsExpanded) {
+                                IconButton(
+                                    onClick = {
+                                        watchlistPickerEntry = WatchlistEntity(
+                                            tmdbId = syntheticId,
+                                            title = meta?.name ?: initialTitle,
+                                            posterUrl = meta?.poster ?: initialPoster,
+                                            mediaType = "stremio",
+                                            csPlugin = addonId,
+                                            csUrl = "$type|||$metaId",
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(MaterialTheme.colorScheme.surface),
+                                ) {
+                                    Icon(
+                                        if (isWatchlisted) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                        "Save to library",
+                                        tint = if (isWatchlisted) Color(0xFF20C968) else LocalContentColor.current,
+                                    )
+                                }
                                 IconButton(
                                     onClick = { markedWatched = !markedWatched },
                                     modifier = Modifier
@@ -277,6 +318,13 @@ fun StremioDetailScreen(
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
         }
+    }
+
+    watchlistPickerEntry?.let { entry ->
+        MovieWatchlistPickerDialog(
+            entry = entry,
+            onDismiss = { watchlistPickerEntry = null },
+        )
     }
 }
 

@@ -1155,6 +1155,14 @@ fun StreamCloudApp() {
                             val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("cs-detail/$p/$u/$n/$po")
                         },
+                        onStremioClick = { addonId, type, metaId, title, poster ->
+                            val a = URLEncoder.encode(addonId, "UTF-8")
+                            val t = URLEncoder.encode(type, "UTF-8")
+                            val m = URLEncoder.encode(metaId, "UTF-8")
+                            val n = URLEncoder.encode(title, "UTF-8")
+                            val p = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate("stremio-detail/$a/$t/$m/$n/$p")
+                        },
                          onDirectMediaClick = { itemUrl, itemName ->
                              if (itemUrl.isNotBlank()) {
                                  val u = URLEncoder.encode(itemUrl, "UTF-8")
