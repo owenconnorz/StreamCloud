@@ -626,8 +626,7 @@ fun StreamCloudApp() {
                             nav.navigate("collection-tabbed/$collectionId")
                         },
                     )
-             }
-                         }
+                        }
                 composable(
                     "collection-folder/{folderId}",
                     arguments = listOf(navArgument("folderId") { type = NavType.LongType }),
@@ -1563,6 +1562,7 @@ fun StreamCloudApp() {
                     )
                 }
             }
+                         }
                     }
 
 
