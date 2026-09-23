@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Search
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Theaters
@@ -75,6 +77,9 @@ import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
 import com.streamcloud.app.ui.screens.AdultSearchScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
+import com.streamcloud.app.ui.screens.LiveTvScreen
+import com.streamcloud.app.ui.screens.LocalFilesScreen
+import com.streamcloud.app.ui.screens.LocalImageViewerScreen
 import com.streamcloud.app.ui.screens.MovieDetailScreen
 import com.streamcloud.app.ui.screens.MovieSearchScreen
 import com.streamcloud.app.ui.screens.MoviesScreen
@@ -150,6 +155,8 @@ private sealed class Tab(val route: String, val label: String, val icon: ImageVe
     data object Movies   : Tab("movies",   "Movies",   Icons.Filled.Theaters)
     data object Music    : Tab("music",    "Music",    Icons.Filled.MusicNote)
     data object Library  : Tab("library",  "Library",  Icons.Filled.Bookmarks)
+    data object LocalFiles : Tab("local_files", "Local Files", Icons.Filled.Folder)
+    data object LiveTv   : Tab("live_tv",  "Live TV",  Icons.Filled.LiveTv)
     data object Adult    : Tab("adult",    "Adult",    Icons.Filled.Whatshot)
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings)
 }
@@ -167,6 +174,8 @@ fun StreamCloudApp() {
     var showExitConfirmation by remember { mutableStateOf(false) }
     val isMediaRoute = currentRoute != null && (
         currentRoute == Tab.Movies.route ||
+        currentRoute == Tab.LocalFiles.route ||
+        currentRoute == Tab.LiveTv.route ||
         currentRoute.startsWith("cloudstream") ||
         currentRoute.startsWith("cs-detail/") ||
         currentRoute.startsWith("cs-section/") ||
@@ -179,6 +188,7 @@ fun StreamCloudApp() {
     val sl = remember { ServiceLocator.get(context) }
     val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
+    val navHiddenCsv by sl.settings.navHiddenTabsCsv.collectAsState(initial = null)
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
     val miniNowPlayingId by com.streamcloud.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState(initial = null)
     var dismissedMiniPlayerId by remember { mutableStateOf<String?>(null) }
@@ -195,7 +205,13 @@ fun StreamCloudApp() {
         runCatching { com.streamcloud.app.ui.theme.AlbumArtThemeBus.attach(context) }
     }
 
-    val tabs = remember(nsfwEnabled, navOrderCsv) {
+    val tabs = remember(nsfwEnabled, navOrderCsv, navHiddenCsv) {
+        val hiddenRoutes = navHiddenCsv
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            ?: setOf(Tab.LocalFiles.route, Tab.LiveTv.route)
 
 
 
@@ -203,7 +219,15 @@ fun StreamCloudApp() {
             put(Tab.Movies.route, Tab.Movies)
             put(Tab.Music.route, Tab.Music)
             put(Tab.Library.route, Tab.Library)
-            if (nsfwEnabled) put(Tab.Adult.route, Tab.Adult)
+            if (Tab.LocalFiles.route !in hiddenRoutes) {
+                put(Tab.LocalFiles.route, Tab.LocalFiles)
+            }
+            if (Tab.LiveTv.route !in hiddenRoutes) {
+                put(Tab.LiveTv.route, Tab.LiveTv)
+            }
+            if (nsfwEnabled && Tab.Adult.route !in hiddenRoutes) {
+                put(Tab.Adult.route, Tab.Adult)
+            }
         }
 
 
@@ -229,12 +253,20 @@ fun StreamCloudApp() {
     LaunchedEffect(Unit) {
         val csv  = sl.settings.navTabOrderCsv.first()
         val nsfw = sl.settings.nsfwEnabled.first()
+        val hidden = sl.settings.navHiddenTabsCsv.first()
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            ?: setOf(Tab.LocalFiles.route, Tab.LiveTv.route)
 
         val validRoutes = buildSet<String> {
             add(Tab.Movies.route)
             add(Tab.Music.route)
             add(Tab.Library.route)
-            if (nsfw) add(Tab.Adult.route)
+            if (Tab.LocalFiles.route !in hidden) add(Tab.LocalFiles.route)
+            if (Tab.LiveTv.route !in hidden) add(Tab.LiveTv.route)
+            if (nsfw && Tab.Adult.route !in hidden) add(Tab.Adult.route)
         }
 
         resolvedStartRoute = if (!csv.isNullOrBlank()) {
@@ -1159,6 +1191,47 @@ fun StreamCloudApp() {
                         title = title,
                         initialThumb = thumb,
                         onBack = { nav.popBackStack() },
+                    )
+                }
+                composable(Tab.LocalFiles.route) {
+                    LocalFilesScreen(
+                        onPlayAudio = { item ->
+                            val url = URLEncoder.encode(item.uri.toString(), "UTF-8")
+                            val title = URLEncoder.encode(item.title, "UTF-8")
+                            nav.navigate("player/url/$url/$title")
+                        },
+                        onPlayVideo = { item ->
+                            val url = URLEncoder.encode(item.uri.toString(), "UTF-8")
+                            val title = URLEncoder.encode(item.title, "UTF-8")
+                            nav.navigate("player/url/$url/$title")
+                        },
+                        onOpenImage = { item ->
+                            val uri = URLEncoder.encode(item.uri.toString(), "UTF-8")
+                            val title = URLEncoder.encode(item.title, "UTF-8")
+                            nav.navigate("local-image/$uri/$title")
+                        },
+                    )
+                }
+                composable(
+                    "local-image/{uri}/{title}",
+                    arguments = listOf(
+                        navArgument("uri") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    LocalImageViewerScreen(
+                        imageUri = URLDecoder.decode(entry.arguments!!.getString("uri")!!, "UTF-8"),
+                        title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8"),
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+                composable(Tab.LiveTv.route) {
+                    LiveTvScreen(
+                        onPlayChannel = { url, title, _ ->
+                            val encodedUrl = URLEncoder.encode(url, "UTF-8")
+                            val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/url/$encodedUrl/$encodedTitle")
+                        },
                     )
                 }
                 composable(Tab.Adult.route) {
