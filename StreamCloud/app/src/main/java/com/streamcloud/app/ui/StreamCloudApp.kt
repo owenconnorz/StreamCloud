@@ -2062,6 +2062,8 @@ private fun ProfileNavItem(
     val ytAvatar by sl.settings.ytMusicUserAvatar.collectAsState(initial = "")
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
     val ytName by sl.settings.ytMusicUserName.collectAsState(initial = "")
+    val ytAccounts by sl.settings.ytMusicAccounts.collectAsState(initial = emptyList())
+    val activeYtAccountId by sl.settings.activeYtMusicAccountId.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var showAccountMenu by remember { mutableStateOf(false) }
 
@@ -2131,6 +2133,8 @@ private fun ProfileNavItem(
             userName = ytName,
             avatarUrl = avatar,
             signedIn = ytCookie.isNotBlank(),
+            accounts = ytAccounts,
+            activeAccountId = activeYtAccountId,
             onDismiss = { showAccountMenu = false },
             onSignIn = {
                 showAccountMenu = false
@@ -2142,19 +2146,21 @@ private fun ProfileNavItem(
                 )
             },
             onSwitchAccount = {
+                runCatching {
+                    android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                }
+                showAccountMenu = false
+                context.startActivity(
+                    android.content.Intent(
+                        context,
+                        com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java,
+                    ),
+                )
+            },
+            onSelectAccount = { accountId ->
                 scope.launch {
-                    sl.settings.clearYtMusicAccount()
-                    com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = ""
-                    runCatching {
-                        android.webkit.CookieManager.getInstance().removeAllCookies(null)
-                    }
+                    sl.settings.setActiveYtMusicAccount(accountId)
                     showAccountMenu = false
-                    context.startActivity(
-                        android.content.Intent(
-                            context,
-                            com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java,
-                        ),
-                    )
                 }
             },
             onSignOut = {

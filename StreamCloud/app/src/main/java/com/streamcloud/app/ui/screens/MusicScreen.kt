@@ -242,6 +242,8 @@ fun MusicScreen(
     val ytMusicUserName by settings.ytMusicUserName.collectAsState(initial = "")
     val ytMusicUserAvatar by settings.ytMusicUserAvatar.collectAsState(initial = "")
     val ytMusicCookie by settings.ytMusicCookie.collectAsState(initial = "")
+    val ytMusicAccounts by settings.ytMusicAccounts.collectAsState(initial = emptyList())
+    val activeYtMusicAccountId by settings.activeYtMusicAccountId.collectAsState(initial = null)
     val speedDial by settings.musicSpeedDial.collectAsState(initial = emptyList())
     val speedDialEntries = remember(speedDial, state.ytHome.sections) {
         buildMusicSpeedDial(speedDial, state.ytHome.sections)
@@ -1160,6 +1162,8 @@ fun MusicScreen(
                 userName = ytMusicUserName,
                 avatarUrl = ytMusicUserAvatar,
                 signedIn = ytMusicCookie.isNotBlank(),
+                accounts = ytMusicAccounts,
+                activeAccountId = activeYtMusicAccountId,
                 onDismiss = { showAccountMenu = false },
                 onSignIn = {
                     showAccountMenu = false
@@ -1171,19 +1175,21 @@ fun MusicScreen(
                     )
                 },
                 onSwitchAccount = {
+                    runCatching {
+                        android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                    }
+                    showAccountMenu = false
+                    context.startActivity(
+                        android.content.Intent(
+                            context,
+                            com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java,
+                        ),
+                    )
+                },
+                onSelectAccount = { accountId ->
                     dlScope.launch {
-                        settings.clearYtMusicAccount()
-                        com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = ""
-                        runCatching {
-                            android.webkit.CookieManager.getInstance().removeAllCookies(null)
-                        }
+                        settings.setActiveYtMusicAccount(accountId)
                         showAccountMenu = false
-                        context.startActivity(
-                            android.content.Intent(
-                                context,
-                                com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java,
-                            ),
-                        )
                     }
                 },
                 onSignOut = {

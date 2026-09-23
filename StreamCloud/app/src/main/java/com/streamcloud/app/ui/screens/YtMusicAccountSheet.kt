@@ -49,6 +49,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.media3.common.util.UnstableApi
+import com.streamcloud.app.data.YtMusicAccountInfo
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 
 private val StreamCloudSheet = Color(0xFF0B1514)
@@ -62,9 +63,12 @@ fun YtMusicAccountSheet(
     userName: String,
     avatarUrl: String,
     signedIn: Boolean,
+    accounts: List<YtMusicAccountInfo>,
+    activeAccountId: String?,
     onDismiss: () -> Unit,
     onSignIn: () -> Unit,
     onSwitchAccount: () -> Unit,
+    onSelectAccount: (String) -> Unit,
     onSignOut: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -181,11 +185,30 @@ fun YtMusicAccountSheet(
 
                 Spacer(Modifier.height(8.dp))
 
+                if (accounts.size > 1) {
+                    Text(
+                        text = "Your YouTube Music accounts",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = StreamCloudMuted,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                    )
+                    accounts
+                        .filterNot { it.id == activeAccountId }
+                        .forEach { account ->
+                            AccountChoiceRow(
+                                account = account,
+                                cardColor = cardColor,
+                                accent = accent,
+                                onClick = { onSelectAccount(account.id) },
+                            )
+                        }
+                }
+
                 if (signedIn) {
                     AccountActionRow(
                         icon = Icons.Default.SwapHoriz,
-                        title = "Switch YouTube account",
-                        subtitle = "Sign in with a different YouTube Music account",
+                        title = "Add YouTube account",
+                        subtitle = "Sign in and keep this account available",
                         cardColor = cardColor,
                         accent = accent,
                         onClick = onSwitchAccount,
@@ -237,6 +260,47 @@ fun YtMusicAccountSheet(
             }
         }
     }
+}
+
+@Composable
+private fun AccountChoiceRow(
+    account: YtMusicAccountInfo,
+    cardColor: Color,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(cardColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AccountAvatar(
+            avatarUrl = account.avatar,
+            size = 42.dp,
+            accent = accent,
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = account.name.ifBlank { "YouTube Music account" },
+            style = MaterialTheme.typography.titleSmall,
+            color = StreamCloudOnSheet,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "Switch",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = accent,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+    Spacer(Modifier.height(6.dp))
 }
 
 @Composable
