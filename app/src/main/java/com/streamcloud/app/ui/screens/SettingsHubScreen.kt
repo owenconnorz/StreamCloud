@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.screens
 
+import com.streamcloud.app.ads.AdvertisingSettings
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -52,6 +53,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
@@ -101,6 +103,7 @@ import androidx.compose.ui.unit.sp
 import com.streamcloud.app.BuildConfig
 import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.MovieAudioPreferences
 import com.streamcloud.app.data.downloads.DownloadCaches
 import com.streamcloud.app.data.util.ThumbnailCache
 import com.streamcloud.app.data.collections.HomeCollections
@@ -112,11 +115,13 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.updater.UpdateChecker
 import com.streamcloud.app.data.updater.UpdateInfo
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import kotlinx.coroutines.flow.first
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -146,9 +151,9 @@ private val ColourSystem     = Color(0xFF8E9CBE)
 private val ColourSonos      = Color(0xFF56C8D8)
 
 private enum class SettingsPage {
-    SystemUpdate, Appearance, PlayerAudio, Account,
+    SystemUpdate, Appearance, Playback, PlayerAudio, MovieSettings, MusicSettings, Account,
     ListenTogether, Content, Privacy,
-    Storage, BackupRestore, About, Logs, HomeLayout
+    Storage, BackupRestore, About, Logs, HomeLayout, AndroidAuto
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -158,14 +163,21 @@ fun SettingsHubScreen(
     onOpenCollections: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
+    onOpenRedditLogin: () -> Unit = {},
+    onOpenPornhubLogin: () -> Unit = {},
     onSubPageChanged: (Boolean) -> Unit = {},
     backRequest: Int = 0,
+    focusRequest: Int = 0,
     tvNavFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
     val scope   = rememberCoroutineScope()
+    val localPlaylists by remember {
+        com.streamcloud.app.data.library.LibraryDb.get(context.applicationContext)
+            .localPlaylists().allPlaylists()
+    }.collectAsState(initial = emptyList())
 
 
     var backendUrl          by remember { mutableStateOf("") }
@@ -187,11 +199,9 @@ fun SettingsHubScreen(
     var themeMode           by remember { mutableStateOf("dark") }
     var colorPalette        by remember { mutableStateOf("default") }
     var highRefreshRate     by remember { mutableStateOf(true) }
-    var newMiniPlayer       by remember { mutableStateOf(true) }
-    var pureBlackMiniPlayer by remember { mutableStateOf(false) }
     var dynamicMiniTheme    by remember { mutableStateOf(true) }
     var navLabels           by remember { mutableStateOf(true) }
-    var navLiquidGlass      by remember { mutableStateOf(false) }
+    var navLiquidGlass      by remember { mutableStateOf(true) }
     var newPlayerDesign     by remember { mutableStateOf(true) }
     var skipSilence         by remember { mutableStateOf(false) }
     var keepScreenOn        by remember { mutableStateOf(false) }
@@ -207,6 +217,7 @@ fun SettingsHubScreen(
     var syncedLyrics        by remember { mutableStateOf(true) }
     var loudnessNorm        by remember { mutableStateOf(false) }
     var canvasEnabled       by remember { mutableStateOf(false) }
+    var ytMusicCanvasEnabled by remember { mutableStateOf(false) }
     var posterStyle         by remember { mutableStateOf("portrait") }
     var moviesTheme         by remember { mutableStateOf("violet") }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
@@ -222,9 +233,11 @@ fun SettingsHubScreen(
     var parentalGuideOn     by remember { mutableStateOf(true) }
     var holdToSpeedOn       by remember { mutableStateOf(false) }
     var holdToSpeedVal      by remember { mutableStateOf("2.0") }
+    var movieAudioFormats   by remember { mutableStateOf(MovieAudioPreferences.defaultIdsCsv) }
     var showIntroKeyDialog  by remember { mutableStateOf(false) }
     var showSubSourceDialog by remember { mutableStateOf(false) }
     var showHoldSpeedDialog by remember { mutableStateOf(false) }
+    var showMovieAudioDialog by remember { mutableStateOf(false) }
     var adultLockEnabled    by remember { mutableStateOf(false) }
     var traktUsername       by remember { mutableStateOf("") }
     var traktClientId       by remember { mutableStateOf("") }
@@ -271,6 +284,7 @@ fun SettingsHubScreen(
     var showVideoCachePicker  by remember { mutableStateOf(false) }
     var showImageCachePicker  by remember { mutableStateOf(false) }
     var showPosterCachePicker by remember { mutableStateOf(false) }
+    var showAutoDestinationDialog by remember { mutableStateOf(false) }
 
     var seekIncrement          by remember { mutableStateOf("10") }
     var defaultSpeed           by remember { mutableStateOf("1.0") }
@@ -282,6 +296,16 @@ fun SettingsHubScreen(
     var gestureBrightness      by remember { mutableStateOf(true) }
     var resumePlayback         by remember { mutableStateOf(true) }
     var autoplayBestStream     by remember { mutableStateOf(false) }
+    var androidAutoVisibleSections by remember { mutableStateOf<List<String>>(emptyList()) }
+    var androidAutoSectionOrder by remember {
+        mutableStateOf(listOf(
+            "playlists", "artists", "albums", "liked_songs", "songs",
+            "home", "recently_played", "on_repeat", "downloads",
+        ))
+    }
+    var androidAutoQuickAddDestination by remember { mutableStateOf("") }
+    var androidAutoShowYoutubeSuggestions by remember { mutableStateOf(true) }
+    var androidAutoSongsSearchLimit by remember { mutableStateOf("75") }
     var showSeekDialog         by remember { mutableStateOf(false) }
     var showDefaultSpeedDialog by remember { mutableStateOf(false) }
     var showAudioLangDialog    by remember { mutableStateOf(false) }
@@ -306,8 +330,6 @@ fun SettingsHubScreen(
         themeMode           = sl.settings.theme.first()
         colorPalette        = sl.settings.colorPalette.first()
         highRefreshRate     = sl.settings.highRefreshRate.first()
-        newMiniPlayer       = sl.settings.newMiniPlayerDesign.first()
-        pureBlackMiniPlayer = sl.settings.pureBlackMiniPlayer.first()
         dynamicMiniTheme    = sl.settings.dynamicMiniPlayerTheme.first()
         navLabels           = sl.settings.navLabels.first()
         navLiquidGlass      = sl.settings.navLiquidGlass.first()
@@ -322,6 +344,7 @@ fun SettingsHubScreen(
         syncedLyrics        = sl.settings.syncedLyrics.first()
         loudnessNorm        = sl.settings.loudnessNormalization.first()
         canvasEnabled       = sl.settings.canvasEnabled.first()
+        ytMusicCanvasEnabled = sl.settings.ytMusicCanvasEnabled.first()
         posterStyle         = sl.settings.posterStyle.first()
         moviesTheme         = sl.settings.moviesTheme.first()
         safeSearch          = sl.settings.safeSearch.first()
@@ -344,6 +367,7 @@ fun SettingsHubScreen(
         parentalGuideOn     = sl.settings.parentalGuideEnabled.first()
         holdToSpeedOn       = sl.settings.holdToSpeedEnabled.first()
         holdToSpeedVal      = sl.settings.holdToSpeedValue.first()
+        movieAudioFormats   = sl.settings.movieAudioFormats.first()
         adultLockEnabled    = sl.settings.adultLockEnabled.first()
         traktUsername       = sl.settings.traktUsername.first()
         traktClientId       = sl.settings.traktClientId.first()
@@ -370,6 +394,11 @@ fun SettingsHubScreen(
         gestureBrightness     = sl.settings.gestureBrightnessEnabled.first()
         resumePlayback        = sl.settings.resumePlayback.first()
         autoplayBestStream    = sl.settings.autoplayBestStream.first()
+        androidAutoVisibleSections = sl.settings.androidAutoVisibleSections.first()
+        androidAutoSectionOrder = sl.settings.androidAutoSectionOrder.first()
+        androidAutoQuickAddDestination = sl.settings.androidAutoQuickAddDestination.first()
+        androidAutoShowYoutubeSuggestions = sl.settings.androidAutoShowYoutubeSuggestions.first()
+        androidAutoSongsSearchLimit = sl.settings.androidAutoSongsSearchLimit.first()
     }
 
 
@@ -378,10 +407,22 @@ fun SettingsHubScreen(
 
     var currentPage by remember { mutableStateOf<SettingsPage?>(null) }
     var handledBackRequest by remember { mutableStateOf(backRequest) }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
 
     BackHandler(enabled = currentPage != null) { currentPage = null }
     LaunchedEffect(currentPage) {
         onSubPageChanged(currentPage != null)
+    }
+    LaunchedEffect(currentPage, focusRequest) {
+        if (!isTv || currentPage != null || tvNavFocusRequester == null) return@LaunchedEffect
+        repeat(10) {
+            val focused = runCatching {
+                tvNavFocusRequester.requestFocus()
+                true
+            }.getOrDefault(false)
+            if (focused) return@LaunchedEffect
+            delay(100)
+        }
     }
     LaunchedEffect(backRequest) {
         if (backRequest != handledBackRequest) {
@@ -412,6 +453,379 @@ fun SettingsHubScreen(
                 onSwitchProfile     = onSwitchProfile,
                 onOpenDownloads     = onOpenDownloads,
                 tvNavFocusRequester = tvNavFocusRequester,
+            )
+
+            SettingsPage.Playback -> SubPageScaffold(
+                title = "Player & playback",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SubSectionLabel("Playback defaults")
+                    SettingNav(
+                        icon = Icons.Default.HighQuality, tint = ColourPlayer,
+                        title = "Default video quality",
+                        value = videoQuality.replaceFirstChar { it.uppercase() } +
+                            if (videoQuality.matches(Regex("\\d+"))) "p" else "",
+                        onClick = { showQualityVideoDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.PlayCircle, tint = ColourPlayer,
+                        title = "Autoplay next",
+                        subtitle = "Continue with the next song or episode automatically",
+                        checked = autoplay,
+                        onChange = { autoplay = it; scope.launch { sl.settings.setAutoplayNext(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Bolt, tint = ColourPlayer,
+                        title = "Auto-play best stream",
+                        subtitle = "Skip the source picker and play the best stream found",
+                        checked = autoplayBestStream,
+                        onChange = { autoplayBestStream = it; scope.launch { sl.settings.setAutoplayBestStream(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.BrightnessHigh, tint = ColourPlayer,
+                        title = "Keep screen on",
+                        subtitle = "Prevent the display from turning off while playing",
+                        checked = keepScreenOn,
+                        onChange = { keepScreenOn = it; scope.launch { sl.settings.setKeepScreenOn(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Video player")
+                    SettingNav(
+                        icon = Icons.Default.FastForward, tint = ColourPlayer,
+                        title = "Seek increment",
+                        value = "${seekIncrement}s",
+                        onClick = { showSeekDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Speed, tint = ColourPlayer,
+                        title = "Default playback speed",
+                        value = "${defaultSpeed}×",
+                        onClick = { showDefaultSpeedDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Restore, tint = ColourPlayer,
+                        title = "Resume from last position",
+                        checked = resumePlayback,
+                        onChange = { resumePlayback = it; scope.launch { sl.settings.setResumePlayback(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Bolt, tint = ColourPlayer,
+                        title = "Hardware video decoding",
+                        checked = hwDecoding,
+                        onChange = { hwDecoding = it; scope.launch { sl.settings.setHardwareDecodingEnabled(it) } },
+                    )
+                    if (!isTv) {
+                        SettingDivider()
+                        SettingToggle(
+                            icon = Icons.Default.FitScreen, tint = ColourPlayer,
+                            title = "Picture in Picture",
+                            checked = pipEnabled,
+                            onChange = { pipEnabled = it; scope.launch { sl.settings.setPipEnabled(it) } },
+                        )
+                    }
+                }
+                if (!isTv) {
+                    Spacer(Modifier.height(16.dp))
+                    SettingsGroup {
+                        SubSectionLabel("Gestures")
+                        SettingToggle(
+                            icon = Icons.Default.VolumeUp, tint = ColourPlayer,
+                            title = "Volume gesture",
+                            subtitle = "Swipe up or down on the left side of the player",
+                            checked = gestureVolume,
+                            onChange = { gestureVolume = it; scope.launch { sl.settings.setGestureVolumeEnabled(it) } },
+                        )
+                        SettingDivider()
+                        SettingToggle(
+                            icon = Icons.Default.Brightness6, tint = ColourPlayer,
+                            title = "Brightness gesture",
+                            subtitle = "Swipe up or down on the right side of the player",
+                            checked = gestureBrightness,
+                            onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Track preferences")
+                    SettingNav(
+                        icon = Icons.Default.Language, tint = ColourPlayer,
+                        title = "Preferred audio language",
+                        value = langDisplayName(preferredAudioLang),
+                        onClick = { showAudioLangDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Preferred subtitle language",
+                        value = langDisplayName(preferredSubtitleLang),
+                        onClick = { showSubtitleLangDialog = true },
+                    )
+                }
+            }
+
+            SettingsPage.MovieSettings -> SubPageScaffold(
+                title = "Movie settings",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SubSectionLabel("Movie defaults")
+                    SettingNav(
+                        icon = Icons.Default.Translate, tint = ColourContent,
+                        title = "Content language",
+                        subtitle = "Preferred language for movie and show metadata",
+                        value = contentLanguage.uppercase(),
+                        onClick = { showLanguageDialog = true },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Public, tint = ColourContent,
+                        title = "Content country",
+                        subtitle = "Region used for movie availability and metadata",
+                        value = contentCountry.uppercase(),
+                        onClick = { showCountryDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Subtitles, tint = ColourContent,
+                        title = "Subtitles",
+                        subtitle = "Show subtitles when available",
+                        checked = subs,
+                        onChange = { subs = it; scope.launch { sl.settings.setSubtitlesEnabled(it) } },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourContent,
+                        title = "Subtitle source preference",
+                        value = when (subtitleSource) {
+                            "internal" -> "Internal only"
+                            "external" -> "External only"
+                            else -> "Any"
+                        },
+                        onClick = { showSubSourceDialog = true },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie metadata and safety")
+                    SettingNav(
+                        icon = Icons.Default.Speed, tint = ColourContent,
+                        title = "IntroDB API key",
+                        subtitle = if (introDbApiKey.isBlank()) "Optional — increases rate limits" else "Key saved",
+                        onClick = { showIntroKeyDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.VisibilityOff, tint = ColourContent,
+                        title = "Parental guide overlay",
+                        subtitle = "Show content warnings for ~6 s at video start",
+                        checked = parentalGuideOn,
+                        onChange = { parentalGuideOn = it; scope.launch { sl.settings.setParentalGuideEnabled(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie player")
+                    SettingToggle(
+                        icon = Icons.Default.Speed, tint = ColourContent,
+                        title = "Hold-to-Speed",
+                        subtitle = "Hold a button in the player to temporarily boost speed",
+                        checked = holdToSpeedOn,
+                        onChange = { holdToSpeedOn = it; scope.launch { sl.settings.setHoldToSpeedEnabled(it) } },
+                    )
+                    if (holdToSpeedOn) {
+                        SettingDivider()
+                        SettingNav(
+                            icon = Icons.Default.Speed, tint = ColourContent,
+                            title = "Hold speed",
+                            value = "${holdToSpeedVal}x",
+                            onClick = { showHoldSpeedDialog = true },
+                        )
+                    }
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.VolumeUp, tint = ColourContent,
+                        title = "Preferred Dolby audio",
+                        subtitle = "Prefer Dolby tracks when a movie provides them",
+                        value = MovieAudioPreferences.summary(movieAudioFormats),
+                        onClick = { showMovieAudioDialog = true },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Movie appearance")
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
+                    ) {
+                        Text(
+                            "Poster style",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            listOf("portrait" to "Portrait", "landscape" to "Landscape", "auto" to "Auto")
+                                .forEach { (id, label) ->
+                                    FilterChip(
+                                        selected = posterStyle == id,
+                                        onClick = {
+                                            posterStyle = id
+                                            scope.launch { sl.settings.setPosterStyle(id) }
+                                        },
+                                        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                                    )
+                                }
+                        }
+                    }
+                    SettingDivider()
+                    MoviesThemePicker(
+                        selected = moviesTheme,
+                        onSelect = { id ->
+                            moviesTheme = id
+                            scope.launch { sl.settings.setMoviesTheme(id) }
+                        },
+                    )
+                    Text(
+                        "This theme also controls the colored TV controller focus pill.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+
+            SettingsPage.MusicSettings -> SubPageScaffold(
+                title = "Music settings",
+                onBack = { currentPage = null },
+            ) {
+                SettingsGroup {
+                    SubSectionLabel("Audio")
+                    SettingNav(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Audio quality",
+                        value = audioQuality.replaceFirstChar { it.uppercase() },
+                        onClick = { showQualityAudioDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.VolumeOff, tint = ColourPlayer,
+                        title = "Skip silence",
+                        subtitle = "Automatically skip silent parts in tracks",
+                        checked = skipSilence,
+                        onChange = { skipSilence = it; scope.launch { sl.settings.setSkipSilence(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.QueueMusic, tint = ColourPlayer,
+                        title = "Persistent queue",
+                        subtitle = "Restore your queue when you reopen the app",
+                        checked = persistentQueue,
+                        onChange = { persistentQueue = it; scope.launch { sl.settings.setPersistentQueue(it) } },
+                    )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Crossfade",
+                        value = if (crossfadeDuration == "0") "Off" else "${crossfadeDuration}s",
+                        onClick = { showCrossfadeDialog = true },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Equalizer")
+                    SettingToggle(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Equalizer",
+                        subtitle = if (eqEnabled) "On · ${eqPreset.replaceFirstChar { it.uppercase() }} preset" else "Off",
+                        checked = eqEnabled,
+                        onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
+                    )
+                    if (eqEnabled) {
+                        SettingDivider()
+                        SettingNav(
+                            icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                            title = "EQ preset",
+                            value = eqPreset.replaceFirstChar { it.uppercase() },
+                            onClick = { showEqDialog = true },
+                        )
+                    }
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Loudness normalization",
+                        subtitle = "Reduce volume differences between tracks",
+                        checked = loudnessNorm,
+                        onChange = { loudnessNorm = it; scope.launch { sl.settings.setLoudnessNormalization(it) } },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.GraphicEq, tint = ColourPlayer,
+                        title = "Bass boost",
+                        subtitle = "Adds extra low-end punch",
+                        checked = bassBoost,
+                        onChange = { bassBoost = it; scope.launch { sl.settings.setBassBoost(it) } },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Lyrics")
+                    SettingNav(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Lyrics source",
+                        value = when (lyricsSource) {
+                            "musixmatch" -> "Musixmatch"
+                            "genius" -> "Genius"
+                            else -> "LRCLib"
+                        },
+                        onClick = { showLyricsSourceDialog = true },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Subtitles, tint = ColourPlayer,
+                        title = "Synchronized lyrics",
+                        subtitle = "Show time-synced scrolling lyrics when available",
+                        checked = syncedLyrics,
+                        onChange = { syncedLyrics = it; scope.launch { sl.settings.setSyncedLyrics(it) } },
+                    )
+                }
+            }
+
+            SettingsPage.AndroidAuto -> AndroidAutoSettingsPage(
+                visibleSections = androidAutoVisibleSections,
+                sectionOrder = androidAutoSectionOrder,
+                quickAddDestination = androidAutoQuickAddDestination,
+                localPlaylists = localPlaylists,
+                showYoutubeSuggestions = androidAutoShowYoutubeSuggestions,
+                songsSearchLimit = androidAutoSongsSearchLimit,
+                onBack = { currentPage = null },
+                onVisibleSectionsChange = { ids ->
+                    androidAutoVisibleSections = ids
+                    scope.launch { sl.settings.setAndroidAutoVisibleSections(ids) }
+                },
+                onOrderChange = { ids ->
+                    androidAutoSectionOrder = ids
+                    scope.launch { sl.settings.setAndroidAutoSectionOrder(ids) }
+                },
+                onQuickAddClick = { showAutoDestinationDialog = true },
+                onYoutubeSuggestionsChange = {
+                    androidAutoShowYoutubeSuggestions = it
+                    scope.launch { sl.settings.setAndroidAutoShowYoutubeSuggestions(it) }
+                },
+                onSongsSearchLimitChange = {
+                    androidAutoSongsSearchLimit = it
+                    scope.launch { sl.settings.setAndroidAutoSongsSearchLimit(it) }
+                },
             )
 
 
@@ -495,47 +909,17 @@ fun SettingsHubScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(Modifier.height(14.dp))
-                        Row(
-                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            PaletteDynamicItem(
-                                selected = colorPalette == "dynamic",
-                                accent   = MaterialTheme.colorScheme.primary,
-                                outline  = MaterialTheme.colorScheme.outlineVariant,
-                                onClick  = {
-                                    colorPalette = "dynamic"; dynamicColor = true
-                                    scope.launch {
-                                        sl.settings.setColorPalette("dynamic")
-                                        sl.settings.setDynamicColor(true)
-                                    }
-                                },
-                            )
-                            listOf(
-                                Triple("default", Color(0xFF8B6E6A), Color(0xFFC97B6C)),
-                                Triple("warm",    Color(0xFFE8B87A), Color(0xFFD4824A)),
-                                Triple("coral",   Color(0xFFE8A0A0), Color(0xFFD45858)),
-                                Triple("violet",  Color(0xFFB8A0DC), Color(0xFF7B54C2)),
-                                Triple("blue",    Color(0xFF8AB4E8), Color(0xFF3B6CAC)),
-                                Triple("indigo",  Color(0xFF8888CC), Color(0xFF3B3B9C)),
-                            ).forEach { (id, topC, bottomC) ->
-                                PaletteItem(
-                                    topColor = topC, bottomColor = bottomC,
-                                    selected = colorPalette == id,
-                                    accent   = MaterialTheme.colorScheme.primary,
-                                    outline  = MaterialTheme.colorScheme.outlineVariant,
-                                    onClick  = {
-                                        colorPalette = id
-                                        if (dynamicColor) {
-                                            dynamicColor = false
-                                            scope.launch { sl.settings.setDynamicColor(false) }
-                                        }
-                                        scope.launch { sl.settings.setColorPalette(id) }
-                                    },
-                                )
-                            }
-                        }
+                        MoviesThemePicker(
+                            selected = colorPalette,
+                            onSelect = { id ->
+                                colorPalette = id
+                                if (dynamicColor) {
+                                    dynamicColor = false
+                                    scope.launch { sl.settings.setDynamicColor(false) }
+                                }
+                                scope.launch { sl.settings.setColorPalette(id) }
+                            },
+                        )
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -550,57 +934,7 @@ fun SettingsHubScreen(
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
-                    SubSectionLabel("Movie posters")
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
-                    ) {
-                        Text(
-                            "Poster style",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            listOf("portrait" to "Portrait", "landscape" to "Landscape", "auto" to "Auto").forEach { (id, label) ->
-                                FilterChip(
-                                    selected = posterStyle == id,
-                                    onClick = { posterStyle = id; scope.launch { sl.settings.setPosterStyle(id) } },
-                                    label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                SettingsGroup {
-                    SubSectionLabel("Movie theme")
-                    MoviesThemePicker(
-                        selected = moviesTheme,
-                        onSelect = { id ->
-                            moviesTheme = id
-                            scope.launch { sl.settings.setMoviesTheme(id) }
-                        },
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                SettingsGroup {
                     SubSectionLabel("Mini-player")
-                    SettingToggle(
-                        icon = Icons.Default.AspectRatio, tint = ColourAppearance,
-                        title = "New mini player design",
-                        checked = newMiniPlayer,
-                        onChange = { newMiniPlayer = it; scope.launch { sl.settings.setNewMiniPlayerDesign(it) } },
-                    )
-                    SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.DarkMode, tint = ColourAppearance,
-                        title = "Pure black mini-player",
-                        checked = pureBlackMiniPlayer,
-                        onChange = { pureBlackMiniPlayer = it; scope.launch { sl.settings.setPureBlackMiniPlayer(it) } },
-                    )
-                    SettingDivider()
                     SettingToggle(
                         icon = Icons.Default.Palette, tint = ColourAppearance,
                         title = "Dynamic theme",
@@ -640,7 +974,35 @@ fun SettingsHubScreen(
                         title = "Spotify Canvas",
                         subtitle = "Show a short looping video behind the now-playing screen",
                         checked = canvasEnabled,
-                        onChange = { canvasEnabled = it; scope.launch { sl.settings.setCanvasEnabled(it) } },
+                        onChange = {
+                            canvasEnabled = it
+                            if (it) ytMusicCanvasEnabled = false
+                            scope.launch { sl.settings.setCanvasEnabled(it) }
+                        },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.PlayCircle,
+                        tint = Color(0xFFFF0033),
+                        title = "YouTube Music Canvas",
+                        subtitle = if (canvasEnabled) {
+                            "Turn off Spotify Canvas first"
+                        } else {
+                            "Show YouTube Music videos full-screen behind the now-playing controls"
+                        },
+                        checked = ytMusicCanvasEnabled,
+                        onChange = { enabled ->
+                            if (enabled && canvasEnabled) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Turn off Spotify Canvas first",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                ytMusicCanvasEnabled = enabled
+                                scope.launch { sl.settings.setYtMusicCanvasEnabled(enabled) }
+                            }
+                        },
                     )
                     SettingDivider()
                     SettingNav(
@@ -935,6 +1297,10 @@ fun SettingsHubScreen(
                     YtMusicAccountRow()
                     SettingDivider()
                     SpotifyAccountRow()
+                    SettingDivider()
+                    RedditAccountRow(onLogin = onOpenRedditLogin)
+                    SettingDivider()
+                    PornhubAccountRow(onLogin = onOpenPornhubLogin)
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
@@ -972,24 +1338,26 @@ fun SettingsHubScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(16.dp))
-                SettingsGroup {
-                    val rpcSubtitle = when {
-                        discordToken.isBlank() -> "Not configured"
-                        !discordRpcEnabled -> "Disabled"
-                        discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTED -> "Connected"
-                        discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTING -> "Connecting…"
-                        discordRpcStatus == DiscordRpcService.RpcStatus.ERROR ->
-                            discordRpcError.ifBlank { "Connection error" }
-                        else -> "Disconnected"
+                if (!isTv) {
+                    Spacer(Modifier.height(16.dp))
+                    SettingsGroup {
+                        val rpcSubtitle = when {
+                            discordToken.isBlank() -> "Not configured"
+                            !discordRpcEnabled -> "Disabled"
+                            discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTED -> "Connected"
+                            discordRpcStatus == DiscordRpcService.RpcStatus.CONNECTING -> "Connecting…"
+                            discordRpcStatus == DiscordRpcService.RpcStatus.ERROR ->
+                                discordRpcError.ifBlank { "Connection error" }
+                            else -> "Disconnected"
+                        }
+                        SettingNav(
+                            icon = Icons.Default.Chat,
+                            tint = Color(0xFF5865F2),
+                            title = "Discord Rich Presence",
+                            subtitle = rpcSubtitle,
+                            onClick = { showDiscordDialog = true },
+                        )
                     }
-                    SettingNav(
-                        icon = Icons.Default.Chat,
-                        tint = Color(0xFF5865F2),
-                        title = "Discord Rich Presence",
-                        subtitle = rpcSubtitle,
-                        onClick = { showDiscordDialog = true },
-                    )
                 }
 
                 // ── Trakt.tv dialog ──────────────────────────────────────────────────────
@@ -1480,6 +1848,8 @@ fun SettingsHubScreen(
                 title = "Privacy",
                 onBack = { currentPage = null },
             ) {
+                AdvertisingSettings()
+                Spacer(Modifier.height(16.dp))
                 SettingsGroup {
                     SettingToggle(
                         icon = Icons.Default.History, tint = ColourPrivacy,
@@ -1529,14 +1899,16 @@ fun SettingsHubScreen(
                             scope.launch { sl.settings.setAdultLockEnabled(it) }
                         },
                     )
-                    SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.OpenInBrowser, tint = ColourPrivacy,
-                        title = "Open external links in browser",
-                        subtitle = "Otherwise opens inside an in-app webview",
-                        checked = extLinks,
-                        onChange = { extLinks = it; scope.launch { sl.settings.setExternalLinksInBrowser(it) } },
-                    )
+                    if (!isTv) {
+                        SettingDivider()
+                        SettingToggle(
+                            icon = Icons.Default.OpenInBrowser, tint = ColourPrivacy,
+                            title = "Open external links in browser",
+                            subtitle = "Otherwise opens inside an in-app webview",
+                            checked = extLinks,
+                            onChange = { extLinks = it; scope.launch { sl.settings.setExternalLinksInBrowser(it) } },
+                        )
+                    }
                 }
             }
 
@@ -2011,7 +2383,14 @@ fun SettingsHubScreen(
     if (showCrossfadeDialog) {
         QualityDialog(
             title = "Crossfade duration",
-            options = listOf("0" to "Off", "3" to "3 seconds", "5" to "5 seconds", "8" to "8 seconds"),
+            options = listOf(
+                "0" to "Off",
+                "3" to "3 seconds",
+                "5" to "5 seconds",
+                "8" to "8 seconds",
+                "10" to "10 seconds",
+                "12" to "12 seconds",
+            ),
             selected = crossfadeDuration,
             onSelect = { crossfadeDuration = it; scope.launch { sl.settings.setCrossfadeDuration(it) }; showCrossfadeDialog = false },
             onDismiss = { showCrossfadeDialog = false },
@@ -2132,6 +2511,17 @@ fun SettingsHubScreen(
             onDismiss = { showSubtitleLangDialog = false },
         )
     }
+    if (showMovieAudioDialog) {
+        MovieAudioFormatsDialog(
+            selectedCsv = movieAudioFormats,
+            onSave = { selected ->
+                movieAudioFormats = selected
+                scope.launch { sl.settings.setMovieAudioFormats(selected) }
+                showMovieAudioDialog = false
+            },
+            onDismiss = { showMovieAudioDialog = false },
+        )
+    }
     if (showVideoCachePicker) {
         CacheSizeSheet(
             title = "Max cache size",
@@ -2208,6 +2598,242 @@ fun SettingsHubScreen(
             onDismiss = { showPosterCachePicker = false },
         )
     }
+    if (showAutoDestinationDialog) {
+        AlertDialog(
+            onDismissRequest = { showAutoDestinationDialog = false },
+            title = { Text("Quick-add destination") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "Choose the local playlist used by Android Auto quick-add.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        onClick = {
+                            androidAutoQuickAddDestination = ""
+                            scope.launch { sl.settings.setAndroidAutoQuickAddDestination("") }
+                            showAutoDestinationDialog = false
+                        },
+                    ) { Text("No destination") }
+                    localPlaylists.forEach { playlist ->
+                        TextButton(
+                            onClick = {
+                                androidAutoQuickAddDestination = "local:${playlist.id}"
+                                scope.launch {
+                                    sl.settings.setAndroidAutoQuickAddDestination("local:${playlist.id}")
+                                }
+                                showAutoDestinationDialog = false
+                            },
+                        ) { Text(playlist.name) }
+                    }
+                    if (localPlaylists.isEmpty()) {
+                        Text("Create a local playlist in Library first.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAutoDestinationDialog = false }) { Text("Close") } },
+        )
+    }
+}
+
+@Composable
+private fun AndroidAutoSettingsPage(
+    visibleSections: List<String>,
+    sectionOrder: List<String>,
+    quickAddDestination: String,
+    localPlaylists: List<com.streamcloud.app.data.library.LocalPlaylistEntity>,
+    showYoutubeSuggestions: Boolean,
+    songsSearchLimit: String,
+    onBack: () -> Unit,
+    onVisibleSectionsChange: (List<String>) -> Unit,
+    onOrderChange: (List<String>) -> Unit,
+    onQuickAddClick: () -> Unit,
+    onYoutubeSuggestionsChange: (Boolean) -> Unit,
+    onSongsSearchLimitChange: (String) -> Unit,
+) {
+    data class AutoSection(val id: String, val title: String, val icon: ImageVector)
+    val sections = listOf(
+        AutoSection("playlists", "Playlists", Icons.Default.QueueMusic),
+        AutoSection("artists", "Artists", Icons.Default.Person),
+        AutoSection("albums", "Albums", Icons.Default.MusicNote),
+        AutoSection("liked_songs", "Liked songs", Icons.Default.Favorite),
+        AutoSection("songs", "Songs", Icons.Default.MusicNote),
+        AutoSection("home", "Home", Icons.Default.Dashboard),
+        AutoSection("recently_played", "Recently played", Icons.Default.History),
+        AutoSection("on_repeat", "On repeat", Icons.Default.Restore),
+        AutoSection("downloads", "Downloads", Icons.Default.Download),
+    )
+    val sectionsById = remember { sections.associateBy { it.id } }
+    val orderedIds = remember(sectionOrder) { sectionOrder.filter { it in sectionsById }.toMutableStateList() }
+    var dragIndex by remember { mutableIntStateOf(-1) }
+    var dragAccumulator by remember { mutableFloatStateOf(0f) }
+    var rowHeightPx by remember { mutableFloatStateOf(0f) }
+    val limitOptions = listOf("25", "50", "75", "100", "250", "500", "unlimited")
+    val initialLimitIndex = limitOptions.indexOf(songsSearchLimit).coerceAtLeast(0)
+    var limitIndex by remember(songsSearchLimit) { mutableFloatStateOf(initialLimitIndex.toFloat()) }
+
+    SubPageScaffold(title = "Android Auto", onBack = onBack) {
+        Text(
+            "Visible sections",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        SettingsGroup {
+            Text(
+                "Tap a section to enable or disable it. Long press the drag handle to reorder. The first visible section is shown by default.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        SettingsGroup {
+            orderedIds.forEachIndexed { index, id ->
+                val section = sectionsById.getValue(id)
+                val enabled = id in visibleSections
+                if (index > 0) SettingDivider()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(if (dragIndex == index) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f) else Color.Transparent)
+                        .onGloballyPositioned { if (rowHeightPx == 0f) rowHeightPx = it.size.height.toFloat() }
+                        .padding(end = 14.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .tvFocusBorder(RoundedCornerShape(12.dp))
+                            .clickable {
+                                if (!enabled || visibleSections.size > 1) {
+                                    onVisibleSectionsChange(
+                                        if (enabled) visibleSections - id else visibleSections + id,
+                                    )
+                                }
+                            }
+                            .padding(start = 14.dp, top = 13.dp, bottom = 13.dp, end = 8.dp),
+                    ) {
+                        IconBox(section.icon, ColourPlayer)
+                        Spacer(Modifier.width(14.dp))
+                        Text(
+                            section.title,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(checked = enabled, onCheckedChange = null)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.Default.Reorder,
+                        contentDescription = "Long press and drag to reorder ${section.title}",
+                        tint = if (dragIndex == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .6f),
+                        modifier = Modifier
+                            .size(24.dp)
+                            .pointerInput(id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        dragIndex = orderedIds.indexOf(id)
+                                        dragAccumulator = 0f
+                                    },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        dragAccumulator += amount.y
+                                        val threshold = rowHeightPx.coerceAtLeast(72f) / 2f
+                                        while (dragAccumulator > threshold && dragIndex < orderedIds.lastIndex) {
+                                            orderedIds.add(dragIndex + 1, orderedIds.removeAt(dragIndex))
+                                            dragIndex++
+                                            dragAccumulator -= rowHeightPx.coerceAtLeast(72f)
+                                        }
+                                        while (dragAccumulator < -threshold && dragIndex > 0) {
+                                            orderedIds.add(dragIndex - 1, orderedIds.removeAt(dragIndex))
+                                            dragIndex--
+                                            dragAccumulator += rowHeightPx.coerceAtLeast(72f)
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        onOrderChange(orderedIds.toList())
+                                        dragIndex = -1
+                                    },
+                                    onDragCancel = { dragIndex = -1 },
+                                )
+                            },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Text("Quick-add destination", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(8.dp))
+        SettingsGroup {
+            SettingNav(
+                icon = Icons.Default.QueueMusic,
+                tint = ColourPlayer,
+                title = "Quick-add destination",
+                subtitle = when {
+                    quickAddDestination.startsWith("local:") -> localPlaylists
+                        .firstOrNull { it.id.toString() == quickAddDestination.removePrefix("local:") }
+                        ?.name ?: "Selected playlist is unavailable"
+                    else -> "Not configured"
+                },
+                onClick = onQuickAddClick,
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        Text("Mixes", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(8.dp))
+        SettingsGroup {
+            SettingToggle(
+                icon = Icons.Default.QueueMusic,
+                tint = ColourPlayer,
+                title = "Show YouTube suggested playlists",
+                subtitle = "Show YouTube Music recommended playlists while browsing Android Auto",
+                checked = showYoutubeSuggestions,
+                onChange = onYoutubeSuggestionsChange,
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        Text("Search options", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(8.dp))
+        SettingsGroup {
+            Column(Modifier.padding(16.dp)) {
+                Text("Songs search limit", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Limit the number of local songs shown in search results.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    if (limitOptions[limitIndex.toInt()] == "unlimited") "Unlimited" else "${limitOptions[limitIndex.toInt()]} songs",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Slider(
+                    value = limitIndex,
+                    onValueChange = { value ->
+                        val index = value.toInt().coerceIn(0, limitOptions.lastIndex)
+                        limitIndex = index.toFloat()
+                    },
+                    onValueChangeFinished = {
+                        onSongsSearchLimitChange(limitOptions[limitIndex.toInt()])
+                    },
+                    valueRange = 0f..limitOptions.lastIndex.toFloat(),
+                    steps = limitOptions.size - 2,
+                )
+                if (limitOptions[limitIndex.toInt()] == "unlimited") {
+                    Text(
+                        "Unlimited search results can use substantial memory and may cause Android Auto to become unstable.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -2244,10 +2870,13 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
             HubItem(Icons.Default.Person, "Account",        "Account and sync status",             ColourAccount, onClick = { onNavigate(SettingsPage.Account) }),
         )),
         HubSection("MUSIC", listOf(
-            HubItem(Icons.Default.PlayArrow, "Player and audio", "Playback, equaliser, crossfade, quality",  ColourPlayer, onClick = { onNavigate(SettingsPage.PlayerAudio) }),
+            HubItem(Icons.Default.MusicNote, "Music settings", "Audio quality, equaliser, lyrics and queue", ColourPlayer, onClick = { onNavigate(SettingsPage.MusicSettings) }),
+            HubItem(Icons.Default.Dashboard, "Android Auto", "Configure music browsing and quick-add in your car", ColourPlayer, onClick = { onNavigate(SettingsPage.AndroidAuto) }),
+            HubItem(Icons.Default.PlayArrow, "Player & playback", "Video quality, controls and playback behaviour", ColourPlayer, onClick = { onNavigate(SettingsPage.Playback) }),
             HubItem(Icons.Default.Group,     "Listen Together",  "Sync playback with friends",               ColourSonos,  onClick = { onNavigate(SettingsPage.ListenTogether) }),
         )),
         HubSection("MOVIES", listOf(
+            HubItem(Icons.Default.Movie,      "Movie settings",  "Movie defaults, subtitles, metadata and appearance", ColourContent, onClick = { onNavigate(SettingsPage.MovieSettings) }),
             HubItem(Icons.Default.Extension,  "Plugins & Addons", "Manage stream sources and addons",        ColourAi,      onClick = onOpenPlugins),
             HubItem(Icons.Default.Dashboard,  "Home Layout",        "Reorder and toggle home screen rows",     ColourContent, onClick = { onNavigate(SettingsPage.HomeLayout) }),
             HubItem(Icons.Default.Layers,     "Collections",       "Manage collections and folders",          ColourSystem,  onClick = onOpenCollections),
@@ -2256,7 +2885,6 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         HubSection("GENERAL", listOf(
             HubItem(Icons.Default.Palette,     "Appearance",         "Theme, colours, navigation, display",       ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }),
             HubItem(Icons.Default.Shield,      "Privacy",            "Safe search, history, explicit content",    ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }),
-            HubItem(Icons.Default.Public,      "Content",            "Language, region, subtitles, parental",     ColourContent,    onClick = { onNavigate(SettingsPage.Content) }),
             HubItem(Icons.Default.Storage,     "Storage",            "Cache management and storage usage",        ColourStorage,    onClick = { onNavigate(SettingsPage.Storage) }),
             HubItem(Icons.Default.CloudUpload, "Backup and restore", "Back up or restore your app data",          ColourSystem,     onClick = { onNavigate(SettingsPage.BackupRestore) }),
         )),
@@ -2278,9 +2906,22 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         )),
     )
 
-    val filtered = if (searchQuery.isBlank()) sections else {
-        val q = searchQuery.trim().lowercase()
+    // TV has no car connection, touch gestures, or convenient file/debug workflows.
+    // Keep those capabilities available on phones while keeping the TV hub focused
+    // on settings that can be used comfortably with a remote.
+    val tvHiddenTitles = setOf("Android Auto", "Backup and restore", "App logs")
+    val visibleSections = if (isTv) {
         sections.mapNotNull { section ->
+            section.copy(items = section.items.filterNot { it.title in tvHiddenTitles })
+                .takeIf { it.items.isNotEmpty() }
+        }
+    } else {
+        sections
+    }
+
+    val filtered = if (searchQuery.isBlank()) visibleSections else {
+        val q = searchQuery.trim().lowercase()
+        visibleSections.mapNotNull { section ->
             val matching = section.items.filter {
                 it.title.lowercase().contains(q) || it.subtitle.lowercase().contains(q)
             }
@@ -2292,7 +2933,8 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
+            .statusBarsPadding()
+            .tvFocusGroup(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 100.dp),
     ) {
         // ── Title ──────────────────────────────────────────────────────────
@@ -2320,8 +2962,8 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    // TV nav D-pad Down entry point — focuses the search bar so the user can
-                    // filter settings or press Down again to reach individual setting rows.
+                    // Phone/tablet search owns the entry focus when visible. TV attaches the
+                    // same requester to the first real setting row below.
                     .let { if (tvNavFocusRequester != null) it.focusRequester(tvNavFocusRequester) else it }
                     .padding(bottom = 22.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -2452,7 +3094,10 @@ private fun SubPageScaffold(
                 .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.tvFocusBorder(CircleShape),
+            ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -2491,7 +3136,9 @@ private fun ThemeModeItem(
     val iconTint = if (useLightIcon) Color.White else Color(0xFF1A1210)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier
+            .tvFocusBorder(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
     ) {
         Box(
             Modifier
@@ -2545,6 +3192,7 @@ private fun PaletteItem(
         Modifier
             .size(50.dp)
             .clip(CircleShape)
+            .tvFocusBorder(CircleShape)
             .border(
                 width = if (selected) 2.5.dp else 1.dp,
                 color = if (selected) accent else outline.copy(alpha = 0.5f),
@@ -2583,6 +3231,7 @@ private fun PaletteDynamicItem(
             .size(50.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .tvFocusBorder(CircleShape)
             .border(
                 width = if (selected) 2.5.dp else 1.dp,
                 color = if (selected) accent else outline.copy(alpha = 0.5f),
@@ -2811,6 +3460,118 @@ private fun SpotifyAccountRow() {
 }
 
 @Composable
+private fun RedditAccountRow(onLogin: () -> Unit) {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val username by sl.settings.redditUsername.collectAsState(initial = "")
+    val signedIn = username.isNotBlank()
+    val scope = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .clickable(onClick = onLogin)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(
+            if (signedIn) Icons.Default.Logout else Icons.Default.Login,
+            Color(0xFFFF4500),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "Reddit" else "Sign in to Reddit",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) "Signed in as u/$username"
+                else "Access Reddit feeds that require an account",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        if (signedIn) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        com.streamcloud.app.data.api.RedditAdultRepository.clearSessionCookies()
+                        sl.settings.clearRedditAccount()
+                    }
+                },
+            ) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PornhubAccountRow(onLogin: () -> Unit) {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val signedIn by sl.settings.pornhubSignedIn.collectAsState(initial = false)
+    val scope = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .clickable(onClick = onLogin)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(
+            if (signedIn) Icons.Default.Logout else Icons.Default.Login,
+            Color(0xFFFFA726),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "Pornhub" else "Sign in to Pornhub",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) "Signed in — tap to continue verification or manage the account"
+                else "Use Pornhub’s own page for login and verification",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
+        }
+        if (signedIn) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        com.streamcloud.app.data.api.PornhubRepository.clearSessionCookies()
+                        // CookieManager writes asynchronously. The account
+                        // indicator must not remain stuck if its immediate
+                        // verification races that write.
+                        sl.settings.clearPornhubAccount()
+                    }
+                },
+            ) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun YtMusicAccountRow() {
     val context = LocalContext.current
     val sl      = remember(context) { ServiceLocator.get(context) }
@@ -2916,6 +3677,28 @@ private fun UpdaterRow() {
                 Spacer(Modifier.height(4.dp))
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             }
+            if (!update?.notes.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "What's new",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    update?.notes.orEmpty(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 112.dp)
+                        .background(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                            RoundedCornerShape(10.dp),
+                        )
+                        .padding(10.dp)
+                        .verticalScroll(rememberScrollState()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         when {
             checking || downloading -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -2936,6 +3719,7 @@ private fun UpdaterRow() {
                     }
                 },
                 shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.tvFocusBorder(RoundedCornerShape(10.dp)),
             ) { Text("Install") }
             else -> Icon(
                 Icons.Default.ChevronRight,
@@ -2976,6 +3760,77 @@ private fun QualityDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun MovieAudioFormatsDialog(
+    selectedCsv: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var selected by remember(selectedCsv) {
+        mutableStateOf(MovieAudioPreferences.decodeIds(selectedCsv))
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Preferred Dolby audio") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "Selected formats are preferred when available. Device and source support still determine what can play.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                MovieAudioPreferences.formats.forEach { format ->
+                    val checked = format.id in selected
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selected = if (checked) selected - format.id else selected + format.id
+                            }
+                            .padding(vertical = 5.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(format.label, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                format.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = { enabled ->
+                                selected = if (enabled) selected + format.id else selected - format.id
+                            },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val csv = MovieAudioPreferences.formats
+                        .filter { it.id in selected }
+                        .joinToString(",") { it.id }
+                    onSave(csv)
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = {
+                    selected = MovieAudioPreferences.defaultIds
+                }) { Text("All") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
     )
 }
 
@@ -4062,19 +4917,25 @@ private fun NuvioAccountRow() {
             val r = runCatching { nuvioSvc.syncPull(accessToken) }
             syncStatus  = r.fold(
                 onSuccess = { p ->
-                    val total = p.watchProgress + p.library + p.collections + p.watchedItems
-                    if (total > 0)
-                        buildString {
-                            append("↓ Synced ")
-                            if (p.watchProgress > 0) append("${p.watchProgress} in-progress · ")
-                            if (p.library > 0)       append("${p.library} saved · ")
-                            if (p.collections > 0)   append("${p.collections} collections · ")
-                            if (p.addons > 0)        append("${p.addons} addons · ")
-                            if (p.plugins > 0)       append("${p.plugins} plugins · ")
-                        }.trimEnd(' ', '·')
-                    else ""
+                    p.errors.takeIf { it.isNotEmpty() }?.let {
+                        "Partial sync: ${it.joinToString("; ").take(150)}"
+                    } ?: run {
+                        val total = p.watchProgress + p.library + p.collections + p.watchedItems +
+                            p.profiles + p.addons + p.plugins
+                        if (total > 0)
+                            buildString {
+                                append("↓ Synced ")
+                                if (p.watchProgress > 0) append("${p.watchProgress} in-progress · ")
+                                if (p.profiles > 0) append("${p.profiles} profiles · ")
+                                if (p.library > 0) append("${p.library} saved · ")
+                                if (p.collections > 0) append("${p.collections} collections · ")
+                                if (p.addons > 0) append("${p.addons} addons · ")
+                                if (p.plugins > 0) append("${p.plugins} plugins · ")
+                            }.trimEnd(' ', '·')
+                        else ""
+                    }
                 },
-                onFailure = { "" },
+                onFailure = { "Error: ${it.message?.take(90) ?: "Nuvio sync failed"}" },
             )
         }
     }
@@ -4096,7 +4957,7 @@ private fun NuvioAccountRow() {
             )
             Text(
                 if (signedIn) email.ifBlank { "Signed in" }
-                else "Sync plugins, addons, watch progress and watchlist",
+                else "Sync Nuvio plugins, Stremio addons, watch progress and watchlist",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -4116,27 +4977,62 @@ private fun NuvioAccountRow() {
             TextButton(onClick = {
                 scope.launch {
                     syncStatus = "Syncing…"
-                    val push = runCatching { nuvioSvc.syncAll(accessToken) }
-                    val pull = runCatching { nuvioSvc.syncPull(accessToken) }
+                    val pendingDeletes = runCatching {
+                        com.streamcloud.app.data.nuvio.NuvioAutoSync.pushPendingLibraryDeletes(
+                            context.applicationContext,
+                            accessToken,
+                        )
+                    }
+                    val pendingError = pendingDeletes.exceptionOrNull()
+                    val push = if (pendingError == null) {
+                        runCatching { nuvioSvc.syncAll(accessToken) }
+                    } else {
+                        Result.failure(pendingError)
+                    }
+                    val pull = if (pendingError == null && push.isSuccess) {
+                        runCatching { nuvioSvc.syncPull(accessToken) }
+                    } else {
+                        Result.failure(pendingError ?: push.exceptionOrNull()!!)
+                    }
                     syncStatus = when {
-                        push.isSuccess && pull.isSuccess -> {
+                        pendingDeletes.isSuccess && push.isSuccess && pull.isSuccess -> {
                             val up   = push.getOrThrow()
                             val down = pull.getOrThrow()
-                            buildString {
+                            val errors = (up.errors + down.errors).distinct()
+                            errors.takeIf { it.isNotEmpty() }?.let {
+                                "Partial sync: ${it.joinToString("; ").take(150)}"
+                            } ?: buildString {
                                 append("Synced ✓  ")
-                                append("↑${up.watchProgress} ↓${down.watchProgress} watched · ")
+                                append("↑${up.watchProgress} ↓${down.watchProgress} in-progress · ")
+                                if (up.profiles + down.profiles > 0) {
+                                    append("↑${up.profiles} ↓${down.profiles} profiles · ")
+                                }
+                                if (up.watchedItems + down.watchedItems > 0) {
+                                    append("↑${up.watchedItems} ↓${down.watchedItems} watched · ")
+                                }
                                 append("↑${up.library} ↓${down.library} saved")
-                                if (down.collections > 0) append(" · ${down.collections} collections")
+                                if (up.collections + down.collections > 0) {
+                                    append(" · ↑${up.collections} ↓${down.collections} collections")
+                                }
                                 if (up.plugins + down.plugins > 0) append(" · ${up.plugins + down.plugins} plugins")
-                                if (up.addons + down.addons > 0)   append(" · ${up.addons + down.addons} addons")
+                                if (up.addons + down.addons > 0) append(" · ${up.addons + down.addons} addons")
                             }
                         }
+                        pendingDeletes.isFailure -> "Error: ${
+                            pendingDeletes.exceptionOrNull()?.message?.take(90)
+                                ?: "library deletion sync failed"
+                        }"
                         push.isSuccess -> "Pushed ✓  (pull unavailable)"
                         pull.isSuccess -> {
                             val down = pull.getOrThrow()
-                            "Pulled ✓  ${down.watchProgress} watched · ${down.library} saved · ${down.collections} collections"
+                            down.errors.takeIf { it.isNotEmpty() }?.let {
+                                "Partial pull: ${it.joinToString("; ").take(150)}"
+                            } ?: "Pulled ✓  ${down.profiles} profiles · ${down.watchProgress} watching · ${down.library} saved · ${down.collections} collections"
                         }
-                        else -> "Error: ${push.exceptionOrNull()?.message?.take(60)}"
+                        else -> "Error: ${
+                            (push.exceptionOrNull() ?: pull.exceptionOrNull())
+                                ?.message?.take(90) ?: "Nuvio sync failed"
+                        }"
                     }
                 }
             }) { Text("Sync ↕") }
@@ -4164,7 +5060,7 @@ private fun NuvioAccountRow() {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "Enter your Nuvio account credentials to sync plugins, addons, and watch history across devices.",
+                        "Enter your Nuvio account credentials to sync profiles, plugins, addons, and watch history across devices.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -4240,22 +5136,32 @@ private fun NuvioAccountRow() {
                                     syncStatus = "Syncing your data…"
                                     // Immediately pull cloud data so home screen shows it
                                     scope.launch {
-                                        val push = runCatching { nuvioSvc.syncAll(session.access_token) }
                                         val pull = runCatching { nuvioSvc.syncPull(session.access_token) }
+                                        val push = runCatching { nuvioSvc.syncAll(session.access_token) }
                                         syncStatus = when {
-                                            pull.isSuccess -> {
+                                            pull.isSuccess && push.isSuccess -> {
                                                 val d = pull.getOrThrow()
-                                                buildString {
+                                                 val errors = (d.errors + push.getOrThrow().errors).distinct()
+                                                 errors.takeIf { it.isNotEmpty() }?.let {
+                                                     "Partial sync: ${it.joinToString("; ").take(150)}"
+                                                 } ?: buildString {
                                                     append("Synced ✓  ")
+                                                    if (d.profiles > 0) append("${d.profiles} profiles · ")
                                                     if (d.watchProgress > 0) append("${d.watchProgress} watching · ")
+                                                    if (d.watchedItems > 0) append("${d.watchedItems} watched · ")
                                                     if (d.library > 0)       append("${d.library} saved · ")
                                                     if (d.collections > 0)   append("${d.collections} collections · ")
                                                     if (d.addons > 0)        append("${d.addons} addons · ")
                                                     if (d.plugins > 0)       append("${d.plugins} plugins · ")
                                                 }.trimEnd(' ', '·').ifBlank { "Synced ✓" }
                                             }
-                                            push.isSuccess -> "Signed in ✓  (tap Sync ↕ to refresh)"
-                                            else -> "Signed in ✓"
+                                            pull.isSuccess -> "Signed in ✓  (upload failed: ${
+                                                push.exceptionOrNull()?.message?.take(90) ?: "partial sync"
+                                            })"
+                                            push.isSuccess -> "Signed in ✓  (download failed: ${
+                                                pull.exceptionOrNull()?.message?.take(90) ?: "partial sync"
+                                            })"
+                                            else -> "Signed in ✓  (sync unavailable)"
                                         }
                                         didAutoSync = true
                                     }

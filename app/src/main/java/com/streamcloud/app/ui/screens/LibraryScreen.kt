@@ -106,6 +106,8 @@ fun LibraryScreen(
     onPlayLocalFile: (filePath: String, title: String, tmdbId: Long, mediaType: String) -> Unit = { _, _, _, _ -> },
     onTvClick: (Long) -> Unit = {},
     onCsClick: (plugin: String, url: String, title: String, poster: String?) -> Unit = { _, _, _, _ -> },
+    onStremioClick: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit =
+        { _, _, _, _, _ -> },
     onDirectMediaClick: (url: String, title: String) -> Unit = { _, _ -> },
     onAdultProviderClick: (provider: String, url: String, title: String) -> Unit = { _, _, _ -> },
     tvNavFocusRequester: FocusRequester? = null,
@@ -113,8 +115,11 @@ fun LibraryScreen(
     val context = LocalContext.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val gridColumns = if (isTv) 4 else 2
-    val dao = remember { LibraryDb.get(context).tracks() }
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
+    val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
+    val profileKey = activeProfile?.id ?: "default"
+    val db = remember(profileKey) { LibraryDb.get(context.applicationContext) }
+    val dao = remember(db) { db.tracks() }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
     val spotifyCookie by sl.settings.spotifyCookie.collectAsState(initial = "")
     val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
@@ -234,12 +239,12 @@ fun LibraryScreen(
     var openTile by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var sectionMode by remember { mutableStateOf("Music") }
-    val watchlistItems by LibraryDb.get(context).watchlist().all().collectAsState(initial = emptyList())
-    val downloadedMovies by LibraryDb.get(context).movieDownloads().all().collectAsState(initial = emptyList())
+    val watchlistItems by db.watchlist().all().collectAsState(initial = emptyList())
+    val downloadedMovies by db.movieDownloads().all().collectAsState(initial = emptyList())
     var movieSubTab by remember { mutableStateOf("Watchlist") }
 
-    val localPlaylists by remember(context) {
-        LibraryDb.get(context).localPlaylists().allPlaylists()
+    val localPlaylists by remember(profileKey) {
+        db.localPlaylists().allPlaylists()
     }.collectAsState(initial = emptyList())
 
     if (showCreatePlaylistDialog) {
@@ -248,7 +253,7 @@ fun LibraryScreen(
             onCreate = { name ->
                 showCreatePlaylistDialog = false
                 scope.launch {
-                    LibraryDb.get(context).localPlaylists().createPlaylist(
+                    db.localPlaylists().createPlaylist(
                         com.streamcloud.app.data.library.LocalPlaylistEntity(name = name),
                     )
                 }
@@ -268,13 +273,17 @@ fun LibraryScreen(
                 .padding(start = 20.dp, top = 8.dp, end = 14.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "Library",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
+            if (!isTv) {
+                Text(
+                    "Library",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
             Row(
                 modifier = Modifier.tvFocusGroup(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -435,10 +444,23 @@ fun LibraryScreen(
                 MovieWatchlistsLibrarySection(
                     defaultItems = watchlistItems,
                     isTv = isTv,
+                    profileKey = profileKey,
                     onOpen = { entry ->
                         when (entry.mediaType) {
                             "tv" -> onTvClick(entry.tmdbId)
                             "cloudstream" -> onCsClick(entry.csPlugin, entry.csUrl, entry.title, entry.posterUrl)
+                            "stremio" -> {
+                                val parts = entry.csUrl.split("|||", limit = 2)
+                                if (parts.size == 2) {
+                                    onStremioClick(
+                                        entry.csPlugin,
+                                        parts[0],
+                                        parts[1],
+                                        entry.title,
+                                        entry.posterUrl,
+                                    )
+                                }
+                            }
                             "reddit", "redgifs" -> onDirectMediaClick(entry.csUrl, entry.title)
                             "eporner", "pornhub" ->
                                 onAdultProviderClick(entry.mediaType, entry.csUrl, entry.title)
@@ -802,10 +824,11 @@ fun LibraryScreen(
 private fun MovieWatchlistsLibrarySection(
     defaultItems: List<WatchlistEntity>,
     isTv: Boolean,
+    profileKey: String,
     onOpen: (WatchlistEntity) -> Unit,
 ) {
     val context = LocalContext.current
-    val db = remember(context) { LibraryDb.get(context.applicationContext) }
+    val db = remember(profileKey) { LibraryDb.get(context.applicationContext) }
     val dao = db.movieWatchlists()
     val scope = rememberCoroutineScope()
     val customLists by dao.all().collectAsState(initial = emptyList())
@@ -910,8 +933,20 @@ private fun MovieWatchlistsLibrarySection(
                         onClick = {
                             val ids = selectedIds.toList()
                             scope.launch {
-                                if (activeListId == null) ids.forEach { db.watchlist().remove(it) }
-                                else dao.removeItems(activeListId!!, ids)
+                                if (activeListId == null) {
+                                    val removed = entries.filter { it.tmdbId in ids }
+                                    ids.forEach { db.watchlist().remove(it) }
+                                    removed.forEach { entry ->
+                                        com.streamcloud.app.data.nuvio.NuvioAutoSync.requestLibraryDelete(
+                                            context.applicationContext,
+                                            entry.tmdbId,
+                                            entry.mediaType,
+                                        )
+                                    }
+                                } else {
+                                    dao.removeItems(activeListId!!, ids)
+                                }
+                                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                                 selectedIds = emptySet()
                                 selectionMode = false
                             }
@@ -1064,6 +1099,7 @@ private fun MovieWatchlistsLibrarySection(
                                 .clickable {
                                     moveMovieEntries(
                                         entries, selectedIds, activeListId, null, db,
+                                        context = context,
                                         scope = scope,
                                         onFinished = {
                                             selectedIds = emptySet()
@@ -1082,6 +1118,7 @@ private fun MovieWatchlistsLibrarySection(
                                 .clickable {
                                     moveMovieEntries(
                                         entries, selectedIds, activeListId, list.id, db,
+                                        context = context,
                                         scope = scope,
                                         onFinished = {
                                             selectedIds = emptySet()
@@ -1133,12 +1170,23 @@ private fun moveMovieEntries(
     sourceListId: Long?,
     destinationListId: Long?,
     db: LibraryDb,
+    context: android.content.Context,
     scope: kotlinx.coroutines.CoroutineScope,
     onFinished: () -> Unit,
 ) {
     scope.launch {
         val moving = entries.filter { it.tmdbId in selectedIds }
         db.moveMovieWatchlistItems(moving, sourceListId, destinationListId)
+        if (sourceListId == null && destinationListId != null) {
+            moving.forEach { entry ->
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.requestLibraryDelete(
+                    context.applicationContext,
+                    entry.tmdbId,
+                    entry.mediaType,
+                )
+            }
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
+        }
         onFinished()
     }
 }
@@ -1717,9 +1765,9 @@ private fun YtSongRow(s: YtmSong, onClick: () -> Unit) {
 
     LaunchedEffect(s.videoId) {
         val url = com.streamcloud.app.data.ytmusic.YtPlayback.watchUrl(s.videoId)
-        com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads.collect { dlMap ->
-            val state = dlMap[url]?.state
-            downloaded = (state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED)
+        com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads.collect {
+            downloaded = com.streamcloud.app.data.downloads.YtMusicDownloadUtil
+                .isDownloaded(s.videoId)
                 || com.streamcloud.app.data.downloads.MusicDownloader.isDownloaded(context, url)
         }
     }
