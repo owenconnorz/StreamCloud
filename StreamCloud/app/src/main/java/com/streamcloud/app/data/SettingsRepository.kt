@@ -11,6 +11,8 @@ import com.streamcloud.app.data.plugins.csHomeSectionsJson
 import com.streamcloud.app.data.ytmusic.YtmSong
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -18,6 +20,25 @@ import java.net.URLEncoder
 private val Context.dataStore by preferencesDataStore("streamcloud_settings")
 
 private const val MAX_MUSIC_SPEED_DIAL_ITEMS = 27
+
+data class YtMusicAccountInfo(
+    val id: String,
+    val name: String,
+    val avatar: String,
+)
+
+@Serializable
+private data class StoredYtMusicAccount(
+    val id: String,
+    val name: String,
+    val avatar: String,
+    val cookie: String,
+)
+
+private val ytMusicAccountsJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
 
 private fun encodeMusicSpeedDial(songs: List<YtmSong>): String =
     songs.joinToString("\n") { song ->
@@ -78,6 +99,8 @@ object SettingsKeys {
     val YT_MUSIC_COOKIE = stringPreferencesKey("yt_music_cookie")
     val YT_MUSIC_USER_NAME = stringPreferencesKey("yt_music_user_name")
     val YT_MUSIC_USER_AVATAR = stringPreferencesKey("yt_music_user_avatar")
+    val YT_MUSIC_ACCOUNTS = stringPreferencesKey("yt_music_accounts")
+    val YT_MUSIC_ACTIVE_ACCOUNT_ID = stringPreferencesKey("yt_music_active_account_id")
     val NAV_TAB_ORDER = stringPreferencesKey("nav_tab_order")
     val PLAYLIST_THUMBS = stringPreferencesKey("playlist_thumbs")
     val UI_MODE = stringPreferencesKey("ui_mode")
@@ -264,9 +287,50 @@ class SettingsRepository(private val context: Context) {
     }
 
 
-    val ytMusicCookie: Flow<String> = context.dataStore.data.map { it[SettingsKeys.YT_MUSIC_COOKIE] ?: "" }
-    val ytMusicUserName: Flow<String> = context.dataStore.data.map { it[SettingsKeys.YT_MUSIC_USER_NAME] ?: "" }
-    val ytMusicUserAvatar: Flow<String> = context.dataStore.data.map { it[SettingsKeys.YT_MUSIC_USER_AVATAR] ?: "" }
+    private fun storedYtMusicAccounts(prefs: androidx.datastore.preferences.core.Preferences): List<StoredYtMusicAccount> {
+        val encoded = prefs[SettingsKeys.YT_MUSIC_ACCOUNTS]
+        val saved = encoded
+            ?.let { runCatching { ytMusicAccountsJson.decodeFromString<List<StoredYtMusicAccount>>(it) }.getOrNull() }
+            .orEmpty()
+        if (saved.isNotEmpty()) return saved
+
+        val legacyCookie = prefs[SettingsKeys.YT_MUSIC_COOKIE].orEmpty()
+        if (legacyCookie.isBlank()) return emptyList()
+        return listOf(
+            StoredYtMusicAccount(
+                id = "legacy",
+                name = prefs[SettingsKeys.YT_MUSIC_USER_NAME].orEmpty(),
+                avatar = prefs[SettingsKeys.YT_MUSIC_USER_AVATAR].orEmpty(),
+                cookie = legacyCookie,
+            ),
+        )
+    }
+
+    private fun activeStoredYtMusicAccount(
+        prefs: androidx.datastore.preferences.core.Preferences,
+    ): StoredYtMusicAccount? {
+        val accounts = storedYtMusicAccounts(prefs)
+        val activeId = prefs[SettingsKeys.YT_MUSIC_ACTIVE_ACCOUNT_ID]
+        return accounts.firstOrNull { it.id == activeId } ?: accounts.firstOrNull()
+    }
+
+    val ytMusicAccounts: Flow<List<YtMusicAccountInfo>> = context.dataStore.data.map { prefs ->
+        storedYtMusicAccounts(prefs).map {
+            YtMusicAccountInfo(id = it.id, name = it.name, avatar = it.avatar)
+        }
+    }
+    val activeYtMusicAccountId: Flow<String?> = context.dataStore.data.map {
+        activeStoredYtMusicAccount(it)?.id
+    }
+    val ytMusicCookie: Flow<String> = context.dataStore.data.map {
+        activeStoredYtMusicAccount(it)?.cookie.orEmpty()
+    }
+    val ytMusicUserName: Flow<String> = context.dataStore.data.map {
+        activeStoredYtMusicAccount(it)?.name.orEmpty()
+    }
+    val ytMusicUserAvatar: Flow<String> = context.dataStore.data.map {
+        activeStoredYtMusicAccount(it)?.avatar.orEmpty()
+    }
 
 
     val navTabOrderCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.NAV_TAB_ORDER] }
@@ -343,10 +407,48 @@ class SettingsRepository(private val context: Context) {
     }
     suspend fun setYtMusicUserAvatar(avatar: String) =
         context.dataStore.edit { it[SettingsKeys.YT_MUSIC_USER_AVATAR] = avatar }
-    suspend fun clearYtMusicAccount() = context.dataStore.edit {
-        it.remove(SettingsKeys.YT_MUSIC_COOKIE)
-        it.remove(SettingsKeys.YT_MUSIC_USER_NAME)
-        it.remove(SettingsKeys.YT_MUSIC_USER_AVATAR)
+
+    suspend fun saveYtMusicAccount(cookie: String, name: String, avatar: String) =
+        context.dataStore.edit { prefs ->
+            if (cookie.isBlank()) return@edit
+            val accounts = storedYtMusicAccounts(prefs).toMutableList()
+            val existing = accounts.firstOrNull { it.cookie == cookie }
+            val account = StoredYtMusicAccount(
+                id = existing?.id ?: "yt-${cookie.hashCode().toUInt().toString(16)}",
+                name = name,
+                avatar = avatar,
+                cookie = cookie,
+            )
+            accounts.removeAll { it.id == account.id }
+            accounts.add(account)
+            prefs[SettingsKeys.YT_MUSIC_ACCOUNTS] = ytMusicAccountsJson.encodeToString(accounts)
+            prefs[SettingsKeys.YT_MUSIC_ACTIVE_ACCOUNT_ID] = account.id
+            prefs.remove(SettingsKeys.YT_MUSIC_COOKIE)
+            prefs.remove(SettingsKeys.YT_MUSIC_USER_NAME)
+            prefs.remove(SettingsKeys.YT_MUSIC_USER_AVATAR)
+        }
+
+    suspend fun setActiveYtMusicAccount(accountId: String) =
+        context.dataStore.edit { prefs ->
+            if (storedYtMusicAccounts(prefs).any { it.id == accountId }) {
+                prefs[SettingsKeys.YT_MUSIC_ACTIVE_ACCOUNT_ID] = accountId
+            }
+        }
+
+    suspend fun clearYtMusicAccount() = context.dataStore.edit { prefs ->
+        val accounts = storedYtMusicAccounts(prefs)
+        val active = activeStoredYtMusicAccount(prefs)
+        val remaining = accounts.filterNot { it.id == active?.id }
+        if (remaining.isEmpty()) {
+            prefs.remove(SettingsKeys.YT_MUSIC_ACCOUNTS)
+            prefs.remove(SettingsKeys.YT_MUSIC_ACTIVE_ACCOUNT_ID)
+            prefs.remove(SettingsKeys.YT_MUSIC_COOKIE)
+            prefs.remove(SettingsKeys.YT_MUSIC_USER_NAME)
+            prefs.remove(SettingsKeys.YT_MUSIC_USER_AVATAR)
+        } else {
+            prefs[SettingsKeys.YT_MUSIC_ACCOUNTS] = ytMusicAccountsJson.encodeToString(remaining)
+            prefs[SettingsKeys.YT_MUSIC_ACTIVE_ACCOUNT_ID] = remaining.first().id
+        }
     }
 
     val colorPalette: Flow<String> = context.dataStore.data.map { it[SettingsKeys.COLOR_PALETTE] ?: "ocean" }

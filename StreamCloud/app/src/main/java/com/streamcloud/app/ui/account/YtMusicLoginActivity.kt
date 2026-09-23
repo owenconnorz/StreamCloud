@@ -102,8 +102,8 @@ class YtMusicLoginActivity : ComponentActivity() {
                     val (n, a) = parseUserJson(raw.orEmpty())
                     lifecycleScope.launch {
                         val sl = ServiceLocator.get(applicationContext)
-                        sl.settings.setYtMusicCookie(cookie)
-                        sl.settings.setYtMusicUser(
+                        sl.settings.saveYtMusicAccount(
+                            cookie = cookie,
                             name = n.ifBlank { "Signed in" },
                             avatar = a,
                         )
