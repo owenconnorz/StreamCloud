@@ -61,7 +61,6 @@ fun PornhubLoginScreen(
         runCatching { (view.parent as? ViewGroup)?.removeView(view) }
         runCatching { view.stopLoading() }
         runCatching { view.webChromeClient = null }
-        runCatching { view.webViewClient = null }
         runCatching { view.removeJavascriptInterface("PornhubBridge") }
         runCatching { view.destroy() }
         if (webView === view) webView = null
