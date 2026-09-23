@@ -13,6 +13,7 @@ import com.streamcloud.app.data.stremio.StremioRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -30,8 +31,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "NuvioAccountService"
-internal const val SUPABASE_URL = "https://dpyhjjcoabcglfmgecug.supabase.co"
-internal const val SUPABASE_ANON_KEY = "sb_publishable_zcNkgqGJjBtj8GoRlMvl9A_zkdmXhf5"
+private const val NUVIO_OFFICIAL_SERVER = "https://api.nuvio.tv"
+private const val NUVIO_DISCOVERY_URL = "$NUVIO_OFFICIAL_SERVER/.well-known/nuvio"
 private val JSON_MT = "application/json; charset=utf-8".toMediaType()
 
 private const val NUVIO_CLOUD_SOURCE = "__nuvio__"
@@ -49,6 +50,12 @@ data class NuvioSession(
     val token_type: String? = null,
     val expires_in: Long? = null,
     val user: NuvioUser? = null,
+)
+
+@Serializable
+private data class NuvioServerConfiguration(
+    @SerialName("backend_url") val backendUrl: String = "",
+    @SerialName("publishable_key") val publishableKey: String = "",
 )
 
 data class NuvioSyncResult(
@@ -125,18 +132,46 @@ class NuvioAccountService(private val context: Context) {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+    @Volatile private var serverConfiguration: NuvioServerConfiguration? = null
+
+    private suspend fun currentServerConfiguration(): NuvioServerConfiguration =
+        withContext(Dispatchers.IO) {
+            serverConfiguration?.let { return@withContext it }
+            val req = Request.Builder()
+                .url(NUVIO_DISCOVERY_URL)
+                .header("Accept", "application/json")
+                .build()
+            val resp = http.newCall(req).execute()
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                error("Nuvio server discovery failed (${resp.code})")
+            }
+            val discovered = json.decodeFromString<NuvioServerConfiguration>(text)
+            val backendUrl = discovered.backendUrl.trim().trimEnd('/')
+            require(backendUrl.startsWith("https://")) {
+                "Nuvio server returned an insecure backend URL"
+            }
+            require(discovered.publishableKey.isNotBlank()) {
+                "Nuvio server did not provide a publishable key"
+            }
+            NuvioServerConfiguration(
+                backendUrl = backendUrl,
+                publishableKey = discovered.publishableKey.trim(),
+            ).also { serverConfiguration = it }
+        }
 
     suspend fun signIn(email: String, password: String): Result<NuvioSession> =
         withContext(Dispatchers.IO) {
             runCatching {
+                val config = currentServerConfiguration()
                 val body = buildJsonObject {
                     put("email", email.trim())
                     put("password", password)
                 }.toString()
                 val req = Request.Builder()
-                    .url("$SUPABASE_URL/auth/v1/token?grant_type=password")
+                    .url("${config.backendUrl}/auth/v1/token?grant_type=password")
                     .post(body.toRequestBody(JSON_MT))
-                    .header("apikey", SUPABASE_ANON_KEY)
+                    .header("apikey", config.publishableKey)
                     .header("Content-Type", "application/json")
                     .build()
                 val resp = http.newCall(req).execute()
@@ -156,11 +191,12 @@ class NuvioAccountService(private val context: Context) {
     suspend fun refreshToken(refreshToken: String): Result<NuvioSession> =
         withContext(Dispatchers.IO) {
             runCatching {
+                val config = currentServerConfiguration()
                 val body = buildJsonObject { put("refresh_token", refreshToken) }.toString()
                 val req = Request.Builder()
-                    .url("$SUPABASE_URL/auth/v1/token?grant_type=refresh_token")
+                    .url("${config.backendUrl}/auth/v1/token?grant_type=refresh_token")
                     .post(body.toRequestBody(JSON_MT))
-                    .header("apikey", SUPABASE_ANON_KEY)
+                    .header("apikey", config.publishableKey)
                     .header("Content-Type", "application/json")
                     .build()
                 val resp = http.newCall(req).execute()
@@ -172,10 +208,11 @@ class NuvioAccountService(private val context: Context) {
 
     suspend fun signOut(accessToken: String) = withContext(Dispatchers.IO) {
         runCatching {
+            val config = currentServerConfiguration()
             val req = Request.Builder()
-                .url("$SUPABASE_URL/auth/v1/logout")
+                .url("${config.backendUrl}/auth/v1/logout")
                 .post("{}".toRequestBody(JSON_MT))
-                .header("apikey", SUPABASE_ANON_KEY)
+                .header("apikey", config.publishableKey)
                 .header("Authorization", "Bearer $accessToken")
                 .build()
             http.newCall(req).execute().close()
@@ -188,10 +225,11 @@ class NuvioAccountService(private val context: Context) {
         accessToken: String,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
+            val config = currentServerConfiguration()
             val req = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/rpc/$function")
+                .url("${config.backendUrl}/rest/v1/rpc/$function")
                 .post(params.toString().toRequestBody(JSON_MT))
-                .header("apikey", SUPABASE_ANON_KEY)
+                .header("apikey", config.publishableKey)
                 .header("Authorization", "Bearer $accessToken")
                 .header("Content-Type", "application/json")
                 .build()
