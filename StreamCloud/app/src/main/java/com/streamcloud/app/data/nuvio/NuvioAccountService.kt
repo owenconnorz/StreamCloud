@@ -312,9 +312,7 @@ class NuvioAccountService(private val context: Context) {
         }.onFailure { Log.w(TAG, "pull profiles: ${it.message}") }
 
         val profileIndex = activeCloudProfileIndex()
-        if (profileIndex == null) {
-            return@withContext NuvioPullResult(profiles = pulledProfiles)
-        }
+            ?: 1 // Nuvio accounts created before profile linking use profile 1.
         val db = LibraryDb.get(context)
 
         // ── Stremio addons ──────────────────────────────────────────────────
@@ -527,9 +525,7 @@ class NuvioAccountService(private val context: Context) {
         }.onFailure { Log.w(TAG, "push profiles: ${it.message}") }
 
         val profileIndex = activeCloudProfileIndex()
-        if (profileIndex == null) {
-            return@withContext NuvioSyncResult(profiles = profiles)
-        }
+            ?: 1 // Keep legacy accounts syncing even before local linking completes.
 
         runCatching {
             val repos = nuvioRepo.savedRepos.first()

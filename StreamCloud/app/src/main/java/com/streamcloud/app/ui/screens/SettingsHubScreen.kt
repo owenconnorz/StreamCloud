@@ -4930,7 +4930,7 @@ private fun NuvioAccountRow() {
                         }.trimEnd(' ', '·')
                     else ""
                 },
-                onFailure = { "" },
+                onFailure = { "Error: ${it.message?.take(90) ?: "Nuvio sync failed"}" },
             )
         }
     }
@@ -4998,7 +4998,10 @@ private fun NuvioAccountRow() {
                             val down = pull.getOrThrow()
                             "Pulled ✓  ${down.profiles} profiles · ${down.watchProgress} watching · ${down.library} saved · ${down.collections} collections"
                         }
-                        else -> "Error: ${push.exceptionOrNull()?.message?.take(60)}"
+                        else -> "Error: ${
+                            (push.exceptionOrNull() ?: pull.exceptionOrNull())
+                                ?.message?.take(90) ?: "Nuvio sync failed"
+                        }"
                     }
                 }
             }) { Text("Sync ↕") }
