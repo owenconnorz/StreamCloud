@@ -248,6 +248,7 @@ fun CollectionsScreen(
                         UserCollectionEntity(name = "New Collection", createdAt = System.currentTimeMillis())
                     )
                     val entity = db.userCollections().byId(newId) ?: return@launch
+                    com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                     nav = CollNav.EditCollection(entity)
                 }
             },
@@ -256,13 +257,10 @@ fun CollectionsScreen(
                 scope.launch {
                     db.collectionFolders().deleteForCollection(col.id)
                     db.userCollections().delete(col.id)
+                    com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                     if (col.sourceAddonId.isNotBlank()) {
                         val sl = ServiceLocator.get(context)
                         sl.settings.addDeletedManagedCollection("${col.sourceAddonId}::${col.name}")
-                        val token = sl.settings.nuvioAccessToken.first()
-                        if (token.isNotBlank()) {
-                            runCatching { NuvioAccountService.get(context).syncAll(token) }
-                        }
                     }
                 }
             },
@@ -275,6 +273,7 @@ fun CollectionsScreen(
             onSave = { name, isPinned, viewMode ->
                 scope.launch {
                     db.userCollections().upsert(cur.collection.copy(name = name, isPinned = isPinned, viewMode = viewMode))
+                    com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                     nav = CollNav.List
                 }
             },
@@ -283,13 +282,19 @@ fun CollectionsScreen(
                     val fid = db.collectionFolders().upsert(
                         CollectionFolderEntity(collectionId = cur.collection.id, name = "New Folder")
                     )
+                    com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                     val folder = db.collectionFolders().forCollectionOnce(cur.collection.id)
                         .firstOrNull { it.id == fid }
                     nav = CollNav.EditFolder(cur.collection.id, folder)
                 }
             },
             onEditFolder = { nav = CollNav.EditFolder(cur.collection.id, it) },
-            onDeleteFolder = { folder -> scope.launch { db.collectionFolders().delete(folder.id) } },
+            onDeleteFolder = { folder ->
+                scope.launch {
+                    db.collectionFolders().delete(folder.id)
+                    com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
+                }
+            },
         )
 
         is CollNav.EditFolder -> EditFolderView(
@@ -315,6 +320,7 @@ fun CollectionsScreen(
                         hideTitle = hideTitle,
                     )
                     db.collectionFolders().upsert(entity)
+                    com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                     val parent = db.userCollections().byId(cur.collectionId)
                     nav = if (parent != null) CollNav.EditCollection(parent) else CollNav.List
                 }
@@ -387,6 +393,7 @@ private fun CollectionsList(
                                 )
                             }
                         }
+                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                         snackMessage = "Imported ${bundle.collections.size} collection(s)"
                     } else {
                         snackMessage = "Could not read file"

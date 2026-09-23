@@ -66,6 +66,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import kotlinx.coroutines.delay
@@ -104,6 +105,7 @@ fun ProfilePickerScreen(
     repo: ProfileRepository,
     onDone: () -> Unit,
 ) {
+    val context = LocalContext.current
     val profiles by repo.profiles.collectAsState(initial = repo.currentProfiles())
     val activeId by repo.activeProfileId.collectAsState(initial = repo.currentActiveId())
 
@@ -168,10 +170,12 @@ fun ProfilePickerScreen(
                         onSave    = { updated ->
                             repo.saveProfile(updated)
                             if (editIsNew) repo.setActiveProfile(updated.id)
+                            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                             view = PickerView.Grid
                         },
                         onDelete  = { id ->
                             repo.deleteProfile(id)
+                            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                             view = PickerView.Grid
                         },
                     )

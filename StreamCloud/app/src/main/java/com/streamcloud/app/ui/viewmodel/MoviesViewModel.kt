@@ -738,6 +738,7 @@ class MoviesViewModel(
             val dao = LibraryDb.get(appContext).watchProgress()
             val existing = dao.byId(tmdbId) ?: return@launch
             dao.upsert(existing.copy(positionMs = 0L, updatedAt = System.currentTimeMillis()))
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
     }
 

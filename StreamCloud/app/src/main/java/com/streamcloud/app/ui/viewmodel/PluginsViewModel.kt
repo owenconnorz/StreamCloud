@@ -65,6 +65,7 @@ class PluginsViewModel(
     private val repo: PluginRepository,
     private val stremio: StremioRepository,
     private val nuvio: NuvioRepository,
+    private val appContext: Context,
 ) : ViewModel() {
     private val _state = MutableStateFlow(PluginsState())
     val state: StateFlow<PluginsState> = _state.asStateFlow()
@@ -96,6 +97,7 @@ class PluginsViewModel(
         }
         try {
             repo.addRepo(name.trim(), url.trim())
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
             _state.update { it.copy(info = "Repo '$name' added", error = null) }
         } catch (e: Exception) {
             _state.update { it.copy(error = "Failed: ${e.message}") }
@@ -104,6 +106,7 @@ class PluginsViewModel(
 
     fun removeRepo(id: String) = viewModelScope.launch {
         repo.removeRepo(id)
+        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         _state.update { s -> s.copy(pluginsByRepo = s.pluginsByRepo - id) }
     }
 
@@ -161,6 +164,7 @@ class PluginsViewModel(
         _state.update { it.copy(addingStremio = true, error = null) }
         try {
             val a = stremio.addAddon(url.trim())
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
             _state.update { it.copy(addingStremio = false, info = "Stremio addon added: ${a.name}") }
         } catch (e: Exception) {
             _state.update { it.copy(addingStremio = false, error = "Stremio: ${e.message}") }
@@ -169,6 +173,7 @@ class PluginsViewModel(
 
     fun removeStremioAddon(manifestUrl: String) = viewModelScope.launch {
         stremio.removeAddon(manifestUrl)
+        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
     }
 
     fun syncStremioCollections(manifestUrl: String) = viewModelScope.launch {
@@ -191,6 +196,7 @@ class PluginsViewModel(
         try {
             val mf = nuvio.fetchManifest(url)
             nuvio.addSavedRepo(url, mf.name)
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
             _state.update { it.copy(loadingNuvioRepo = false, nuvioRepoManifest = mf) }
         } catch (e: Exception) {
             _state.update { it.copy(loadingNuvioRepo = false, error = "Nuvio: ${e.message}") }
@@ -199,6 +205,7 @@ class PluginsViewModel(
 
     fun removeNuvioSavedRepo(id: String) = viewModelScope.launch {
         nuvio.removeSavedRepo(id)
+        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
     }
 
     fun installNuvioProvider(entry: NuvioProviderEntry) = viewModelScope.launch {
@@ -206,6 +213,7 @@ class PluginsViewModel(
         _state.update { it.copy(installingNuvioIds = it.installingNuvioIds + entry.id, error = null) }
         try {
             val rec = nuvio.installProvider(repoUrl, entry)
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
             _state.update { it.copy(
                 installingNuvioIds = it.installingNuvioIds - entry.id,
                 info = "Installed Nuvio provider: ${rec.name}",
@@ -220,6 +228,7 @@ class PluginsViewModel(
 
     fun uninstallNuvioProvider(id: String) = viewModelScope.launch {
         nuvio.uninstall(id)
+        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
     }
 
     fun clearMessages() {
@@ -330,6 +339,7 @@ class PluginsViewModel(
                     PluginRepository(context.applicationContext),
                     StremioRepository(context.applicationContext),
                     NuvioRepository(context.applicationContext),
+                    context.applicationContext,
                 ) as T
             }
         }

@@ -70,6 +70,7 @@ data class NuvioSyncResult(
     val collections: Int = 0,
     val collectionError: String? = null,
     val profiles: Int = 0,
+    val errors: List<String> = emptyList(),
 )
 
 data class NuvioPullResult(
@@ -81,6 +82,7 @@ data class NuvioPullResult(
     val plugins: Int = 0,
     val profiles: Int = 0,
     val collectionError: String? = null,
+    val errors: List<String> = emptyList(),
 )
 
 @Serializable
@@ -309,11 +311,15 @@ class NuvioAccountService(private val context: Context) {
         var pulledCollections = 0
         var pulledProfiles = 0
         var collectionError: String? = null
+        val errors = mutableListOf<String>()
 
         // ── Profiles ─────────────────────────────────────────────────────────
         runCatching {
             pulledProfiles = pullProfiles(accessToken)
-        }.onFailure { Log.w(TAG, "pull profiles: ${it.message}") }
+        }.onFailure {
+            errors += "profiles pull: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "pull profiles: ${it.message}")
+        }
 
         val profileIndex = activeCloudProfileIndex()
             ?: 1 // Nuvio accounts created before profile linking use profile 1.
@@ -327,15 +333,22 @@ class NuvioAccountService(private val context: Context) {
                 accessToken,
             ).getOrThrow()
             val addons = json.decodeFromString(ListSerializer(PullAddon.serializer()), text)
-            val existing = stremioRepo.addons.first().map { it.manifestUrl }.toSet()
+            val existingAddons = stremioRepo.addons.first()
+            val remoteUrls = addons.map { it.url.trim() }.filter { it.isNotBlank() }.toSet()
+            existingAddons
+                .filter { it.manifestUrl !in remoteUrls }
+                .forEach { stremioRepo.removeAddon(it.manifestUrl) }
             addons.forEach { pulled ->
                 val url = pulled.url.trim()
-                if (url.isNotBlank() && url !in existing) {
-                    runCatching { stremioRepo.addAddon(url) }
+                if (url.isNotBlank() && existingAddons.none { it.manifestUrl == url }) {
+                    stremioRepo.addAddon(url)
                     pulledAddons++
                 }
             }
-        }.onFailure { Log.w(TAG, "pull addons: ${it.message}") }
+        }.onFailure {
+            errors += "addons pull: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "pull addons: ${it.message}")
+        }
 
         // ── Nuvio plugin repositories ───────────────────────────────────────
         runCatching {
@@ -345,16 +358,23 @@ class NuvioAccountService(private val context: Context) {
                 accessToken,
             ).getOrThrow()
             val plugins = json.decodeFromString(ListSerializer(PullPlugin.serializer()), text)
-            val existingUrls = nuvioRepo.savedRepos.first().map { it.url }.toSet()
+            val existingRepos = nuvioRepo.savedRepos.first()
+            val remoteUrls = plugins.map { it.url.trim() }.filter { it.isNotBlank() }.toSet()
+            existingRepos
+                .filter { it.url !in remoteUrls }
+                .forEach { nuvioRepo.removeSavedRepo(it.id) }
             plugins.forEach { pulled ->
                 val url = pulled.url.trim()
-                if (url.isNotBlank() && url !in existingUrls) {
+                if (url.isNotBlank() && existingRepos.none { it.url == url }) {
                     val name = pulled.name?.takeIf { it.isNotBlank() } ?: url.substringAfterLast("/").substringBefore(".")
-                    runCatching { nuvioRepo.addSavedRepo(url, name) }
+                    nuvioRepo.addSavedRepo(url, name)
                     pulledPlugins++
                 }
             }
-        }.onFailure { Log.w(TAG, "pull plugins: ${it.message}") }
+        }.onFailure {
+            errors += "plugins pull: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "pull plugins: ${it.message}")
+        }
 
         // ── Watch progress ──────────────────────────────────────────────────
         runCatching {
@@ -408,7 +428,10 @@ class NuvioAccountService(private val context: Context) {
                     }
                 }
             }
-        }.onFailure { Log.w(TAG, "pull watch progress: ${it.message}") }
+        }.onFailure {
+            errors += "watch progress pull: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "pull watch progress: ${it.message}")
+        }
 
         // ── Library / watchlist ─────────────────────────────────────────────
         runCatching {
@@ -441,7 +464,10 @@ class NuvioAccountService(private val context: Context) {
                     pulledLibrary++
                 }
             }
-        }.onFailure { Log.w(TAG, "pull library: ${it.message}") }
+        }.onFailure {
+            errors += "library pull: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "pull library: ${it.message}")
+        }
 
         // ── Collections ─────────────────────────────────────────────────────
         runCatching {
@@ -492,6 +518,7 @@ class NuvioAccountService(private val context: Context) {
             }
         }.onFailure {
             collectionError = it.message ?: "Nuvio collections could not be pulled"
+            errors += "collections pull: ${collectionError}"
             Log.w(TAG, "pull collections: ${it.message}")
         }
 
@@ -504,7 +531,10 @@ class NuvioAccountService(private val context: Context) {
                     resolveTmdbId(contentId, contentType)
                 },
             ) { pulledWatched++ }
-        }.onFailure { Log.w(TAG, "pull watched items: ${it.message}") }
+        }.onFailure {
+            errors += "watched items pull: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "pull watched items: ${it.message}")
+        }
 
         NuvioPullResult(
             watchProgress = pulledProgress,
@@ -515,6 +545,7 @@ class NuvioAccountService(private val context: Context) {
             plugins = pulledPlugins,
             profiles = pulledProfiles,
             collectionError = collectionError,
+            errors = errors.distinct(),
         )
     }
 
@@ -529,10 +560,14 @@ class NuvioAccountService(private val context: Context) {
         var profiles = 0
         var collections = 0
         var collectionError: String? = null
+        val errors = mutableListOf<String>()
 
         runCatching {
             profiles = pushProfiles(accessToken)
-        }.onFailure { Log.w(TAG, "push profiles: ${it.message}") }
+        }.onFailure {
+            errors += "profiles push: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "push profiles: ${it.message}")
+        }
 
         val profileIndex = activeCloudProfileIndex()
             ?: 1 // Keep legacy accounts syncing even before local linking completes.
@@ -553,9 +588,12 @@ class NuvioAccountService(private val context: Context) {
                 "sync_push_plugins",
                 buildJsonObject { put("p_plugins", arr); put("p_profile_id", profileIndex) },
                 accessToken,
-            )
+            ).getOrThrow()
             plugins = repos.size
-        }.onFailure { Log.w(TAG, "push Nuvio plugins: ${it.message}") }
+        }.onFailure {
+            errors += "plugins push: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "push Nuvio plugins: ${it.message}")
+        }
 
         runCatching {
             val addonList = stremioRepo.addons.first()
@@ -571,12 +609,16 @@ class NuvioAccountService(private val context: Context) {
                 "sync_push_addons",
                 buildJsonObject { put("p_addons", arr); put("p_profile_id", profileIndex) },
                 accessToken,
-            )
+            ).getOrThrow()
             addons = addonList.size
+        }.onFailure {
+            errors += "addons push: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "push Nuvio addons: ${it.message}")
         }
 
         runCatching {
             val entries = db.watchProgress().getAllEntries()
+                .filter { it.mediaType == "movie" || it.mediaType == "tv" }
             val arr = buildJsonArray {
                 entries.forEach { e ->
                     val cid = "tmdb:${e.tmdbId}"
@@ -598,12 +640,16 @@ class NuvioAccountService(private val context: Context) {
                 "sync_push_watch_progress",
                 buildJsonObject { put("p_entries", arr); put("p_profile_id", profileIndex) },
                 accessToken,
-            )
+            ).getOrThrow()
             progress = entries.size
+        }.onFailure {
+            errors += "watch progress push: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "push watch progress: ${it.message}")
         }
 
         runCatching {
             val items = db.watchlist().all().first()
+                .filter { it.mediaType == "movie" || it.mediaType == "tv" }
             val arr = buildJsonArray {
                 items.forEach { item ->
                     val cid = "tmdb:${item.tmdbId}"
@@ -622,8 +668,11 @@ class NuvioAccountService(private val context: Context) {
                 "sync_push_library_items",
                 buildJsonObject { put("p_items", arr); put("p_profile_id", profileIndex) },
                 accessToken,
-            )
+            ).getOrThrow()
             library = items.size
+        }.onFailure {
+            errors += "library push: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "push library: ${it.message}")
         }
 
         runCatching {
@@ -678,16 +727,18 @@ class NuvioAccountService(private val context: Context) {
                 "sync_push_collections",
                 buildJsonObject { put("p_collections", arr); put("p_profile_id", profileIndex) },
                 accessToken,
-            )
+            ).getOrThrow()
             collections = nuvioCols.size
         }.onFailure {
             collectionError = it.message ?: "Nuvio collections could not be uploaded"
+            errors += "collections push: ${collectionError}"
             Log.w(TAG, "push collections: ${it.message}")
         }
 
         val watchedItems = runCatching {
             pushWatchedItems(accessToken, db, profileIndex)
         }.onFailure {
+            errors += "watched items push: ${it.message ?: "unknown error"}"
             Log.w(TAG, "push watched items: ${it.message}")
         }.getOrDefault(0)
 
@@ -700,6 +751,7 @@ class NuvioAccountService(private val context: Context) {
             collections = collections,
             collectionError = collectionError,
             profiles = profiles,
+            errors = errors.distinct(),
         )
     }
 
@@ -762,8 +814,6 @@ class NuvioAccountService(private val context: Context) {
             ListSerializer(PullProfile.serializer()),
             text,
         ).filter { it.profile_index > 0 && it.name.isNotBlank() }
-        if (remoteProfiles.isEmpty()) return 0
-
         val localProfiles = remoteProfiles
             .sortedBy { it.profile_index }
             .map { remote ->
@@ -787,6 +837,7 @@ class NuvioAccountService(private val context: Context) {
         profileIndex: Int,
     ): Int {
         val items = db.watchedMovies().all().first()
+            .filter { it.mediaType == "movie" || it.mediaType == "tv" }
         val payload = buildJsonArray {
             items.forEach { item ->
                 addJsonObject {

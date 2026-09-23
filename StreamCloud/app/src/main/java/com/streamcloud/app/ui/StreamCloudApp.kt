@@ -212,13 +212,13 @@ fun StreamCloudApp() {
         runCatching { com.streamcloud.app.ui.theme.AlbumArtThemeBus.attach(context) }
     }
     LaunchedEffect(activeProfile?.id) {
-        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context)
         val token = sl.settings.nuvioAccessToken.first().trim()
         if (token.isNotBlank()) {
             runCatching {
                 com.streamcloud.app.data.nuvio.NuvioAccountService
                     .get(context.applicationContext)
                     .syncPull(token)
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
             }
         }
     }

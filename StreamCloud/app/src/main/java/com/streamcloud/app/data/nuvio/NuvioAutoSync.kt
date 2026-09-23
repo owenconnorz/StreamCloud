@@ -44,7 +44,7 @@ object NuvioAutoSync {
             .build()
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             IMMEDIATE_WORK,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request,
         )
     }
@@ -63,14 +63,52 @@ class NuvioAutoSyncWorker(
         val token = settings.nuvioAccessToken.first().trim()
         if (token.isBlank()) return Result.success()
 
-        return runCatching {
-            val service = NuvioAccountService.get(applicationContext)
-            service.syncPull(token)
-            service.syncAll(token)
-            Result.success()
-        }.getOrElse { error ->
-            Log.w("NuvioAutoSync", "automatic sync failed: ${error.message}")
-            Result.retry()
+        val service = NuvioAccountService.get(applicationContext)
+
+        suspend fun syncWith(accessToken: String): String? {
+            val push = service.syncAll(accessToken)
+            val pull = service.syncPull(accessToken)
+            val errors = (push.errors + pull.errors).distinct()
+            return errors.takeIf { it.isNotEmpty() }?.joinToString("; ")
         }
+
+        val firstAttempt = runCatching { syncWith(token) }
+        if (firstAttempt.isSuccess && firstAttempt.getOrNull() == null) {
+            return Result.success()
+        }
+
+        val refreshToken = settings.nuvioRefreshToken.first().trim()
+        if (refreshToken.isNotBlank()) {
+            val refreshed = service.refreshToken(refreshToken)
+            if (refreshed.isSuccess) {
+                val session = refreshed.getOrThrow()
+                settings.setNuvioSession(
+                    accessToken = session.access_token,
+                    refreshToken = session.refresh_token.ifBlank { refreshToken },
+                    email = session.user?.email ?: settings.nuvioEmail.first(),
+                    userId = session.user?.id ?: settings.nuvioUserId.first(),
+                )
+                val retry = runCatching { syncWith(session.access_token) }
+                if (retry.isSuccess && retry.getOrNull() == null) {
+                    return Result.success()
+                }
+                Log.w(
+                    "NuvioAutoSync",
+                    "automatic sync failed after token refresh: ${
+                        retry.exceptionOrNull()?.message ?: retry.getOrNull()
+                    }",
+                )
+                return Result.retry()
+            }
+            Log.w("NuvioAutoSync", "Nuvio token refresh failed: ${refreshed.exceptionOrNull()?.message}")
+        }
+
+        Log.w(
+            "NuvioAutoSync",
+            "automatic sync failed: ${
+                firstAttempt.exceptionOrNull()?.message ?: firstAttempt.getOrNull()
+            }",
+        )
+        return Result.retry()
     }
 }

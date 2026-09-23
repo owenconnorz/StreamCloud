@@ -42,9 +42,16 @@ class ProfileRepository(context: Context) {
      * from Nuvio are updated or removed to match the account's current profile list.
      */
     fun mergeNuvioProfiles(remoteProfiles: List<UserProfile>) {
-        if (remoteProfiles.isEmpty()) return
-
         val current = _profiles.value
+        if (remoteProfiles.isEmpty()) {
+            _profiles.value = current.filter { it.nuvioProfileIndex == null }
+            if (_activeId.value !in _profiles.value.map { it.id }) {
+                setActiveProfile(_profiles.value.firstOrNull()?.id)
+            }
+            persist()
+            return
+        }
+
         val localOnlyByName = current
             .filter { it.nuvioProfileIndex == null }
             .groupBy { it.name.trim().lowercase() }

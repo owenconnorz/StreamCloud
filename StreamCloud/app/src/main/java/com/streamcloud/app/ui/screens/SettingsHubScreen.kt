@@ -4917,10 +4917,11 @@ private fun NuvioAccountRow() {
             val r = runCatching { nuvioSvc.syncPull(accessToken) }
             syncStatus  = r.fold(
                 onSuccess = { p ->
-                    p.collectionError?.let {
-                        "Error: ${it.take(90)}"
+                    p.errors.takeIf { it.isNotEmpty() }?.let {
+                        "Partial sync: ${it.joinToString("; ").take(150)}"
                     } ?: run {
-                        val total = p.watchProgress + p.library + p.collections + p.watchedItems + p.profiles
+                        val total = p.watchProgress + p.library + p.collections + p.watchedItems +
+                            p.profiles + p.addons + p.plugins
                         if (total > 0)
                             buildString {
                                 append("↓ Synced ")
@@ -4976,14 +4977,15 @@ private fun NuvioAccountRow() {
             TextButton(onClick = {
                 scope.launch {
                     syncStatus = "Syncing…"
-                    val pull = runCatching { nuvioSvc.syncPull(accessToken) }
                     val push = runCatching { nuvioSvc.syncAll(accessToken) }
+                    val pull = runCatching { nuvioSvc.syncPull(accessToken) }
                     syncStatus = when {
                         push.isSuccess && pull.isSuccess -> {
                             val up   = push.getOrThrow()
                             val down = pull.getOrThrow()
-                            (up.collectionError ?: down.collectionError)?.let {
-                                "Error: ${it.take(90)}"
+                            val errors = (up.errors + down.errors).distinct()
+                            errors.takeIf { it.isNotEmpty() }?.let {
+                                "Partial sync: ${it.joinToString("; ").take(150)}"
                             } ?: buildString {
                                 append("Synced ✓  ")
                                 append("↑${up.watchProgress} ↓${down.watchProgress} in-progress · ")
@@ -5004,8 +5006,9 @@ private fun NuvioAccountRow() {
                         push.isSuccess -> "Pushed ✓  (pull unavailable)"
                         pull.isSuccess -> {
                             val down = pull.getOrThrow()
-                            down.collectionError?.let { "Error: ${it.take(90)}" }
-                                ?: "Pulled ✓  ${down.profiles} profiles · ${down.watchProgress} watching · ${down.library} saved · ${down.collections} collections"
+                            down.errors.takeIf { it.isNotEmpty() }?.let {
+                                "Partial pull: ${it.joinToString("; ").take(150)}"
+                            } ?: "Pulled ✓  ${down.profiles} profiles · ${down.watchProgress} watching · ${down.library} saved · ${down.collections} collections"
                         }
                         else -> "Error: ${
                             (push.exceptionOrNull() ?: pull.exceptionOrNull())
@@ -5117,9 +5120,12 @@ private fun NuvioAccountRow() {
                                         val pull = runCatching { nuvioSvc.syncPull(session.access_token) }
                                         val push = runCatching { nuvioSvc.syncAll(session.access_token) }
                                         syncStatus = when {
-                                            pull.isSuccess -> {
+                                            pull.isSuccess && push.isSuccess -> {
                                                 val d = pull.getOrThrow()
-                                                buildString {
+                                                 val errors = (d.errors + push.getOrThrow().errors).distinct()
+                                                 errors.takeIf { it.isNotEmpty() }?.let {
+                                                     "Partial sync: ${it.joinToString("; ").take(150)}"
+                                                 } ?: buildString {
                                                     append("Synced ✓  ")
                                                     if (d.profiles > 0) append("${d.profiles} profiles · ")
                                                     if (d.watchProgress > 0) append("${d.watchProgress} watching · ")
@@ -5130,8 +5136,13 @@ private fun NuvioAccountRow() {
                                                     if (d.plugins > 0)       append("${d.plugins} plugins · ")
                                                 }.trimEnd(' ', '·').ifBlank { "Synced ✓" }
                                             }
-                                            push.isSuccess -> "Signed in ✓  (tap Sync ↕ to refresh)"
-                                            else -> "Signed in ✓"
+                                            pull.isSuccess -> "Signed in ✓  (upload failed: ${
+                                                push.exceptionOrNull()?.message?.take(90) ?: "partial sync"
+                                            })"
+                                            push.isSuccess -> "Signed in ✓  (download failed: ${
+                                                pull.exceptionOrNull()?.message?.take(90) ?: "partial sync"
+                                            })"
+                                            else -> "Signed in ✓  (sync unavailable)"
                                         }
                                         didAutoSync = true
                                     }

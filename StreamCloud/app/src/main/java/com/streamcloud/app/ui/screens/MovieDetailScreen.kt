@@ -285,6 +285,7 @@ fun MovieDetailScreen(
                     ),
                 )
             }
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
         }
     }
 

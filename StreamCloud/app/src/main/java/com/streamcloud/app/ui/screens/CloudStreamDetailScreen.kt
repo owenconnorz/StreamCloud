@@ -271,6 +271,7 @@ fun CloudStreamDetailScreen(
                                 )
                             )
                         }
+                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
                     }
                 },
             )
