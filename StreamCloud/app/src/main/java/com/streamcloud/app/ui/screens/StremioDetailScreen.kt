@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -68,15 +69,9 @@ fun StremioDetailScreen(
         loadingStreams = false
     }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        TopAppBar(
-            title = { Text(meta?.name ?: initialTitle, fontWeight = FontWeight.Bold) },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                }
-            },
-        )
+    val firstPlayableStream = streams.firstNotNullOfOrNull { buildStreamUrl(it) }
+
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 24.dp),
@@ -86,7 +81,7 @@ fun StremioDetailScreen(
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(220.dp)
+                            .height(300.dp)
                             .background(MaterialTheme.colorScheme.surface),
                     ) {
                         AsyncImage(
@@ -106,17 +101,55 @@ fun StremioDetailScreen(
                         )
                     }
                     Column(
-                        Modifier.padding(horizontal = 20.dp).offset(y = (-42).dp),
+                        Modifier.padding(horizontal = 20.dp).offset(y = (-50).dp),
                     ) {
                         Text(
                             meta?.name ?: initialTitle,
-                            style = MaterialTheme.typography.headlineMedium,
+                            style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                         Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.padding(top = 6.dp),
+                        ) {
+                            Button(
+                                onClick = {
+                                    firstPlayableStream?.let {
+                                        onPlay(it, meta?.name ?: initialTitle)
+                                    }
+                                },
+                                enabled = firstPlayableStream != null,
+                                modifier = Modifier.weight(1f).height(52.dp),
+                                shape = RoundedCornerShape(50),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF20C968),
+                                    contentColor = Color.White,
+                                ),
+                            ) {
+                                Icon(Icons.Default.PlayArrow, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "Play Movie · ${streams.size} sources",
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            IconButton(
+                                onClick = { },
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(MaterialTheme.colorScheme.surface),
+                            ) {
+                                Icon(Icons.Default.MoreVert, "More actions")
+                            }
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.padding(top = 14.dp),
                         ) {
                             meta?.releaseInfo?.takeIf { it.isNotBlank() }?.let {
                                 Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -136,12 +169,36 @@ fun StremioDetailScreen(
                                 modifier = Modifier.padding(top = 6.dp),
                             )
                         }
+                        Text(
+                            "Find in Source",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 18.dp),
+                        )
+                        Row(
+                            Modifier.padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                addonId,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                            )
+                        }
                         meta?.description?.takeIf { it.isNotBlank() }?.let {
                             Text(
                                 it,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 12.dp),
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 20.dp),
                             )
                         }
                     }
@@ -149,7 +206,7 @@ fun StremioDetailScreen(
             }
             item {
                 Text(
-                    "Addon streams (${streams.size})",
+                    "Streams",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -188,6 +245,15 @@ fun StremioDetailScreen(
                     onPlay(streamUrl, meta?.name ?: initialTitle)
                 }
             }
+        }
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .padding(start = 12.dp, top = 8.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color.Black.copy(alpha = 0.45f)),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
         }
     }
 }
