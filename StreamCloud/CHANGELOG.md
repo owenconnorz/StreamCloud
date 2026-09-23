@@ -1,6 +1,24 @@
 # StreamCloud
 
-## Latest — YouTube Music player and station cards
+## Latest — Major Nuvio, music, and playback update
+
+### Nuvio
+- **Profile-scoped account sync** — Nuvio accounts, installed providers, saved repositories, and imported media now stay isolated per StreamCloud profile.
+- **Automatic Nuvio synchronization** — profile changes and account updates refresh the correct Nuvio data without touching unrelated CloudStream plugin repositories.
+- **More reliable Nuvio media imports** — imported movies and shows keep their metadata, artwork, provider identity, and Continue Watching context.
+- **Provider request compatibility** — TMDB `/series` requests are corrected to `/tv`, and the common `api_kev` query typo is repaired before provider fetches.
+- **Updated Nuvio login flow** — account setup follows the current Nuvio server and keeps profile navigation scoped correctly.
+
+### Music
+- **Personalized DJ radio** — DJ sessions can use listener preferences to build more relevant radio journeys while keeping preference signals on-device.
+- **Smoother DJ transitions** — crossfade, transition announcements, narration timing, and voice tuning work together without pausing the music.
+- **YouTube Music account menu** — account details and profile artwork are available from the music experience.
+- **Dynamic music theming** — music surfaces follow the active appearance palette more consistently.
+
+### Playback and navigation
+- **Pornhub playback recovery** — playback can fail over between available qualities instead of stopping at the first rejected stream.
+- **Live TV and Local Files tabs** — both content areas are available from the main navigation alongside the existing movie and music sections.
+- **Expanded navigation** — the five-item navigation layout and profile-aware navigation graph keep section switching consistent.
 
 ### Music
 - **Album songs stay audio-first** — ordinary songs now open with album artwork and audio controls instead of loading a visual music-video player.
