@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
@@ -46,6 +48,8 @@ fun StremioDetailScreen(
     var streams by remember(addonId, metaId) { mutableStateOf<List<StremioStream>>(emptyList()) }
     var loadingStreams by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var actionsExpanded by remember(addonId, metaId) { mutableStateOf(false) }
+    var markedWatched by remember(addonId, metaId) { mutableStateOf(false) }
 
     LaunchedEffect(addonId, metaId) {
         loadingStreams = true
@@ -137,14 +141,32 @@ fun StremioDetailScreen(
                                     fontWeight = FontWeight.Bold,
                                 )
                             }
+                            if (actionsExpanded) {
+                                IconButton(
+                                    onClick = { markedWatched = !markedWatched },
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(MaterialTheme.colorScheme.surface),
+                                ) {
+                                    Icon(
+                                        if (markedWatched) Icons.Default.Check else Icons.Default.Check,
+                                        "Mark as watched",
+                                        tint = if (markedWatched) Color(0xFF20C968) else LocalContentColor.current,
+                                    )
+                                }
+                            }
                             IconButton(
-                                onClick = { },
+                                onClick = { actionsExpanded = !actionsExpanded },
                                 modifier = Modifier
                                     .size(52.dp)
                                     .clip(RoundedCornerShape(18.dp))
                                     .background(MaterialTheme.colorScheme.surface),
                             ) {
-                                Icon(Icons.Default.MoreVert, "More actions")
+                                Icon(
+                                    if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
+                                    if (actionsExpanded) "Close actions" else "More actions",
+                                )
                             }
                         }
                         Row(

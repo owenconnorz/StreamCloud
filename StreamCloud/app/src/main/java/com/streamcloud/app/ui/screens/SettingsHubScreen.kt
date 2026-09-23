@@ -4917,18 +4917,22 @@ private fun NuvioAccountRow() {
             val r = runCatching { nuvioSvc.syncPull(accessToken) }
             syncStatus  = r.fold(
                 onSuccess = { p ->
-                    val total = p.watchProgress + p.library + p.collections + p.watchedItems + p.profiles
-                    if (total > 0)
-                        buildString {
-                            append("↓ Synced ")
-                            if (p.watchProgress > 0) append("${p.watchProgress} in-progress · ")
-                             if (p.profiles > 0)       append("${p.profiles} profiles · ")
-                            if (p.library > 0)       append("${p.library} saved · ")
-                            if (p.collections > 0)   append("${p.collections} collections · ")
-                            if (p.addons > 0)        append("${p.addons} addons · ")
-                            if (p.plugins > 0)       append("${p.plugins} plugins · ")
-                        }.trimEnd(' ', '·')
-                    else ""
+                    p.collectionError?.let {
+                        "Error: ${it.take(90)}"
+                    } ?: run {
+                        val total = p.watchProgress + p.library + p.collections + p.watchedItems + p.profiles
+                        if (total > 0)
+                            buildString {
+                                append("↓ Synced ")
+                                if (p.watchProgress > 0) append("${p.watchProgress} in-progress · ")
+                                if (p.profiles > 0) append("${p.profiles} profiles · ")
+                                if (p.library > 0) append("${p.library} saved · ")
+                                if (p.collections > 0) append("${p.collections} collections · ")
+                                if (p.addons > 0) append("${p.addons} addons · ")
+                                if (p.plugins > 0) append("${p.plugins} plugins · ")
+                            }.trimEnd(' ', '·')
+                        else ""
+                    }
                 },
                 onFailure = { "Error: ${it.message?.take(90) ?: "Nuvio sync failed"}" },
             )
@@ -4978,7 +4982,9 @@ private fun NuvioAccountRow() {
                         push.isSuccess && pull.isSuccess -> {
                             val up   = push.getOrThrow()
                             val down = pull.getOrThrow()
-                            buildString {
+                            (up.collectionError ?: down.collectionError)?.let {
+                                "Error: ${it.take(90)}"
+                            } ?: buildString {
                                 append("Synced ✓  ")
                                 append("↑${up.watchProgress} ↓${down.watchProgress} in-progress · ")
                                 if (up.profiles + down.profiles > 0) {
@@ -4988,15 +4994,18 @@ private fun NuvioAccountRow() {
                                     append("↑${up.watchedItems} ↓${down.watchedItems} watched · ")
                                 }
                                 append("↑${up.library} ↓${down.library} saved")
-                                if (down.collections > 0) append(" · ${down.collections} collections")
+                                if (up.collections + down.collections > 0) {
+                                    append(" · ↑${up.collections} ↓${down.collections} collections")
+                                }
                                 if (up.plugins + down.plugins > 0) append(" · ${up.plugins + down.plugins} plugins")
-                                if (up.addons + down.addons > 0)   append(" · ${up.addons + down.addons} addons")
+                                if (up.addons + down.addons > 0) append(" · ${up.addons + down.addons} addons")
                             }
                         }
                         push.isSuccess -> "Pushed ✓  (pull unavailable)"
                         pull.isSuccess -> {
                             val down = pull.getOrThrow()
-                            "Pulled ✓  ${down.profiles} profiles · ${down.watchProgress} watching · ${down.library} saved · ${down.collections} collections"
+                            down.collectionError?.let { "Error: ${it.take(90)}" }
+                                ?: "Pulled ✓  ${down.profiles} profiles · ${down.watchProgress} watching · ${down.library} saved · ${down.collections} collections"
                         }
                         else -> "Error: ${
                             (push.exceptionOrNull() ?: pull.exceptionOrNull())

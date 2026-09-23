@@ -67,6 +67,8 @@ data class NuvioSyncResult(
     val watchProgress: Int = 0,
     val watchedItems: Int = 0,
     val library: Int = 0,
+    val collections: Int = 0,
+    val collectionError: String? = null,
     val profiles: Int = 0,
 )
 
@@ -78,6 +80,7 @@ data class NuvioPullResult(
     val addons: Int = 0,
     val plugins: Int = 0,
     val profiles: Int = 0,
+    val collectionError: String? = null,
 )
 
 @Serializable
@@ -305,6 +308,7 @@ class NuvioAccountService(private val context: Context) {
         var pulledLibrary = 0
         var pulledCollections = 0
         var pulledProfiles = 0
+        var collectionError: String? = null
 
         // ── Profiles ─────────────────────────────────────────────────────────
         runCatching {
@@ -486,7 +490,10 @@ class NuvioAccountService(private val context: Context) {
                 }
                 pulledCollections++
             }
-        }.onFailure { Log.w(TAG, "pull collections: ${it.message}") }
+        }.onFailure {
+            collectionError = it.message ?: "Nuvio collections could not be pulled"
+            Log.w(TAG, "pull collections: ${it.message}")
+        }
 
         runCatching {
             pullWatchedItems(
@@ -507,6 +514,7 @@ class NuvioAccountService(private val context: Context) {
             addons = pulledAddons,
             plugins = pulledPlugins,
             profiles = pulledProfiles,
+            collectionError = collectionError,
         )
     }
 
@@ -519,6 +527,8 @@ class NuvioAccountService(private val context: Context) {
         var progress = 0
         var library = 0
         var profiles = 0
+        var collections = 0
+        var collectionError: String? = null
 
         runCatching {
             profiles = pushProfiles(accessToken)
@@ -669,7 +679,11 @@ class NuvioAccountService(private val context: Context) {
                 buildJsonObject { put("p_collections", arr); put("p_profile_id", profileIndex) },
                 accessToken,
             )
-        }.onFailure { Log.w(TAG, "push collections: ${it.message}") }
+            collections = nuvioCols.size
+        }.onFailure {
+            collectionError = it.message ?: "Nuvio collections could not be uploaded"
+            Log.w(TAG, "push collections: ${it.message}")
+        }
 
         val watchedItems = runCatching {
             pushWatchedItems(accessToken, db, profileIndex)
@@ -683,6 +697,8 @@ class NuvioAccountService(private val context: Context) {
             watchProgress = progress,
             watchedItems = watchedItems,
             library = library,
+            collections = collections,
+            collectionError = collectionError,
             profiles = profiles,
         )
     }

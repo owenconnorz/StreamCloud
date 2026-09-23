@@ -226,7 +226,14 @@ fun CollectionsScreen(
             .trim()
         if (token.isNotBlank()) {
             runCatching {
-                NuvioAccountService.get(context.applicationContext).syncPull(token)
+                val service = NuvioAccountService.get(context.applicationContext)
+                val pull = service.syncPull(token)
+                // Pull first so cloud-owned collections are visible immediately.
+                // A successful pull is followed by a push so locally-created
+                // collections can also be created in Nuvio.
+                if (pull.collectionError == null) {
+                    service.syncAll(token)
+                }
             }
         }
     }
