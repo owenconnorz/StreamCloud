@@ -113,8 +113,11 @@ fun LibraryScreen(
     val context = LocalContext.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val gridColumns = if (isTv) 4 else 2
-    val dao = remember { LibraryDb.get(context).tracks() }
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
+    val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
+    val profileKey = activeProfile?.id ?: "default"
+    val db = remember(profileKey) { LibraryDb.get(context.applicationContext) }
+    val dao = remember(db) { db.tracks() }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
     val spotifyCookie by sl.settings.spotifyCookie.collectAsState(initial = "")
     val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
@@ -234,12 +237,12 @@ fun LibraryScreen(
     var openTile by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var sectionMode by remember { mutableStateOf("Music") }
-    val watchlistItems by LibraryDb.get(context).watchlist().all().collectAsState(initial = emptyList())
-    val downloadedMovies by LibraryDb.get(context).movieDownloads().all().collectAsState(initial = emptyList())
+    val watchlistItems by db.watchlist().all().collectAsState(initial = emptyList())
+    val downloadedMovies by db.movieDownloads().all().collectAsState(initial = emptyList())
     var movieSubTab by remember { mutableStateOf("Watchlist") }
 
-    val localPlaylists by remember(context) {
-        LibraryDb.get(context).localPlaylists().allPlaylists()
+    val localPlaylists by remember(profileKey) {
+        db.localPlaylists().allPlaylists()
     }.collectAsState(initial = emptyList())
 
     if (showCreatePlaylistDialog) {
@@ -248,7 +251,7 @@ fun LibraryScreen(
             onCreate = { name ->
                 showCreatePlaylistDialog = false
                 scope.launch {
-                    LibraryDb.get(context).localPlaylists().createPlaylist(
+                    db.localPlaylists().createPlaylist(
                         com.streamcloud.app.data.library.LocalPlaylistEntity(name = name),
                     )
                 }
@@ -439,6 +442,7 @@ fun LibraryScreen(
                 MovieWatchlistsLibrarySection(
                     defaultItems = watchlistItems,
                     isTv = isTv,
+                    profileKey = profileKey,
                     onOpen = { entry ->
                         when (entry.mediaType) {
                             "tv" -> onTvClick(entry.tmdbId)
@@ -806,10 +810,11 @@ fun LibraryScreen(
 private fun MovieWatchlistsLibrarySection(
     defaultItems: List<WatchlistEntity>,
     isTv: Boolean,
+    profileKey: String,
     onOpen: (WatchlistEntity) -> Unit,
 ) {
     val context = LocalContext.current
-    val db = remember(context) { LibraryDb.get(context.applicationContext) }
+    val db = remember(profileKey) { LibraryDb.get(context.applicationContext) }
     val dao = db.movieWatchlists()
     val scope = rememberCoroutineScope()
     val customLists by dao.all().collectAsState(initial = emptyList())

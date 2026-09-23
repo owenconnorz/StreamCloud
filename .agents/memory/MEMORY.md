@@ -15,3 +15,4 @@
 - [Android build validation](android-build-validation.md) — This Repl lacks a local Android SDK; use the nested StreamCloud GitHub Actions build for compile validation.
 - [StreamCloud release scope](streamcloud-release-scope.md) — Publish and mirror APK updates only within StreamCloud; AioWeb is not part of this project.
 - [Android Auto queue resumption](android-auto-queue-resumption.md) — Resume from durable logical media identities and position, never in-memory timelines or signed CDN URLs.
+- [Nuvio sync contract](nuvio-sync-contract.md) — Current Nuvio separates progress, watched items, library items, addons, plugins, and collections into distinct RPC contracts.

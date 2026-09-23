@@ -63,8 +63,8 @@ import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
-import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.profiles.ProfileRepository
+import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
@@ -111,9 +111,11 @@ fun MoviesScreen(
     onOpenCollectionTabbed: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
-    val profileKey = remember {
-        ProfileRepository(context.applicationContext).currentActiveId() ?: "default"
+    val profileRepo = remember(context) {
+        ProfileRepository(context.applicationContext)
     }
+    val activeProfile by profileRepo.activeProfile.collectAsState(initial = null)
+    val profileKey = activeProfile?.id ?: "default"
     val vm: MoviesViewModel = viewModel(
         key = "movies-$profileKey",
         factory = MoviesViewModel.factory(context),

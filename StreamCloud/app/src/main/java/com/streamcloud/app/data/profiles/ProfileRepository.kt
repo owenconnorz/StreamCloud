@@ -45,13 +45,19 @@ class ProfileRepository(context: Context) {
         if (remoteProfiles.isEmpty()) return
 
         val current = _profiles.value
+        val localOnlyByName = current
+            .filter { it.nuvioProfileIndex == null }
+            .groupBy { it.name.trim().lowercase() }
+        val claimedLocalIds = mutableSetOf<String>()
         val imported = remoteProfiles.map { remote ->
             val existing = current.firstOrNull {
                 it.nuvioProfileIndex == remote.nuvioProfileIndex
-            }
+            } ?: localOnlyByName[remote.name.trim().lowercase()]
+                ?.singleOrNull { it.id !in claimedLocalIds }
             if (existing == null) {
                 remote
             } else {
+                claimedLocalIds += existing.id
                 remote.copy(
                     id = existing.id,
                     pinHash = existing.pinHash,
@@ -59,7 +65,7 @@ class ProfileRepository(context: Context) {
             }
         }
         val localOnly = current.filter {
-            it.nuvioProfileIndex == null
+            it.nuvioProfileIndex == null && it.id !in claimedLocalIds
         }
         _profiles.value = imported + localOnly
 

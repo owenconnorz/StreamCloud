@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.SettingsRepository
+import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.UserCollectionEntity
 import com.streamcloud.app.data.library.WatchedMovieEntity
@@ -268,6 +269,15 @@ class NuvioAccountService(private val context: Context) {
     suspend fun syncPull(accessToken: String): NuvioPullResult = withContext(Dispatchers.IO) {
         val stremioRepo = StremioRepository(context)
         val pluginRepo = PluginRepository(context)
+        val resolvedTmdbIds = mutableMapOf<String, Long?>()
+
+        suspend fun resolveTmdbId(contentId: String, contentType: String): Long? {
+            val cacheKey = "${contentType.lowercase()}|${contentId.trim()}"
+            if (cacheKey in resolvedTmdbIds) return resolvedTmdbIds[cacheKey]
+            val resolved = resolveTmdbIdFromNuvio(contentId, contentType)
+            resolvedTmdbIds[cacheKey] = resolved
+            return resolved
+        }
 
         var pulledAddons = 0
         var pulledPlugins = 0
@@ -338,7 +348,7 @@ class NuvioAccountService(private val context: Context) {
             val entries = json.decodeFromString(ListSerializer(PullWatchProgress.serializer()), text)
             val progressDao = db.watchProgress()
             entries.forEach { e ->
-                val tmdbId = parseTmdbId(e.content_id) ?: return@forEach
+                val tmdbId = resolveTmdbId(e.content_id, e.content_type) ?: return@forEach
                 val mediaType = if (e.content_type == "series") "tv" else "movie"
                 val existing = progressDao.byId(tmdbId)
                 val updatedAt = e.last_watched.takeIf { it > 0 } ?: System.currentTimeMillis()
@@ -376,7 +386,7 @@ class NuvioAccountService(private val context: Context) {
             val watchlistDao = db.watchlist()
             val existingIds = watchlistDao.all().first().map { it.tmdbId }.toSet()
             items.forEach { item ->
-                val tmdbId = parseTmdbId(item.content_id) ?: return@forEach
+                val tmdbId = resolveTmdbId(item.content_id, item.content_type) ?: return@forEach
                 if (tmdbId !in existingIds) {
                     val mediaType = if (item.content_type == "series") "tv" else "movie"
                     val addedAt = item.added_at.takeIf { it > 0 } ?: System.currentTimeMillis()
@@ -441,7 +451,14 @@ class NuvioAccountService(private val context: Context) {
         }.onFailure { Log.w(TAG, "pull collections: ${it.message}") }
 
         runCatching {
-            pullWatchedItems(accessToken, db, profileIndex) { pulledWatched++ }
+            pullWatchedItems(
+                accessToken = accessToken,
+                db = db,
+                profileIndex = profileIndex,
+                resolveTmdbId = { contentId, contentType ->
+                    resolveTmdbId(contentId, contentType)
+                },
+            ) { pulledWatched++ }
         }.onFailure { Log.w(TAG, "pull watched items: ${it.message}") }
 
         NuvioPullResult(
@@ -616,7 +633,7 @@ class NuvioAccountService(private val context: Context) {
     }
 
     private suspend fun pushProfiles(accessToken: String): Int {
-        val profileRepo = ProfileRepository(context)
+        val profileRepo = ServiceLocator.get(context).profiles
         val localProfiles = profileRepo.currentProfiles().take(6)
         if (localProfiles.isEmpty()) return 0
 
@@ -652,7 +669,7 @@ class NuvioAccountService(private val context: Context) {
     }
 
     private fun activeCloudProfileIndex(): Int? {
-        val repo = ProfileRepository(context)
+        val repo = ServiceLocator.get(context).profiles
         val activeId = repo.currentActiveId()
         return repo.currentProfiles()
             .firstOrNull { it.id == activeId }
@@ -684,7 +701,7 @@ class NuvioAccountService(private val context: Context) {
                     nuvioProfileIndex = remote.profile_index,
                 )
             }
-        ProfileRepository(context).mergeNuvioProfiles(localProfiles)
+        ServiceLocator.get(context).profiles.mergeNuvioProfiles(localProfiles)
         return localProfiles.size
     }
 
@@ -719,6 +736,7 @@ class NuvioAccountService(private val context: Context) {
         accessToken: String,
         db: LibraryDb,
         profileIndex: Int,
+        resolveTmdbId: suspend (String, String) -> Long?,
         onItemPulled: () -> Unit,
     ) {
         val watchedDao = db.watchedMovies()
@@ -739,7 +757,7 @@ class NuvioAccountService(private val context: Context) {
                 text,
             )
             items.forEach { item ->
-                val tmdbId = parseTmdbId(item.content_id) ?: return@forEach
+                val tmdbId = resolveTmdbId(item.content_id, item.content_type) ?: return@forEach
                 watchedDao.mark(
                     WatchedMovieEntity(
                         tmdbId = tmdbId,
@@ -758,10 +776,40 @@ class NuvioAccountService(private val context: Context) {
     private fun parseTmdbId(contentId: String): Long? {
         val raw = contentId.trim()
         return when {
-            raw.startsWith("tmdb:") -> raw.removePrefix("tmdb:").toLongOrNull()
+            raw.matches(Regex("tmdb:(?:(?:movie|series|tv):)?\\d+")) ->
+                raw.substringAfterLast(':').toLongOrNull()
+            raw.matches(Regex("(?:movie|series|tv):\\d+")) ->
+                raw.substringAfterLast(':').toLongOrNull()
             raw.all { it.isDigit() } -> raw.toLongOrNull()
             else -> null
         }
+    }
+
+    private suspend fun resolveTmdbIdFromNuvio(
+        contentId: String,
+        contentType: String,
+    ): Long? {
+        parseTmdbId(contentId)?.let { return it }
+
+        val externalId = contentId.trim()
+            .removePrefix("imdb:")
+            .takeIf { it.startsWith("tt", ignoreCase = true) }
+            ?: return null
+        val apiKey = ServiceLocator.get(context).tmdbApiKey
+        if (apiKey.isBlank()) return null
+
+        return runCatching {
+            val result = ServiceLocator.get(context).tmdb.find(externalId, apiKey, "imdb_id")
+            val isSeries = contentType.equals("series", ignoreCase = true) ||
+                contentType.equals("tv", ignoreCase = true)
+            if (isSeries) {
+                result.tvResults.firstOrNull()?.id ?: result.movieResults.firstOrNull()?.id
+            } else {
+                result.movieResults.firstOrNull()?.id ?: result.tvResults.firstOrNull()?.id
+            }
+        }.onFailure {
+            Log.w(TAG, "resolve Nuvio content $externalId: ${it.message}")
+        }.getOrNull()
     }
 
     companion object {

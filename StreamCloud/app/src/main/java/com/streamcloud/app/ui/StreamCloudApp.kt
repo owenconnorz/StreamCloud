@@ -570,8 +570,9 @@ fun StreamCloudApp() {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxSize()) {
                         val startRoute = resolvedStartRoute
+                         if (startRoute != null) {
                          key(activeProfile?.id ?: "no-profile") {
-                         if (startRoute != null) NavHost(
+                         NavHost(
                  navController = nav,
                  startDestination = startRoute,
              ) {
@@ -1562,6 +1563,7 @@ fun StreamCloudApp() {
                     )
                 }
             }
+                         }
                          }
                     }
 
