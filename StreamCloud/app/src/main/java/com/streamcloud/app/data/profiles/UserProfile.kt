@@ -10,6 +10,7 @@ data class UserProfile(
     val avatarUrl: String = "",
     val avatarSeed: String = "",
     val pinHash: String = "",
+    val nuvioProfileIndex: Int? = null,
 ) {
     companion object {
         fun create(name: String) = UserProfile(

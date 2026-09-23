@@ -4917,11 +4917,12 @@ private fun NuvioAccountRow() {
             val r = runCatching { nuvioSvc.syncPull(accessToken) }
             syncStatus  = r.fold(
                 onSuccess = { p ->
-                    val total = p.watchProgress + p.library + p.collections + p.watchedItems
+                    val total = p.watchProgress + p.library + p.collections + p.watchedItems + p.profiles
                     if (total > 0)
                         buildString {
                             append("↓ Synced ")
                             if (p.watchProgress > 0) append("${p.watchProgress} in-progress · ")
+                             if (p.profiles > 0)       append("${p.profiles} profiles · ")
                             if (p.library > 0)       append("${p.library} saved · ")
                             if (p.collections > 0)   append("${p.collections} collections · ")
                             if (p.addons > 0)        append("${p.addons} addons · ")
@@ -4971,8 +4972,8 @@ private fun NuvioAccountRow() {
             TextButton(onClick = {
                 scope.launch {
                     syncStatus = "Syncing…"
-                    val push = runCatching { nuvioSvc.syncAll(accessToken) }
                     val pull = runCatching { nuvioSvc.syncPull(accessToken) }
+                    val push = runCatching { nuvioSvc.syncAll(accessToken) }
                     syncStatus = when {
                         push.isSuccess && pull.isSuccess -> {
                             val up   = push.getOrThrow()
@@ -4980,6 +4981,9 @@ private fun NuvioAccountRow() {
                             buildString {
                                 append("Synced ✓  ")
                                 append("↑${up.watchProgress} ↓${down.watchProgress} in-progress · ")
+                                if (up.profiles + down.profiles > 0) {
+                                    append("↑${up.profiles} ↓${down.profiles} profiles · ")
+                                }
                                 if (up.watchedItems + down.watchedItems > 0) {
                                     append("↑${up.watchedItems} ↓${down.watchedItems} watched · ")
                                 }
@@ -4992,7 +4996,7 @@ private fun NuvioAccountRow() {
                         push.isSuccess -> "Pushed ✓  (pull unavailable)"
                         pull.isSuccess -> {
                             val down = pull.getOrThrow()
-                            "Pulled ✓  ${down.watchProgress} watched · ${down.library} saved · ${down.collections} collections"
+                            "Pulled ✓  ${down.profiles} profiles · ${down.watchProgress} watching · ${down.library} saved · ${down.collections} collections"
                         }
                         else -> "Error: ${push.exceptionOrNull()?.message?.take(60)}"
                     }
@@ -5022,7 +5026,7 @@ private fun NuvioAccountRow() {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "Enter your Nuvio account credentials to sync plugins, addons, and watch history across devices.",
+                        "Enter your Nuvio account credentials to sync profiles, plugins, addons, and watch history across devices.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -5098,13 +5102,14 @@ private fun NuvioAccountRow() {
                                     syncStatus = "Syncing your data…"
                                     // Immediately pull cloud data so home screen shows it
                                     scope.launch {
-                                        val push = runCatching { nuvioSvc.syncAll(session.access_token) }
                                         val pull = runCatching { nuvioSvc.syncPull(session.access_token) }
+                                        val push = runCatching { nuvioSvc.syncAll(session.access_token) }
                                         syncStatus = when {
                                             pull.isSuccess -> {
                                                 val d = pull.getOrThrow()
                                                 buildString {
                                                     append("Synced ✓  ")
+                                                    if (d.profiles > 0) append("${d.profiles} profiles · ")
                                                     if (d.watchProgress > 0) append("${d.watchProgress} watching · ")
                                                     if (d.watchedItems > 0) append("${d.watchedItems} watched · ")
                                                     if (d.library > 0)       append("${d.library} saved · ")

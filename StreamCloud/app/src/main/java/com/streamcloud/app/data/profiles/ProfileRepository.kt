@@ -27,6 +27,40 @@ class ProfileRepository(context: Context) {
 
     fun currentActiveId(): String? = _activeId.value
 
+    /**
+     * Merge the profiles returned by Nuvio without syncing PIN hashes.
+     *
+     * Profiles created locally remain available, while profiles previously imported
+     * from Nuvio are updated or removed to match the account's current profile list.
+     */
+    fun mergeNuvioProfiles(remoteProfiles: List<UserProfile>) {
+        if (remoteProfiles.isEmpty()) return
+
+        val current = _profiles.value
+        val imported = remoteProfiles.map { remote ->
+            val existing = current.firstOrNull {
+                it.nuvioProfileIndex == remote.nuvioProfileIndex
+            }
+            if (existing == null) {
+                remote
+            } else {
+                remote.copy(
+                    id = existing.id,
+                    pinHash = existing.pinHash,
+                )
+            }
+        }
+        val localOnly = current.filter {
+            it.nuvioProfileIndex == null
+        }
+        _profiles.value = imported + localOnly
+
+        if (_activeId.value !in _profiles.value.map { it.id }) {
+            setActiveProfile(_profiles.value.firstOrNull()?.id)
+        }
+        persist()
+    }
+
     private fun loadProfiles(): List<UserProfile> {
         val raw = prefs.getString(KEY_LIST, null) ?: return emptyList()
         return runCatching { json.decodeFromString<List<UserProfile>>(raw) }.getOrElse { emptyList() }

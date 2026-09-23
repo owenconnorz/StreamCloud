@@ -10,6 +10,8 @@ import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.plugins.PluginRepository
+import com.streamcloud.app.data.profiles.ProfileRepository
+import com.streamcloud.app.data.profiles.UserProfile
 import com.streamcloud.app.data.stremio.StremioRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -65,6 +67,7 @@ data class NuvioSyncResult(
     val watchProgress: Int = 0,
     val watchedItems: Int = 0,
     val library: Int = 0,
+    val profiles: Int = 0,
 )
 
 data class NuvioPullResult(
@@ -74,6 +77,7 @@ data class NuvioPullResult(
     val collections: Int = 0,
     val addons: Int = 0,
     val plugins: Int = 0,
+    val profiles: Int = 0,
 )
 
 @Serializable
@@ -87,6 +91,14 @@ private data class PullPlugin(
     val url: String = "",
     val name: String? = null,
     val enabled: Boolean = true,
+)
+
+@Serializable
+private data class PullProfile(
+    val profile_index: Int = 0,
+    val name: String = "",
+    val avatar_url: String? = null,
+    val avatar_id: String? = null,
 )
 
 @Serializable
@@ -264,6 +276,12 @@ class NuvioAccountService(private val context: Context) {
         var pulledWatched = 0
         var pulledLibrary = 0
         var pulledCollections = 0
+        var pulledProfiles = 0
+
+        // ── Profiles ─────────────────────────────────────────────────────────
+        runCatching {
+            pulledProfiles = pullProfiles(accessToken)
+        }.onFailure { Log.w(TAG, "pull profiles: ${it.message}") }
 
         // ── Stremio addons ──────────────────────────────────────────────────
         runCatching {
@@ -428,6 +446,7 @@ class NuvioAccountService(private val context: Context) {
             collections = pulledCollections,
             addons = pulledAddons,
             plugins = pulledPlugins,
+            profiles = pulledProfiles,
         )
     }
 
@@ -439,6 +458,11 @@ class NuvioAccountService(private val context: Context) {
         var addons = 0
         var progress = 0
         var library = 0
+        var profiles = 0
+
+        runCatching {
+            profiles = pushProfiles(accessToken)
+        }.onFailure { Log.w(TAG, "push profiles: ${it.message}") }
 
         runCatching {
             val repos = pluginRepo.repos.first()
@@ -577,7 +601,69 @@ class NuvioAccountService(private val context: Context) {
             watchProgress = progress,
             watchedItems = watchedItems,
             library = library,
+            profiles = profiles,
         )
+    }
+
+    private suspend fun pushProfiles(accessToken: String): Int {
+        val localProfiles = ProfileRepository(context).currentProfiles().take(6)
+        if (localProfiles.isEmpty()) return 0
+
+        val usedIndexes = localProfiles.mapNotNull { it.nuvioProfileIndex }.toMutableSet()
+        var nextIndex = 1
+        val payload = buildJsonArray {
+            localProfiles.forEach { profile ->
+                val profileIndex = profile.nuvioProfileIndex ?: run {
+                    while (nextIndex in usedIndexes) nextIndex++
+                    nextIndex.also { usedIndexes += it; nextIndex++ }
+                }
+                addJsonObject {
+                    put("profile_index", profileIndex)
+                    put("name", profile.name)
+                    put("avatar_color_hex", "#1E88E5")
+                    profile.avatarSeed.takeIf { it.isNotBlank() }?.let { put("avatar_id", it) }
+                    profile.avatarUrl.takeIf { it.isNotBlank() }?.let { put("avatar_url", it) }
+                }
+            }
+        }
+        rpc(
+            "sync_push_profiles",
+            buildJsonObject {
+                put("p_client_max_profiles", 6)
+                put("p_profiles", payload)
+            },
+            accessToken,
+        ).getOrThrow()
+        return localProfiles.size
+    }
+
+    private suspend fun pullProfiles(accessToken: String): Int {
+        val text = rpc(
+            "sync_pull_profiles",
+            buildJsonObject {},
+            accessToken,
+        ).getOrThrow()
+        val remoteProfiles = json.decodeFromString(
+            ListSerializer(PullProfile.serializer()),
+            text,
+        ).filter { it.profile_index > 0 && it.name.isNotBlank() }
+        if (remoteProfiles.isEmpty()) return 0
+
+        val localProfiles = remoteProfiles
+            .sortedBy { it.profile_index }
+            .map { remote ->
+                UserProfile(
+                    id = "nuvio-profile-${remote.profile_index}",
+                    name = remote.name,
+                    avatarUrl = remote.avatar_url
+                        ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+                        .orEmpty(),
+                    avatarSeed = remote.avatar_id?.takeIf { it.isNotBlank() } ?: remote.name,
+                    nuvioProfileIndex = remote.profile_index,
+                )
+            }
+        ProfileRepository(context).mergeNuvioProfiles(localProfiles)
+        return localProfiles.size
     }
 
     private suspend fun pushWatchedItems(
