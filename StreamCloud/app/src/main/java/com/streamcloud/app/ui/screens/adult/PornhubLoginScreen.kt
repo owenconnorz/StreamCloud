@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import com.streamcloud.app.data.api.PornhubRepository
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Official Pornhub login flow. StreamCloud never receives the password or
@@ -49,10 +50,32 @@ fun PornhubLoginScreen(
     var providerLoginStarted by remember { mutableStateOf(false) }
     var providerCookieBaseline by remember { mutableStateOf("") }
     var providerSessionReturned by remember { mutableStateOf(false) }
+    var loginFeedback by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val screenDisposed = remember { AtomicBoolean(false) }
+    val activeWebViews = remember { mutableSetOf<WebView>() }
+
+    fun destroyWebView(view: WebView?) {
+        if (view == null || !activeWebViews.remove(view)) return
+        runCatching { (view.parent as? ViewGroup)?.removeView(view) }
+        runCatching { view.stopLoading() }
+        runCatching { view.webChromeClient = null }
+        runCatching { view.webViewClient = null }
+        runCatching { view.removeJavascriptInterface("PornhubBridge") }
+        runCatching { view.destroy() }
+        if (webView === view) webView = null
+    }
+
+    fun disposeScreen() {
+        if (!screenDisposed.compareAndSet(false, true)) return
+        mainHandler.removeCallbacksAndMessages(null)
+        activeWebViews.toList().forEach(::destroyWebView)
+        webView = null
+    }
 
     fun markProviderLoginStarted() {
+        if (screenDisposed.get()) return
         if (!providerLoginStarted) {
             providerCookieBaseline = PornhubRepository.sessionCookieHeader()
             providerLoginStarted = true
@@ -60,9 +83,10 @@ fun PornhubLoginScreen(
     }
 
     fun detectCompletedProviderLogin(delayMillis: Long = 0L) {
-        if (!providerLoginStarted) return
+        if (screenDisposed.get() || !providerLoginStarted) return
         mainHandler.postDelayed(
             {
+                if (screenDisposed.get()) return@postDelayed
                 CookieManager.getInstance().flush()
                 val currentCookies = PornhubRepository.sessionCookieHeader()
                 if (currentCookies != providerCookieBaseline &&
@@ -70,7 +94,9 @@ fun PornhubLoginScreen(
                     !providerSessionReturned
                 ) {
                     providerSessionReturned = true
-                    webView?.loadUrl("https://www.pornhub.com/")
+                    webView
+                        ?.takeIf(activeWebViews::contains)
+                        ?.let { view -> runCatching { view.loadUrl("https://www.pornhub.com/") } }
                 }
             },
             delayMillis,
@@ -78,8 +104,11 @@ fun PornhubLoginScreen(
     }
 
     fun finishOrGoBack() {
+        if (screenDisposed.get()) return
         CookieManager.getInstance().flush()
-        if (canFinish || PornhubRepository.hasSessionCookies()) {
+        val loggedIn = canFinish || PornhubRepository.hasSessionCookies()
+        disposeScreen()
+        if (loggedIn) {
             onLoginSuccess()
         } else {
             onBack()
@@ -92,11 +121,36 @@ fun PornhubLoginScreen(
         object {
             @JavascriptInterface
             fun receivePageState(loggedIn: Boolean, verificationRequired: Boolean) {
-                Handler(Looper.getMainLooper()).post {
+                mainHandler.post {
+                    if (screenDisposed.get()) return@post
                     canFinish = loggedIn && !verificationRequired
+                    if (canFinish) loginFeedback = null
+                }
+            }
+
+            @JavascriptInterface
+            fun receiveLoginSubmitted() {
+                mainHandler.post {
+                    if (!screenDisposed.get()) {
+                        loginFeedback = "Submitting login details…"
+                    }
+                }
+            }
+
+            @JavascriptInterface
+            fun receiveLoginRejected() {
+                mainHandler.post {
+                    if (!screenDisposed.get()) {
+                        loginFeedback =
+                            "Pornhub did not accept those details. Check the form and try again."
+                    }
                 }
             }
         }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose(::disposeScreen)
     }
 
     Column(
@@ -127,8 +181,9 @@ fun PornhubLoginScreen(
                         .copy(fontWeight = FontWeight.SemiBold),
                 )
                 Text(
-                    if (canFinish) "Press Back or Done to reload Pornhub"
-                    else "Complete verification on Pornhub’s official page",
+                    loginFeedback
+                        ?: if (canFinish) "Press Back or Done to reload Pornhub"
+                        else "Complete verification on Pornhub’s official page",
                     color = Color.White.copy(alpha = 0.68f),
                     style = MaterialTheme.typography.labelSmall,
                 )
@@ -155,6 +210,7 @@ fun PornhubLoginScreen(
                 factory = { context ->
                     FrameLayout(context).also { container ->
                         WebView(context).also { view ->
+                        activeWebViews += view
                         webView = view
                         view.isFocusable = true
                         view.isFocusableInTouchMode = true
@@ -179,23 +235,40 @@ fun PornhubLoginScreen(
                             container = container,
                             parent = view,
                             bridge = bridge,
-                            onPopupActive = { popup -> webView = popup },
+                            isDisposed = screenDisposed::get,
+                            isActive = activeWebViews::contains,
+                            onPopupActive = { popup ->
+                                activeWebViews += popup
+                                if (screenDisposed.get()) {
+                                    destroyWebView(popup)
+                                } else {
+                                    webView = popup
+                                }
+                            },
+                            onPopupDestroyed = ::destroyWebView,
                             onPopupClosed = {
-                                webView = view
-                                detectCompletedProviderLogin()
-                                detectCompletedProviderLogin(250L)
-                                detectCompletedProviderLogin(1_000L)
+                                if (!screenDisposed.get()) {
+                                    webView = view
+                                    detectCompletedProviderLogin()
+                                    detectCompletedProviderLogin(250L)
+                                    detectCompletedProviderLogin(1_000L)
+                                }
                             },
                             onProviderStarted = ::markProviderLoginStarted,
                             onProviderReturned = ::detectCompletedProviderLogin,
-                            onPageError = { pageError = it },
-                            onPageLoading = { pageLoading = it },
+                            onPageError = {
+                                if (!screenDisposed.get()) pageError = it
+                            },
+                            onPageLoading = {
+                                if (!screenDisposed.get()) pageLoading = it
+                            },
                         )
                         view.webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
                                 view: WebView?,
                                 request: WebResourceRequest?,
                             ): Boolean {
+                                if (screenDisposed.get()) return true
                                 val uri = request?.url ?: return true
                                 if (uri.scheme == "about") {
                                     detectCompletedProviderLogin()
@@ -216,8 +289,10 @@ fun PornhubLoginScreen(
                                 favicon: Bitmap?,
                             ) {
                                 super.onPageStarted(view, url, favicon)
+                                if (screenDisposed.get()) return
                                 pageLoading = true
                                 pageError = null
+                                loginFeedback = null
                                 val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
                                 if (isLoginProviderHost(uri)) {
                                     markProviderLoginStarted()
@@ -233,6 +308,7 @@ fun PornhubLoginScreen(
                                 error: WebResourceError?,
                             ) {
                                 super.onReceivedError(view, request, error)
+                                if (screenDisposed.get()) return
                                 if (request?.isForMainFrame == true) {
                                     pageError = error?.description?.toString()
                                         ?: "Pornhub could not load this page."
@@ -245,6 +321,7 @@ fun PornhubLoginScreen(
                                 response: android.webkit.WebResourceResponse?,
                             ) {
                                 super.onReceivedHttpError(view, request, response)
+                                if (screenDisposed.get()) return
                                 if (request?.isForMainFrame == true) {
                                     pageError = when (response?.statusCode) {
                                         403 -> "Pornhub blocked this page. Complete verification and retry."
@@ -256,6 +333,12 @@ fun PornhubLoginScreen(
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
+                                if (screenDisposed.get() ||
+                                    view == null ||
+                                    !activeWebViews.contains(view)
+                                ) {
+                                    return
+                                }
                                 pageLoading = false
                                 CookieManager.getInstance().flush()
                                 detectCompletedProviderLogin()
@@ -265,6 +348,7 @@ fun PornhubLoginScreen(
                                     }.getOrNull())
                                 ) {
                                     repairPornhubSsoButtons(view)
+                                    attachPornhubLoginFeedback(view)
                                 }
                                 val awayFromLogin = isPornhubHost(
                                     runCatching { Uri.parse(currentUrl) }.getOrNull(),
@@ -291,7 +375,6 @@ fun PornhubLoginScreen(
                                 }
                             }
                         }
-                        view.loadUrl("https://www.pornhub.com/login")
                         container.addView(
                             view,
                             FrameLayout.LayoutParams(
@@ -299,13 +382,15 @@ fun PornhubLoginScreen(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                             ),
                         )
+                        view.loadUrl("https://www.pornhub.com/login")
                         }
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
 
-            pageError?.let { message ->
+            val visibleMessage = pageError ?: loginFeedback
+            visibleMessage?.let { message ->
                 Surface(
                     Modifier
                         .align(Alignment.BottomCenter)
@@ -323,11 +408,15 @@ fun PornhubLoginScreen(
                             color = Color.White,
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        IconButton(onClick = {
-                            pageError = null
-                            webView?.reload()
-                        }) {
-                            Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
+                        if (pageError != null) {
+                            IconButton(onClick = {
+                                pageError = null
+                                webView
+                                    ?.takeIf(activeWebViews::contains)
+                                    ?.let { view -> runCatching { view.reload() } }
+                            }) {
+                                Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
+                            }
                         }
                     }
                 }
@@ -341,7 +430,10 @@ private fun visiblePopupClient(
     container: FrameLayout,
     parent: WebView,
     bridge: Any,
+    isDisposed: () -> Boolean,
+    isActive: (WebView) -> Boolean,
     onPopupActive: (WebView) -> Unit,
+    onPopupDestroyed: (WebView) -> Unit,
     onPopupClosed: () -> Unit,
     onProviderStarted: () -> Unit,
     onProviderReturned: (Long) -> Unit,
@@ -354,6 +446,7 @@ private fun visiblePopupClient(
         isUserGesture: Boolean,
         resultMsg: Message?,
     ): Boolean {
+        if (isDisposed()) return false
         val message = resultMsg ?: return false
         val transport = message.obj as? WebView.WebViewTransport ?: return false
 
@@ -373,6 +466,7 @@ private fun visiblePopupClient(
                     popupView: WebView?,
                     request: WebResourceRequest?,
                 ): Boolean {
+                    if (isDisposed() || popupView == null || !isActive(popupView)) return true
                     val uri = request?.url ?: return true
                     if (uri.scheme == "about") {
                         onProviderReturned(0L)
@@ -393,6 +487,12 @@ private fun visiblePopupClient(
                     favicon: Bitmap?,
                 ) {
                     super.onPageStarted(popupView, url, favicon)
+                    if (isDisposed() ||
+                        popupView == null ||
+                        !isActive(popupView)
+                    ) {
+                        return
+                    }
                     onPageLoading(true)
                     val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
                     if (isLoginProviderHost(uri)) onProviderStarted()
@@ -405,6 +505,12 @@ private fun visiblePopupClient(
                     error: WebResourceError?,
                 ) {
                     super.onReceivedError(popupView, request, error)
+                    if (isDisposed() ||
+                        popupView == null ||
+                        !isActive(popupView)
+                    ) {
+                        return
+                    }
                     if (request?.isForMainFrame == true) {
                         onPageError(
                             error?.description?.toString()
@@ -415,6 +521,12 @@ private fun visiblePopupClient(
 
                 override fun onPageFinished(popupView: WebView?, url: String?) {
                     super.onPageFinished(popupView, url)
+                    if (isDisposed() ||
+                        popupView == null ||
+                        !isActive(popupView)
+                    ) {
+                        return
+                    }
                     onPageLoading(false)
                     CookieManager.getInstance().flush()
                     onProviderReturned(0L)
@@ -434,7 +546,7 @@ private fun visiblePopupClient(
             val child = container.getChildAt(index)
             if (child !== parent) {
                 container.removeViewAt(index)
-                (child as? WebView)?.destroy()
+                (child as? WebView)?.let(onPopupDestroyed)
             }
         }
         container.addView(
@@ -451,10 +563,7 @@ private fun visiblePopupClient(
     }
 
     override fun onCloseWindow(window: WebView?) {
-        window?.let {
-            container.removeView(it)
-            it.destroy()
-        }
+        window?.let(onPopupDestroyed)
         onPopupClosed()
     }
 }
@@ -473,6 +582,62 @@ private fun evaluatePornhubPageState(view: WebView?, currentUrl: String) {
           var verificationRequired =
             /(verify your age|age verification|confirm your age|age assurance)/i.test(t);
           PornhubBridge.receivePageState(loggedIn, verificationRequired);
+        })();
+        """.trimIndent(),
+        null,
+    )
+}
+
+/**
+ * Observe only generic form state. Credentials and page contents stay inside
+ * the official WebView; the bridge receives no email, password, or error text.
+ */
+private fun attachPornhubLoginFeedback(view: WebView?) {
+    view?.evaluateJavascript(
+        """
+        (function() {
+          if (window.__streamCloudLoginFeedbackAttached) return;
+          window.__streamCloudLoginFeedbackAttached = true;
+          var loginAttempted = false;
+
+          function reportFailure() {
+            if (!loginAttempted) return;
+            var text = document.body ? document.body.innerText : '';
+            if (/(incorrect (email|password|login)|invalid (email|password|login)|wrong password|login failed|unable to log in|please try again)/i.test(text)) {
+              if (window.PornhubBridge) PornhubBridge.receiveLoginRejected();
+            }
+          }
+
+          function reportSubmission() {
+            loginAttempted = true;
+            if (window.PornhubBridge) PornhubBridge.receiveLoginSubmitted();
+            window.setTimeout(reportFailure, 900);
+            window.setTimeout(reportFailure, 2500);
+          }
+
+          document.addEventListener('submit', reportSubmission, true);
+          document.addEventListener('click', function(event) {
+            var target = event.target;
+            while (target && target !== document) {
+              var tag = (target.tagName || '').toLowerCase();
+              var type = (target.getAttribute('type') || '').toLowerCase();
+              var label = (target.innerText || target.value || '').trim();
+              if (type === 'submit' ||
+                  (tag === 'button' && /^(log in|sign in|continue)$/i.test(label))) {
+                reportSubmission();
+                break;
+              }
+              target = target.parentElement;
+            }
+          }, true);
+
+          if (document.body && window.MutationObserver) {
+            new MutationObserver(reportFailure).observe(document.body, {
+              childList: true,
+              subtree: true,
+              characterData: true
+            });
+          }
         })();
         """.trimIndent(),
         null,
