@@ -117,6 +117,7 @@ jobs:
           --tests 'com.streamcloud.app.ui.components.MovieArtworkTest'
           --tests 'com.streamcloud.app.ui.screens.MovieDetailDownloadGuardTest'
           --tests 'com.streamcloud.app.ads.AdPolicyTest'
+          --tests 'com.streamcloud.app.data.nuvio.NuvioAddonSyncTest'
           --no-daemon --stacktrace --no-build-cache
 
       - name: Build TV release APK

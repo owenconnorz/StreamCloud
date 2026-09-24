@@ -137,6 +137,77 @@ internal fun mergeNuvioAddonEntries(
     return merged.values.mapIndexed { index, entry -> entry.copy(sortOrder = index) }
 }
 
+private fun normalizedNuvioAddonKey(url: String): String =
+    canonicalNuvioAddonUrl(url).lowercase()
+
+/**
+ * Mirrors Nuvio's pull reconciliation: a non-empty remote snapshot is
+ * authoritative for previously-synced entries, while preserving local-only
+ * entries and protecting the local list from an empty remote snapshot.
+ */
+internal fun reconcileNuvioAddonUrls(
+    remote: List<String>,
+    local: List<String>,
+    lastRemote: Set<String> = emptySet(),
+): List<String> {
+    val remoteOrdered = remote
+        .map(::canonicalNuvioAddonUrl)
+        .filter { it.isNotBlank() }
+        .distinctBy(::normalizedNuvioAddonKey)
+    val localByKey = linkedMapOf<String, String>()
+    local.map(::canonicalNuvioAddonUrl)
+        .filter { it.isNotBlank() }
+        .forEach { localByKey.putIfAbsent(normalizedNuvioAddonKey(it), it) }
+
+    // Match Nuvio's empty-list safeguard: an empty remote read is not evidence
+    // that the user deleted all addons.
+    if (remoteOrdered.isEmpty()) {
+        return local.map(::canonicalNuvioAddonUrl).filter { it.isNotBlank() }
+    }
+
+    val remoteKeys = remoteOrdered.map(::normalizedNuvioAddonKey).toSet()
+    val knownRemoteKeys = lastRemote.map(::normalizedNuvioAddonKey).toSet()
+    val orderedRemote = remoteOrdered.map { remoteUrl ->
+        localByKey[normalizedNuvioAddonKey(remoteUrl)] ?: remoteUrl
+    }
+    val localOnly = local.map(::canonicalNuvioAddonUrl)
+        .filter { it.isNotBlank() }
+        .filter {
+            val key = normalizedNuvioAddonKey(it)
+            key !in remoteKeys && key !in knownRemoteKeys
+        }
+        .distinctBy(::normalizedNuvioAddonKey)
+    return orderedRemote + localOnly
+}
+
+internal fun staleNuvioAddonUrls(
+    remote: List<String>,
+    local: List<String>,
+    lastRemote: Set<String>,
+    protectedRemote: Set<String> = emptySet(),
+): List<String> {
+    val remoteKeys = remote
+        .map(::normalizedNuvioAddonKey)
+        .filter { it.isNotBlank() }
+        .toSet()
+    if (remoteKeys.isEmpty()) return emptyList()
+
+    val knownRemoteKeys = lastRemote.map(::normalizedNuvioAddonKey).toSet()
+    val protectedKeys = protectedRemote.map(::normalizedNuvioAddonKey).toSet()
+    return local
+        .filter {
+            val key = normalizedNuvioAddonKey(it)
+            key in knownRemoteKeys && key !in remoteKeys && key !in protectedKeys
+        }
+}
+
+internal fun shouldBlockEmptyNuvioAddonReplacement(
+    remote: List<String>,
+    lastRemote: Set<String>,
+): Boolean =
+    remote.none { normalizedNuvioAddonKey(it).isNotBlank() } &&
+        lastRemote.any { normalizedNuvioAddonKey(it).isNotBlank() }
+
 @Serializable
 private data class PullPlugin(
     val url: String = "",
@@ -354,6 +425,39 @@ class NuvioAccountService(private val context: Context) {
         }
     }
 
+    private fun addonSnapshotPreferenceKey(userId: String, profileIndex: Int): String =
+        "addon_snapshot_${userId}_$profileIndex"
+
+    private fun lastRemoteAddonUrls(userId: String, profileIndex: Int): Set<String> {
+        if (userId.isBlank()) return emptySet()
+        val prefs = context.getSharedPreferences("nuvio_sync", Context.MODE_PRIVATE)
+        return prefs.getStringSet(addonSnapshotPreferenceKey(userId, profileIndex), emptySet())
+            .orEmpty()
+            .map(::normalizedNuvioAddonKey)
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+
+    private fun saveRemoteAddonUrls(userId: String, profileIndex: Int, urls: List<String>) {
+        if (userId.isBlank()) return
+        val prefs = context.getSharedPreferences("nuvio_sync", Context.MODE_PRIVATE)
+        val keys = urls.map(::normalizedNuvioAddonKey).filter { it.isNotBlank() }.toSet()
+        check(
+            prefs.edit()
+                .putStringSet(addonSnapshotPreferenceKey(userId, profileIndex), keys)
+                .commit(),
+        ) {
+            "Could not persist the Nuvio addon snapshot for profile $profileIndex"
+        }
+    }
+
+    private fun addonUrlsKnownOnOtherProfiles(userId: String, profileIndex: Int): Set<String> =
+        ServiceLocator.get(context).profiles.currentProfiles()
+            .mapNotNull { it.nuvioProfileIndex }
+            .filter { it != profileIndex }
+            .flatMap { otherProfileIndex -> lastRemoteAddonUrls(userId, otherProfileIndex) }
+            .toSet()
+
     suspend fun syncPull(accessToken: String): NuvioPullResult = withContext(Dispatchers.IO) {
         val stremioRepo = StremioRepository(context)
         val nuvioRepo = ServiceLocator.get(context).nuvio
@@ -407,6 +511,7 @@ class NuvioAccountService(private val context: Context) {
 
         val profileIndex = activeCloudProfileIndex()
             ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
+        val syncUserId = SettingsRepository(context).nuvioUserId.first().trim()
         Log.i(
             TAG,
             "Pulling Nuvio data for profile_index=$profileIndex active_profile_id=${ServiceLocator.get(context).profiles.currentActiveId()}",
@@ -422,21 +527,44 @@ class NuvioAccountService(private val context: Context) {
                 select = "url,name,enabled,sort_order",
             )
             val addons = json.decodeFromString(ListSerializer(PullAddon.serializer()), text)
-            // Addons are merged, not replaced. Automatic sync pulls before it
-            // pushes; deleting local-only entries here erased a just-added app
-            // addon before it could be uploaded to Nuvio.
-            val knownUrls = stremioRepo.addons.first()
-                .map { canonicalNuvioAddonUrl(it.manifestUrl) }
+            val orderedRemoteUrls = addons.sortedBy { it.sort_order }
+                .map { it.url.trim() }
+                .filter { it.isNotBlank() }
+            val localBeforePull = stremioRepo.addons.first()
+            val previousRemoteUrls = lastRemoteAddonUrls(syncUserId, profileIndex)
+            val targetUrls = reconcileNuvioAddonUrls(
+                remote = orderedRemoteUrls,
+                local = localBeforePull.map { it.manifestUrl },
+                lastRemote = previousRemoteUrls,
+            )
+            val knownKeys = localBeforePull
+                .map { normalizedNuvioAddonKey(it.manifestUrl) }
                 .filter { it.isNotBlank() }
                 .toMutableSet()
-            addons.sortedBy { it.sort_order }.forEach { pulled ->
-                val url = pulled.url.trim()
-                val canonicalUrl = canonicalNuvioAddonUrl(url)
-                if (url.isNotBlank() && canonicalUrl.isNotBlank() && knownUrls.add(canonicalUrl)) {
+
+            // Fetch remote-only addons before pruning local-only ones. If a
+            // remote manifest is unavailable, the reconciliation fails closed
+            // and leaves the existing local list intact.
+            targetUrls.forEach { url ->
+                val key = normalizedNuvioAddonKey(url)
+                if (key.isNotBlank() && knownKeys.add(key)) {
                     val added = stremioRepo.addAddon(url)
-                    knownUrls += canonicalNuvioAddonUrl(added.manifestUrl)
+                    knownKeys += normalizedNuvioAddonKey(added.manifestUrl)
                     pulledAddons++
                 }
+            }
+            if (orderedRemoteUrls.any { canonicalNuvioAddonUrl(it).isNotBlank() }) {
+                val currentUrls = stremioRepo.addons.first().map { it.manifestUrl }
+                staleNuvioAddonUrls(
+                    remote = orderedRemoteUrls,
+                    local = currentUrls,
+                    lastRemote = previousRemoteUrls,
+                    protectedRemote = addonUrlsKnownOnOtherProfiles(syncUserId, profileIndex),
+                ).forEach { stremioRepo.removeAddon(it) }
+            }
+            stremioRepo.reorderAddons(targetUrls)
+            if (orderedRemoteUrls.any { canonicalNuvioAddonUrl(it).isNotBlank() }) {
+                saveRemoteAddonUrls(syncUserId, profileIndex, orderedRemoteUrls)
             }
         }.onFailure {
             errors += "addons pull: ${it.message ?: "unknown error"}"
@@ -658,6 +786,7 @@ class NuvioAccountService(private val context: Context) {
 
         val profileIndex = activeCloudProfileIndex()
             ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
+        val syncUserId = SettingsRepository(context).nuvioUserId.first().trim()
         Log.i(
             TAG,
             "Pushing Nuvio data for profile_index=$profileIndex active_profile_id=${ServiceLocator.get(context).profiles.currentActiveId()}",
@@ -717,6 +846,23 @@ class NuvioAccountService(private val context: Context) {
                     select = "url,name,enabled,sort_order",
                 ),
             )
+            val previousRemoteUrls = lastRemoteAddonUrls(syncUserId, profileIndex)
+            Log.i(
+                TAG,
+                "Addon push preflight profile_index=$profileIndex remote=${remoteAddons.size} " +
+                    "local=${addonList.size} previously_synced=${previousRemoteUrls.size}",
+            )
+            if (
+                shouldBlockEmptyNuvioAddonReplacement(
+                    remote = remoteAddons.map { it.url },
+                    lastRemote = previousRemoteUrls,
+                )
+            ) {
+                error(
+                    "Nuvio returned no addons for profile $profileIndex, " +
+                        "but that profile previously had synced addons; refusing replacement",
+                )
+            }
             val uploadAddons = mergeNuvioAddonEntries(
                 remote = remoteAddons.map {
                     NuvioAddonSyncEntry(
@@ -781,6 +927,9 @@ class NuvioAccountService(private val context: Context) {
                 error(
                     "Nuvio did not retain ${missingAddons.size} addon(s) for profile $profileIndex",
                 )
+            }
+            if (savedAddons.isNotEmpty()) {
+                saveRemoteAddonUrls(syncUserId, profileIndex, savedAddons.map { it.url })
             }
             addons = uploadAddons.size
         }.onFailure {
@@ -936,7 +1085,13 @@ class NuvioAccountService(private val context: Context) {
         keys: Collection<NuvioLibraryDeleteKey>,
     ) = withContext(Dispatchers.IO) {
         if (keys.isEmpty()) return@withContext
-        val profileIndex = activeCloudProfileIndex() ?: 1
+        val profileIndex = activeCloudProfileIndex()
+            ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
+        Log.i(
+            TAG,
+            "Deleting Nuvio library items count=${keys.size} profile_index=$profileIndex " +
+                "active_profile_id=${ServiceLocator.get(context).profiles.currentActiveId()}",
+        )
 
         suspend fun libraryRows(): List<PullLibraryItem> {
             val text = rpc(

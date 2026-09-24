@@ -5019,14 +5019,13 @@ private fun NuvioAccountRow() {
                             val down = pull.getOrThrow()
                             val errors = (up.errors + down.errors).distinct()
                             errors.takeIf { it.isNotEmpty() }?.let {
+                                val profileStatus = targetProfile?.let { " on $it" }.orEmpty()
                                 val addonStatus = if (up.addons > 0) {
-                                    " · verified ${up.addons} addons on ${
-                                        targetProfile ?: "the selected Nuvio profile"
-                                    }"
+                                    " · verified ${up.addons} addons"
                                 } else {
                                     ""
                                 }
-                                "Partial sync$addonStatus: ${it.joinToString("; ").take(110)}"
+                                "Partial sync$profileStatus$addonStatus: ${it.joinToString("; ").take(110)}"
                             } ?: buildString {
                                 append("Synced ✓  ")
                                 append("↑${up.watchProgress} ↓${down.watchProgress} in-progress · ")
@@ -5042,6 +5041,7 @@ private fun NuvioAccountRow() {
                                 }
                                 if (up.plugins + down.plugins > 0) append(" · ${up.plugins + down.plugins} plugins")
                                 if (up.addons + down.addons > 0) append(" · ${up.addons + down.addons} addons")
+                                targetProfile?.let { append(" · target $it") }
                             }
                         }
                         pendingDeletes.isFailure -> "Error: ${

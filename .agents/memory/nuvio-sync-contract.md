@@ -14,3 +14,9 @@ The sync service must update the same in-memory `ProfileRepository` instance tha
 **Why:** A separate repository instance leaves the visible active profile without its newly assigned cloud index until restart, and Nuvio items with `tt...` IDs otherwise disappear even when the RPC succeeds.
 
 **How to apply:** Obtain profile state through the application service locator during sync, and cache per-sync external-ID resolutions before writing watch progress, watched titles, or library items.
+
+Addon state is shared locally across Nuvio profiles, so remote reconciliation must use a durable account-and-profile snapshot. An empty read is not proof of deletion; if a profile previously had synced addons but the preflight is empty, block the replacement push. Library deletion must also fail closed when the selected local profile has no Nuvio mapping—never default to profile 1.
+
+**Why:** An incomplete or misrouted snapshot can remove addons owned by another profile, while a profile-index fallback can delete or verify items against the wrong Nuvio library.
+
+**How to apply:** Keep a per-user, per-profile addon baseline, preserve local-only and other-profile entries, and prune only after a complete non-empty pull. Route deletion through the selected profile's mapped index and clear its durable delete request only after the remote row is confirmed gone.
