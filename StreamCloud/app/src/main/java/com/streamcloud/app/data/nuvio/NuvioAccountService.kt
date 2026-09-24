@@ -397,17 +397,19 @@ class NuvioAccountService(private val context: Context) {
                 select = "url,name,enabled,sort_order",
             )
             val addons = json.decodeFromString(ListSerializer(PullAddon.serializer()), text)
-            val existingAddons = stremioRepo.addons.first()
-            val remoteUrls = addons.map { canonicalAddonUrl(it.url) }.filter { it.isNotBlank() }.toSet()
-            existingAddons
-                .filter { canonicalAddonUrl(it.manifestUrl) !in remoteUrls }
-                .forEach { stremioRepo.removeAddon(it.manifestUrl) }
-            addons.forEach { pulled ->
+            // Addons are merged, not replaced. Automatic sync pulls before it
+            // pushes; deleting local-only entries here erased a just-added app
+            // addon before it could be uploaded to Nuvio.
+            val knownUrls = stremioRepo.addons.first()
+                .map { canonicalAddonUrl(it.manifestUrl) }
+                .filter { it.isNotBlank() }
+                .toMutableSet()
+            addons.sortedBy { it.sort_order }.forEach { pulled ->
                 val url = pulled.url.trim()
-                if (url.isNotBlank() && existingAddons.none {
-                        canonicalAddonUrl(it.manifestUrl) == canonicalAddonUrl(url)
-                    }) {
-                    stremioRepo.addAddon(url)
+                val canonicalUrl = canonicalAddonUrl(url)
+                if (url.isNotBlank() && canonicalUrl.isNotBlank() && knownUrls.add(canonicalUrl)) {
+                    val added = stremioRepo.addAddon(url)
+                    knownUrls += canonicalAddonUrl(added.manifestUrl)
                     pulledAddons++
                 }
             }
