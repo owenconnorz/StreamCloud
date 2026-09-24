@@ -836,8 +836,69 @@ class NuvioAccountService(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         if (keys.isEmpty()) return@withContext
         val profileIndex = activeCloudProfileIndex() ?: 1
+
+        suspend fun libraryRows(): List<PullLibraryItem> {
+            val text = rpc(
+                "sync_pull_library",
+                buildJsonObject {
+                    put("p_profile_id", profileIndex)
+                    put("p_limit", 500)
+                    put("p_offset", 0)
+                },
+                accessToken,
+            ).getOrThrow()
+            return json.decodeFromString(
+                ListSerializer(PullLibraryItem.serializer()),
+                text,
+            )
+        }
+
+        fun sameContentType(left: String, right: String): Boolean {
+            val normalize = { value: String ->
+                when (value.lowercase()) {
+                    "tv", "series" -> "series"
+                    else -> "movie"
+                }
+            }
+            return normalize(left) == normalize(right)
+        }
+
+        val requestedTmdbIds = keys.mapNotNull { key ->
+            parseTmdbId(key.contentId)?.let { it to key.contentType }
+        }
+        val before = libraryRows()
+        val resolvedRemoteIds = mutableMapOf<String, Long?>()
+        val matchingRemoteKeys = before.mapNotNull { row ->
+            val cacheKey = "${row.content_type}|${row.content_id}"
+            val tmdbId = resolvedRemoteIds.getOrPut(cacheKey) {
+                resolveTmdbIdFromNuvio(row.content_id, row.content_type)
+            } ?: return@mapNotNull null
+            if (requestedTmdbIds.any { (requestedId, requestedType) ->
+                    requestedId == tmdbId && sameContentType(requestedType, row.content_type)
+                }
+            ) {
+                NuvioLibraryDeleteKey(row.content_id, row.content_type)
+            } else {
+                null
+            }
+        }
+
+        fun keyVariants(key: NuvioLibraryDeleteKey): List<NuvioLibraryDeleteKey> {
+            val tmdbId = parseTmdbId(key.contentId) ?: return listOf(key)
+            val type = if (sameContentType(key.contentType, "series")) "series" else "movie"
+            return listOf(
+                key,
+                NuvioLibraryDeleteKey("tmdb:$tmdbId", type),
+                NuvioLibraryDeleteKey("tmdb:$type:$tmdbId", type),
+                NuvioLibraryDeleteKey("$type:$tmdbId", type),
+                NuvioLibraryDeleteKey(tmdbId.toString(), type),
+            )
+        }
+
+        val deleteKeys = (keys.flatMap(::keyVariants) + matchingRemoteKeys)
+            .distinctBy { "${it.contentId}|${it.contentType}" }
         val payload = buildJsonArray {
-            keys.distinctBy { "${it.contentId}|${it.contentType}" }.forEach { key ->
+            deleteKeys.forEach { key ->
                 addJsonObject {
                     put("content_id", key.contentId)
                     put("content_type", key.contentType)
@@ -853,6 +914,19 @@ class NuvioAccountService(private val context: Context) {
             },
             accessToken,
         ).getOrThrow()
+
+        val after = libraryRows()
+        val stillPresent = after.filter { row ->
+            val remoteTmdbId = resolvedRemoteIds.getOrPut("${row.content_type}|${row.content_id}") {
+                resolveTmdbIdFromNuvio(row.content_id, row.content_type)
+            }
+            requestedTmdbIds.any { (requestedId, requestedType) ->
+                requestedId == remoteTmdbId && sameContentType(requestedType, row.content_type)
+            }
+        }
+        if (stillPresent.isNotEmpty()) {
+            error("Nuvio kept ${stillPresent.size} deleted library item(s)")
+        }
     }
 
     private suspend fun pushProfiles(accessToken: String): Int {
