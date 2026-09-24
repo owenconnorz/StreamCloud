@@ -5005,13 +5005,28 @@ private fun NuvioAccountRow() {
                             ),
                         )
                     }
+                    val profiles = sl.profiles.currentProfiles()
+                    val activeProfileId = sl.profiles.currentActiveId()
+                    val selectedProfile = profiles.firstOrNull { it.id == activeProfileId }
+                        ?: profiles.firstOrNull()
+                    val targetProfile = selectedProfile?.let { profile ->
+                        profile.nuvioProfileIndex?.let { "${profile.name} (Nuvio #$it)" }
+                            ?: profile.name
+                    }
                     syncStatus = when {
                         pendingDeletes.isSuccess && push.isSuccess && pull.isSuccess -> {
                             val up   = push.getOrThrow()
                             val down = pull.getOrThrow()
                             val errors = (up.errors + down.errors).distinct()
                             errors.takeIf { it.isNotEmpty() }?.let {
-                                "Partial sync: ${it.joinToString("; ").take(150)}"
+                                val addonStatus = if (up.addons > 0) {
+                                    " · verified ${up.addons} addons on ${
+                                        targetProfile ?: "the selected Nuvio profile"
+                                    }"
+                                } else {
+                                    ""
+                                }
+                                "Partial sync$addonStatus: ${it.joinToString("; ").take(110)}"
                             } ?: buildString {
                                 append("Synced ✓  ")
                                 append("↑${up.watchProgress} ↓${down.watchProgress} in-progress · ")

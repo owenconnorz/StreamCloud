@@ -698,6 +698,29 @@ class NuvioAccountService(private val context: Context) {
                 },
                 accessToken,
             ).getOrThrow()
+            val pushedUrls = addonList
+                .map { canonicalAddonUrl(it.manifestUrl) }
+                .filter { it.isNotBlank() }
+                .toSet()
+            val savedAddons = json.decodeFromString(
+                ListSerializer(PullAddon.serializer()),
+                selectProfileRows(
+                    table = "addons",
+                    profileIndex = profileIndex,
+                    accessToken = accessToken,
+                    select = "url,name,enabled,sort_order",
+                ),
+            )
+            val savedUrls = savedAddons
+                .map { canonicalAddonUrl(it.url) }
+                .filter { it.isNotBlank() }
+                .toSet()
+            val missingAddons = pushedUrls - savedUrls
+            if (missingAddons.isNotEmpty()) {
+                error(
+                    "Nuvio did not retain ${missingAddons.size} addon(s) for profile $profileIndex",
+                )
+            }
             addons = addonList.size
         }.onFailure {
             errors += "addons push: ${it.message ?: "unknown error"}"
