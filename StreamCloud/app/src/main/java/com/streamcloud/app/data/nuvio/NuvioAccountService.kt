@@ -99,6 +99,44 @@ private data class PullAddon(
     val sort_order: Int = 0,
 )
 
+internal data class NuvioAddonSyncEntry(
+    val url: String,
+    val name: String,
+    val enabled: Boolean,
+    val sortOrder: Int,
+)
+
+internal fun canonicalNuvioAddonUrl(url: String): String {
+    val trimmed = url.trim().trimEnd('/')
+    val queryStart = trimmed.indexOf('?')
+    val path = if (queryStart >= 0) trimmed.substring(0, queryStart) else trimmed
+    val query = if (queryStart >= 0) trimmed.substring(queryStart) else ""
+    val cleanPath = if (path.endsWith("/manifest.json", ignoreCase = true)) {
+        path.dropLast("/manifest.json".length).trimEnd('/')
+    } else {
+        path.trimEnd('/')
+    }
+    return cleanPath + query
+}
+
+/**
+ * Nuvio's addon RPC replaces a profile's full addon snapshot. Keep server rows
+ * in that snapshot even when the local addon store is stale or incomplete.
+ */
+internal fun mergeNuvioAddonEntries(
+    remote: List<NuvioAddonSyncEntry>,
+    local: List<NuvioAddonSyncEntry>,
+): List<NuvioAddonSyncEntry> {
+    val merged = linkedMapOf<String, NuvioAddonSyncEntry>()
+    (remote.sortedBy { it.sortOrder } + local.sortedBy { it.sortOrder }).forEach { entry ->
+        val key = canonicalNuvioAddonUrl(entry.url)
+        if (key.isNotBlank() && key !in merged) {
+            merged[key] = entry
+        }
+    }
+    return merged.values.mapIndexed { index, entry -> entry.copy(sortOrder = index) }
+}
+
 @Serializable
 private data class PullPlugin(
     val url: String = "",
@@ -316,19 +354,6 @@ class NuvioAccountService(private val context: Context) {
         }
     }
 
-    private fun canonicalAddonUrl(url: String): String {
-        val trimmed = url.trim().trimEnd('/')
-        val queryStart = trimmed.indexOf('?')
-        val path = if (queryStart >= 0) trimmed.substring(0, queryStart) else trimmed
-        val query = if (queryStart >= 0) trimmed.substring(queryStart) else ""
-        val cleanPath = if (path.endsWith("/manifest.json", ignoreCase = true)) {
-            path.dropLast("/manifest.json".length).trimEnd('/')
-        } else {
-            path.trimEnd('/')
-        }
-        return cleanPath + query
-    }
-
     suspend fun syncPull(accessToken: String): NuvioPullResult = withContext(Dispatchers.IO) {
         val stremioRepo = StremioRepository(context)
         val nuvioRepo = ServiceLocator.get(context).nuvio
@@ -401,15 +426,15 @@ class NuvioAccountService(private val context: Context) {
             // pushes; deleting local-only entries here erased a just-added app
             // addon before it could be uploaded to Nuvio.
             val knownUrls = stremioRepo.addons.first()
-                .map { canonicalAddonUrl(it.manifestUrl) }
+                .map { canonicalNuvioAddonUrl(it.manifestUrl) }
                 .filter { it.isNotBlank() }
                 .toMutableSet()
             addons.sortedBy { it.sort_order }.forEach { pulled ->
                 val url = pulled.url.trim()
-                val canonicalUrl = canonicalAddonUrl(url)
+                val canonicalUrl = canonicalNuvioAddonUrl(url)
                 if (url.isNotBlank() && canonicalUrl.isNotBlank() && knownUrls.add(canonicalUrl)) {
                     val added = stremioRepo.addAddon(url)
-                    knownUrls += canonicalAddonUrl(added.manifestUrl)
+                    knownUrls += canonicalNuvioAddonUrl(added.manifestUrl)
                     pulledAddons++
                 }
             }
@@ -679,27 +704,63 @@ class NuvioAccountService(private val context: Context) {
 
         runCatching {
             val addonList = stremioRepo.addons.first()
+            // Read the target profile immediately before the replacement RPC.
+            // A prior pull can race with app startup/profile changes or fail to
+            // materialize a remote addon locally; never let that turn into a
+            // snapshot that deletes rows already stored by Nuvio.
+            val remoteAddons = json.decodeFromString(
+                ListSerializer(PullAddon.serializer()),
+                selectProfileRows(
+                    table = "addons",
+                    profileIndex = profileIndex,
+                    accessToken = accessToken,
+                    select = "url,name,enabled,sort_order",
+                ),
+            )
+            val uploadAddons = mergeNuvioAddonEntries(
+                remote = remoteAddons.map {
+                    NuvioAddonSyncEntry(
+                        url = it.url,
+                        name = it.name.orEmpty(),
+                        enabled = it.enabled,
+                        sortOrder = it.sort_order,
+                    )
+                },
+                local = addonList.mapIndexed { index, addon ->
+                    NuvioAddonSyncEntry(
+                        url = addon.manifestUrl,
+                        name = addon.name,
+                        enabled = true,
+                        sortOrder = index,
+                    )
+                },
+            )
             val arr = buildJsonArray {
-                addonList.forEachIndexed { i, addon ->
+                uploadAddons.forEach { addon ->
                     addJsonObject {
-                        put("url", addon.manifestUrl)
+                        put("url", addon.url)
                         put("name", addon.name)
-                        put("sort_order", i)
-                        put("enabled", true)
+                        put("sort_order", addon.sortOrder)
+                        put("enabled", addon.enabled)
                     }
                 }
             }
-            rpc(
-                "sync_push_addons",
-                buildJsonObject {
-                    put("p_addons", arr)
-                    put("p_profile_id", profileIndex)
-                    put("p_origin_client_id", syncOriginClientId())
-                },
-                accessToken,
-            ).getOrThrow()
-            val pushedUrls = addonList
-                .map { canonicalAddonUrl(it.manifestUrl) }
+            // An empty array is still a destructive full-snapshot replacement.
+            // With no explicit remote-delete intent, an empty merged snapshot
+            // must never be sent to Nuvio.
+            if (uploadAddons.isNotEmpty()) {
+                rpc(
+                    "sync_push_addons",
+                    buildJsonObject {
+                        put("p_addons", arr)
+                        put("p_profile_id", profileIndex)
+                        put("p_origin_client_id", syncOriginClientId())
+                    },
+                    accessToken,
+                ).getOrThrow()
+            }
+            val pushedUrls = uploadAddons
+                .map { canonicalNuvioAddonUrl(it.url) }
                 .filter { it.isNotBlank() }
                 .toSet()
             val savedAddons = json.decodeFromString(
@@ -712,7 +773,7 @@ class NuvioAccountService(private val context: Context) {
                 ),
             )
             val savedUrls = savedAddons
-                .map { canonicalAddonUrl(it.url) }
+                .map { canonicalNuvioAddonUrl(it.url) }
                 .filter { it.isNotBlank() }
                 .toSet()
             val missingAddons = pushedUrls - savedUrls
@@ -721,7 +782,7 @@ class NuvioAccountService(private val context: Context) {
                     "Nuvio did not retain ${missingAddons.size} addon(s) for profile $profileIndex",
                 )
             }
-            addons = addonList.size
+            addons = uploadAddons.size
         }.onFailure {
             errors += "addons push: ${it.message ?: "unknown error"}"
             Log.w(TAG, "push Nuvio addons: ${it.message}")
