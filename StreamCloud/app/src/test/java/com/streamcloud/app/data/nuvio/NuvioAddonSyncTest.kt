@@ -62,9 +62,9 @@ class NuvioAddonSyncTest {
     fun nonEmptyRemoteSnapshotFollowsRemoteOrderAndKeepsUntrackedLocalAddons() {
         assertEquals(
             listOf(
-                "https://two.example/manifest.json",
+                "https://two.example",
                 "https://one.example",
-                "https://local-only.example/manifest.json",
+                "https://local-only.example",
             ),
             reconcileNuvioAddonUrls(
                 remote = listOf(
@@ -83,7 +83,7 @@ class NuvioAddonSyncTest {
     @Test
     fun removesOnlyLocallyKnownEntriesMissingFromNonEmptyRemoteSnapshot() {
         assertEquals(
-            listOf("https://removed.example"),
+            listOf("https://removed.example/manifest.json"),
             staleNuvioAddonUrls(
                 remote = listOf("https://one.example/manifest.json"),
                 local = listOf(
