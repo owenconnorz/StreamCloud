@@ -32,6 +32,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 
 private const val TAG = "NuvioAccountService"
 private const val NUVIO_OFFICIAL_SERVER = "https://api.nuvio.tv"
@@ -85,9 +86,16 @@ data class NuvioPullResult(
     val errors: List<String> = emptyList(),
 )
 
+data class NuvioLibraryDeleteKey(
+    val contentId: String,
+    val contentType: String,
+)
+
 @Serializable
 private data class PullAddon(
     val url: String = "",
+    val name: String? = null,
+    val enabled: Boolean = true,
     val sort_order: Int = 0,
 )
 
@@ -96,6 +104,8 @@ private data class PullPlugin(
     val url: String = "",
     val name: String? = null,
     val enabled: Boolean = true,
+    val sort_order: Int = 0,
+    val repo_type: String? = null,
 )
 
 @Serializable
@@ -270,6 +280,55 @@ class NuvioAccountService(private val context: Context) {
         }.also { if (it.isFailure) Log.e(TAG, "rpc $function", it.exceptionOrNull()) }
     }
 
+    private suspend fun selectProfileRows(
+        table: String,
+        profileIndex: Int,
+        accessToken: String,
+        select: String,
+    ): String = withContext(Dispatchers.IO) {
+        val config = currentServerConfiguration()
+        val req = Request.Builder()
+            .url(
+                "${config.backendUrl}/rest/v1/$table" +
+                    "?profile_id=eq.$profileIndex&select=$select&order=sort_order.asc",
+            )
+            .get()
+            .header("apikey", config.publishableKey)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Accept", "application/json")
+            .build()
+        val resp = http.newCall(req).execute()
+        val text = resp.body?.string().orEmpty()
+        if (!resp.isSuccessful) {
+            Log.w(TAG, "Table $table ${resp.code}: $text")
+            error("Nuvio $table read failed (${resp.code})")
+        }
+        text
+    }
+
+    private fun syncOriginClientId(): String {
+        val prefs = context.getSharedPreferences("nuvio_sync", Context.MODE_PRIVATE)
+        return prefs.getString("origin_client_id", null) ?: UUID.randomUUID().toString().also {
+            // The identity must survive an immediate process stop after the
+            // first local mutation; otherwise later deletes can use a new
+            // client identity than the preceding push.
+            prefs.edit().putString("origin_client_id", it).commit()
+        }
+    }
+
+    private fun canonicalAddonUrl(url: String): String {
+        val trimmed = url.trim().trimEnd('/')
+        val queryStart = trimmed.indexOf('?')
+        val path = if (queryStart >= 0) trimmed.substring(0, queryStart) else trimmed
+        val query = if (queryStart >= 0) trimmed.substring(queryStart) else ""
+        val cleanPath = if (path.endsWith("/manifest.json", ignoreCase = true)) {
+            path.dropLast("/manifest.json".length).trimEnd('/')
+        } else {
+            path.trimEnd('/')
+        }
+        return cleanPath + query
+    }
+
     suspend fun syncPull(accessToken: String): NuvioPullResult = withContext(Dispatchers.IO) {
         val stremioRepo = StremioRepository(context)
         val nuvioRepo = ServiceLocator.get(context).nuvio
@@ -322,25 +381,32 @@ class NuvioAccountService(private val context: Context) {
         }
 
         val profileIndex = activeCloudProfileIndex()
-            ?: 1 // Nuvio accounts created before profile linking use profile 1.
+            ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
+        Log.i(
+            TAG,
+            "Pulling Nuvio data for profile_index=$profileIndex active_profile_id=${ServiceLocator.get(context).profiles.currentActiveId()}",
+        )
         val db = LibraryDb.get(context)
 
         // ── Stremio addons ──────────────────────────────────────────────────
         runCatching {
-            val text = rpc(
-                "sync_pull_addons",
-                buildJsonObject { put("p_profile_id", profileIndex) },
-                accessToken,
-            ).getOrThrow()
+            val text = selectProfileRows(
+                table = "addons",
+                profileIndex = profileIndex,
+                accessToken = accessToken,
+                select = "url,name,enabled,sort_order",
+            )
             val addons = json.decodeFromString(ListSerializer(PullAddon.serializer()), text)
             val existingAddons = stremioRepo.addons.first()
-            val remoteUrls = addons.map { it.url.trim() }.filter { it.isNotBlank() }.toSet()
+            val remoteUrls = addons.map { canonicalAddonUrl(it.url) }.filter { it.isNotBlank() }.toSet()
             existingAddons
-                .filter { it.manifestUrl !in remoteUrls }
+                .filter { canonicalAddonUrl(it.manifestUrl) !in remoteUrls }
                 .forEach { stremioRepo.removeAddon(it.manifestUrl) }
             addons.forEach { pulled ->
                 val url = pulled.url.trim()
-                if (url.isNotBlank() && existingAddons.none { it.manifestUrl == url }) {
+                if (url.isNotBlank() && existingAddons.none {
+                        canonicalAddonUrl(it.manifestUrl) == canonicalAddonUrl(url)
+                    }) {
                     stremioRepo.addAddon(url)
                     pulledAddons++
                 }
@@ -352,11 +418,12 @@ class NuvioAccountService(private val context: Context) {
 
         // ── Nuvio plugin repositories ───────────────────────────────────────
         runCatching {
-            val text = rpc(
-                "sync_pull_plugins",
-                buildJsonObject { put("p_profile_id", profileIndex) },
-                accessToken,
-            ).getOrThrow()
+            val text = selectProfileRows(
+                table = "plugins",
+                profileIndex = profileIndex,
+                accessToken = accessToken,
+                select = "url,name,enabled,sort_order,repo_type",
+            )
             val plugins = json.decodeFromString(ListSerializer(PullPlugin.serializer()), text)
             val existingRepos = nuvioRepo.savedRepos.first()
             val remoteUrls = plugins.map { it.url.trim() }.filter { it.isNotBlank() }.toSet()
@@ -562,15 +629,23 @@ class NuvioAccountService(private val context: Context) {
         var collectionError: String? = null
         val errors = mutableListOf<String>()
 
+        val profileIndex = activeCloudProfileIndex()
+            ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
+        Log.i(
+            TAG,
+            "Pushing Nuvio data for profile_index=$profileIndex active_profile_id=${ServiceLocator.get(context).profiles.currentActiveId()}",
+        )
+
+        // Profile indexes are assigned during the preceding pull. Do not assign
+        // indexes from an incomplete local-only snapshot: sync_push_profiles can
+        // otherwise make a different local profile look like the selected cloud
+        // profile and route every replacement-style dataset to the wrong rows.
         runCatching {
             profiles = pushProfiles(accessToken)
         }.onFailure {
             errors += "profiles push: ${it.message ?: "unknown error"}"
             Log.w(TAG, "push profiles: ${it.message}")
         }
-
-        val profileIndex = activeCloudProfileIndex()
-            ?: 1 // Keep legacy accounts syncing even before local linking completes.
 
         runCatching {
             val repos = nuvioRepo.savedRepos.first()
@@ -581,12 +656,17 @@ class NuvioAccountService(private val context: Context) {
                         put("name", repo.name)
                         put("enabled", true)
                         put("sort_order", i)
+                        put("repo_type", "nuvio")
                     }
                 }
             }
             rpc(
                 "sync_push_plugins",
-                buildJsonObject { put("p_plugins", arr); put("p_profile_id", profileIndex) },
+                buildJsonObject {
+                    put("p_plugins", arr)
+                    put("p_profile_id", profileIndex)
+                    put("p_origin_client_id", syncOriginClientId())
+                },
                 accessToken,
             ).getOrThrow()
             plugins = repos.size
@@ -601,13 +681,19 @@ class NuvioAccountService(private val context: Context) {
                 addonList.forEachIndexed { i, addon ->
                     addJsonObject {
                         put("url", addon.manifestUrl)
+                        put("name", addon.name)
                         put("sort_order", i)
+                        put("enabled", true)
                     }
                 }
             }
             rpc(
                 "sync_push_addons",
-                buildJsonObject { put("p_addons", arr); put("p_profile_id", profileIndex) },
+                buildJsonObject {
+                    put("p_addons", arr)
+                    put("p_profile_id", profileIndex)
+                    put("p_origin_client_id", syncOriginClientId())
+                },
                 accessToken,
             ).getOrThrow()
             addons = addonList.size
@@ -666,7 +752,11 @@ class NuvioAccountService(private val context: Context) {
             }
             rpc(
                 "sync_push_library_items",
-                buildJsonObject { put("p_items", arr); put("p_profile_id", profileIndex) },
+                buildJsonObject {
+                    put("p_items", arr)
+                    put("p_profile_id", profileIndex)
+                    put("p_origin_client_id", syncOriginClientId())
+                },
                 accessToken,
             ).getOrThrow()
             library = items.size
@@ -755,6 +845,105 @@ class NuvioAccountService(private val context: Context) {
         )
     }
 
+    suspend fun deleteLibraryItems(
+        accessToken: String,
+        keys: Collection<NuvioLibraryDeleteKey>,
+    ) = withContext(Dispatchers.IO) {
+        if (keys.isEmpty()) return@withContext
+        val profileIndex = activeCloudProfileIndex() ?: 1
+
+        suspend fun libraryRows(): List<PullLibraryItem> {
+            val text = rpc(
+                "sync_pull_library",
+                buildJsonObject {
+                    put("p_profile_id", profileIndex)
+                    put("p_limit", 500)
+                    put("p_offset", 0)
+                },
+                accessToken,
+            ).getOrThrow()
+            return json.decodeFromString(
+                ListSerializer(PullLibraryItem.serializer()),
+                text,
+            )
+        }
+
+        fun sameContentType(left: String, right: String): Boolean {
+            val normalize = { value: String ->
+                when (value.lowercase()) {
+                    "tv", "series" -> "series"
+                    else -> "movie"
+                }
+            }
+            return normalize(left) == normalize(right)
+        }
+
+        val requestedTmdbIds = keys.mapNotNull { key ->
+            parseTmdbId(key.contentId)?.let { it to key.contentType }
+        }
+        val before = libraryRows()
+        val resolvedRemoteIds = mutableMapOf<String, Long?>()
+        val matchingRemoteKeys = before.mapNotNull { row ->
+            val cacheKey = "${row.content_type}|${row.content_id}"
+            val tmdbId = resolvedRemoteIds.getOrPut(cacheKey) {
+                resolveTmdbIdFromNuvio(row.content_id, row.content_type)
+            } ?: return@mapNotNull null
+            if (requestedTmdbIds.any { (requestedId, requestedType) ->
+                    requestedId == tmdbId && sameContentType(requestedType, row.content_type)
+                }
+            ) {
+                NuvioLibraryDeleteKey(row.content_id, row.content_type)
+            } else {
+                null
+            }
+        }
+
+        fun keyVariants(key: NuvioLibraryDeleteKey): List<NuvioLibraryDeleteKey> {
+            val tmdbId = parseTmdbId(key.contentId) ?: return listOf(key)
+            val type = if (sameContentType(key.contentType, "series")) "series" else "movie"
+            return listOf(
+                key,
+                NuvioLibraryDeleteKey("tmdb:$tmdbId", type),
+                NuvioLibraryDeleteKey("tmdb:$type:$tmdbId", type),
+                NuvioLibraryDeleteKey("$type:$tmdbId", type),
+                NuvioLibraryDeleteKey(tmdbId.toString(), type),
+            )
+        }
+
+        val deleteKeys = (keys.flatMap(::keyVariants) + matchingRemoteKeys)
+            .distinctBy { "${it.contentId}|${it.contentType}" }
+        val payload = buildJsonArray {
+            deleteKeys.forEach { key ->
+                addJsonObject {
+                    put("content_id", key.contentId)
+                    put("content_type", key.contentType)
+                }
+            }
+        }
+        rpc(
+            "sync_delete_library_items",
+            buildJsonObject {
+                put("p_keys", payload)
+                put("p_profile_id", profileIndex)
+                put("p_origin_client_id", syncOriginClientId())
+            },
+            accessToken,
+        ).getOrThrow()
+
+        val after = libraryRows()
+        val stillPresent = after.filter { row ->
+            val remoteTmdbId = resolvedRemoteIds.getOrPut("${row.content_type}|${row.content_id}") {
+                resolveTmdbIdFromNuvio(row.content_id, row.content_type)
+            }
+            requestedTmdbIds.any { (requestedId, requestedType) ->
+                requestedId == remoteTmdbId && sameContentType(requestedType, row.content_type)
+            }
+        }
+        if (stillPresent.isNotEmpty()) {
+            error("Nuvio kept ${stillPresent.size} deleted library item(s)")
+        }
+    }
+
     private suspend fun pushProfiles(accessToken: String): Int {
         val profileRepo = ServiceLocator.get(context).profiles
         val localProfiles = profileRepo.currentProfiles().take(6)
@@ -795,13 +984,13 @@ class NuvioAccountService(private val context: Context) {
         val repo = ServiceLocator.get(context).profiles
         val activeId = repo.currentActiveId()
         val profiles = repo.currentProfiles()
-        val activeIndex = profiles.firstOrNull { it.id == activeId }?.nuvioProfileIndex
-        if (activeIndex != null) return activeIndex
-
-        // A single cloud profile is unambiguous even when the local profile
-        // was created with a different name or before cloud linking existed.
-        return profiles.mapNotNull { it.nuvioProfileIndex }.singleOrNull()
-            ?: profiles.firstOrNull()?.nuvioProfileIndex
+        // ProfileRepository treats the first profile as selected when there is
+        // no persisted active id. Match that behavior, but never fall back to
+        // some other mapped profile: doing so sends one user's changes to a
+        // different Nuvio profile.
+        val selected = profiles.firstOrNull { it.id == activeId }
+            ?: profiles.firstOrNull()
+        return selected?.nuvioProfileIndex
     }
 
     private suspend fun pullProfiles(accessToken: String): Int {

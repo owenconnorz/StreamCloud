@@ -227,11 +227,13 @@ fun CollectionsScreen(
         if (token.isNotBlank()) {
             runCatching {
                 val service = NuvioAccountService.get(context.applicationContext)
-                val pull = service.syncPull(token)
+                val pull = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                    .pullAfterPendingLibraryDeletes(context.applicationContext, token)
+                    .getOrThrow()
                 // Pull first so cloud-owned collections are visible immediately.
                 // A successful pull is followed by a push so locally-created
                 // collections can also be created in Nuvio.
-                if (pull.collectionError == null) {
+                if (pull.errors.isEmpty() && pull.collectionError == null) {
                     service.syncAll(token)
                 }
             }

@@ -13,6 +13,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.streamcloud.app.data.SettingsRepository
+import com.streamcloud.app.data.library.LibraryDb
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
@@ -24,6 +25,8 @@ import java.util.concurrent.TimeUnit
 object NuvioAutoSync {
     private const val PERIODIC_WORK = "nuvio_auto_sync_periodic"
     private const val IMMEDIATE_WORK = "nuvio_auto_sync_immediate"
+    private const val SYNC_PREFS = "nuvio_sync"
+    private const val PENDING_LIBRARY_DELETES = "pending_library_deletes"
 
     fun installPeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<NuvioAutoSyncWorker>(15, TimeUnit.MINUTES)
@@ -49,6 +52,51 @@ object NuvioAutoSync {
         )
     }
 
+    /**
+     * Records the deletion before scheduling work. This is intentionally
+     * separate from the network request: a user can remove an item while
+     * offline, and Nuvio must not recreate it on the next pull.
+     */
+    fun requestLibraryDelete(context: Context, tmdbId: Long, mediaType: String) {
+        val contentType = when (mediaType.lowercase()) {
+            "tv", "series" -> "series"
+            "movie" -> "movie"
+            else -> return
+        }
+        val key = "$contentType:tmdb:$tmdbId"
+        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val pending = prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().toMutableSet()
+        pending += key
+        // The process may be stopped immediately after the user removes an item.
+        // A tombstone must be on disk before any background work is scheduled.
+        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).commit()
+        request(context)
+    }
+
+    suspend fun pushPendingLibraryDeletes(context: Context, accessToken: String) {
+        val appContext = context.applicationContext
+        val pending = pendingLibraryDeletes(appContext)
+        if (pending.isEmpty()) return
+
+        NuvioAccountService.get(appContext).deleteLibraryItems(
+            accessToken,
+            pending.map { NuvioLibraryDeleteKey(it.contentId, it.contentType) },
+        )
+        clearLibraryDeletes(appContext, pending)
+    }
+
+    /**
+     * Pulling before pending deletions are accepted by Nuvio can resurrect a
+     * locally removed item. Keep every automatic pull behind this gate.
+     */
+    suspend fun pullAfterPendingLibraryDeletes(
+        context: Context,
+        accessToken: String,
+    ): Result<NuvioPullResult> = runCatching {
+        pushPendingLibraryDeletes(context, accessToken)
+        NuvioAccountService.get(context.applicationContext).syncPull(accessToken)
+    }
+
     private fun networkConstraints() = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
@@ -66,10 +114,16 @@ class NuvioAutoSyncWorker(
         val service = NuvioAccountService.get(applicationContext)
 
         suspend fun syncWith(accessToken: String): String? {
-            val push = service.syncAll(accessToken)
+            pushPendingLibraryDeletes(applicationContext, accessToken)
+            // Pull first. Addon/plugin pushes replace the profile-scoped
+            // snapshot, so a push from a partial local database can delete
+            // valid rows that already exist in Nuvio.
             val pull = service.syncPull(accessToken)
-            val errors = (push.errors + pull.errors).distinct()
-            return errors.takeIf { it.isNotEmpty() }?.joinToString("; ")
+            if (pull.errors.isNotEmpty()) {
+                return pull.errors.distinct().joinToString("; ")
+            }
+            val push = service.syncAll(accessToken)
+            return push.errors.takeIf { it.isNotEmpty() }?.distinct()?.joinToString("; ")
         }
 
         val firstAttempt = runCatching { syncWith(token) }
@@ -110,5 +164,30 @@ class NuvioAutoSyncWorker(
             }",
         )
         return Result.retry()
+    }
+
+    private data class PendingDelete(
+        val serialized: String,
+        val contentType: String,
+        val contentId: String,
+    )
+
+    private fun pendingLibraryDeletes(context: Context): List<PendingDelete> {
+        val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        return prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().mapNotNull { value ->
+            val separator = value.indexOf(':')
+            if (separator <= 0 || separator == value.lastIndex) return@mapNotNull null
+            val contentType = value.substring(0, separator)
+            val contentId = value.substring(separator + 1)
+            PendingDelete(value, contentType, contentId)
+        }
+    }
+
+    private fun clearLibraryDeletes(context: Context, deletes: Collection<PendingDelete>) {
+        if (deletes.isEmpty()) return
+        val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val pending = prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().toMutableSet()
+        deletes.forEach { pending.remove(it.serialized) }
+        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).commit()
     }
 }
