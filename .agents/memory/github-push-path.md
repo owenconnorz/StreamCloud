@@ -14,3 +14,9 @@ The GitHub Contents API requires both `repo` and the separate `workflow` OAuth s
 **Why:** Publishing source changes without the related workflow update can leave the intended CI tests unrun, while partially updating `main` is unsafe.
 
 **How to apply:** Before publishing workflow changes, check that the provider-declared reauthorization scopes include `workflow`. If not, stop before merging and ask for a supported authorization path.
+
+Workspace edits may also appear as separate local commits authored by Replit Agent, even when the requested publication must use Owen's GitHub identity.
+
+**Why:** Pushing those automatic commits would violate the repository owner's attribution preference.
+
+**How to apply:** Before publishing, inspect every unpublished commit. Fold agent-authored workspace commits into the intended Owen-authored commit, verify the parent and changed files, and push only after the identity is correct.

@@ -1,5 +1,7 @@
 package com.streamcloud.app.data.nuvio
 
+import com.streamcloud.app.data.stremio.InstalledStremioAddon
+import com.streamcloud.app.data.stremio.reorderInstalledStremioAddons
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -131,6 +133,39 @@ class NuvioAddonSyncTest {
                     "https://ONE.example/",
                 ),
                 local = listOf("https://one.example/"),
+            ),
+        )
+    }
+
+    @Test
+    fun reordersInstalledAddonsByRemoteOrderAndKeepsUnlistedAddonsStable() {
+        val one = InstalledStremioAddon(
+            id = "one",
+            name = "One",
+            manifestUrl = "https://one.example/manifest.json?key=abc",
+            baseUrl = "https://one.example",
+            installedAt = 1,
+        )
+        val localOnly = InstalledStremioAddon(
+            id = "local",
+            name = "Local",
+            manifestUrl = "https://local-only.example/manifest.json",
+            baseUrl = "https://local-only.example",
+            installedAt = 2,
+        )
+        val two = InstalledStremioAddon(
+            id = "two",
+            name = "Two",
+            manifestUrl = "https://two.example/manifest.json",
+            baseUrl = "https://two.example",
+            installedAt = 3,
+        )
+
+        assertEquals(
+            listOf(two, one, localOnly),
+            reorderInstalledStremioAddons(
+                installed = listOf(one, localOnly, two),
+                orderedUrls = listOf("https://two.example", "https://one.example?key=abc"),
             ),
         )
     }

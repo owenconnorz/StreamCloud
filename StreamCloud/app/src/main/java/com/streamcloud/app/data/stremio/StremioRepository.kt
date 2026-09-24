@@ -30,6 +30,38 @@ import java.util.concurrent.TimeUnit
 private val Context.stremioStore by preferencesDataStore("streamcloud_stremio")
 private val KEY_ADDONS = stringPreferencesKey("addons_json")
 
+internal fun reorderInstalledStremioAddons(
+    installed: List<InstalledStremioAddon>,
+    orderedUrls: List<String>,
+): List<InstalledStremioAddon> {
+    val orderByUrl = linkedMapOf<String, Int>()
+    orderedUrls.forEachIndexed { index, url ->
+        val key = stremioAddonOrderingKey(url)
+        if (key.isNotBlank()) orderByUrl.putIfAbsent(key, index)
+    }
+
+    return installed.withIndex()
+        .sortedWith(
+            compareBy<IndexedValue<InstalledStremioAddon>> {
+                orderByUrl[stremioAddonOrderingKey(it.value.manifestUrl)] ?: Int.MAX_VALUE
+            }.thenBy { it.index },
+        )
+        .map { it.value }
+}
+
+private fun stremioAddonOrderingKey(url: String): String {
+    val trimmed = url.trim().trimEnd('/')
+    val queryStart = trimmed.indexOf('?')
+    val path = if (queryStart >= 0) trimmed.substring(0, queryStart) else trimmed
+    val query = if (queryStart >= 0) trimmed.substring(queryStart) else ""
+    val basePath = if (path.endsWith("/manifest.json", ignoreCase = true)) {
+        path.dropLast("/manifest.json".length).trimEnd('/')
+    } else {
+        path.trimEnd('/')
+    }
+    return (basePath + query).lowercase()
+}
+
 class StremioRepository(private val context: Context) {
 
     private val http = OkHttpClient.Builder()
@@ -52,6 +84,11 @@ class StremioRepository(private val context: Context) {
         context.stremioStore.edit { it[KEY_ADDONS] = text }
     }
 
+    suspend fun reorderAddons(orderedUrls: List<String>) {
+        val current = addons.first()
+        val reordered = reorderInstalledStremioAddons(current, orderedUrls)
+        if (reordered != current) saveAddons(reordered)
+    }
 
     suspend fun addAddon(manifestUrlOrBase: String): InstalledStremioAddon = withContext(Dispatchers.IO) {
         val url = normalize(manifestUrlOrBase)
