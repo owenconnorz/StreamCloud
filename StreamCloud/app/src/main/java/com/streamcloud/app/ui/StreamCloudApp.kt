@@ -1483,10 +1483,7 @@ fun StreamCloudApp() {
                         bingeEpisodes     = bingeEpisodes,
                         currentBingeIndex = com.streamcloud.app.player.MoviePlayerSession.currentBingeIndex,
                         onPlayBingeEpisode = { ep ->
-                            val pk = ep.progressKey ?: com.streamcloud.app.player.WatchProgressKey(
-                                tmdbId = ep.tmdbId, title = ep.title,
-                                posterUrl = ep.posterUrl, mediaType = "tv",
-                            )
+                            val pk = com.streamcloud.app.player.progressKeyForBingeEpisode(ep)
                             val newIdx = bingeEpisodes.indexOf(ep)
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 newSources        = emptyList(),

@@ -1,6 +1,7 @@
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.streamcloud.app.ui.screens
 
+import android.view.KeyEvent as AndroidKeyEvent
 import com.streamcloud.app.ads.AdPlacement
 import com.streamcloud.app.ads.AdvertisingBanner
 import androidx.compose.foundation.BorderStroke
@@ -41,6 +42,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
@@ -80,6 +83,57 @@ private data class PosterSheetItem(
     val posterUrl: String?,
     val mediaType: String,
 )
+
+@Composable
+private fun Modifier.tvOkPress(
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+): Modifier {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    var okKeyDown by remember { mutableStateOf(false) }
+    var longPressHandled by remember { mutableStateOf(false) }
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
+
+    if (!isTv) return this
+
+    return onPreviewKeyEvent { event ->
+        val native = event.nativeKeyEvent
+        val isOkKey = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+            native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+            native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
+            native.keyCode == AndroidKeyEvent.KEYCODE_BUTTON_A
+        if (!isOkKey) return@onPreviewKeyEvent false
+
+        when (native.action) {
+            AndroidKeyEvent.ACTION_DOWN -> {
+                val isLongPress = native.repeatCount > 0 || native.isLongPress()
+                if (!isLongPress) {
+                    okKeyDown = true
+                    longPressHandled = false
+                } else {
+                    okKeyDown = true
+                    if (!longPressHandled) {
+                        longPressHandled = true
+                        currentOnLongPress()
+                    }
+                }
+                true
+            }
+            AndroidKeyEvent.ACTION_UP -> {
+                if (!okKeyDown) {
+                    false
+                } else {
+                    if (!longPressHandled) currentOnClick()
+                    okKeyDown = false
+                    longPressHandled = false
+                    true
+                }
+            }
+            else -> false
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1402,6 +1456,7 @@ private fun ContinueWatchingCard(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .width(320.dp)
+            .tvOkPress(onClick, onLongPress)
             .tvFocusBorder(RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
@@ -1474,6 +1529,7 @@ private fun MidPoster(
     val width = if (useLandscape) 220.dp else 140.dp
     Column(
         modifier = modifier
+            .tvOkPress(onClick, onLongPress)
             .width(width)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
@@ -1513,6 +1569,7 @@ private fun StremioPoster(
     val width = if (useLandscape) 220.dp else 140.dp
     Column(
         modifier = modifier
+            .tvOkPress(onClick, onLongPress)
             .width(width)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
@@ -1567,6 +1624,10 @@ private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait"
                     Column(
                         Modifier
                             .weight(1f)
+                            .tvOkPress(
+                                onClick = { onClick(m.id) },
+                                onLongPress = { onLongPress(m) },
+                            )
                             .clip(RoundedCornerShape(12.dp))
                             .tvFocusBorder(RoundedCornerShape(12.dp))
                             .combinedClickable(

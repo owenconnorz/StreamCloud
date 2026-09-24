@@ -64,6 +64,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -279,33 +280,52 @@ fun NativePlayerScreen(
             androidx.media3.exoplayer.DefaultRenderersFactory(context)
                 .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
         else null
+        val savedPosition = if (resumePlaybackOn) {
+            progressKey?.let { pk ->
+                runCatching {
+                    val savedProgress = com.streamcloud.app.data.library.LibraryDb
+                        .get(context.applicationContext)
+                        .watchProgress()
+                        .byId(pk.tmdbId)
+                    restorableWatchPosition(pk, savedProgress)
+                }.getOrNull()
+            }
+        } else null
         val ex = ExoPlayer.Builder(context)
             .apply { if (renderersFactory != null) setRenderersFactory(renderersFactory) }
             .setMediaSourceFactory(DefaultMediaSourceFactory(dsFactory))
             .setAudioAttributes(videoAudioAttrs, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
-            .apply {
-                setMediaSource(source)
-                val preferredDolbyMimeTypes = MovieAudioPreferences.mimeTypesFor(movieAudioFormats)
-                if (preferredDolbyMimeTypes.isNotEmpty()) {
-                    trackSelectionParameters = trackSelectionParameters.buildUpon()
-                        .setPreferredAudioMimeTypes(*preferredDolbyMimeTypes.toTypedArray())
-                        .build()
+        ex.setMediaSource(source)
+        val preferredDolbyMimeTypes = MovieAudioPreferences.mimeTypesFor(movieAudioFormats)
+        if (preferredDolbyMimeTypes.isNotEmpty()) {
+            ex.trackSelectionParameters = ex.trackSelectionParameters.buildUpon()
+                .setPreferredAudioMimeTypes(*preferredDolbyMimeTypes.toTypedArray())
+                .build()
+        }
+        savedPosition?.let { position ->
+            val restoreListener = object : Player.Listener {
+                private fun restoreWhenDurationIsKnown() {
+                    if (ex.playbackState != Player.STATE_READY || ex.duration <= 0L) return
+                    ex.removeListener(this)
+                    if (canRestoreWatchPosition(position, ex.duration)) ex.seekTo(position)
                 }
-                prepare(); playWhenReady = true
-                val defSpeed = defaultSpeedStr.toFloatOrNull() ?: 1f
-                if (defSpeed != 1f) playbackParameters = PlaybackParameters(defSpeed)
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    restoreWhenDurationIsKnown()
+                }
+
+                override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                    restoreWhenDurationIsKnown()
+                }
             }
-        val savedPosition = if (resumePlaybackOn) {
-            progressKey?.let { pk ->
-                runCatching {
-                    com.streamcloud.app.data.library.LibraryDb.get(context.applicationContext)
-                        .watchProgress().byId(pk.tmdbId)?.positionMs?.takeIf { it > 5_000L }
-                }.getOrNull()
-            }
-        } else null
-        if (savedPosition != null) ex.seekTo(savedPosition)
+            ex.addListener(restoreListener)
+        }
+        ex.prepare()
+        ex.playWhenReady = true
+        val defSpeed = defaultSpeedStr.toFloatOrNull() ?: 1f
+        if (defSpeed != 1f) ex.playbackParameters = PlaybackParameters(defSpeed)
         player.value = ex
         applySubtitleStyle(playerViewRef.value, subtitleStyle)
     }
@@ -423,7 +443,7 @@ fun NativePlayerScreen(
     // Watch progress persistence
     if (progressKey != null) {
         val appContext = context.applicationContext
-        LaunchedEffect(ex, progressKey.tmdbId) {
+        LaunchedEffect(ex, progressKey) {
             ex ?: return@LaunchedEffect
             while (true) {
                 delay(10_000)
@@ -445,7 +465,7 @@ fun NativePlayerScreen(
                 }
             }
         }
-        DisposableEffect(progressKey.tmdbId) {
+        DisposableEffect(ex, progressKey) {
             onDispose {
                 val cur = ex
                 if (cur != null) {

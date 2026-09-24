@@ -326,8 +326,7 @@ class MoviesViewModel(
                 if (!isActive) return@launch
                 applyCollectionRows(rows, loading = false)
                 val loadError = when {
-                    collections.isEmpty() ->
-                        "No movie sections are enabled. Choose at least one Home collection in Settings."
+                    collections.isEmpty() -> null
                     failures.isNotEmpty() -> failures.joinToString("; ").take(240)
                     rows.isEmpty() -> "TMDB returned no movies for the selected Home collections."
                     else -> null
