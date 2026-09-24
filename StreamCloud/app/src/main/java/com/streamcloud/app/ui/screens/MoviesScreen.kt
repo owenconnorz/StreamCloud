@@ -277,7 +277,11 @@ fun MoviesScreen(
                 state.error?.let {
                     item {
                         MoviesRecoveryCard(
-                            title = "Movies couldn't load",
+                            title = if (state.collections.isEmpty()) {
+                                "Movies couldn't load"
+                            } else {
+                                "Some movie sections couldn't load"
+                            },
                             detail = it,
                             action = "Retry",
                             onAction = vm::loadDiscover,
@@ -290,7 +294,7 @@ fun MoviesScreen(
                         )
                     }
                 }
-                if (state.loading && !hasBrowseContent && state.error == null) {
+                if (state.loading && state.collections.isEmpty() && state.error == null) {
                     item {
                         MoviesRecoveryCard(
                             title = "Loading movies…",

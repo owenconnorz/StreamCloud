@@ -21,6 +21,8 @@ import com.streamcloud.app.data.stremio.StremioRepository
 import com.lagradost.cloudstream3.SearchResponse
 import com.streamcloud.app.data.plugins.PinnedCsSection
 import com.streamcloud.app.data.plugins.PluginRuntime
+import retrofit2.HttpException
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -36,8 +38,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 const val SOURCE_BUILTIN = "builtin"
+private const val HOME_COLLECTION_TIMEOUT_MS = 30_000L
 
 data class HeroBannerItem(
     val imageUrl: String,
@@ -115,6 +119,11 @@ data class MoviesState(
     val showHeroSection: Boolean = true,
     val hideCatalogUnderline: Boolean = false,
     val hideUnreleasedContent: Boolean = false,
+)
+
+private data class HomeCollectionFetchResult(
+    val row: CollectionRow?,
+    val failure: String?,
 )
 
 class MoviesViewModel(
@@ -259,22 +268,60 @@ class MoviesViewModel(
                 val hideUnreleased = sl.settings.hideUnreleasedContent.first()
                 val today = java.time.LocalDate.now().toString()
 
-                val rows = collections.map { def ->
+                val results = collections.map { def ->
                     async {
-                        var items = runCatching { def.fetch(sl.tmdb, key) }.getOrDefault(emptyList())
-                        if (hideUnreleased) {
-                            items = items.filter { m ->
-                                val rd = m.releaseDate ?: m.firstAirDate
-                                !rd.isNullOrBlank() && rd <= today
+                        try {
+                            val fetchedItems = withTimeoutOrNull(HOME_COLLECTION_TIMEOUT_MS) {
+                                def.fetch(sl.tmdb, key)
                             }
+                            if (fetchedItems == null) {
+                                HomeCollectionFetchResult(
+                                    row = null,
+                                    failure = "${def.title}: request timed out",
+                                )
+                            } else {
+                                val visibleItems = if (hideUnreleased) {
+                                    fetchedItems.filter { m ->
+                                        val rd = m.releaseDate ?: m.firstAirDate
+                                        !rd.isNullOrBlank() && rd <= today
+                                    }
+                                } else {
+                                    fetchedItems
+                                }
+                                HomeCollectionFetchResult(
+                                    row = visibleItems.takeIf { it.isNotEmpty() }
+                                        ?.let { CollectionRow(def.id, def.title, def.emoji, it) },
+                                    failure = null,
+                                )
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            val reason = when (e) {
+                                is HttpException -> "HTTP ${e.code()}"
+                                is IOException -> "network request failed"
+                                else -> "request failed"
+                            }
+                            HomeCollectionFetchResult(
+                                row = null,
+                                failure = "${def.title}: $reason",
+                            )
                         }
-                        if (items.isEmpty()) null
-                        else CollectionRow(def.id, def.title, def.emoji, items)
                     }
-                }.awaitAll().filterNotNull()
+                }.awaitAll()
+                val rows = results.mapNotNull { it.row }
+                val failures = results.mapNotNull { it.failure }
 
                 if (!isActive) return@launch
                 applyCollectionRows(rows, loading = false)
+                val loadError = when {
+                    collections.isEmpty() ->
+                        "No movie sections are enabled. Choose at least one Home collection in Settings."
+                    failures.isNotEmpty() -> failures.joinToString("; ").take(240)
+                    rows.isEmpty() -> "TMDB returned no movies for the selected Home collections."
+                    else -> null
+                }
+                _state.update { it.copy(error = loadError) }
                 refreshStremioRows(_state.value.installedStremioAddons)
             } catch (e: CancellationException) {
                 throw e
@@ -374,8 +421,16 @@ class MoviesViewModel(
         viewModelScope.launch {
             val db = LibraryDb.get(appContext).watchlist()
             val alreadyIn = _state.value.watchlist.any { it.tmdbId == tmdbId }
-            if (alreadyIn) db.remove(tmdbId)
-            else db.add(WatchlistEntity(tmdbId = tmdbId, title = title, posterUrl = posterUrl, mediaType = mediaType))
+            if (alreadyIn) {
+                db.remove(tmdbId)
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.requestLibraryDelete(
+                    appContext,
+                    tmdbId,
+                    mediaType,
+                )
+            } else {
+                db.add(WatchlistEntity(tmdbId = tmdbId, title = title, posterUrl = posterUrl, mediaType = mediaType))
+            }
             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
     }
