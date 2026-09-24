@@ -126,6 +126,17 @@ private data class HomeCollectionFetchResult(
     val failure: String?,
 )
 
+private fun normalizeStremioRows(rows: Any?): List<StremioHomeRow> =
+    (rows as? List<*>)
+        .orEmpty()
+        .mapNotNull { candidate ->
+            val row = candidate as? StremioHomeRow ?: return@mapNotNull null
+            val items = (row.items as? List<*>)
+                .orEmpty()
+                .mapNotNull { it as? StremioMetaPreview }
+            row.copy(items = items).takeIf { items.isNotEmpty() }
+        }
+
 class MoviesViewModel(
     private val sl: ServiceLocator,
     private val pluginRepo: PluginRepository,
@@ -373,7 +384,11 @@ class MoviesViewModel(
         }
         viewModelScope.launch {
             val rows = addons.map { addon ->
-                async { runCatching { stremioRepo.fetchAllHomeCatalogs(addon) }.getOrDefault(emptyList()) }
+                async {
+                    normalizeStremioRows(
+                        runCatching { stremioRepo.fetchAllHomeCatalogs(addon) }.getOrNull(),
+                    )
+                }
             }.awaitAll().flatten()
             allFetchedStremioRows = rows
             applyStremioFilter()
@@ -384,8 +399,9 @@ class MoviesViewModel(
         viewModelScope.launch {
             val csv = sl.settings.stremioDisabledCatalogsCsv.first()
             val disabled = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet() ?: emptySet()
-            val filtered = if (disabled.isEmpty()) allFetchedStremioRows
-                           else allFetchedStremioRows.filter { it.rowKey !in disabled }
+            val fetchedRows = normalizeStremioRows(allFetchedStremioRows)
+            val filtered = if (disabled.isEmpty()) fetchedRows
+                           else fetchedRows.filter { it.rowKey !in disabled }
             // Apply saved catalog order
             val orderCsv    = sl.settings.stremioCatalogOrderCsv.first()
             val orderedKeys = orderCsv?.takeIf { it.isNotBlank() }?.split(",")?.map { it.trim() } ?: emptyList()
