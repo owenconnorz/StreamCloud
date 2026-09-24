@@ -309,7 +309,10 @@ class NuvioAccountService(private val context: Context) {
     private fun syncOriginClientId(): String {
         val prefs = context.getSharedPreferences("nuvio_sync", Context.MODE_PRIVATE)
         return prefs.getString("origin_client_id", null) ?: UUID.randomUUID().toString().also {
-            prefs.edit().putString("origin_client_id", it).apply()
+            // The identity must survive an immediate process stop after the
+            // first local mutation; otherwise later deletes can use a new
+            // client identity than the preceding push.
+            prefs.edit().putString("origin_client_id", it).commit()
         }
     }
 

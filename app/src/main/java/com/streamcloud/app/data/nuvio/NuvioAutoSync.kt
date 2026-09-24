@@ -67,7 +67,9 @@ object NuvioAutoSync {
         val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
         val pending = prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().toMutableSet()
         pending += key
-        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).apply()
+        // The process may be stopped immediately after the user removes an item.
+        // A tombstone must be on disk before any background work is scheduled.
+        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).commit()
         request(context)
     }
 
@@ -184,6 +186,6 @@ class NuvioAutoSyncWorker(
         val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
         val pending = prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().toMutableSet()
         deletes.forEach { pending.remove(it.serialized) }
-        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).apply()
+        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).commit()
     }
 }
