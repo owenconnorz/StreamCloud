@@ -85,6 +85,31 @@ object NuvioAutoSync {
         clearLibraryDeletes(appContext, pending)
     }
 
+    private data class PendingDelete(
+        val serialized: String,
+        val contentType: String,
+        val contentId: String,
+    )
+
+    private fun pendingLibraryDeletes(context: Context): List<PendingDelete> {
+        val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        return prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().mapNotNull { value ->
+            val separator = value.indexOf(':')
+            if (separator <= 0 || separator == value.lastIndex) return@mapNotNull null
+            val contentType = value.substring(0, separator)
+            val contentId = value.substring(separator + 1)
+            PendingDelete(value, contentType, contentId)
+        }
+    }
+
+    private fun clearLibraryDeletes(context: Context, deletes: Collection<PendingDelete>) {
+        if (deletes.isEmpty()) return
+        val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val pending = prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().toMutableSet()
+        deletes.forEach { pending.remove(it.serialized) }
+        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).commit()
+    }
+
     /**
      * Pulling before pending deletions are accepted by Nuvio can resurrect a
      * locally removed item. Keep every automatic pull behind this gate.
@@ -102,6 +127,7 @@ object NuvioAutoSync {
         .build()
 }
 
+
 class NuvioAutoSyncWorker(
     appContext: Context,
     workerParams: WorkerParameters,
@@ -114,7 +140,7 @@ class NuvioAutoSyncWorker(
         val service = NuvioAccountService.get(applicationContext)
 
         suspend fun syncWith(accessToken: String): String? {
-            pushPendingLibraryDeletes(applicationContext, accessToken)
+            NuvioAutoSync.pushPendingLibraryDeletes(applicationContext, accessToken)
             // Pull first. Addon/plugin pushes replace the profile-scoped
             // snapshot, so a push from a partial local database can delete
             // valid rows that already exist in Nuvio.
@@ -166,28 +192,4 @@ class NuvioAutoSyncWorker(
         return Result.retry()
     }
 
-    private data class PendingDelete(
-        val serialized: String,
-        val contentType: String,
-        val contentId: String,
-    )
-
-    private fun pendingLibraryDeletes(context: Context): List<PendingDelete> {
-        val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        return prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().mapNotNull { value ->
-            val separator = value.indexOf(':')
-            if (separator <= 0 || separator == value.lastIndex) return@mapNotNull null
-            val contentType = value.substring(0, separator)
-            val contentId = value.substring(separator + 1)
-            PendingDelete(value, contentType, contentId)
-        }
-    }
-
-    private fun clearLibraryDeletes(context: Context, deletes: Collection<PendingDelete>) {
-        if (deletes.isEmpty()) return
-        val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        val pending = prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().toMutableSet()
-        deletes.forEach { pending.remove(it.serialized) }
-        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).commit()
-    }
 }
