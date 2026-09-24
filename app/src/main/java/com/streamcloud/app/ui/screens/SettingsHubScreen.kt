@@ -4914,7 +4914,8 @@ private fun NuvioAccountRow() {
         if (accessToken.isNotBlank() && !didAutoSync) {
             didAutoSync = true
             syncStatus  = "Syncing from cloud…"
-            val r = runCatching { nuvioSvc.syncPull(accessToken) }
+            val r = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                .pullAfterPendingLibraryDeletes(context.applicationContext, accessToken)
             syncStatus  = r.fold(
                 onSuccess = { p ->
                     p.errors.takeIf { it.isNotEmpty() }?.let {
@@ -5136,7 +5137,11 @@ private fun NuvioAccountRow() {
                                     syncStatus = "Syncing your data…"
                                     // Immediately pull cloud data so home screen shows it
                                     scope.launch {
-                                        val pull = runCatching { nuvioSvc.syncPull(session.access_token) }
+                                        val pull = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                                            .pullAfterPendingLibraryDeletes(
+                                                context.applicationContext,
+                                                session.access_token,
+                                            )
                                         val push = runCatching { nuvioSvc.syncAll(session.access_token) }
                                         syncStatus = when {
                                             pull.isSuccess && push.isSuccess -> {

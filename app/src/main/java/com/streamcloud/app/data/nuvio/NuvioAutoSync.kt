@@ -76,24 +76,23 @@ object NuvioAutoSync {
         val pending = pendingLibraryDeletes(appContext)
         if (pending.isEmpty()) return
 
-        val liveKeys = LibraryDb.get(appContext).watchlist().all().first()
-            .filter { it.mediaType == "movie" || it.mediaType == "tv" }
-            .map { media ->
-                val type = if (media.mediaType == "tv") "series" else "movie"
-                "$type:tmdb:${media.tmdbId}"
-            }
-            .toSet()
-        val deletions = pending.filterNot { it.serialized in liveKeys }
-        // If an item was removed and re-added before this worker ran, its
-        // queued deletion is obsolete.
-        clearLibraryDeletes(appContext, pending.filter { it.serialized in liveKeys })
-        if (deletions.isEmpty()) return
-
         NuvioAccountService.get(appContext).deleteLibraryItems(
             accessToken,
-            deletions.map { NuvioLibraryDeleteKey(it.contentId, it.contentType) },
+            pending.map { NuvioLibraryDeleteKey(it.contentId, it.contentType) },
         )
-        clearLibraryDeletes(appContext, deletions)
+        clearLibraryDeletes(appContext, pending)
+    }
+
+    /**
+     * Pulling before pending deletions are accepted by Nuvio can resurrect a
+     * locally removed item. Keep every automatic pull behind this gate.
+     */
+    suspend fun pullAfterPendingLibraryDeletes(
+        context: Context,
+        accessToken: String,
+    ): Result<NuvioPullResult> = runCatching {
+        pushPendingLibraryDeletes(context, accessToken)
+        NuvioAccountService.get(context.applicationContext).syncPull(accessToken)
     }
 
     private fun networkConstraints() = Constraints.Builder()
