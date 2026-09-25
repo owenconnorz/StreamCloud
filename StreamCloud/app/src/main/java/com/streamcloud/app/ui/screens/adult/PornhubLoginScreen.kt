@@ -14,6 +14,8 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,6 +55,8 @@ fun PornhubLoginScreen(
     var providerSessionReturned by remember { mutableStateOf(false) }
     var loginFeedback by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var webViewGeneration by remember { mutableStateOf(0) }
+    var rendererCrashed by remember { mutableStateOf(false) }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val screenDisposed = remember { AtomicBoolean(false) }
     val activeWebViews = remember { mutableSetOf<WebView>() }
@@ -71,6 +76,26 @@ fun PornhubLoginScreen(
         mainHandler.removeCallbacksAndMessages(null)
         activeWebViews.toList().forEach(::destroyWebView)
         webView = null
+    }
+
+    fun handleRendererGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+        if (view != null && activeWebViews.remove(view)) {
+            runCatching { (view.parent as? ViewGroup)?.removeView(view) }
+            runCatching { view.removeJavascriptInterface("PornhubBridge") }
+            runCatching { view.destroy() }
+            if (webView === view) webView = null
+        }
+        if (!screenDisposed.get()) {
+            pageLoading = false
+            loginFeedback = null
+            rendererCrashed = true
+            pageError = if (detail?.didCrash() == true) {
+                "Pornhub’s sign-in page crashed. Tap Retry to reopen it."
+            } else {
+                "Pornhub’s sign-in page stopped to free memory. Tap Retry to reopen it."
+            }
+        }
+        return true
     }
 
     fun markProviderLoginStarted() {
@@ -145,6 +170,16 @@ fun PornhubLoginScreen(
                     }
                 }
             }
+
+            @JavascriptInterface
+            fun receiveLoginStalled() {
+                mainHandler.post {
+                    if (!screenDisposed.get()) {
+                        loginFeedback =
+                            "Pornhub has not responded yet. Check verification and try again."
+                    }
+                }
+            }
         }
     }
 
@@ -205,6 +240,7 @@ fun PornhubLoginScreen(
         }
 
         Box(Modifier.fillMaxSize()) {
+            key(webViewGeneration) {
             AndroidView(
                 factory = { context ->
                     FrameLayout(context).also { container ->
@@ -219,13 +255,13 @@ fun PornhubLoginScreen(
                         view.settings.loadWithOverviewMode = true
                         view.settings.javaScriptCanOpenWindowsAutomatically = true
                         view.settings.setSupportMultipleWindows(true)
-                        // Pornhub's SSO markup is served differently to the
-                        // Android WebView user agent. A current mobile Chrome
-                        // UA also keeps the Google sign-in control visible.
+                        // Use the installed WebView's current Chromium version,
+                        // while removing markers that identify it as an embedded
+                        // WebView to providers that require a mobile browser.
                         view.settings.userAgentString =
-                            "Mozilla/5.0 (Linux; Android 14; Pixel 8) " +
-                                "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                                "Chrome/124.0.0.0 Mobile Safari/537.36"
+                            WebSettings.getDefaultUserAgent(context)
+                                .replace("; wv", "")
+                                .replace(" Version/4.0", "")
 
                         CookieManager.getInstance().setAcceptCookie(true)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
@@ -255,6 +291,7 @@ fun PornhubLoginScreen(
                             },
                             onProviderStarted = ::markProviderLoginStarted,
                             onProviderReturned = ::detectCompletedProviderLogin,
+                            onRendererGone = ::handleRendererGone,
                             onPageError = {
                                 if (!screenDisposed.get()) pageError = it
                             },
@@ -331,6 +368,11 @@ fun PornhubLoginScreen(
                                 }
                             }
 
+                            override fun onRenderProcessGone(
+                                view: WebView?,
+                                detail: RenderProcessGoneDetail?,
+                            ): Boolean = handleRendererGone(view, detail)
+
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 if (screenDisposed.get() ||
@@ -388,6 +430,7 @@ fun PornhubLoginScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
+            }
 
             val visibleMessage = pageError ?: loginFeedback
             visibleMessage?.let { message ->
@@ -411,9 +454,16 @@ fun PornhubLoginScreen(
                         if (pageError != null) {
                             IconButton(onClick = {
                                 pageError = null
-                                webView
-                                    ?.takeIf(activeWebViews::contains)
-                                    ?.let { view -> runCatching { view.reload() } }
+                                if (rendererCrashed) {
+                                    rendererCrashed = false
+                                    activeWebViews.toList().forEach(::destroyWebView)
+                                    pageLoading = true
+                                    webViewGeneration += 1
+                                } else {
+                                    webView
+                                        ?.takeIf(activeWebViews::contains)
+                                        ?.reload()
+                                }
                             }) {
                                 Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
                             }
@@ -437,6 +487,7 @@ private fun visiblePopupClient(
     onPopupClosed: () -> Unit,
     onProviderStarted: () -> Unit,
     onProviderReturned: (Long) -> Unit,
+    onRendererGone: (WebView?, RenderProcessGoneDetail?) -> Boolean,
     onPageError: (String) -> Unit,
     onPageLoading: (Boolean) -> Unit,
 ): WebChromeClient = object : WebChromeClient() {
@@ -446,7 +497,7 @@ private fun visiblePopupClient(
         isUserGesture: Boolean,
         resultMsg: Message?,
     ): Boolean {
-        if (isDisposed()) return false
+        if (isDisposed() || !isUserGesture || view !== parent) return false
         val message = resultMsg ?: return false
         val transport = message.obj as? WebView.WebViewTransport ?: return false
 
@@ -521,6 +572,11 @@ private fun visiblePopupClient(
                         )
                     }
                 }
+
+                override fun onRenderProcessGone(
+                    popupView: WebView?,
+                    detail: RenderProcessGoneDetail?,
+                ): Boolean = onRendererGone(popupView, detail)
 
                 override fun onPageFinished(popupView: WebView?, url: String?) {
                     super.onPageFinished(popupView, url)
@@ -602,18 +658,63 @@ private fun attachPornhubLoginFeedback(view: WebView?) {
           if (window.__streamCloudLoginFeedbackAttached) return;
           window.__streamCloudLoginFeedbackAttached = true;
           var loginAttempted = false;
+          var failureObserver = null;
+          var failureScanTimer = 0;
+          var attemptTimeoutTimer = 0;
+          var failureScanQueued = false;
+
+          function endAttempt() {
+            loginAttempted = false;
+            if (failureObserver) {
+              failureObserver.disconnect();
+              failureObserver = null;
+            }
+            if (failureScanTimer) window.clearTimeout(failureScanTimer);
+            if (attemptTimeoutTimer) window.clearTimeout(attemptTimeoutTimer);
+            failureScanTimer = 0;
+            attemptTimeoutTimer = 0;
+            failureScanQueued = false;
+          }
 
           function reportFailure() {
-            if (!loginAttempted) return;
+            if (!loginAttempted) return false;
             var text = document.body ? document.body.innerText : '';
             if (/(incorrect (email|password|login)|invalid (email|password|login)|wrong password|login failed|unable to log in|please try again)/i.test(text)) {
-              if (window.PornhubBridge) PornhubBridge.receiveLoginRejected();
+              endAttempt();
+              if (window.PornhubBridge) window.PornhubBridge.receiveLoginRejected();
+              return true;
             }
+            return false;
+          }
+
+          function scheduleFailureScan() {
+            if (!loginAttempted || failureScanQueued) return;
+            failureScanQueued = true;
+            failureScanTimer = window.setTimeout(function() {
+              failureScanQueued = false;
+              failureScanTimer = 0;
+              reportFailure();
+            }, 500);
           }
 
           function reportSubmission() {
+            if (loginAttempted) return;
             loginAttempted = true;
-            if (window.PornhubBridge) PornhubBridge.receiveLoginSubmitted();
+            if (window.PornhubBridge) window.PornhubBridge.receiveLoginSubmitted();
+            if (document.body && window.MutationObserver) {
+              failureObserver = new MutationObserver(scheduleFailureScan);
+              failureObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true
+              });
+            }
+            attemptTimeoutTimer = window.setTimeout(function() {
+              if (!loginAttempted) return;
+              if (reportFailure()) return;
+              endAttempt();
+              if (window.PornhubBridge) window.PornhubBridge.receiveLoginStalled();
+            }, 15000);
             window.setTimeout(reportFailure, 900);
             window.setTimeout(reportFailure, 2500);
           }
@@ -634,13 +735,6 @@ private fun attachPornhubLoginFeedback(view: WebView?) {
             }
           }, true);
 
-          if (document.body && window.MutationObserver) {
-            new MutationObserver(reportFailure).observe(document.body, {
-              childList: true,
-              subtree: true,
-              characterData: true
-            });
-          }
         })();
         """.trimIndent(),
         null,
