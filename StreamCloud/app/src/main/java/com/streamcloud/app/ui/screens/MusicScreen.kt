@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -83,6 +84,7 @@ import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 internal fun musicMediaIdsMatch(first: String?, second: String?): Boolean {
     if (first.isNullOrBlank() || second.isNullOrBlank()) return false
@@ -169,6 +171,15 @@ internal fun buildMusicSpeedDial(
     return (playlists + songs).take(MUSIC_SPEED_DIAL_MAX_ITEMS)
 }
 
+internal fun buildRandomSpeedDialQueue(
+    songs: List<YtmSong>,
+    random: Random = Random.Default,
+): List<YtmSong> =
+    songs
+        .filter { it.videoId.isNotBlank() }
+        .distinctBy { it.videoId }
+        .shuffled(random)
+
 private fun YtmPlaylist.asStandaloneSong(): YtmSong =
     YtmSong(
         videoId = id,
@@ -179,6 +190,18 @@ private fun YtmPlaylist.asStandaloneSong(): YtmSong =
         durationSeconds = null,
         isVideo = isVideo,
     )
+
+internal fun buildMusicSpeedDialSongs(entries: List<MusicSpeedDialEntry>): List<YtmSong> =
+    entries
+        .mapNotNull { entry ->
+            when (entry) {
+                is MusicSpeedDialEntry.Song -> entry.value
+                is MusicSpeedDialEntry.Playlist ->
+                    entry.value.takeIf { it.isVideo || it.isTrack }?.asStandaloneSong()
+            }
+        }
+        .filter { it.videoId.isNotBlank() }
+        .distinctBy { it.videoId }
 
 private fun YtTrack.matchesDjMediaId(mediaId: String): Boolean {
     if (url == mediaId) return true
@@ -249,7 +272,7 @@ fun MusicScreen(
         buildMusicSpeedDial(speedDial, state.ytHome.sections)
     }
     val speedDialSongs = remember(speedDialEntries) {
-        speedDialEntries.filterIsInstance<MusicSpeedDialEntry.Song>().map { it.value }
+        buildMusicSpeedDialSongs(speedDialEntries)
     }
     fun openPlaylistOrPlay(item: YtmPlaylist) {
         if (item.isVideo || item.isTrack) {
@@ -569,6 +592,21 @@ fun MusicScreen(
         }
     }
 
+    fun playRandomSpeedDial() {
+        val randomQueue = buildRandomSpeedDialQueue(speedDialSongs)
+        if (randomQueue.isEmpty()) return
+        endDjSession()
+        dlScope.launch {
+            try {
+                com.streamcloud.app.data.ytmusic.YtPlayback.playPlaylist(context, randomQueue)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                playerError = "Couldn't start random Speed dial playback: ${error.message ?: error.javaClass.simpleName}"
+            }
+        }
+    }
+
     fun startDjMix(session: DjSession) {
         if (djStarting) return
         val firstTrack = session.tracks.firstOrNull() ?: return
@@ -718,7 +756,32 @@ fun MusicScreen(
 
                 if (speedDialEntries.isNotEmpty()) {
                     item(key = "music_speed_dial_title") {
-                        SectionTitle("Speed dial")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Speed dial",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            if (speedDialSongs.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { playRandomSpeedDial() },
+                                    modifier = Modifier.tvFocusBorder(CircleShape),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Casino,
+                                        contentDescription = "Play random Speed dial songs",
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
                     }
                     item(key = "music_speed_dial") {
                         if (isTv) {

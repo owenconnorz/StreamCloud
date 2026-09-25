@@ -6,6 +6,7 @@ import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import kotlin.random.Random
 
 class MusicScreenTest {
 
@@ -119,6 +120,21 @@ class MusicScreenTest {
     }
 
     @Test
+    fun randomSpeedDialQueueContainsEachPlayableSongOnce() {
+        val songs = listOf(
+            ytmSong("song-1"),
+            ytmSong("song-2"),
+            ytmSong("song-1"),
+            ytmSong(""),
+        )
+
+        val queue = buildRandomSpeedDialQueue(songs, Random(7))
+
+        assertEquals(2, queue.size)
+        assertEquals(setOf("song-1", "song-2"), queue.map { it.videoId }.toSet())
+    }
+
+    @Test
     fun standaloneVideoEntriesRemainDistinctFromPlaylistEntries() {
         val entries = buildMusicSpeedDial(
             pinnedSongs = emptyList(),
@@ -151,6 +167,44 @@ class MusicScreenTest {
         assertEquals(
             listOf(true, false),
             entries.map { (it as MusicSpeedDialEntry.Playlist).value.isVideo },
+        )
+    }
+
+    @Test
+    fun randomSpeedDialSongsIncludeStandaloneTracksButExcludePlaylists() {
+        val entries = listOf(
+            MusicSpeedDialEntry.Song(ytmSong("pinned-song")),
+            MusicSpeedDialEntry.Playlist(
+                YtmPlaylist(
+                    id = "video-track",
+                    title = "Video track",
+                    thumbnail = null,
+                    subtitle = "Artist",
+                    isVideo = true,
+                ),
+            ),
+            MusicSpeedDialEntry.Playlist(
+                YtmPlaylist(
+                    id = "audio-track",
+                    title = "Audio track",
+                    thumbnail = null,
+                    subtitle = "Artist",
+                    isTrack = true,
+                ),
+            ),
+            MusicSpeedDialEntry.Playlist(
+                YtmPlaylist(
+                    id = "album",
+                    title = "Playlist",
+                    thumbnail = null,
+                    subtitle = "12 songs",
+                ),
+            ),
+        )
+
+        assertEquals(
+            setOf("pinned-song", "video-track", "audio-track"),
+            buildMusicSpeedDialSongs(entries).map { it.videoId }.toSet(),
         )
     }
 
