@@ -20,3 +20,9 @@ Workspace edits may also appear as separate local commits authored by Replit Age
 **Why:** Pushing those automatic commits would violate the repository owner's attribution preference.
 
 **How to apply:** Before publishing, inspect every unpublished commit. Fold agent-authored workspace commits into the intended Owen-authored commit, verify the parent and changed files, and push only after the identity is correct.
+
+GitHub Git Database commit responses expose raw author and committer fields; account attribution is available from the standard repository commits endpoint.
+
+**Why:** Checking a Git Database response for `author.login` or `committer.login` can incorrectly reject a commit with the right author metadata.
+
+**How to apply:** Before updating a branch ref, fetch `/repos/{owner}/{repo}/commits/{sha}` and verify both linked logins match the expected account. Update refs with `force: false`.
