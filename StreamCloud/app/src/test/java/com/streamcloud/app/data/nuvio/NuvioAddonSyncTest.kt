@@ -1,6 +1,7 @@
 package com.streamcloud.app.data.nuvio
 
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
+import com.streamcloud.app.data.stremio.normalizeStremioManifestUrl
 import com.streamcloud.app.data.stremio.reorderInstalledStremioAddons
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,7 +26,7 @@ class NuvioAddonSyncTest {
                 NuvioAddonSyncEntry("https://one.example/manifest.json", "Remote One", true, 0),
             ),
             local = listOf(
-                NuvioAddonSyncEntry("https://one.example/", "Local One", true, 0),
+                NuvioAddonSyncEntry("https://ONE.example/", "Local One", true, 0),
                 NuvioAddonSyncEntry("https://two.example/manifest.json", "Two", true, 1),
             ),
         )
@@ -81,22 +82,17 @@ class NuvioAddonSyncTest {
     }
 
     @Test
-    fun removesOnlyLocallyKnownEntriesMissingFromNonEmptyRemoteSnapshot() {
+    fun preservesPreviouslySyncedAddonsOmittedFromNonEmptyRemoteSnapshot() {
         assertEquals(
-            listOf("https://removed.example/manifest.json"),
-            staleNuvioAddonUrls(
+            listOf(
+                "https://one.example",
+                "https://local-only.example/manifest.json",
+                "https://two.example",
+            ),
+            reconcileNuvioAddonUrls(
                 remote = listOf("https://one.example/manifest.json"),
-                local = listOf(
-                    "https://one.example/",
-                    "https://removed.example/manifest.json",
-                    "https://other-profile.example/manifest.json",
-                ),
-                lastRemote = setOf(
-                    "https://one.example",
-                    "https://removed.example",
-                    "https://other-profile.example",
-                ),
-                protectedRemote = setOf("https://other-profile.example"),
+                local = listOf("https://local-only.example/manifest.json"),
+                lastRemote = setOf("https://one.example", "https://two.example"),
             ),
         )
     }
@@ -118,8 +114,42 @@ class NuvioAddonSyncTest {
             ),
         )
         assertEquals(
-            emptyList<String>(),
-            staleNuvioAddonUrls(emptyList(), local, local.toSet()),
+            local.map(::canonicalNuvioAddonUrl),
+            reconcileNuvioAddonUrls(
+                remote = emptyList(),
+                local = emptyList(),
+                lastRemote = local.map(::canonicalNuvioAddonUrl).toSet(),
+            ),
+        )
+    }
+
+    @Test
+    fun snapshotKeepsCaseSensitiveUrlValues() {
+        assertEquals(
+            setOf(
+                "https://addon.example?user=AbC123/",
+                "https://addon.example?user=abc123",
+            ),
+            canonicalNuvioAddonSnapshotUrls(
+                listOf(
+                    "https://addon.example/manifest.json?user=AbC123/",
+                    "https://addon.example/manifest.json?user=abc123",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun restoredAddonUrlKeepsAuthQueryAfterManifestPath() {
+        assertEquals(
+            "https://addon.example/manifest.json?user=AbC123/",
+            normalizeStremioManifestUrl("https://addon.example?user=AbC123/"),
+        )
+        assertEquals(
+            "https://addon.example/manifest.json?user=AbC123/",
+            normalizeStremioManifestUrl(
+                "https://addon.example/manifest.json?user=AbC123/",
+            ),
         )
     }
 
@@ -171,22 +201,22 @@ class NuvioAddonSyncTest {
     }
 
     @Test
-    fun blocksEmptyReplacementWhenProfilePreviouslyHadAddons() {
+    fun blocksOnlyAnEmptyReplacementWhenProfilePreviouslyHadAddons() {
         assertTrue(
             shouldBlockEmptyNuvioAddonReplacement(
-                remote = emptyList(),
+                replacement = emptyList(),
                 lastRemote = setOf("https://one.example"),
             ),
         )
         assertFalse(
             shouldBlockEmptyNuvioAddonReplacement(
-                remote = listOf("https://one.example/manifest.json"),
+                replacement = listOf("https://one.example/manifest.json"),
                 lastRemote = setOf("https://one.example"),
             ),
         )
         assertFalse(
             shouldBlockEmptyNuvioAddonReplacement(
-                remote = emptyList(),
+                replacement = emptyList(),
                 lastRemote = emptySet(),
             ),
         )

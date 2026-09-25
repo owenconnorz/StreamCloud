@@ -62,6 +62,26 @@ private fun stremioAddonOrderingKey(url: String): String {
     return (basePath + query).lowercase()
 }
 
+internal fun normalizeStremioManifestUrl(input: String): String {
+    val trimmed = input.trim()
+    val queryStart = trimmed.indexOf('?')
+    val endpoint = if (queryStart >= 0) trimmed.substring(0, queryStart) else trimmed
+    val query = if (queryStart >= 0) trimmed.substring(queryStart) else ""
+    val withScheme = when {
+        endpoint.startsWith("stremio://", ignoreCase = true) ->
+            "https://" + endpoint.substring("stremio://".length)
+        endpoint.startsWith("http://", ignoreCase = true) ||
+            endpoint.startsWith("https://", ignoreCase = true) -> endpoint
+        else -> "https://$endpoint"
+    }
+    val manifestUrl = if (withScheme.endsWith("/manifest.json", ignoreCase = true)) {
+        withScheme
+    } else {
+        "${withScheme.trimEnd('/')}/manifest.json"
+    }
+    return manifestUrl + query
+}
+
 class StremioRepository(private val context: Context) {
 
     private val http = OkHttpClient.Builder()
@@ -424,14 +444,5 @@ class StremioRepository(private val context: Context) {
         return body
     }
 
-    private fun normalize(input: String): String {
-        val s = input.trim().trimEnd('/')
-
-        val withScheme = when {
-            s.startsWith("stremio://") -> "https://" + s.removePrefix("stremio://")
-            s.startsWith("http") -> s
-            else -> "https://$s"
-        }
-        return if (withScheme.endsWith("/manifest.json")) withScheme else "$withScheme/manifest.json"
-    }
+    private fun normalize(input: String): String = normalizeStremioManifestUrl(input)
 }

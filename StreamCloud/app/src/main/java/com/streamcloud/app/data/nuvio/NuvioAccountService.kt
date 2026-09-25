@@ -107,7 +107,7 @@ internal data class NuvioAddonSyncEntry(
 )
 
 internal fun canonicalNuvioAddonUrl(url: String): String {
-    val trimmed = url.trim().trimEnd('/')
+    val trimmed = url.trim()
     val queryStart = trimmed.indexOf('?')
     val path = if (queryStart >= 0) trimmed.substring(0, queryStart) else trimmed
     val query = if (queryStart >= 0) trimmed.substring(queryStart) else ""
@@ -129,7 +129,7 @@ internal fun mergeNuvioAddonEntries(
 ): List<NuvioAddonSyncEntry> {
     val merged = linkedMapOf<String, NuvioAddonSyncEntry>()
     (remote.sortedBy { it.sortOrder } + local.sortedBy { it.sortOrder }).forEach { entry ->
-        val key = canonicalNuvioAddonUrl(entry.url)
+        val key = normalizedNuvioAddonKey(entry.url)
         if (key.isNotBlank() && key !in merged) {
             merged[key] = entry
         }
@@ -137,13 +137,25 @@ internal fun mergeNuvioAddonEntries(
     return merged.values.mapIndexed { index, entry -> entry.copy(sortOrder = index) }
 }
 
-private fun normalizedNuvioAddonKey(url: String): String =
-    canonicalNuvioAddonUrl(url).lowercase()
+private fun normalizedNuvioAddonKey(url: String): String {
+    val canonical = canonicalNuvioAddonUrl(url)
+    val uri = runCatching { java.net.URI(canonical) }.getOrNull() ?: return canonical
+    val host = uri.host ?: return canonical
+    val scheme = uri.scheme ?: return canonical
+    return buildString {
+        append(scheme.lowercase(java.util.Locale.ROOT))
+        append("://")
+        uri.rawUserInfo?.let { append(it).append('@') }
+        append(host.lowercase(java.util.Locale.ROOT))
+        if (uri.port >= 0) append(':').append(uri.port)
+        append(uri.rawPath.orEmpty())
+        uri.rawQuery?.let { append('?').append(it) }
+    }
+}
 
 /**
- * Mirrors Nuvio's pull reconciliation: a non-empty remote snapshot is
- * authoritative for previously-synced entries, while preserving local-only
- * entries and protecting the local list from an empty remote snapshot.
+ * Nuvio's addon read has no completeness marker. Use its ordering when present,
+ * but preserve local and previously-synced URLs omitted from the response.
  */
 internal fun reconcileNuvioAddonUrls(
     remote: List<String>,
@@ -159,53 +171,33 @@ internal fun reconcileNuvioAddonUrls(
         .filter { it.isNotBlank() }
         .forEach { localByKey.putIfAbsent(normalizedNuvioAddonKey(it), it) }
 
-    // Match Nuvio's empty-list safeguard: an empty remote read is not evidence
-    // that the user deleted all addons.
-    if (remoteOrdered.isEmpty()) {
-        return local.map(::canonicalNuvioAddonUrl).filter { it.isNotBlank() }
-    }
-
-    val remoteKeys = remoteOrdered.map(::normalizedNuvioAddonKey).toSet()
-    val knownRemoteKeys = lastRemote.map(::normalizedNuvioAddonKey).toSet()
     val orderedRemote = remoteOrdered.map { remoteUrl ->
         localByKey[normalizedNuvioAddonKey(remoteUrl)] ?: remoteUrl
     }
-    val localOnly = local.map(::canonicalNuvioAddonUrl)
-        .filter { it.isNotBlank() }
-        .filter {
-            val key = normalizedNuvioAddonKey(it)
-            key !in remoteKeys && key !in knownRemoteKeys
-        }
-        .distinctBy(::normalizedNuvioAddonKey)
-    return orderedRemote + localOnly
+    val reconciled = linkedMapOf<String, String>()
+    (orderedRemote +
+        local.map(::canonicalNuvioAddonUrl) +
+        lastRemote.map(::canonicalNuvioAddonUrl)
+    ).forEach { url ->
+        val key = normalizedNuvioAddonKey(url)
+        if (key.isNotBlank()) reconciled.putIfAbsent(key, url)
+    }
+    return reconciled.values.toList()
 }
 
-internal fun staleNuvioAddonUrls(
-    remote: List<String>,
-    local: List<String>,
-    lastRemote: Set<String>,
-    protectedRemote: Set<String> = emptySet(),
-): List<String> {
-    val remoteKeys = remote
-        .map(::normalizedNuvioAddonKey)
+internal fun canonicalNuvioAddonSnapshotUrls(urls: Iterable<String>): Set<String> {
+    val canonicalByKey = linkedMapOf<String, String>()
+    urls.map(::canonicalNuvioAddonUrl)
         .filter { it.isNotBlank() }
-        .toSet()
-    if (remoteKeys.isEmpty()) return emptyList()
-
-    val knownRemoteKeys = lastRemote.map(::normalizedNuvioAddonKey).toSet()
-    val protectedKeys = protectedRemote.map(::normalizedNuvioAddonKey).toSet()
-    return local
-        .filter {
-            val key = normalizedNuvioAddonKey(it)
-            key in knownRemoteKeys && key !in remoteKeys && key !in protectedKeys
-        }
+        .forEach { url -> canonicalByKey.putIfAbsent(normalizedNuvioAddonKey(url), url) }
+    return canonicalByKey.values.toSet()
 }
 
 internal fun shouldBlockEmptyNuvioAddonReplacement(
-    remote: List<String>,
+    replacement: List<String>,
     lastRemote: Set<String>,
 ): Boolean =
-    remote.none { normalizedNuvioAddonKey(it).isNotBlank() } &&
+    replacement.none { normalizedNuvioAddonKey(it).isNotBlank() } &&
         lastRemote.any { normalizedNuvioAddonKey(it).isNotBlank() }
 
 @Serializable
@@ -431,32 +423,24 @@ class NuvioAccountService(private val context: Context) {
     private fun lastRemoteAddonUrls(userId: String, profileIndex: Int): Set<String> {
         if (userId.isBlank()) return emptySet()
         val prefs = context.getSharedPreferences("nuvio_sync", Context.MODE_PRIVATE)
-        return prefs.getStringSet(addonSnapshotPreferenceKey(userId, profileIndex), emptySet())
-            .orEmpty()
-            .map(::normalizedNuvioAddonKey)
-            .filter { it.isNotBlank() }
-            .toSet()
+        return canonicalNuvioAddonSnapshotUrls(
+            prefs.getStringSet(addonSnapshotPreferenceKey(userId, profileIndex), emptySet())
+                .orEmpty(),
+        )
     }
 
     private fun saveRemoteAddonUrls(userId: String, profileIndex: Int, urls: List<String>) {
         if (userId.isBlank()) return
         val prefs = context.getSharedPreferences("nuvio_sync", Context.MODE_PRIVATE)
-        val keys = urls.map(::normalizedNuvioAddonKey).filter { it.isNotBlank() }.toSet()
+        val snapshotUrls = canonicalNuvioAddonSnapshotUrls(urls)
         check(
             prefs.edit()
-                .putStringSet(addonSnapshotPreferenceKey(userId, profileIndex), keys)
+                .putStringSet(addonSnapshotPreferenceKey(userId, profileIndex), snapshotUrls)
                 .commit(),
         ) {
             "Could not persist the Nuvio addon snapshot for profile $profileIndex"
         }
     }
-
-    private fun addonUrlsKnownOnOtherProfiles(userId: String, profileIndex: Int): Set<String> =
-        ServiceLocator.get(context).profiles.currentProfiles()
-            .mapNotNull { it.nuvioProfileIndex }
-            .filter { it != profileIndex }
-            .flatMap { otherProfileIndex -> lastRemoteAddonUrls(userId, otherProfileIndex) }
-            .toSet()
 
     suspend fun syncPull(accessToken: String): NuvioPullResult = withContext(Dispatchers.IO) {
         val stremioRepo = StremioRepository(context)
@@ -542,9 +526,8 @@ class NuvioAccountService(private val context: Context) {
                 .filter { it.isNotBlank() }
                 .toMutableSet()
 
-            // Fetch remote-only addons before pruning local-only ones. If a
-            // remote manifest is unavailable, the reconciliation fails closed
-            // and leaves the existing local list intact.
+            // Fetch missing addons before reordering. The REST read has no
+            // completeness marker, so omitted rows are not deletion evidence.
             targetUrls.forEach { url ->
                 val key = normalizedNuvioAddonKey(url)
                 if (key.isNotBlank() && knownKeys.add(key)) {
@@ -553,18 +536,13 @@ class NuvioAccountService(private val context: Context) {
                     pulledAddons++
                 }
             }
-            if (orderedRemoteUrls.any { canonicalNuvioAddonUrl(it).isNotBlank() }) {
-                val currentUrls = stremioRepo.addons.first().map { it.manifestUrl }
-                staleNuvioAddonUrls(
-                    remote = orderedRemoteUrls,
-                    local = currentUrls,
-                    lastRemote = previousRemoteUrls,
-                    protectedRemote = addonUrlsKnownOnOtherProfiles(syncUserId, profileIndex),
-                ).forEach { stremioRepo.removeAddon(it) }
-            }
             stremioRepo.reorderAddons(targetUrls)
             if (orderedRemoteUrls.any { canonicalNuvioAddonUrl(it).isNotBlank() }) {
-                saveRemoteAddonUrls(syncUserId, profileIndex, orderedRemoteUrls)
+                saveRemoteAddonUrls(
+                    syncUserId,
+                    profileIndex,
+                    previousRemoteUrls.toList() + orderedRemoteUrls,
+                )
             }
         }.onFailure {
             errors += "addons pull: ${it.message ?: "unknown error"}"
@@ -852,17 +830,6 @@ class NuvioAccountService(private val context: Context) {
                 "Addon push preflight profile_index=$profileIndex remote=${remoteAddons.size} " +
                     "local=${addonList.size} previously_synced=${previousRemoteUrls.size}",
             )
-            if (
-                shouldBlockEmptyNuvioAddonReplacement(
-                    remote = remoteAddons.map { it.url },
-                    lastRemote = previousRemoteUrls,
-                )
-            ) {
-                error(
-                    "Nuvio returned no addons for profile $profileIndex, " +
-                        "but that profile previously had synced addons; refusing replacement",
-                )
-            }
             val uploadAddons = mergeNuvioAddonEntries(
                 remote = remoteAddons.map {
                     NuvioAddonSyncEntry(
@@ -881,6 +848,17 @@ class NuvioAccountService(private val context: Context) {
                     )
                 },
             )
+            if (
+                shouldBlockEmptyNuvioAddonReplacement(
+                    replacement = uploadAddons.map { it.url },
+                    lastRemote = previousRemoteUrls,
+                )
+            ) {
+                error(
+                    "The addon replacement for profile $profileIndex is empty, " +
+                        "but that profile previously had synced addons; refusing replacement",
+                )
+            }
             val arr = buildJsonArray {
                 uploadAddons.forEach { addon ->
                     addJsonObject {
@@ -929,7 +907,11 @@ class NuvioAccountService(private val context: Context) {
                 )
             }
             if (savedAddons.isNotEmpty()) {
-                saveRemoteAddonUrls(syncUserId, profileIndex, savedAddons.map { it.url })
+                saveRemoteAddonUrls(
+                    syncUserId,
+                    profileIndex,
+                    previousRemoteUrls.toList() + savedAddons.map { it.url },
+                )
             }
             addons = uploadAddons.size
         }.onFailure {
