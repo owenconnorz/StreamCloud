@@ -143,6 +143,11 @@ internal sealed interface MusicSpeedDialEntry {
     data class Song(val value: YtmSong) : MusicSpeedDialEntry {
         override val key: String = "song:${value.videoId}"
     }
+
+
+    object Shuffle : MusicSpeedDialEntry {
+        override val key: String = "music_speed_dial_shuffle"
+    }
 }
 
 internal fun buildMusicSpeedDial(
@@ -169,6 +174,29 @@ internal fun buildMusicSpeedDial(
         .map { MusicSpeedDialEntry.Song(it) }
 
     return (playlists + songs).take(MUSIC_SPEED_DIAL_MAX_ITEMS)
+}
+
+internal fun buildMusicSpeedDialPages(
+    entries: List<MusicSpeedDialEntry>,
+    includeShuffle: Boolean = true,
+): List<List<MusicSpeedDialEntry?>> {
+    if (entries.isEmpty()) return emptyList()
+    if (!includeShuffle) {
+        return entries.chunked(MUSIC_SPEED_DIAL_PAGE_SIZE).map { page ->
+            page.map<MusicSpeedDialEntry?> { it }
+        }
+    }
+
+    val firstPage = buildList<MusicSpeedDialEntry?> {
+        entries.take(MUSIC_SPEED_DIAL_PAGE_SIZE - 1).forEach { add(it) }
+        repeat(MUSIC_SPEED_DIAL_PAGE_SIZE - 1 - size) { add(null) }
+        add(MusicSpeedDialEntry.Shuffle)
+    }
+    val remainingPages = entries
+        .drop(MUSIC_SPEED_DIAL_PAGE_SIZE - 1)
+        .chunked(MUSIC_SPEED_DIAL_PAGE_SIZE)
+        .map { page -> page.map<MusicSpeedDialEntry?> { it } }
+    return listOf(firstPage) + remainingPages
 }
 
 internal fun buildRandomSpeedDialQueue(
@@ -198,6 +226,7 @@ internal fun buildMusicSpeedDialSongs(entries: List<MusicSpeedDialEntry>): List<
                 is MusicSpeedDialEntry.Song -> entry.value
                 is MusicSpeedDialEntry.Playlist ->
                     entry.value.takeIf { it.isVideo || it.isTrack }?.asStandaloneSong()
+                MusicSpeedDialEntry.Shuffle -> null
             }
         }
         .filter { it.videoId.isNotBlank() }
@@ -273,6 +302,12 @@ fun MusicScreen(
     }
     val speedDialSongs = remember(speedDialEntries) {
         buildMusicSpeedDialSongs(speedDialEntries)
+    }
+    val speedDialPages = remember(speedDialEntries, speedDialSongs) {
+        buildMusicSpeedDialPages(
+            speedDialEntries,
+            includeShuffle = speedDialSongs.isNotEmpty(),
+        )
     }
     fun openPlaylistOrPlay(item: YtmPlaylist) {
         if (item.isVideo || item.isTrack) {
@@ -756,32 +791,7 @@ fun MusicScreen(
 
                 if (speedDialEntries.isNotEmpty()) {
                     item(key = "music_speed_dial_title") {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 20.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "Speed dial",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            if (speedDialSongs.isNotEmpty()) {
-                                IconButton(
-                                    onClick = { playRandomSpeedDial() },
-                                    modifier = Modifier.tvFocusBorder(CircleShape),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Casino,
-                                        contentDescription = "Play random Speed dial songs",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
-                        }
+                        SectionTitle("Speed dial")
                     }
                     item(key = "music_speed_dial") {
                         if (isTv) {
@@ -816,12 +826,26 @@ fun MusicScreen(
                                                 overlayTitle = true,
                                             )
                                         }
+                                        MusicSpeedDialEntry.Shuffle -> {
+                                            MusicSpeedDialShuffleCard(
+                                                onClick = { playRandomSpeedDial() },
+                                                modifier = Modifier.width(184.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                                if (speedDialSongs.isNotEmpty()) {
+                                    item(key = "music_speed_dial_shuffle") {
+                                        MusicSpeedDialShuffleCard(
+                                            onClick = { playRandomSpeedDial() },
+                                            modifier = Modifier.width(184.dp),
+                                        )
                                     }
                                 }
                             }
                         } else {
                             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                                val pages = speedDialEntries.chunked(MUSIC_SPEED_DIAL_PAGE_SIZE)
+                                val pages = speedDialPages
                                 val pagerState = rememberPagerState(pageCount = { pages.size })
 
                                 Column(Modifier.fillMaxWidth()) {
@@ -864,6 +888,19 @@ fun MusicScreen(
                                                                     },
                                                                     modifier = Modifier.fillMaxWidth(),
                                                                     overlayTitle = true,
+                                                                )
+                                                            }
+                                                            MusicSpeedDialEntry.Shuffle -> {
+                                                                MusicSpeedDialShuffleCard(
+                                                                    onClick = { playRandomSpeedDial() },
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                )
+                                                            }
+                                                            null -> {
+                                                                Spacer(
+                                                                    Modifier
+                                                                        .fillMaxWidth()
+                                                                        .aspectRatio(1f),
                                                                 )
                                                             }
                                                         }
@@ -2095,6 +2132,46 @@ private fun LibraryRow(
             null,
             tint = MaterialTheme.colorScheme.primary,
         )
+    }
+}
+
+@Composable
+private fun MusicSpeedDialShuffleCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color(0xFF322044),
+                        Color(0xFF15111B),
+                        Color(0xFF241733),
+                    ),
+                ),
+            )
+            .tvFocusBorder(shape)
+            .clickable(onClick = onClick)
+            .semantics {
+                contentDescription = "Play random Speed dial songs"
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val radius = size.minDimension * 0.055f
+            val lavender = Color(0xFFD7B7FF)
+            listOf(
+                Offset(size.width * 0.36f, size.height * 0.36f),
+                Offset(size.width * 0.5f, size.height * 0.5f),
+                Offset(size.width * 0.64f, size.height * 0.64f),
+            ).forEach { point ->
+                drawCircle(color = lavender, radius = radius, center = point)
+            }
+        }
     }
 }
 

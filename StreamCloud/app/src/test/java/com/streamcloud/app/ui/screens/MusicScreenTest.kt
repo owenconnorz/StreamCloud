@@ -120,6 +120,36 @@ class MusicScreenTest {
     }
 
     @Test
+    fun speedDialShuffleIsPinnedToBottomRightOfFirstPageWithoutLosingEntries() {
+        val entries = (1..10).map { index ->
+            MusicSpeedDialEntry.Song(ytmSong("song-$index"))
+        }
+
+        val pages = buildMusicSpeedDialPages(entries)
+
+        assertEquals(2, pages.size)
+        assertEquals(9, pages.first().size)
+        assertEquals(entries.take(8), pages.first().take(8))
+        assertEquals(MusicSpeedDialEntry.Shuffle, pages.first().last())
+        assertEquals(entries.drop(8), pages.drop(1).flatten().filterNotNull())
+    }
+
+    @Test
+    fun sparseSpeedDialPadsBeforeKeepingShuffleInBottomRightSlot() {
+        val entries = listOf(
+            MusicSpeedDialEntry.Song(ytmSong("song-1")),
+            MusicSpeedDialEntry.Song(ytmSong("song-2")),
+        )
+
+        val firstPage = buildMusicSpeedDialPages(entries).single()
+
+        assertEquals(9, firstPage.size)
+        assertEquals(entries, firstPage.take(2))
+        assertEquals(6, firstPage.subList(2, 8).count { it == null })
+        assertEquals(MusicSpeedDialEntry.Shuffle, firstPage.last())
+    }
+
+    @Test
     fun randomSpeedDialQueueContainsEachPlayableSongOnce() {
         val songs = listOf(
             ytmSong("song-1"),
