@@ -93,6 +93,7 @@ import com.streamcloud.app.player.WatchProgressKey
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.rememberBannerPalette
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
@@ -414,6 +415,27 @@ fun MovieDetailScreen(
     }
 
     MoviesThemeWrapper(moviesThemeName) {
+    val bannerPalette = rememberBannerPalette(
+        imageUrl = movie?.backdropUrl?.takeIf { it.isNotBlank() }
+            ?: movie?.posterUrl?.takeIf { it.isNotBlank() },
+        fallbackAccent = MaterialTheme.colorScheme.primary,
+        fallbackOnAccent = MaterialTheme.colorScheme.onPrimary,
+        fallbackBackground = MaterialTheme.colorScheme.background,
+        fallbackSurface = MaterialTheme.colorScheme.surface,
+    )
+    MaterialTheme(
+        colorScheme = MaterialTheme.colorScheme.copy(
+            primary = bannerPalette.accent,
+            onPrimary = bannerPalette.onAccent,
+            secondary = bannerPalette.accent,
+            onSecondary = bannerPalette.onAccent,
+            primaryContainer = bannerPalette.accentContainer,
+            onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+            background = bannerPalette.backgroundTint,
+            surface = bannerPalette.surfaceTint,
+            surfaceVariant = bannerPalette.surfaceTint,
+        ),
+    ) {
     val scrollState = rememberScrollState()
     val scrollScope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
@@ -505,8 +527,8 @@ fun MovieDetailScreen(
                                 .then(if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier),
                             shape = RoundedCornerShape(50),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color.Black,
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
                                 disabledContainerColor = MaterialTheme.colorScheme.surface,
                                 disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             ),
@@ -1030,7 +1052,7 @@ fun MovieDetailScreen(
             IconButton(
                 onClick = onBack,
                 modifier = Modifier.padding(12.dp).clip(RoundedCornerShape(50))
-                    .background(Color.Black.copy(alpha = 0.45f))
+                    .background(bannerPalette.surfaceTint.copy(alpha = 0.92f))
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
             }
@@ -1341,6 +1363,7 @@ fun MovieDetailScreen(
             }
         }
     }
+    } // dynamic banner colors
     } // MoviesThemeWrapper
 }
 

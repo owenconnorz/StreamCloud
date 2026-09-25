@@ -31,6 +31,7 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.stremio.StremioMeta
 import com.streamcloud.app.data.stremio.StremioStream
+import com.streamcloud.app.ui.theme.rememberBannerPalette
 import kotlinx.coroutines.flow.first
 import java.net.URLEncoder
 
@@ -93,8 +94,18 @@ fun StremioDetailScreen(
     }
 
     val firstPlayableStream = streams.firstNotNullOfOrNull { buildStreamUrl(it) }
+    val bannerImageUrl = meta?.background?.takeIf { it.isNotBlank() }
+        ?: meta?.poster?.takeIf { it.isNotBlank() }
+        ?: initialPoster?.takeIf { it.isNotBlank() }
+    val bannerPalette = rememberBannerPalette(
+        imageUrl = bannerImageUrl,
+        fallbackAccent = MaterialTheme.colorScheme.primary,
+        fallbackOnAccent = MaterialTheme.colorScheme.onPrimary,
+        fallbackBackground = MaterialTheme.colorScheme.background,
+        fallbackSurface = MaterialTheme.colorScheme.surface,
+    )
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Box(Modifier.fillMaxSize().background(bannerPalette.backgroundTint)) {
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 24.dp),
@@ -105,10 +116,10 @@ fun StremioDetailScreen(
                         Modifier
                             .fillMaxWidth()
                             .height(300.dp)
-                            .background(MaterialTheme.colorScheme.surface),
+                            .background(bannerPalette.surfaceTint),
                     ) {
                         AsyncImage(
-                            model = meta?.background ?: meta?.poster ?: initialPoster,
+                            model = bannerImageUrl,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize(),
@@ -118,7 +129,7 @@ fun StremioDetailScreen(
                                 .fillMaxSize()
                                 .background(
                                     androidx.compose.ui.graphics.Brush.verticalGradient(
-                                        listOf(Color.Transparent, MaterialTheme.colorScheme.background),
+                                        listOf(Color.Transparent, bannerPalette.backgroundTint),
                                     ),
                                 ),
                         )
@@ -149,8 +160,8 @@ fun StremioDetailScreen(
                                 modifier = Modifier.weight(1f).height(52.dp),
                                 shape = RoundedCornerShape(50),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF20C968),
-                                    contentColor = Color.White,
+                                    containerColor = bannerPalette.accent,
+                                    contentColor = bannerPalette.onAccent,
                                 ),
                             ) {
                                 Icon(Icons.Default.PlayArrow, null)
@@ -175,12 +186,12 @@ fun StremioDetailScreen(
                                     modifier = Modifier
                                         .size(52.dp)
                                         .clip(RoundedCornerShape(18.dp))
-                                        .background(MaterialTheme.colorScheme.surface),
+                                        .background(bannerPalette.surfaceTint),
                                 ) {
                                     Icon(
                                         if (isWatchlisted) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                         "Save to library",
-                                        tint = if (isWatchlisted) Color(0xFF20C968) else LocalContentColor.current,
+                                        tint = if (isWatchlisted) bannerPalette.accent else LocalContentColor.current,
                                     )
                                 }
                                 IconButton(
@@ -188,12 +199,12 @@ fun StremioDetailScreen(
                                     modifier = Modifier
                                         .size(52.dp)
                                         .clip(RoundedCornerShape(18.dp))
-                                        .background(MaterialTheme.colorScheme.surface),
+                                        .background(bannerPalette.surfaceTint),
                                 ) {
                                     Icon(
                                         if (markedWatched) Icons.Default.Check else Icons.Default.Check,
                                         "Mark as watched",
-                                        tint = if (markedWatched) Color(0xFF20C968) else LocalContentColor.current,
+                                        tint = if (markedWatched) bannerPalette.accent else LocalContentColor.current,
                                     )
                                 }
                             }
@@ -202,7 +213,7 @@ fun StremioDetailScreen(
                                 modifier = Modifier
                                     .size(52.dp)
                                     .clip(RoundedCornerShape(18.dp))
-                                    .background(MaterialTheme.colorScheme.surface),
+                                    .background(bannerPalette.surfaceTint),
                             ) {
                                 Icon(
                                     if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
@@ -235,7 +246,7 @@ fun StremioDetailScreen(
                         Text(
                             "Find in Source",
                             style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = bannerPalette.accent,
                             modifier = Modifier.padding(top = 18.dp),
                         )
                         Row(
@@ -250,7 +261,7 @@ fun StremioDetailScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(50))
-                                    .background(MaterialTheme.colorScheme.surface)
+                                    .background(bannerPalette.accentContainer)
                                     .padding(horizontal = 14.dp, vertical = 8.dp),
                             )
                         }
@@ -282,7 +293,11 @@ fun StremioDetailScreen(
                         Modifier.fillMaxWidth().padding(20.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp),
+                            color = bannerPalette.accent,
+                        )
                         Spacer(Modifier.width(12.dp))
                         Text("Asking addon for streams…")
                     }
@@ -303,7 +318,11 @@ fun StremioDetailScreen(
             itemsIndexed(streams, key = { index, s ->
                 "s_${index}_${s.url ?: s.infoHash ?: s.title.orEmpty()}"
             }) { _, s ->
-                StreamRow(s) {
+                StreamRow(
+                    s = s,
+                    accentColor = bannerPalette.accent,
+                    accentContainerColor = bannerPalette.accentContainer,
+                ) {
                     val streamUrl = buildStreamUrl(s) ?: return@StreamRow
                     onPlay(streamUrl, meta?.name ?: initialTitle)
                 }
@@ -314,7 +333,7 @@ fun StremioDetailScreen(
             modifier = Modifier
                 .padding(start = 12.dp, top = 8.dp)
                 .clip(RoundedCornerShape(50))
-                .background(Color.Black.copy(alpha = 0.45f)),
+                .background(bannerPalette.surfaceTint.copy(alpha = 0.92f)),
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
         }
@@ -348,7 +367,12 @@ private fun buildStreamUrl(s: StremioStream): String? {
 }
 
 @Composable
-private fun StreamRow(s: StremioStream, onClick: () -> Unit) {
+private fun StreamRow(
+    s: StremioStream,
+    accentColor: Color,
+    accentContainerColor: Color,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -360,10 +384,10 @@ private fun StreamRow(s: StremioStream, onClick: () -> Unit) {
             Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+                .background(accentContainerColor),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Default.PlayArrow, null, tint = accentColor)
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {

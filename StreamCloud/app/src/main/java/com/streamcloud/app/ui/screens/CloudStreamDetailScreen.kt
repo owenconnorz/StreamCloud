@@ -49,6 +49,8 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
+import com.streamcloud.app.ui.theme.BannerPalette
+import com.streamcloud.app.ui.theme.rememberBannerPalette
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -226,19 +228,36 @@ fun CloudStreamDetailScreen(
         }
     }
 
+    val readyResponse = (state as? CsDetailState.Ready)?.response
+    val bannerPalette = rememberBannerPalette(
+        imageUrl = readyResponse?.backgroundPosterUrl?.takeIf { it.isNotBlank() }
+            ?: readyResponse?.posterUrl?.takeIf { it.isNotBlank() }
+            ?: initialPoster?.takeIf { it.isNotBlank() },
+        fallbackAccent = AccentColor,
+        fallbackOnAccent = Color.White,
+        fallbackBackground = BgColor,
+        fallbackSurface = SurfaceColor,
+    )
+
     Box(
         Modifier
             .fillMaxSize()
-            .background(BgColor)
+            .background(bannerPalette.backgroundTint)
     ) {
         when (val s = state) {
-            is CsDetailState.Loading -> CsLoadingScreen(initialTitle)
-            is CsDetailState.Error  -> CsErrorScreen(s.message, onBack)
+            is CsDetailState.Loading -> CsLoadingScreen(initialTitle, bannerPalette.accent)
+            is CsDetailState.Error  -> CsErrorScreen(
+                s.message,
+                onBack,
+                bannerPalette.accent,
+                bannerPalette.onAccent,
+            )
             is CsDetailState.Ready  -> CsReadyContent(
                 lr                = s.response,
                 initialTitle      = initialTitle,
                 initialPoster     = initialPoster,
                 pluginName        = pluginDisplayName.orEmpty(),
+                bannerPalette     = bannerPalette,
                 sourcesState      = sourcesState,
                 resolvingData     = resolvingData,
                 isWatchlisted     = isWatchlisted,
@@ -283,7 +302,7 @@ fun CloudStreamDetailScreen(
                 .padding(16.dp)
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.55f))
+                .background(bannerPalette.surfaceTint.copy(alpha = 0.92f))
                 .clickable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
@@ -307,10 +326,10 @@ fun CloudStreamDetailScreen(
 }
 
 @Composable
-private fun CsLoadingScreen(title: String) {
+private fun CsLoadingScreen(title: String, accentColor: Color) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator(color = AccentColor, strokeWidth = 2.5.dp,
+            CircularProgressIndicator(color = accentColor, strokeWidth = 2.5.dp,
                 modifier = Modifier.size(36.dp))
             Spacer(Modifier.height(16.dp))
             Text("Loading $title…", color = TextSecondary,
@@ -320,7 +339,12 @@ private fun CsLoadingScreen(title: String) {
 }
 
 @Composable
-private fun CsErrorScreen(message: String, onBack: () -> Unit) {
+private fun CsErrorScreen(
+    message: String,
+    onBack: () -> Unit,
+    accentColor: Color,
+    onAccentColor: Color,
+) {
     Column(
         Modifier
             .fillMaxSize()
@@ -337,9 +361,12 @@ private fun CsErrorScreen(message: String, onBack: () -> Unit) {
         Spacer(Modifier.height(28.dp))
         Button(
             onClick = onBack,
-            colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = accentColor,
+                contentColor = onAccentColor,
+            ),
             shape = RoundedCornerShape(50),
-        ) { Text("Go back", color = Color.White) }
+        ) { Text("Go back", color = onAccentColor) }
     }
 }
 
@@ -349,6 +376,7 @@ private fun CsReadyContent(
     initialTitle: String,
     initialPoster: String?,
     pluginName: String,
+    bannerPalette: BannerPalette,
     sourcesState: SourcesState,
     resolvingData: String?,
     isWatchlisted: Boolean,
@@ -377,18 +405,20 @@ private fun CsReadyContent(
         item {
             Box(Modifier.fillMaxWidth().height(340.dp)) {
                 AsyncImage(
-                    model = lr.backgroundPosterUrl ?: lr.posterUrl ?: initialPoster,
+                    model = lr.backgroundPosterUrl?.takeIf { it.isNotBlank() }
+                        ?: lr.posterUrl?.takeIf { it.isNotBlank() }
+                        ?: initialPoster,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().background(SurfaceColor),
+                    modifier = Modifier.fillMaxSize().background(bannerPalette.surfaceTint),
                 )
-                // Bottom gradient fade into BgColor
+                // Bottom gradient fades into the banner-tinted screen surface.
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.verticalGradient(
                             0f    to Color.Black.copy(alpha = 0.25f),
                             0.55f to Color.Transparent,
-                            1f    to BgColor,
+                            1f    to bannerPalette.backgroundTint,
                         )
                     )
                 )
@@ -400,7 +430,7 @@ private fun CsReadyContent(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(BgColor)
+                    .background(bannerPalette.backgroundTint)
                     .padding(horizontal = 20.dp)
                     .offset(y = (-20).dp),
             ) {
@@ -466,24 +496,24 @@ private fun CsReadyContent(
                                 .weight(1f)
                                 .height(52.dp)
                                 .clip(RoundedCornerShape(50))
-                                .background(AccentColor)
+                                .background(bannerPalette.accent)
                                 .clickable(enabled = !resolving, onClick = onPlayMovie)
                                 .padding(horizontal = 20.dp),
                         ) {
                             if (resolving) {
                                 CircularProgressIndicator(
                                     Modifier.size(18.dp), strokeWidth = 2.dp,
-                                    color = Color.White,
+                                    color = bannerPalette.onAccent,
                                 )
                                 Spacer(Modifier.width(10.dp))
                             } else {
-                                Icon(Icons.Default.PlayArrow, null, tint = Color.White,
+                                Icon(Icons.Default.PlayArrow, null, tint = bannerPalette.onAccent,
                                     modifier = Modifier.size(22.dp))
                                 Spacer(Modifier.width(8.dp))
                             }
                             Text(
                                 playLabel,
-                                color = Color.White,
+                                color = bannerPalette.onAccent,
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -499,13 +529,15 @@ private fun CsReadyContent(
                                 CsActionCircle(
                                     icon = if (isWatchlisted) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                     active = isWatchlisted,
-                                    activeColor = AccentColor,
+                                    activeColor = bannerPalette.accent,
+                                    surfaceColor = bannerPalette.surfaceTint,
                                     onClick = onToggleWatchlist,
                                 )
                                 CsActionCircle(
                                     icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
                                     active = isWatched,
-                                    activeColor = AccentColor,
+                                    activeColor = bannerPalette.accent,
+                                    surfaceColor = bannerPalette.surfaceTint,
                                     onClick = onToggleWatched,
                                 )
                             }
@@ -513,7 +545,8 @@ private fun CsReadyContent(
                         CsActionCircle(
                             icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
                             active = false,
-                            activeColor = AccentColor,
+                            activeColor = bannerPalette.accent,
+                            surfaceColor = bannerPalette.surfaceTint,
                             onClick = { onActionsExpanded(!actionsExpanded) },
                         )
                     }
@@ -529,7 +562,7 @@ private fun CsReadyContent(
                             Box(
                                 Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(SurfaceColor)
+                                    .background(bannerPalette.surfaceTint)
                                     .padding(horizontal = 10.dp, vertical = 5.dp)
                             ) {
                                 Text(tag, color = TextSecondary,
@@ -572,6 +605,8 @@ private fun CsReadyContent(
                     ep = ep,
                     isResolving = resolvingData == ep.data,
                     disabled = resolving,
+                    accentColor = bannerPalette.accent,
+                    surfaceColor = bannerPalette.surfaceTint,
                     onClick = { onPlayEpisode(ep) },
                 )
             }
@@ -585,6 +620,8 @@ private fun EpisodeRow(
     ep: Episode,
     isResolving: Boolean,
     disabled: Boolean,
+    accentColor: Color,
+    surfaceColor: Color,
     onClick: () -> Unit,
 ) {
     Row(
@@ -593,7 +630,7 @@ private fun EpisodeRow(
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(if (isResolving) SurfaceColor.copy(alpha = 0.6f) else SurfaceColor)
+            .background(if (isResolving) surfaceColor.copy(alpha = 0.6f) else surfaceColor)
             .clickable(enabled = !disabled, onClick = onClick)
             .padding(12.dp),
     ) {
@@ -605,7 +642,7 @@ private fun EpisodeRow(
                 modifier = Modifier
                     .size(width = 112.dp, height = 68.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(BgColor),
+                    .background(surfaceColor),
             )
             Spacer(Modifier.width(12.dp))
         } else {
@@ -613,14 +650,14 @@ private fun EpisodeRow(
                 Modifier
                     .size(width = 52.dp, height = 52.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(BgColor),
+                    .background(surfaceColor),
                 contentAlignment = Alignment.Center,
             ) {
                 if (isResolving) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(22.dp),
                         strokeWidth = 2.dp,
-                        color = AccentColor,
+                        color = accentColor,
                     )
                 } else {
                     Icon(Icons.Default.PlayArrow, null, tint = TextSecondary,
@@ -639,7 +676,7 @@ private fun EpisodeRow(
             if (isResolving) {
                 Spacer(Modifier.height(3.dp))
                 Text("Finding streams…", style = MaterialTheme.typography.bodySmall,
-                    color = AccentColor.copy(alpha = 0.8f))
+                    color = accentColor.copy(alpha = 0.8f))
             } else {
                 ep.description?.takeIf { it.isNotBlank() }?.let {
                     Spacer(Modifier.height(3.dp))
@@ -652,10 +689,10 @@ private fun EpisodeRow(
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
                 strokeWidth = 2.dp,
-                color = AccentColor,
+                color = accentColor,
             )
         } else {
-            Icon(Icons.Default.PlayArrow, null, tint = AccentColor,
+            Icon(Icons.Default.PlayArrow, null, tint = accentColor,
                 modifier = Modifier.size(20.dp))
         }
     }
@@ -701,13 +738,14 @@ private fun CsActionCircle(
     icon: ImageVector,
     active: Boolean,
     activeColor: Color,
+    surfaceColor: Color = SurfaceColor,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .size(52.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(if (active) activeColor.copy(alpha = 0.18f) else SurfaceColor)
+            .background(if (active) activeColor.copy(alpha = 0.18f) else surfaceColor)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
