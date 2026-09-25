@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -46,11 +47,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -183,7 +187,7 @@ internal fun buildMusicSpeedDialPages(
     if (entries.isEmpty()) return emptyList()
     if (!includeShuffle) {
         return entries.chunked(MUSIC_SPEED_DIAL_PAGE_SIZE).map { page ->
-            page.map<MusicSpeedDialEntry?> { it }
+            page.map<MusicSpeedDialEntry, MusicSpeedDialEntry?> { it }
         }
     }
 
@@ -195,7 +199,7 @@ internal fun buildMusicSpeedDialPages(
     val remainingPages = entries
         .drop(MUSIC_SPEED_DIAL_PAGE_SIZE - 1)
         .chunked(MUSIC_SPEED_DIAL_PAGE_SIZE)
-        .map { page -> page.map<MusicSpeedDialEntry?> { it } }
+        .map { page -> page.map<MusicSpeedDialEntry, MusicSpeedDialEntry?> { it } }
     return listOf(firstPage) + remainingPages
 }
 
