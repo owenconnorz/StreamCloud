@@ -5018,6 +5018,7 @@ private fun NuvioAccountRow() {
                             val up   = push.getOrThrow()
                             val down = pull.getOrThrow()
                             val errors = (up.errors + down.errors).distinct()
+                            val warnings = down.warnings.distinct()
                             errors.takeIf { it.isNotEmpty() }?.let {
                                 val profileStatus = targetProfile?.let { " on $it" }.orEmpty()
                                 val addonStatus = if (up.addons > 0) {
@@ -5025,7 +5026,10 @@ private fun NuvioAccountRow() {
                                 } else {
                                     ""
                                 }
-                                "Partial sync$profileStatus$addonStatus: ${it.joinToString("; ").take(110)}"
+                                "Partial sync$profileStatus$addonStatus: ${(it + warnings).distinct().joinToString("; ").take(110)}"
+                            } ?: warnings.takeIf { it.isNotEmpty() }?.let {
+                                val profileStatus = targetProfile?.let { " on $it" }.orEmpty()
+                                "Synced with warnings$profileStatus: ${it.joinToString("; ").take(110)}"
                             } ?: buildString {
                                 append("Synced ✓  ")
                                 append("↑${up.watchProgress} ↓${down.watchProgress} in-progress · ")
@@ -5051,9 +5055,19 @@ private fun NuvioAccountRow() {
                         push.isSuccess -> "Pushed ✓  (pull unavailable)"
                         pull.isSuccess -> {
                             val down = pull.getOrThrow()
-                            down.errors.takeIf { it.isNotEmpty() }?.let {
-                                "Partial pull: ${it.joinToString("; ").take(150)}"
-                            } ?: "Pulled ✓  ${down.profiles} profiles · ${down.watchProgress} watching · ${down.library} saved · ${down.collections} collections"
+                            val issues = (down.errors + down.warnings).distinct()
+                            when {
+                                down.errors.isNotEmpty() ->
+                                    "Partial pull: ${issues.joinToString("; ").take(150)}"
+                                !push.isSuccess ->
+                                    "Pulled ✓ (upload failed: ${push.exceptionOrNull()?.message?.take(90) ?: "unknown error"})" +
+                                        down.warnings.takeIf { it.isNotEmpty() }
+                                            ?.let { " · ${it.joinToString("; ").take(100)}" }.orEmpty()
+                                down.warnings.isNotEmpty() ->
+                                    "Pulled with warnings: ${down.warnings.joinToString("; ").take(150)}"
+                                else ->
+                                    "Pulled ✓  ${down.profiles} profiles · ${down.watchProgress} watching · ${down.library} saved · ${down.collections} collections"
+                            }
                         }
                         else -> "Error: ${
                             (push.exceptionOrNull() ?: pull.exceptionOrNull())
@@ -5183,18 +5197,23 @@ private fun NuvioAccountRow() {
                                             pull.isSuccess && push.isSuccess -> {
                                                 val d = pull.getOrThrow()
                                                 val errors = (d.errors + push.getOrThrow().errors).distinct()
-                                                errors.takeIf { it.isNotEmpty() }?.let {
-                                                    "Partial sync: ${it.joinToString("; ").take(150)}"
-                                                } ?: buildString {
-                                                    append("Synced ✓  ")
-                                                    if (d.profiles > 0) append("${d.profiles} profiles · ")
-                                                    if (d.watchProgress > 0) append("${d.watchProgress} watching · ")
-                                                    if (d.watchedItems > 0) append("${d.watchedItems} watched · ")
-                                                    if (d.library > 0)       append("${d.library} saved · ")
-                                                    if (d.collections > 0)   append("${d.collections} collections · ")
-                                                    if (d.addons > 0)        append("${d.addons} addons · ")
-                                                    if (d.plugins > 0)       append("${d.plugins} plugins · ")
-                                                }.trimEnd(' ', '·').ifBlank { "Synced ✓" }
+                                                val warnings = d.warnings.distinct()
+                                                when {
+                                                    errors.isNotEmpty() ->
+                                                        "Partial sync: ${(errors + warnings).distinct().joinToString("; ").take(150)}"
+                                                    warnings.isNotEmpty() ->
+                                                        "Synced with warnings: ${warnings.joinToString("; ").take(150)}"
+                                                    else -> buildString {
+                                                        append("Synced ✓  ")
+                                                        if (d.profiles > 0) append("${d.profiles} profiles · ")
+                                                        if (d.watchProgress > 0) append("${d.watchProgress} watching · ")
+                                                        if (d.watchedItems > 0) append("${d.watchedItems} watched · ")
+                                                        if (d.library > 0)       append("${d.library} saved · ")
+                                                        if (d.collections > 0)   append("${d.collections} collections · ")
+                                                        if (d.addons > 0)        append("${d.addons} addons · ")
+                                                        if (d.plugins > 0)       append("${d.plugins} plugins · ")
+                                                    }.trimEnd(' ', '·').ifBlank { "Synced ✓" }
+                                                }
                                             }
                                             pull.isSuccess -> "Signed in ✓  (upload failed: ${
                                                 push.exceptionOrNull()?.message?.take(90) ?: "partial sync"

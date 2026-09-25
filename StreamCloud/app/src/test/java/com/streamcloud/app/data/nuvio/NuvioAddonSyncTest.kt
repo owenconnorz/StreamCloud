@@ -3,12 +3,37 @@ package com.streamcloud.app.data.nuvio
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.normalizeStremioManifestUrl
 import com.streamcloud.app.data.stremio.reorderInstalledStremioAddons
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NuvioAddonSyncTest {
+
+    @Test
+    fun failedAddonWarningKeepsHttpStatusButDoesNotExposeUrlCredentials() {
+        val warning = describeNuvioAddonManifestFailure(
+            "https://addons.example/manifest.json?user=private-user-key",
+            IOException(
+                "HTTP 404 from https://addons.example/manifest.json?user=private-user-key",
+            ),
+        )
+
+        assertEquals("addon from addons.example returned HTTP 404", warning)
+        assertFalse(warning.contains("private-user-key"))
+    }
+
+    @Test
+    fun failedAddonWarningDescribesNetworkFailureWithoutUrlQuery() {
+        val warning = describeNuvioAddonManifestFailure(
+            "https://addons.example/manifest.json?token=secret",
+            IOException("Timed out while fetching addon manifest"),
+        )
+
+        assertEquals("addon from addons.example could not be installed", warning)
+        assertFalse(warning.contains("secret"))
+    }
 
     @Test
     fun keepsRemoteAddonsWhenLocalStoreIsEmpty() {

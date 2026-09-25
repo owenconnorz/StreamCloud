@@ -31,6 +31,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.URI
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 
@@ -84,6 +85,7 @@ data class NuvioPullResult(
     val profiles: Int = 0,
     val collectionError: String? = null,
     val errors: List<String> = emptyList(),
+    val warnings: List<String> = emptyList(),
 )
 
 data class NuvioLibraryDeleteKey(
@@ -105,6 +107,27 @@ internal data class NuvioAddonSyncEntry(
     val enabled: Boolean,
     val sortOrder: Int,
 )
+
+internal fun describeNuvioAddonManifestFailure(url: String, failure: Throwable): String {
+    val host = runCatching { URI(url).host }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
+    val httpStatus = generateSequence(failure) { it.cause }
+        .take(5)
+        .mapNotNull { throwable ->
+            Regex("""\bHTTP\s+(\d{3})\b""", RegexOption.IGNORE_CASE)
+                .find(throwable.message.orEmpty())
+                ?.groupValues
+                ?.get(1)
+        }
+        .firstOrNull()
+    val source = host?.let { " from $it" }.orEmpty()
+    return if (httpStatus != null) {
+        "addon$source returned HTTP $httpStatus"
+    } else {
+        "addon$source could not be installed"
+    }
+}
 
 internal fun canonicalNuvioAddonUrl(url: String): String {
     val trimmed = url.trim()
@@ -484,6 +507,7 @@ class NuvioAccountService(private val context: Context) {
         var pulledProfiles = 0
         var collectionError: String? = null
         val errors = mutableListOf<String>()
+        val warnings = mutableListOf<String>()
 
         // ── Profiles ─────────────────────────────────────────────────────────
         runCatching {
@@ -531,9 +555,17 @@ class NuvioAccountService(private val context: Context) {
             targetUrls.forEach { url ->
                 val key = normalizedNuvioAddonKey(url)
                 if (key.isNotBlank() && knownKeys.add(key)) {
-                    val added = stremioRepo.addAddon(url)
-                    knownKeys += normalizedNuvioAddonKey(added.manifestUrl)
-                    pulledAddons++
+                    try {
+                        val added = stremioRepo.addAddon(url)
+                        knownKeys += normalizedNuvioAddonKey(added.manifestUrl)
+                        pulledAddons++
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        val warning = describeNuvioAddonManifestFailure(url, failure)
+                        warnings += warning
+                        Log.w(TAG, "pull addon manifest: $warning")
+                    }
                 }
             }
             stremioRepo.reorderAddons(targetUrls)
@@ -746,6 +778,7 @@ class NuvioAccountService(private val context: Context) {
             profiles = pulledProfiles,
             collectionError = collectionError,
             errors = errors.distinct(),
+            warnings = warnings.distinct(),
         )
     }
 
