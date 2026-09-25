@@ -86,7 +86,7 @@ class NuvioAddonSyncTest {
         assertEquals(
             listOf(
                 "https://one.example",
-                "https://local-only.example/manifest.json",
+                "https://local-only.example",
                 "https://two.example",
             ),
             reconcileNuvioAddonUrls(
