@@ -63,6 +63,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.collections.HomeCollections
+import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.profiles.ProfileRepository
@@ -71,6 +72,7 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
+import com.streamcloud.app.ui.components.WatchedPosterBadge
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
 import com.streamcloud.app.ui.viewmodel.HeroBannerItem
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
@@ -82,6 +84,8 @@ private data class PosterSheetItem(
     val posterUrl: String?,
     val mediaType: String,
 )
+
+private fun TmdbMovie.watchedMediaType(): String = if (title != null) "movie" else "tv"
 
 @Composable
 private fun Modifier.tvOkPress(
@@ -174,6 +178,14 @@ fun MoviesScreen(
         factory = MoviesViewModel.factory(context),
     )
     val state by vm.state.collectAsState()
+    val watchedItems by remember(context) {
+        LibraryDb.get(context.applicationContext).watchedMovies().all()
+    }.collectAsState(initial = emptyList())
+    val watchedTmdbIds = remember(watchedItems) {
+        watchedItems
+            .filter { it.tmdbId > 0L && (it.mediaType == "movie" || it.mediaType == "tv") }
+            .mapTo(mutableSetOf()) { it.tmdbId }
+    }
     val settingsRepo = remember { SettingsRepository(context) }
     val moviesThemeName by settingsRepo.moviesTheme.collectAsState(initial = "violet")
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
@@ -279,10 +291,18 @@ fun MoviesScreen(
                 item {
                     PosterGrid(
                         movies = state.searchResults,
+                        watchedTmdbIds = watchedTmdbIds,
                         posterStyle = posterStyle,
-                        onClick = onMovieClick,
+                        onClick = { movie ->
+                            if (movie.title != null) onMovieClick(movie.id) else onTvClick(movie.id)
+                        },
                         onLongPress = { m ->
-                            posterSheet = PosterSheetItem(m.id, m.displayTitle, m.posterUrl, "movie")
+                            posterSheet = PosterSheetItem(
+                                m.id,
+                                m.displayTitle,
+                                m.posterUrl,
+                                m.watchedMediaType(),
+                            )
                         },
                     )
                 }
@@ -503,6 +523,7 @@ fun MoviesScreen(
                                 MidPoster(
                                     m = m,
                                     posterStyle = posterStyle,
+                                    isWatched = m.id in watchedTmdbIds,
                                     modifier = if (
                                         row.id == firstCollectionRowId &&
                                         index == 0 &&
@@ -517,9 +538,16 @@ fun MoviesScreen(
                                     } else {
                                         Modifier
                                     },
-                                    onClick = { onMovieClick(m.id) },
+                                    onClick = {
+                                        if (m.title != null) onMovieClick(m.id) else onTvClick(m.id)
+                                    },
                                     onLongPress = {
-                                        posterSheet = PosterSheetItem(m.id, m.displayTitle, m.posterUrl, "movie")
+                                        posterSheet = PosterSheetItem(
+                                            m.id,
+                                            m.displayTitle,
+                                            m.posterUrl,
+                                            m.watchedMediaType(),
+                                        )
                                     },
                                 )
                             }
@@ -1518,6 +1546,7 @@ private fun ContinueWatchingCard(
 private fun MidPoster(
     m: TmdbMovie,
     posterStyle: String = "portrait",
+    isWatched: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongPress: () -> Unit = {},
@@ -1534,15 +1563,20 @@ private fun MidPoster(
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
-        AsyncImage(
-            model = imageUrl,
-            contentDescription = m.displayTitle,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth().aspectRatio(ratio)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surface),
-        )
+        Box(Modifier.fillMaxWidth().aspectRatio(ratio)) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = m.displayTitle,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+            )
+            if (isWatched) {
+                WatchedPosterBadge(Modifier.align(Alignment.TopEnd).padding(7.dp))
+            }
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             m.displayTitle,
@@ -1603,7 +1637,13 @@ private fun StremioPoster(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait", onClick: (Long) -> Unit, onLongPress: (TmdbMovie) -> Unit = {}) {
+private fun PosterGrid(
+    movies: List<TmdbMovie>,
+    watchedTmdbIds: Set<Long>,
+    posterStyle: String = "portrait",
+    onClick: (TmdbMovie) -> Unit,
+    onLongPress: (TmdbMovie) -> Unit = {},
+) {
     val chunkSize = if (posterStyle == "landscape") 2 else 3
     Column(
         modifier = Modifier
@@ -1624,25 +1664,30 @@ private fun PosterGrid(movies: List<TmdbMovie>, posterStyle: String = "portrait"
                         Modifier
                             .weight(1f)
                             .tvOkPress(
-                                onClick = { onClick(m.id) },
+                                onClick = { onClick(m) },
                                 onLongPress = { onLongPress(m) },
                             )
                             .clip(RoundedCornerShape(12.dp))
                             .tvFocusBorder(RoundedCornerShape(12.dp))
                             .combinedClickable(
-                                onClick = { onClick(m.id) },
+                                onClick = { onClick(m) },
                                 onLongClick = { onLongPress(m) },
                             )
                     ) {
-                        AsyncImage(
-                            model = imageUrl,
-                            contentDescription = m.displayTitle,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth().aspectRatio(ratio)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surface),
-                        )
+                        Box(Modifier.fillMaxWidth().aspectRatio(ratio)) {
+                            AsyncImage(
+                                model = imageUrl,
+                                contentDescription = m.displayTitle,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surface),
+                            )
+                            if (m.id in watchedTmdbIds) {
+                                WatchedPosterBadge(Modifier.align(Alignment.TopEnd).padding(7.dp))
+                            }
+                        }
                         Spacer(Modifier.height(6.dp))
                         Text(
                             m.displayTitle,

@@ -31,8 +31,10 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.api.TmdbFindResponse
 import com.streamcloud.app.data.collections.HomeCollections
+import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.ui.components.MovieArtwork
+import com.streamcloud.app.ui.components.WatchedPosterBadge
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
@@ -54,6 +56,14 @@ fun CatalogPageScreen(
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
+    val watchedItems by remember(context) {
+        LibraryDb.get(context.applicationContext).watchedMovies().all()
+    }.collectAsState(initial = emptyList())
+    val watchedTmdbIds = remember(watchedItems) {
+        watchedItems
+            .filter { it.tmdbId > 0L && (it.mediaType == "movie" || it.mediaType == "tv") }
+            .mapTo(mutableSetOf()) { it.tmdbId }
+    }
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
@@ -162,7 +172,9 @@ fun CatalogPageScreen(
         ) {
             if (isTmdb) {
                 items(tmdbItems.distinctBy { it.id }, key = { "tmdb_${it.id}" }) { m ->
-                    GridPosterTmdb(m) { onMovieClick(m.id) }
+                    GridPosterTmdb(m, isWatched = m.id in watchedTmdbIds) {
+                        if (m.title != null) onMovieClick(m.id) else onTvClick(m.id)
+                    }
                 }
             } else if (isStremio) {
                 items(stremioItems, key = { "st_${it.id}" }) { meta ->
@@ -215,23 +227,28 @@ fun CatalogPageScreen(
 }
 
 @Composable
-private fun GridPosterTmdb(m: TmdbMovie, onClick: () -> Unit) {
+private fun GridPosterTmdb(m: TmdbMovie, isWatched: Boolean, onClick: () -> Unit) {
     Column(
         Modifier
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
-        MovieArtwork(
-            primaryUrl = m.posterUrl,
-            fallbackUrl = m.backdropUrl,
-            contentDescription = m.displayTitle,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth().aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surface),
-        )
+        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
+            MovieArtwork(
+                primaryUrl = m.posterUrl,
+                fallbackUrl = m.backdropUrl,
+                contentDescription = m.displayTitle,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+            )
+            if (isWatched) {
+                WatchedPosterBadge(Modifier.align(Alignment.TopEnd).padding(7.dp))
+            }
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             m.displayTitle,

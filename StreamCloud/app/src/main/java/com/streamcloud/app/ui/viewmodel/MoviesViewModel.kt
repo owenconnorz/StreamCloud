@@ -814,20 +814,17 @@ class MoviesViewModel(
 
     fun markAsWatched(tmdbId: Long, title: String, posterUrl: String?, mediaType: String) {
         viewModelScope.launch {
-            val dao = LibraryDb.get(appContext).watchProgress()
-            val existing = dao.byId(tmdbId)
-            val duration = existing?.durationMs?.takeIf { it > 0 } ?: 7_200_000L
-            dao.upsert(
-                WatchProgressEntity(
+            if (tmdbId <= 0L || (mediaType != "movie" && mediaType != "tv")) return@launch
+            val db = LibraryDb.get(appContext)
+            db.watchedMovies().mark(
+                com.streamcloud.app.data.library.WatchedMovieEntity(
                     tmdbId = tmdbId,
                     title = title,
                     posterUrl = posterUrl,
                     mediaType = mediaType,
-                    positionMs = (duration * 0.97).toLong(),
-                    durationMs = duration,
-                    updatedAt = System.currentTimeMillis(),
                 )
             )
+            db.watchProgress().remove(tmdbId)
             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
     }

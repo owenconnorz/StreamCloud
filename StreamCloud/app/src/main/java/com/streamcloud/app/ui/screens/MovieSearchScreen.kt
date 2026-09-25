@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamcloud.app.ui.components.MovieArtwork
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.ui.components.WatchedPosterBadge
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -66,6 +68,14 @@ fun MovieSearchScreen(
     val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
     val vm: MoviesViewModel = viewModel(factory = MoviesViewModel.factory(context))
     val state by vm.state.collectAsState()
+    val watchedItems by remember(context) {
+        LibraryDb.get(context.applicationContext).watchedMovies().all()
+    }.collectAsState(initial = emptyList())
+    val watchedTmdbIds = remember(watchedItems) {
+        watchedItems
+            .filter { it.tmdbId > 0L && (it.mediaType == "movie" || it.mediaType == "tv") }
+            .mapTo(mutableSetOf()) { it.tmdbId }
+    }
     var query by remember { mutableStateOf("") }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
     var searchFieldFocused by remember { mutableStateOf(false) }
@@ -247,6 +257,7 @@ fun MovieSearchScreen(
                 state = state,
                 query = query,
                 padding = padding,
+                watchedTmdbIds = watchedTmdbIds,
                 firstResultFocusRequester = firstResultFocusRequester,
                 onMovieClick = onMovieClick,
                 onTvClick = onTvClick,
@@ -380,6 +391,7 @@ private fun CombinedResultsList(
     state: com.streamcloud.app.ui.viewmodel.MoviesState,
     query: String,
     padding: PaddingValues,
+    watchedTmdbIds: Set<Long>,
     firstResultFocusRequester: FocusRequester,
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit,
@@ -450,6 +462,7 @@ private fun CombinedResultsList(
                             imageUrl = movie.backdropUrl,
                             fallbackImageUrl = movie.posterUrl,
                             title = movie.displayTitle,
+                            isWatched = movie.id in watchedTmdbIds,
                             focusRequester = if (
                                 isTv && firstResultSection == "series" && movie == state.tvSearchResults.firstOrNull()
                             ) firstResultFocusRequester else null,
@@ -483,6 +496,7 @@ private fun CombinedResultsList(
                             imageUrl = movie.backdropUrl,
                             fallbackImageUrl = movie.posterUrl,
                             title = movie.displayTitle,
+                            isWatched = movie.id in watchedTmdbIds,
                             focusRequester = if (
                                 isTv && firstResultSection == "movies" && movie == state.searchResults.firstOrNull()
                             ) firstResultFocusRequester else null,
@@ -609,6 +623,7 @@ private fun NuvioCard(
     title: String,
     onClick: () -> Unit,
     fallbackImageUrl: String? = null,
+    isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
 ) {
     val cardWidth = 185.dp
@@ -630,6 +645,9 @@ private fun NuvioCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+            if (isWatched) {
+                WatchedPosterBadge(Modifier.align(Alignment.TopEnd).padding(7.dp))
+            }
         }
         Spacer(Modifier.height(5.dp))
         Text(

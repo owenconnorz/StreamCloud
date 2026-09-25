@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
+import android.util.Log
 import android.util.TypedValue
 import android.view.View
 import android.view.WindowManager
@@ -83,6 +84,8 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.MovieAudioPreferences
+import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.torrent.TorrentService
 import com.streamcloud.app.torrent.TorrentState
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -385,6 +388,7 @@ fun NativePlayerScreen(
     }
 
     val ex = player.value
+    val playerAppContext = remember(context) { context.applicationContext }
     var isPlaying         by remember { mutableStateOf(true) }
     var positionMs        by remember { mutableStateOf(0L) }
     var durationMs        by remember { mutableStateOf(0L) }
@@ -402,11 +406,43 @@ fun NativePlayerScreen(
         }
     }
 
-    LaunchedEffect(ex) {
+    LaunchedEffect(ex, progressKey) {
         ex ?: return@LaunchedEffect
+        var completionHandled = false
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
-            override fun onPlaybackStateChanged(state: Int) { durationMs = ex.duration.coerceAtLeast(0L) }
+            override fun onPlaybackStateChanged(state: Int) {
+                durationMs = ex.duration.coerceAtLeast(0L)
+                if (state != Player.STATE_ENDED || completionHandled) return
+
+                val completedItem = progressKey ?: return
+                if (completedItem.tmdbId <= 0L ||
+                    (completedItem.mediaType != "movie" && completedItem.mediaType != "tv")
+                ) {
+                    return
+                }
+
+                completionHandled = true
+                Thread {
+                    runCatching {
+                        val libraryDb = LibraryDb.get(playerAppContext)
+                        kotlinx.coroutines.runBlocking {
+                            libraryDb.watchedMovies().mark(
+                                WatchedMovieEntity(
+                                    tmdbId = completedItem.tmdbId,
+                                    title = completedItem.title,
+                                    posterUrl = completedItem.posterUrl,
+                                    mediaType = completedItem.mediaType,
+                                ),
+                            )
+                            libraryDb.watchProgress().remove(completedItem.tmdbId)
+                            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(playerAppContext)
+                        }
+                    }.onFailure {
+                        Log.e("NativePlayerScreen", "Could not save completed playback as watched", it)
+                    }
+                }.start()
+            }
             override fun onPlayerError(error: PlaybackException) {
                 if (sources.size <= 1) {
                     playbackError = "This stream could not be played. It may have expired or been rejected by the provider."
@@ -424,11 +460,15 @@ fun NativePlayerScreen(
             }
         }
         ex.addListener(listener)
-        while (true) {
-            positionMs = ex.currentPosition.coerceAtLeast(0L)
-            durationMs = ex.duration.coerceAtLeast(0L)
-            isPlaying  = ex.isPlaying
-            delay(500)
+        try {
+            while (true) {
+                positionMs = ex.currentPosition.coerceAtLeast(0L)
+                durationMs = ex.duration.coerceAtLeast(0L)
+                isPlaying  = ex.isPlaying
+                delay(500)
+            }
+        } finally {
+            ex.removeListener(listener)
         }
     }
 
@@ -442,14 +482,14 @@ fun NativePlayerScreen(
 
     // Watch progress persistence
     if (progressKey != null) {
-        val appContext = context.applicationContext
+        val appContext = playerAppContext
         LaunchedEffect(ex, progressKey) {
             ex ?: return@LaunchedEffect
             while (true) {
                 delay(10_000)
                 val pos = ex.currentPosition.coerceAtLeast(0L)
                 val dur = ex.duration.coerceAtLeast(0L)
-                if (dur > 0L && pos > 0L) {
+                if (dur > 0L && pos > 0L && ex.playbackState != Player.STATE_ENDED) {
                     runCatching {
                         com.streamcloud.app.data.library.LibraryDb.get(appContext)
                             .watchProgress().upsert(
@@ -471,7 +511,7 @@ fun NativePlayerScreen(
                 if (cur != null) {
                     val pos = cur.currentPosition.coerceAtLeast(0L)
                     val dur = cur.duration.coerceAtLeast(0L)
-                    if (dur > 0L && pos > 0L) {
+                    if (dur > 0L && pos > 0L && cur.playbackState != Player.STATE_ENDED) {
                         Thread {
                             runCatching {
                                 com.streamcloud.app.data.library.LibraryDb.get(appContext).watchProgress().let { dao ->
