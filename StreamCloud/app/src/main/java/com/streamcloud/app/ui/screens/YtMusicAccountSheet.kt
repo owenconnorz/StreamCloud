@@ -229,7 +229,7 @@ fun YtMusicAccountSheet(
                 )
                 AccountActionRow(
                     icon = Icons.Default.Extension,
-                    title = "StreamCloud integrations",
+                    title = "Integrations",
                     subtitle = "Manage connected services",
                     cardColor = cardColor,
                     accent = accent,
@@ -240,7 +240,7 @@ fun YtMusicAccountSheet(
                 )
                 AccountActionRow(
                     icon = Icons.Default.Settings,
-                    title = "StreamCloud settings",
+                    title = "Settings",
                     subtitle = "Playback, appearance, downloads and more",
                     cardColor = cardColor,
                     accent = accent,

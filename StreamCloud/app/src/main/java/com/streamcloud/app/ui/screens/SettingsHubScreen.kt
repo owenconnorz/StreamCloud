@@ -164,7 +164,7 @@ fun SettingsHubScreen(
     onSwitchProfile: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
     onOpenRedditLogin: () -> Unit = {},
-    onOpenPornhubLogin: () -> Unit = {},
+    onOpenPornhubLogin: () -> Unit,
     onSubPageChanged: (Boolean) -> Unit = {},
     backRequest: Int = 0,
     focusRequest: Int = 0,

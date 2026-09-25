@@ -269,17 +269,18 @@ fun PornhubLoginScreen(
                             ): Boolean {
                                 if (screenDisposed.get()) return true
                                 val uri = request?.url ?: return true
+                                val isMainFrame = request?.isForMainFrame ?: true
                                 if (uri.scheme == "about") {
-                                    detectCompletedProviderLogin()
+                                    if (isMainFrame) detectCompletedProviderLogin()
                                     return false
                                 }
-                                if (isLoginProviderHost(uri)) {
+                                if (isMainFrame && isLoginProviderHost(uri)) {
                                     markProviderLoginStarted()
                                 }
-                                if (isPornhubHost(uri)) {
+                                if (isMainFrame && isPornhubHost(uri)) {
                                     detectCompletedProviderLogin()
                                 }
-                                return !isAllowedLoginNavigation(uri)
+                                return !isAllowedLoginNavigation(uri, isMainFrame)
                             }
 
                             override fun onPageStarted(
@@ -467,16 +468,19 @@ private fun visiblePopupClient(
                 ): Boolean {
                     if (isDisposed() || popupView == null || !isActive(popupView)) return true
                     val uri = request?.url ?: return true
+                    val isMainFrame = request?.isForMainFrame ?: true
                     if (uri.scheme == "about") {
-                        onProviderReturned(0L)
+                        if (isMainFrame) onProviderReturned(0L)
                         return false
                     }
-                    if (!isAllowedLoginNavigation(uri)) {
-                        onPageError("The login provider opened an unsupported page.")
+                    if (!isAllowedLoginNavigation(uri, isMainFrame)) {
+                        if (isMainFrame) {
+                            onPageError("The login provider opened an unsupported page.")
+                        }
                         return true
                     }
-                    if (isLoginProviderHost(uri)) onProviderStarted()
-                    if (isPornhubHost(uri)) onProviderReturned(0L)
+                    if (isMainFrame && isLoginProviderHost(uri)) onProviderStarted()
+                    if (isMainFrame && isPornhubHost(uri)) onProviderReturned(0L)
                     return false
                 }
 
@@ -644,8 +648,12 @@ private fun attachPornhubLoginFeedback(view: WebView?) {
 }
 
 private fun isPornhubHost(uri: Uri?): Boolean {
-    val host = uri?.host?.lowercase() ?: return false
-    return host == "pornhub.com" || host.endsWith(".pornhub.com")
+    return isPornhubHostname(uri?.host)
+}
+
+private fun isPornhubHostname(host: String?): Boolean {
+    val normalizedHost = host?.lowercase() ?: return false
+    return normalizedHost == "pornhub.com" || normalizedHost.endsWith(".pornhub.com")
 }
 
 /**
@@ -655,24 +663,42 @@ private fun isPornhubHost(uri: Uri?): Boolean {
  * to be allowed inside the official WebView.
  */
 private fun isLoginProviderHost(uri: Uri?): Boolean {
-    val host = uri?.host?.lowercase() ?: return false
-    return host == "accounts.google.com" ||
-        host == "google.com" ||
-        host.endsWith(".google.com") ||
-        host == "googleapis.com" ||
-        host.endsWith(".googleapis.com") ||
-        host == "googleusercontent.com" ||
-        host.endsWith(".googleusercontent.com") ||
-        host == "gstatic.com" ||
-        host.endsWith(".gstatic.com") ||
-        host == "x.com" ||
-        host.endsWith(".x.com") ||
-        host == "twitter.com" ||
-        host.endsWith(".twitter.com")
+    return isLoginProviderHostname(uri?.host)
 }
 
-private fun isAllowedLoginNavigation(uri: Uri?): Boolean =
-    uri?.scheme == "https" && (isPornhubHost(uri) || isLoginProviderHost(uri))
+private fun isLoginProviderHostname(host: String?): Boolean {
+    val normalizedHost = host?.lowercase() ?: return false
+    return normalizedHost == "accounts.google.com" ||
+        normalizedHost == "google.com" ||
+        normalizedHost.endsWith(".google.com") ||
+        normalizedHost == "googleapis.com" ||
+        normalizedHost.endsWith(".googleapis.com") ||
+        normalizedHost == "googleusercontent.com" ||
+        normalizedHost.endsWith(".googleusercontent.com") ||
+        normalizedHost == "gstatic.com" ||
+        normalizedHost.endsWith(".gstatic.com") ||
+        normalizedHost == "x.com" ||
+        normalizedHost.endsWith(".x.com") ||
+        normalizedHost == "twitter.com" ||
+        normalizedHost.endsWith(".twitter.com")
+}
+
+/**
+ * Keep top-level navigation restricted while allowing secure embedded
+ * verification and identity widgets from their own hosts.
+ */
+internal fun isAllowedPornhubLoginNavigation(
+    scheme: String?,
+    host: String?,
+    isMainFrame: Boolean,
+): Boolean {
+    if (!scheme.equals("https", ignoreCase = true)) return false
+    if (!isMainFrame) return true
+    return isPornhubHostname(host) || isLoginProviderHostname(host)
+}
+
+private fun isAllowedLoginNavigation(uri: Uri?, isMainFrame: Boolean): Boolean =
+    isAllowedPornhubLoginNavigation(uri?.scheme, uri?.host, isMainFrame)
 
 /**
  * Pornhub's responsive stylesheet can hide the SSO labels and external Google
