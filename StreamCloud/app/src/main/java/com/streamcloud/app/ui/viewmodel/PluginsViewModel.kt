@@ -164,6 +164,10 @@ class PluginsViewModel(
         _state.update { it.copy(addingStremio = true, error = null) }
         try {
             val a = stremio.addAddon(url.trim())
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.recordAddonAddition(
+                appContext,
+                a.manifestUrl,
+            )
             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
             _state.update { it.copy(addingStremio = false, info = "Stremio addon added: ${a.name}") }
         } catch (e: Exception) {
@@ -172,6 +176,7 @@ class PluginsViewModel(
     }
 
     fun removeStremioAddon(manifestUrl: String) = viewModelScope.launch {
+        com.streamcloud.app.data.nuvio.NuvioAutoSync.recordAddonDelete(appContext, manifestUrl)
         stremio.removeAddon(manifestUrl)
         com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
     }

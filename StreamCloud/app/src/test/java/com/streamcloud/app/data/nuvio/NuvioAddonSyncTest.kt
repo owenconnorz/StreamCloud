@@ -12,6 +12,15 @@ import org.junit.Test
 class NuvioAddonSyncTest {
 
     @Test
+    fun onlyTreatsVerifiedCompleteRestRangesAsDeletionEvidence() {
+        assertTrue(isCompleteNuvioAddonSnapshot("0-1/2", 2))
+        assertTrue(isCompleteNuvioAddonSnapshot("*/0", 0))
+        assertFalse(isCompleteNuvioAddonSnapshot("0-1/3", 2))
+        assertFalse(isCompleteNuvioAddonSnapshot("0-1/*", 2))
+        assertFalse(isCompleteNuvioAddonSnapshot(null, 0))
+    }
+
+    @Test
     fun failedAddonWarningKeepsHttpStatusButDoesNotExposeUrlCredentials() {
         val warning = describeNuvioAddonManifestFailure(
             "https://addons.example/manifest.json?user=private-user-key",
@@ -62,6 +71,66 @@ class NuvioAddonSyncTest {
                 NuvioAddonSyncEntry("https://two.example/manifest.json", "Two", true, 1),
             ),
             merged,
+        )
+    }
+
+    @Test
+    fun explicitDeletionExcludesOnlyTheRequestedAddonFromTheMergedSnapshot() {
+        val merged = mergeNuvioAddonEntries(
+            remote = listOf(
+                NuvioAddonSyncEntry("https://remove.example/manifest.json", "Remove", true, 0),
+                NuvioAddonSyncEntry("https://keep.example/manifest.json", "Keep", true, 1),
+            ),
+            local = listOf(
+                NuvioAddonSyncEntry("https://remove.example/", "Remove", true, 0),
+                NuvioAddonSyncEntry("https://local.example/manifest.json", "Local", true, 1),
+            ),
+            excludedUrls = setOf("https://REMOVE.example/"),
+        )
+
+        assertEquals(
+            listOf(
+                NuvioAddonSyncEntry("https://keep.example/manifest.json", "Keep", true, 0),
+                NuvioAddonSyncEntry("https://local.example/manifest.json", "Local", true, 1),
+            ),
+            merged,
+        )
+    }
+
+    @Test
+    fun detectsRemoteDeletionOnlyFromCompleteSnapshotAndPreservesRecentLocalReinstall() {
+        val previous = setOf(
+            "https://removed.example/manifest.json",
+            "https://still-there.example/manifest.json",
+        )
+        val remote = listOf("https://still-there.example/")
+
+        assertEquals(
+            setOf("https://removed.example"),
+            removedNuvioAddonKeys(
+                remoteUrls = remote,
+                previouslySyncedUrls = previous,
+                locallyAddedAfterSnapshot = emptySet(),
+                snapshotIsComplete = true,
+            ),
+        )
+        assertEquals(
+            emptySet<String>(),
+            removedNuvioAddonKeys(
+                remoteUrls = emptyList(),
+                previouslySyncedUrls = previous,
+                locallyAddedAfterSnapshot = emptySet(),
+                snapshotIsComplete = false,
+            ),
+        )
+        assertEquals(
+            emptySet<String>(),
+            removedNuvioAddonKeys(
+                remoteUrls = remote,
+                previouslySyncedUrls = previous,
+                locallyAddedAfterSnapshot = setOf("https://removed.example/"),
+                snapshotIsComplete = true,
+            ),
         )
     }
 

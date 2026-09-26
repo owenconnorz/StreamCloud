@@ -13,6 +13,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.streamcloud.app.data.SettingsRepository
+import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -28,6 +29,7 @@ object NuvioAutoSync {
     private const val IMMEDIATE_WORK = "nuvio_auto_sync_immediate"
     private const val SYNC_PREFS = "nuvio_sync"
     private const val PENDING_LIBRARY_DELETES = "pending_library_deletes"
+    private const val PENDING_ADDON_DELETES = "pending_addon_deletes"
 
     fun installPeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<NuvioAutoSyncWorker>(15, TimeUnit.MINUTES)
@@ -52,6 +54,94 @@ object NuvioAutoSync {
             request,
         )
     }
+
+    /**
+     * Save explicit addon deletion intent before changing local state. The
+     * server stores addons per Nuvio profile, so keep the intent scoped to the
+     * account and profile that were selected when the user removed it.
+     */
+    suspend fun recordAddonDelete(context: Context, manifestUrl: String) {
+        val canonicalUrl = canonicalNuvioAddonUrl(manifestUrl)
+        if (canonicalUrl.isBlank()) return
+        val scope = addonSyncScope(context) ?: return
+        val (userId, profileIndex) = scope
+        val key = addonDeletePreferenceKey(userId, profileIndex)
+        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val pending = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
+        pending += canonicalUrl
+        check(prefs.edit().putStringSet(key, pending).commit()) {
+            "Could not persist the Nuvio addon deletion request"
+        }
+    }
+
+    /**
+     * A user adding an addon again after deleting it cancels the local
+     * tombstone so the next sync can restore it to Nuvio.
+     */
+    suspend fun recordAddonAddition(context: Context, manifestUrl: String) {
+        val canonicalUrl = canonicalNuvioAddonUrl(manifestUrl)
+        if (canonicalUrl.isBlank()) return
+        val scope = addonSyncScope(context) ?: return
+        val (userId, profileIndex) = scope
+        val key = addonDeletePreferenceKey(userId, profileIndex)
+        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val targetKey = normalizedNuvioAddonKey(canonicalUrl)
+        val pending = prefs.getStringSet(key, emptySet()).orEmpty()
+            .filterNot { normalizedNuvioAddonKey(it) == targetKey }
+            .toSet()
+        check(prefs.edit().putStringSet(key, pending).commit()) {
+            "Could not update the Nuvio addon deletion requests"
+        }
+    }
+
+    internal fun pendingAddonDeletes(
+        context: Context,
+        userId: String,
+        profileIndex: Int,
+    ): Set<String> {
+        if (userId.isBlank()) return emptySet()
+        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        return prefs.getStringSet(addonDeletePreferenceKey(userId, profileIndex), emptySet())
+            .orEmpty()
+            .map(::canonicalNuvioAddonUrl)
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+
+    internal fun clearAddonDeletes(
+        context: Context,
+        userId: String,
+        profileIndex: Int,
+        deletedUrls: Set<String>,
+    ) {
+        if (userId.isBlank() || deletedUrls.isEmpty()) return
+        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val key = addonDeletePreferenceKey(userId, profileIndex)
+        val deletedKeys = deletedUrls.map(::normalizedNuvioAddonKey).toSet()
+        val pending = prefs.getStringSet(key, emptySet()).orEmpty()
+            .filterNot { normalizedNuvioAddonKey(it) in deletedKeys }
+            .toSet()
+        check(prefs.edit().putStringSet(key, pending).commit()) {
+            "Could not clear confirmed Nuvio addon deletions"
+        }
+    }
+
+    private suspend fun addonSyncScope(context: Context): Pair<String, Int>? {
+        val appContext = context.applicationContext
+        val services = ServiceLocator.get(appContext)
+        val userId = services.settings.nuvioUserId.first().trim()
+        if (userId.isBlank()) return null
+
+        val profiles = services.profiles
+        val selected = profiles.currentProfiles().firstOrNull {
+            it.id == profiles.currentActiveId()
+        } ?: profiles.currentProfiles().firstOrNull()
+        val profileIndex = selected?.nuvioProfileIndex ?: return null
+        return userId to profileIndex
+    }
+
+    private fun addonDeletePreferenceKey(userId: String, profileIndex: Int): String =
+        "${PENDING_ADDON_DELETES}_${userId}_$profileIndex"
 
     /**
      * Records the deletion before scheduling work. This is intentionally
