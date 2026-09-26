@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.data.library.LibraryDb
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
@@ -85,6 +86,87 @@ object NuvioAutoSync {
         clearLibraryDeletes(appContext, pending)
     }
 
+    /**
+     * Completes the same safe pull-then-push cycle used by background sync.
+     * Callers that need fresh account data before continuing can await this
+     * instead of merely enqueueing WorkManager and reading stale local state.
+     */
+    suspend fun syncNow(context: Context): Result<Unit> {
+        val appContext = context.applicationContext
+        val settings = SettingsRepository(appContext)
+        val token = settings.nuvioAccessToken.first().trim()
+        if (token.isBlank()) return Result.success(Unit)
+
+        val service = NuvioAccountService.get(appContext)
+
+        suspend fun attempt(accessToken: String): Result<String?> = try {
+            pushPendingLibraryDeletes(appContext, accessToken)
+            val pull = service.syncPull(accessToken)
+            if (pull.errors.isNotEmpty()) {
+                Result.success(pull.errors.distinct().joinToString("; "))
+            } else {
+                val push = service.syncAll(accessToken)
+                Result.success(
+                    push.errors.takeIf { it.isNotEmpty() }
+                        ?.distinct()
+                        ?.joinToString("; "),
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Result.failure(failure)
+        }
+
+        val firstAttempt = attempt(token)
+        if (firstAttempt.isSuccess && firstAttempt.getOrNull() == null) {
+            return Result.success(Unit)
+        }
+
+        val firstMessage = firstAttempt.exceptionOrNull()?.message
+            ?: firstAttempt.getOrNull()
+            ?: "Nuvio sync failed"
+        val refreshToken = settings.nuvioRefreshToken.first().trim()
+        if (refreshToken.isBlank()) {
+            return Result.failure(
+                firstAttempt.exceptionOrNull() ?: IllegalStateException(firstMessage),
+            )
+        }
+
+        val refreshed = service.refreshToken(refreshToken)
+        if (refreshed.isFailure) {
+            val refreshFailure = refreshed.exceptionOrNull()
+            return Result.failure(
+                IllegalStateException(
+                    "Nuvio sync failed: $firstMessage; token refresh failed: " +
+                        (refreshFailure?.message ?: "unknown error"),
+                    refreshFailure,
+                ),
+            )
+        }
+
+        val session = refreshed.getOrThrow()
+        settings.setNuvioSession(
+            accessToken = session.access_token,
+            refreshToken = session.refresh_token.ifBlank { refreshToken },
+            email = session.user?.email ?: settings.nuvioEmail.first(),
+            userId = session.user?.id ?: settings.nuvioUserId.first(),
+        )
+
+        val retry = attempt(session.access_token)
+        if (retry.isSuccess && retry.getOrNull() == null) {
+            return Result.success(Unit)
+        }
+
+        return Result.failure(
+            retry.exceptionOrNull()
+                ?: IllegalStateException(
+                    "Nuvio sync failed after token refresh: " +
+                        (retry.getOrNull() ?: "unknown error"),
+                ),
+        )
+    }
+
     private data class PendingDelete(
         val serialized: String,
         val contentType: String,
@@ -133,63 +215,13 @@ class NuvioAutoSyncWorker(
     workerParams: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
-        val settings = SettingsRepository(applicationContext)
-        val token = settings.nuvioAccessToken.first().trim()
-        if (token.isBlank()) return Result.success()
-
-        val service = NuvioAccountService.get(applicationContext)
-
-        suspend fun syncWith(accessToken: String): String? {
-            NuvioAutoSync.pushPendingLibraryDeletes(applicationContext, accessToken)
-            // Pull first. Addon/plugin pushes replace the profile-scoped
-            // snapshot, so a push from a partial local database can delete
-            // valid rows that already exist in Nuvio.
-            val pull = service.syncPull(accessToken)
-            if (pull.errors.isNotEmpty()) {
-                return pull.errors.distinct().joinToString("; ")
-            }
-            val push = service.syncAll(accessToken)
-            return push.errors.takeIf { it.isNotEmpty() }?.distinct()?.joinToString("; ")
+        val outcome = NuvioAutoSync.syncNow(applicationContext)
+        val failure = outcome.exceptionOrNull()
+        if (failure != null) {
+            Log.w("NuvioAutoSync", "automatic sync failed: ${failure.message}", failure)
+            return Result.retry()
         }
-
-        val firstAttempt = runCatching { syncWith(token) }
-        if (firstAttempt.isSuccess && firstAttempt.getOrNull() == null) {
-            return Result.success()
-        }
-
-        val refreshToken = settings.nuvioRefreshToken.first().trim()
-        if (refreshToken.isNotBlank()) {
-            val refreshed = service.refreshToken(refreshToken)
-            if (refreshed.isSuccess) {
-                val session = refreshed.getOrThrow()
-                settings.setNuvioSession(
-                    accessToken = session.access_token,
-                    refreshToken = session.refresh_token.ifBlank { refreshToken },
-                    email = session.user?.email ?: settings.nuvioEmail.first(),
-                    userId = session.user?.id ?: settings.nuvioUserId.first(),
-                )
-                val retry = runCatching { syncWith(session.access_token) }
-                if (retry.isSuccess && retry.getOrNull() == null) {
-                    return Result.success()
-                }
-                Log.w(
-                    "NuvioAutoSync",
-                    "automatic sync failed after token refresh: ${
-                        retry.exceptionOrNull()?.message ?: retry.getOrNull()
-                    }",
-                )
-                return Result.retry()
-            }
-            Log.w("NuvioAutoSync", "Nuvio token refresh failed: ${refreshed.exceptionOrNull()?.message}")
-        }
-
-        Log.w(
-            "NuvioAutoSync",
-            "automatic sync failed: ${
-                firstAttempt.exceptionOrNull()?.message ?: firstAttempt.getOrNull()
-            }",
-        )
-        return Result.retry()
+        return Result.success()
     }
 
 }

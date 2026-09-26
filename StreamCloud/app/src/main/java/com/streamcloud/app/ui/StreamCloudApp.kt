@@ -212,14 +212,15 @@ fun StreamCloudApp() {
         runCatching { com.streamcloud.app.ui.theme.AlbumArtThemeBus.attach(context) }
     }
     LaunchedEffect(activeProfile?.id) {
-        val token = sl.settings.nuvioAccessToken.first().trim()
-        if (token.isNotBlank()) {
-            runCatching {
-                com.streamcloud.app.data.nuvio.NuvioAccountService
-                    .get(context.applicationContext)
-                    .syncPull(token)
-                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
-            }
+        val appContext = context.applicationContext
+        val result = com.streamcloud.app.data.nuvio.NuvioAutoSync.syncNow(appContext)
+        result.exceptionOrNull()?.let { failure ->
+            android.util.Log.w(
+                "StreamCloud",
+                "Nuvio startup sync failed: ${failure.message}",
+                failure,
+            )
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
     }
 
