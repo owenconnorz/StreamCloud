@@ -72,6 +72,7 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
+import com.streamcloud.app.ui.components.MovieArtwork
 import com.streamcloud.app.ui.components.WatchedPosterBadge
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
 import com.streamcloud.app.ui.viewmodel.HeroBannerItem
@@ -1597,9 +1598,14 @@ private fun StremioPoster(
     onLongPress: () -> Unit = {},
     onClick: () -> Unit,
 ) {
-    val useLandscape = posterStyle == "landscape"
+    val useLandscape = posterStyle == "landscape" ||
+        (posterStyle == "auto" &&
+            (!meta.background.isNullOrBlank() ||
+                meta.posterShape.equals("landscape", ignoreCase = true)))
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
+    val primaryArtwork = if (useLandscape) meta.background else meta.poster
+    val fallbackArtwork = if (useLandscape) meta.poster else null
     Column(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
@@ -1608,10 +1614,10 @@ private fun StremioPoster(
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
-        AsyncImage(
-            model = meta.poster,
+        MovieArtwork(
+            primaryUrl = primaryArtwork,
+            fallbackUrl = fallbackArtwork,
             contentDescription = meta.name,
-            contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth().aspectRatio(ratio)
                 .clip(RoundedCornerShape(12.dp))
