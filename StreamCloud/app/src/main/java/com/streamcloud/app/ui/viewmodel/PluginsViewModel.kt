@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
 import com.streamcloud.app.data.nuvio.NuvioProviderEntry
 import com.streamcloud.app.data.nuvio.NuvioRepoManifest
