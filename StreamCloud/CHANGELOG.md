@@ -1,6 +1,12 @@
 # StreamCloud
 
-## Latest — Major Nuvio, music, and playback update
+## Latest — Stremio collection controls
+
+### Stremio
+- **No automatic collection imports** — adding an addon or opening Plugins no longer creates collections automatically; use an addon's Refresh action to import its catalogs on demand.
+- **Local collection cleanup** — the upgrade removes collections marked as Stremio-generated while preserving manual and Nuvio-owned collections.
+
+## Previous — Major Nuvio, music, and playback update
 
 ### Nuvio
 - **Profile-scoped account sync** — Nuvio accounts, installed providers, saved repositories, and imported media now stay isolated per StreamCloud profile.
