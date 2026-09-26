@@ -85,9 +85,6 @@ class PluginsViewModel(
                 ) }
             }
         }
-        viewModelScope.launch(Dispatchers.IO) {
-            stremio.syncAllAddonsCollections()
-        }
     }
 
     fun addRepo(name: String, url: String) = viewModelScope.launch {

@@ -121,7 +121,6 @@ class StremioRepository(private val context: Context) {
         )
         val list = addons.first().filterNot { it.manifestUrl == url } + addon
         saveAddons(list)
-        runCatching { syncAddonCollections(addon, mf, LibraryDb.get(context)) }
         addon
     }
 
@@ -287,16 +286,6 @@ class StremioRepository(private val context: Context) {
         val addon = addons.first().firstOrNull { it.manifestUrl == manifestUrl } ?: return@withContext
         val mf = runCatching { fetchManifest(manifestUrl) }.getOrNull() ?: return@withContext
         runCatching { syncAddonCollections(addon, mf, LibraryDb.get(context)) }
-    }
-
-    suspend fun syncAllAddonsCollections() = withContext(Dispatchers.IO) {
-        val db = LibraryDb.get(context)
-        addons.first().forEach { addon ->
-            runCatching {
-                val mf = fetchManifest(addon.manifestUrl)
-                syncAddonCollections(addon, mf, db)
-            }
-        }
     }
 
     suspend fun fetchHomeCatalog(addon: InstalledStremioAddon): List<StremioMetaPreview> =

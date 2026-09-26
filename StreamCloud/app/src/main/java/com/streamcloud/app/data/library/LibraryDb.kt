@@ -577,7 +577,7 @@ interface FollowedArtistDao {
         WatchedMovieEntity::class,
         MovieDownloadEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -798,6 +798,37 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Remove local collections previously imported from Stremio. Keep the
+                // Nuvio-owned dataset intact; the migration never touches remote data.
+                db.execSQL("CREATE TEMP TABLE stremio_collection_cleanup_ids (id INTEGER PRIMARY KEY NOT NULL)")
+                db.execSQL(
+                    """
+                    INSERT INTO stremio_collection_cleanup_ids (id)
+                    SELECT DISTINCT collections.id
+                    FROM user_collections AS collections
+                    WHERE collections.source_addon_id != '__nuvio__'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM collection_folders AS folders
+                          WHERE folders.collection_id = collections.id
+                            AND LOWER(folders.provider_type) = 'stremio'
+                      )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "DELETE FROM collection_folders WHERE collection_id IN " +
+                        "(SELECT id FROM stremio_collection_cleanup_ids)",
+                )
+                db.execSQL(
+                    "DELETE FROM user_collections WHERE id IN " +
+                        "(SELECT id FROM stremio_collection_cleanup_ids)",
+                )
+                db.execSQL("DROP TABLE stremio_collection_cleanup_ids")
+            }
+        }
+
         private const val LEGACY_DATABASE_NAME = "streamcloud-library.db"
         private const val PROFILE_DATABASE_PREFIX = "streamcloud-profile-"
         private const val PROFILE_PREFS = "sc_profiles"
@@ -818,7 +849,12 @@ abstract class LibraryDb : RoomDatabase() {
                     migrateLegacyDatabaseIfNeeded(appContext, profileId, databaseName)
                     Room.databaseBuilder(
                         appContext, LibraryDb::class.java, databaseName,
-                    ).addMigrations(MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                    ).addMigrations(
+                        MIGRATION_13_14,
+                        MIGRATION_14_15,
+                        MIGRATION_15_16,
+                        MIGRATION_16_17,
+                    )
                         .fallbackToDestructiveMigration()
                         .build()
                         .also { INSTANCES[databaseName] = it }
