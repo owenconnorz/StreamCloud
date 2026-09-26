@@ -643,7 +643,7 @@ class NuvioAccountService(private val context: Context) {
             val targetUrls = reconcileNuvioAddonUrls(
                 remote = orderedRemoteUrls,
                 local = localAfterPull.map { it.manifestUrl },
-                lastRemote = if (remoteSnapshot.isComplete) orderedRemoteUrls else previousRemoteUrls,
+                lastRemote = if (remoteSnapshot.isComplete) orderedRemoteUrls.toSet() else previousRemoteUrls,
             ).filterNot { normalizedNuvioAddonKey(it) in removedKeys }
             val knownKeys = localAfterPull
                 .map { normalizedNuvioAddonKey(it.manifestUrl) }
