@@ -56,7 +56,10 @@ fun CatalogPageScreen(
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
-    val watchedItems by remember(context) {
+    val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
+    val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
+    val storageScopeKey = "$nuvioUserId:${activeProfile?.id ?: "default"}"
+    val watchedItems by remember(storageScopeKey) {
         LibraryDb.get(context.applicationContext).watchedMovies().all()
     }.collectAsState(initial = emptyList())
     val watchedTmdbIds = remember(watchedItems) {

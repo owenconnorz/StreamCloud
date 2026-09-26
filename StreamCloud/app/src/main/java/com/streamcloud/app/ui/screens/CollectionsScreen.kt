@@ -77,12 +77,10 @@ import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.UserCollectionEntity
-import com.streamcloud.app.data.nuvio.NuvioAccountService
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioCatalogDef
-import com.streamcloud.app.data.stremio.StremioRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -213,29 +211,30 @@ fun CollectionsScreen(
     onOpenCatalog: (source: String, title: String, subtitle: String) -> Unit = { _, _, _ -> },
 ) {
     val context = LocalContext.current
-    val db = remember { LibraryDb.get(context) }
+    val services = remember(context) { ServiceLocator.get(context.applicationContext) }
+    val nuvioUserId by services.settings.nuvioUserId.collectAsState(initial = "")
+    val activeProfileId by services.profiles.activeProfileId.collectAsState(
+        initial = services.profiles.currentActiveId(),
+    )
+    val storageScopeKey = "$nuvioUserId:${activeProfileId ?: "default"}"
+    val db = remember(storageScopeKey) {
+        LibraryDb.getForProfile(
+            context.applicationContext,
+            activeProfileId ?: "default",
+            nuvioUserId,
+        )
+    }
     val scope = rememberCoroutineScope()
     var nav by remember { mutableStateOf<CollNav>(CollNav.List) }
 
     // Pull profile-scoped collections when this screen opens. This makes a
     // newly linked Nuvio account visible immediately instead of waiting for
     // the periodic worker or a settings screen to trigger synchronization.
-    LaunchedEffect(Unit) {
-        val token = ServiceLocator.get(context.applicationContext)
-            .settings.nuvioAccessToken.first()
-            .trim()
+    LaunchedEffect(storageScopeKey) {
+        val token = services.settings.nuvioAccessToken.first().trim()
         if (token.isNotBlank()) {
             runCatching {
-                val service = NuvioAccountService.get(context.applicationContext)
-                val pull = com.streamcloud.app.data.nuvio.NuvioAutoSync
-                    .pullAfterPendingLibraryDeletes(context.applicationContext, token)
-                    .getOrThrow()
-                // Pull first so cloud-owned collections are visible immediately.
-                // A successful pull is followed by a push so locally-created
-                // collections can also be created in Nuvio.
-                if (pull.errors.isEmpty() && pull.collectionError == null) {
-                    service.syncAll(token)
-                }
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.syncNow(context.applicationContext)
             }
         }
     }
@@ -1270,7 +1269,7 @@ private fun StremioProviderSection(
     }
     var catalogMap by remember { mutableStateOf<Map<String, List<StremioCatalogDef>>>(emptyMap()) }
     var loadingAddon by remember { mutableStateOf<String?>(null) }
-    val stremioRepo = remember { StremioRepository(context.applicationContext) }
+    val stremioRepo = remember { com.streamcloud.app.data.ServiceLocator.get(context).stremio }
 
     LaunchedEffect(expandedAddon) {
         val addonId = expandedAddon ?: return@LaunchedEffect

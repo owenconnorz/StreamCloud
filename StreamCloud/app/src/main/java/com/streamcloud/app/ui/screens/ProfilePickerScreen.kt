@@ -106,7 +106,12 @@ fun ProfilePickerScreen(
     onDone: () -> Unit,
 ) {
     val context = LocalContext.current
-    val profiles by repo.profiles.collectAsState(initial = repo.currentProfiles())
+    val allProfiles by repo.profiles.collectAsState(initial = repo.currentProfiles())
+    val nuvioUserId by com.streamcloud.app.data.ServiceLocator.get(context)
+        .settings.nuvioUserId.collectAsState(initial = "")
+    val profiles = remember(allProfiles, nuvioUserId) {
+        repo.profilesForNuvioAccount(nuvioUserId)
+    }
     val activeId by repo.activeProfileId.collectAsState(initial = repo.currentActiveId())
 
     var view        by remember { mutableStateOf<PickerView>(PickerView.Grid) }

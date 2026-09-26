@@ -339,8 +339,8 @@ class PluginsViewModel(
                 @Suppress("UNCHECKED_CAST")
                 return PluginsViewModel(
                     PluginRepository(context.applicationContext),
-                    StremioRepository(context.applicationContext),
-                    NuvioRepository(context.applicationContext),
+                    ServiceLocator.get(context).stremio,
+                    ServiceLocator.get(context).nuvio,
                     context.applicationContext,
                 ) as T
             }

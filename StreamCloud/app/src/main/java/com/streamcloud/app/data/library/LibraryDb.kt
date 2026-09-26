@@ -17,7 +17,9 @@ import androidx.room.Transaction
 import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.streamcloud.app.data.profiles.ProfileRepository
+import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.nuvio.NuvioAccountScopeStore
+import com.streamcloud.app.data.nuvio.stableKey
 import java.io.File
 import kotlinx.coroutines.flow.Flow
 
@@ -831,22 +833,52 @@ abstract class LibraryDb : RoomDatabase() {
 
         private const val LEGACY_DATABASE_NAME = "streamcloud-library.db"
         private const val PROFILE_DATABASE_PREFIX = "streamcloud-profile-"
+        private const val NUVIO_DATABASE_PREFIX = "streamcloud-nuvio-"
         private const val PROFILE_PREFS = "sc_profiles"
         private const val LEGACY_MIGRATION_TARGET = "legacy_library_migrated_to"
+        private const val NUVIO_LEGACY_OWNER_PREFIX = "nuvio_legacy_owner_"
 
         @Volatile private var INSTANCES: MutableMap<String, LibraryDb> = mutableMapOf()
 
         fun get(context: Context): LibraryDb {
             val appContext = context.applicationContext
-            val profileRepo = ProfileRepository(appContext)
+            val profileRepo = ServiceLocator.get(appContext).profiles
             val profileId = (
                 profileRepo.currentActiveId()
                     ?: profileRepo.currentProfiles().firstOrNull()?.id
             ).takeIf { !it.isNullOrBlank() } ?: "default"
-            val databaseName = databaseName(profileId)
+            return getForProfile(
+                context = appContext,
+                profileId = profileId,
+                userId = NuvioAccountScopeStore.currentUserId(appContext),
+            )
+        }
+
+        /**
+         * Select the local library for a specific Nuvio account and StreamCloud
+         * profile. The first account to use a profile inherits its existing
+         * profile database; later accounts start with their own retained copy.
+         */
+        fun getForProfile(context: Context, profileId: String, userId: String): LibraryDb {
+            val appContext = context.applicationContext
+            val normalizedProfileId = profileId.takeIf { it.isNotBlank() } ?: "default"
+            val normalizedUserId = userId.trim()
+            val baseName = databaseName(normalizedProfileId)
+            val databaseName = databaseName(normalizedProfileId, normalizedUserId)
             return synchronized(this) {
                 INSTANCES[databaseName] ?: run {
-                    migrateLegacyDatabaseIfNeeded(appContext, profileId, databaseName)
+                    if (normalizedUserId.isBlank()) {
+                        migrateLegacyDatabaseIfNeeded(appContext, normalizedProfileId, databaseName)
+                    } else {
+                        migrateLegacyDatabaseIfNeeded(appContext, normalizedProfileId, baseName)
+                        migrateProfileDatabaseToFirstAccount(
+                            context = appContext,
+                            profileId = normalizedProfileId,
+                            userId = normalizedUserId,
+                            sourceName = baseName,
+                            targetName = databaseName,
+                        )
+                    }
                     Room.databaseBuilder(
                         appContext, LibraryDb::class.java, databaseName,
                     ).addMigrations(
@@ -862,16 +894,50 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
-        private fun databaseName(profileId: String): String {
+        private fun databaseName(profileId: String, userId: String = ""): String {
             val safeId = profileId
                 .lowercase()
                 .replace(Regex("[^a-z0-9_-]"), "_")
                 .take(48)
                 .ifBlank { "default" }
+            if (userId.isNotBlank()) {
+                val accountKey = stableKey(userId).take(16)
+                return "$NUVIO_DATABASE_PREFIX$accountKey-$safeId.db"
+            }
             return if (safeId == "default") {
                 LEGACY_DATABASE_NAME
             } else {
                 "$PROFILE_DATABASE_PREFIX$safeId.db"
+            }
+        }
+
+        private fun migrateProfileDatabaseToFirstAccount(
+            context: Context,
+            profileId: String,
+            userId: String,
+            sourceName: String,
+            targetName: String,
+        ) {
+            val prefs = context.getSharedPreferences(PROFILE_PREFS, Context.MODE_PRIVATE)
+            val ownerKey = "$NUVIO_LEGACY_OWNER_PREFIX${stableKey(profileId).take(16)}"
+            val owner = prefs.getString(ownerKey, null)
+            if (owner != null && owner != userId) return
+
+            val source = context.getDatabasePath(sourceName)
+            val target = context.getDatabasePath(targetName)
+            if (!target.exists() && source.exists()) {
+                // Flush SQLite's WAL before copying the profile's existing data
+                // into its first Nuvio account database.
+                INSTANCES.remove(sourceName)?.close()
+                target.parentFile?.mkdirs()
+                source.copyTo(target, overwrite = false)
+                copyDatabaseSidecar(source, target, "-wal")
+                copyDatabaseSidecar(source, target, "-shm")
+            }
+            if (owner == null) {
+                check(prefs.edit().putString(ownerKey, userId).commit()) {
+                    "Could not persist the first Nuvio account for the local library"
+                }
             }
         }
 

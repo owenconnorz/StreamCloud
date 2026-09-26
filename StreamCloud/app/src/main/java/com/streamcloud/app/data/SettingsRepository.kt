@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.streamcloud.app.BuildConfig
+import com.streamcloud.app.data.nuvio.NuvioAccountScopeStore
 import com.streamcloud.app.data.plugins.PinnedCsSection
 import com.streamcloud.app.data.plugins.csHomeSectionsJson
 import com.streamcloud.app.data.ytmusic.YtmSong
@@ -722,19 +723,24 @@ class SettingsRepository(private val context: Context) {
     val nuvioEmail: Flow<String>        = context.dataStore.data.map { it[SettingsKeys.NUVIO_EMAIL]         ?: "" }
     val nuvioUserId: Flow<String>       = context.dataStore.data.map { it[SettingsKeys.NUVIO_USER_ID]       ?: "" }
 
-    suspend fun setNuvioSession(accessToken: String, refreshToken: String, email: String, userId: String) =
+    suspend fun setNuvioSession(accessToken: String, refreshToken: String, email: String, userId: String) {
+        NuvioAccountScopeStore.setCurrentUserId(context, userId)
         context.dataStore.edit {
             it[SettingsKeys.NUVIO_ACCESS_TOKEN]  = accessToken
             it[SettingsKeys.NUVIO_REFRESH_TOKEN] = refreshToken
             it[SettingsKeys.NUVIO_EMAIL]         = email
             it[SettingsKeys.NUVIO_USER_ID]       = userId
         }
+    }
 
-    suspend fun clearNuvioSession() = context.dataStore.edit {
-        it.remove(SettingsKeys.NUVIO_ACCESS_TOKEN)
-        it.remove(SettingsKeys.NUVIO_REFRESH_TOKEN)
-        it.remove(SettingsKeys.NUVIO_EMAIL)
-        it.remove(SettingsKeys.NUVIO_USER_ID)
+    suspend fun clearNuvioSession() {
+        NuvioAccountScopeStore.setCurrentUserId(context, "")
+        context.dataStore.edit {
+            it.remove(SettingsKeys.NUVIO_ACCESS_TOKEN)
+            it.remove(SettingsKeys.NUVIO_REFRESH_TOKEN)
+            it.remove(SettingsKeys.NUVIO_EMAIL)
+            it.remove(SettingsKeys.NUVIO_USER_ID)
+        }
     }
 
     // ── Movies / video settings ─────────────────────────────────────────────

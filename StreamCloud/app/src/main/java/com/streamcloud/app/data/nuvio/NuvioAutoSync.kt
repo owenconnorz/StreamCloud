@@ -15,6 +15,10 @@ import androidx.work.WorkerParameters
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.nuvio.NuvioAccountScopeStore
+import com.streamcloud.app.data.nuvio.stableKey
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
@@ -30,6 +34,7 @@ object NuvioAutoSync {
     private const val SYNC_PREFS = "nuvio_sync"
     private const val PENDING_LIBRARY_DELETES = "pending_library_deletes"
     private const val PENDING_ADDON_DELETES = "pending_addon_deletes"
+    private val syncMutex = Mutex()
 
     fun installPeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<NuvioAutoSyncWorker>(15, TimeUnit.MINUTES)
@@ -65,7 +70,7 @@ object NuvioAutoSync {
         if (canonicalUrl.isBlank()) return
         val scope = addonSyncScope(context) ?: return
         val (userId, profileIndex) = scope
-        val key = addonDeletePreferenceKey(userId, profileIndex)
+        val key = addonDeletePreferenceKey(context, userId, profileIndex)
         val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
         val pending = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
         pending += canonicalUrl
@@ -83,7 +88,7 @@ object NuvioAutoSync {
         if (canonicalUrl.isBlank()) return
         val scope = addonSyncScope(context) ?: return
         val (userId, profileIndex) = scope
-        val key = addonDeletePreferenceKey(userId, profileIndex)
+        val key = addonDeletePreferenceKey(context, userId, profileIndex)
         val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
         val targetKey = normalizedNuvioAddonKey(canonicalUrl)
         val pending = prefs.getStringSet(key, emptySet()).orEmpty()
@@ -101,7 +106,7 @@ object NuvioAutoSync {
     ): Set<String> {
         if (userId.isBlank()) return emptySet()
         val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        return prefs.getStringSet(addonDeletePreferenceKey(userId, profileIndex), emptySet())
+        return prefs.getStringSet(addonDeletePreferenceKey(context, userId, profileIndex), emptySet())
             .orEmpty()
             .map(::canonicalNuvioAddonUrl)
             .filter { it.isNotBlank() }
@@ -116,7 +121,7 @@ object NuvioAutoSync {
     ) {
         if (userId.isBlank() || deletedUrls.isEmpty()) return
         val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        val key = addonDeletePreferenceKey(userId, profileIndex)
+        val key = addonDeletePreferenceKey(context, userId, profileIndex)
         val deletedKeys = deletedUrls.map(::normalizedNuvioAddonKey).toSet()
         val pending = prefs.getStringSet(key, emptySet()).orEmpty()
             .filterNot { normalizedNuvioAddonKey(it) in deletedKeys }
@@ -136,44 +141,90 @@ object NuvioAutoSync {
         val selected = profiles.currentProfiles().firstOrNull {
             it.id == profiles.currentActiveId()
         } ?: profiles.currentProfiles().firstOrNull()
-        val profileIndex = selected?.nuvioProfileIndex ?: return null
+        val profileIndex = selected?.let {
+            profiles.nuvioProfileIndex(userId, it.id)
+        } ?: return null
         return userId to profileIndex
     }
 
-    private fun addonDeletePreferenceKey(userId: String, profileIndex: Int): String =
-        "${PENDING_ADDON_DELETES}_${userId}_$profileIndex"
+    private fun addonDeletePreferenceKey(
+        context: Context,
+        userId: String,
+        profileIndex: Int,
+    ): String {
+        val accountKey = stableKey("$userId:$profileIndex").take(16)
+        val scopedKey = "${PENDING_ADDON_DELETES}_$accountKey"
+        val legacyKey = "${PENDING_ADDON_DELETES}_${userId}_$profileIndex"
+        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val legacy = prefs.getStringSet(legacyKey, null)?.toSet() ?: return scopedKey
+        val current = prefs.getStringSet(scopedKey, emptySet()).orEmpty().toSet()
+        check(
+            prefs.edit()
+                .putStringSet(scopedKey, current + legacy)
+                .remove(legacyKey)
+                .commit(),
+        ) { "Could not migrate the Nuvio addon deletion requests" }
+        return scopedKey
+    }
 
     /**
      * Records the deletion before scheduling work. This is intentionally
      * separate from the network request: a user can remove an item while
      * offline, and Nuvio must not recreate it on the next pull.
      */
-    fun requestLibraryDelete(context: Context, tmdbId: Long, mediaType: String) {
+    suspend fun requestLibraryDelete(context: Context, tmdbId: Long, mediaType: String) {
         val contentType = when (mediaType.lowercase()) {
             "tv", "series" -> "series"
             "movie" -> "movie"
             else -> return
         }
+        val appContext = context.applicationContext
+        val services = ServiceLocator.get(appContext)
+        val userId = services.settings.nuvioUserId.first().trim()
+        if (userId.isBlank()) return
+        NuvioAccountScopeStore.setCurrentUserId(appContext, userId)
+        val profiles = services.profiles
+        val localProfileId = profiles.currentActiveId()
+            ?: profiles.currentProfiles().firstOrNull()?.id
+            ?: return
+        if (profiles.nuvioProfileIndex(userId, localProfileId) == null) return
         val key = "$contentType:tmdb:$tmdbId"
-        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        val pending = prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().toMutableSet()
+        val prefs = appContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val preferenceKey = libraryDeletePreferenceKey(userId, localProfileId)
+        val pending = prefs.getStringSet(preferenceKey, emptySet()).orEmpty().toMutableSet()
         pending += key
         // The process may be stopped immediately after the user removes an item.
         // A tombstone must be on disk before any background work is scheduled.
-        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).commit()
+        check(prefs.edit().putStringSet(preferenceKey, pending).commit()) {
+            "Could not persist the Nuvio library deletion request"
+        }
         request(context)
     }
 
-    suspend fun pushPendingLibraryDeletes(context: Context, accessToken: String) {
+    suspend fun pushPendingLibraryDeletes(
+        context: Context,
+        accessToken: String,
+        userId: String? = null,
+        localProfileId: String? = null,
+    ) {
         val appContext = context.applicationContext
-        val pending = pendingLibraryDeletes(appContext)
+        val services = ServiceLocator.get(appContext)
+        val targetUserId = userId?.trim()?.takeIf { it.isNotBlank() }
+            ?: services.settings.nuvioUserId.first().trim()
+        val targetProfileId = localProfileId?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentActiveId()
+                ?: services.profiles.currentProfiles().firstOrNull()?.id
+                ?: return
+        val pending = pendingLibraryDeletes(appContext, targetUserId, targetProfileId)
         if (pending.isEmpty()) return
 
         NuvioAccountService.get(appContext).deleteLibraryItems(
             accessToken,
             pending.map { NuvioLibraryDeleteKey(it.contentId, it.contentType) },
+            userId = targetUserId,
+            localProfileId = targetProfileId,
         )
-        clearLibraryDeletes(appContext, pending)
+        clearLibraryDeletes(appContext, pending, targetUserId, targetProfileId)
     }
 
     /**
@@ -187,20 +238,49 @@ object NuvioAutoSync {
         val token = settings.nuvioAccessToken.first().trim()
         if (token.isBlank()) return Result.success(Unit)
 
+        return syncNowDetailed(appContext).map { Unit }
+    }
+
+    data class SyncOutcome(
+        val pull: NuvioPullResult,
+        val push: NuvioSyncResult,
+    )
+
+    suspend fun syncNowDetailed(context: Context): Result<SyncOutcome> = syncMutex.withLock {
+        val appContext = context.applicationContext
+        val settings = ServiceLocator.get(appContext).settings
+        val services = ServiceLocator.get(appContext)
+        val accessToken = settings.nuvioAccessToken.first().trim()
+        val userId = settings.nuvioUserId.first().trim()
+        if (accessToken.isBlank()) {
+            return@withLock Result.failure(IllegalStateException("No Nuvio session is active"))
+        }
+        if (userId.isBlank()) {
+            return@withLock Result.failure(IllegalStateException("The Nuvio session has no account ID"))
+        }
+        val localProfileId = services.profiles.currentActiveId()
+            ?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentProfiles().firstOrNull()?.id
+            ?: "default"
+
+        NuvioAccountScopeStore.setCurrentUserId(appContext, userId)
         val service = NuvioAccountService.get(appContext)
 
-        suspend fun attempt(accessToken: String): Result<String?> = try {
-            pushPendingLibraryDeletes(appContext, accessToken)
-            val pull = service.syncPull(accessToken)
+        suspend fun attempt(token: String): Result<SyncOutcome> = try {
+            val pull = service.syncPull(token, userId, localProfileId)
             if (pull.errors.isNotEmpty()) {
-                Result.success(pull.errors.distinct().joinToString("; "))
+                Result.failure(IllegalStateException(pull.errors.distinct().joinToString("; ")))
             } else {
-                val push = service.syncAll(accessToken)
-                Result.success(
-                    push.errors.takeIf { it.isNotEmpty() }
-                        ?.distinct()
-                        ?.joinToString("; "),
+                val push = service.syncAll(
+                    accessToken = token,
+                    userId = userId,
+                    localProfileId = pull.localProfileId.ifBlank { localProfileId },
                 )
+                if (push.errors.isNotEmpty()) {
+                    Result.failure(IllegalStateException(push.errors.distinct().joinToString("; ")))
+                } else {
+                    Result.success(SyncOutcome(pull, push))
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -208,53 +288,45 @@ object NuvioAutoSync {
             Result.failure(failure)
         }
 
-        val firstAttempt = attempt(token)
-        if (firstAttempt.isSuccess && firstAttempt.getOrNull() == null) {
-            return Result.success(Unit)
-        }
+        val firstAttempt = attempt(accessToken)
+        if (firstAttempt.isSuccess) return@withLock firstAttempt
 
-        val firstMessage = firstAttempt.exceptionOrNull()?.message
-            ?: firstAttempt.getOrNull()
-            ?: "Nuvio sync failed"
+        val firstFailure = firstAttempt.exceptionOrNull()
+            ?: IllegalStateException("Nuvio sync failed")
         val refreshToken = settings.nuvioRefreshToken.first().trim()
-        if (refreshToken.isBlank()) {
-            return Result.failure(
-                firstAttempt.exceptionOrNull() ?: IllegalStateException(firstMessage),
-            )
-        }
+        if (refreshToken.isBlank()) return@withLock Result.failure(firstFailure)
 
         val refreshed = service.refreshToken(refreshToken)
         if (refreshed.isFailure) {
             val refreshFailure = refreshed.exceptionOrNull()
-            return Result.failure(
+            return@withLock Result.failure(
                 IllegalStateException(
-                    "Nuvio sync failed: $firstMessage; token refresh failed: " +
-                        (refreshFailure?.message ?: "unknown error"),
+                    "Nuvio sync failed: ${firstFailure.message ?: "unknown error"}; " +
+                        "token refresh failed: ${refreshFailure?.message ?: "unknown error"}",
                     refreshFailure,
                 ),
             )
         }
 
+        if (settings.nuvioUserId.first().trim() != userId) {
+            return@withLock Result.failure(
+                IllegalStateException("The Nuvio account changed while sync was running"),
+            )
+        }
         val session = refreshed.getOrThrow()
+        val refreshedUserId = session.user?.id?.takeIf { it.isNotBlank() }
+        if (refreshedUserId != null && refreshedUserId != userId) {
+            return@withLock Result.failure(
+                IllegalStateException("Token refresh returned a different Nuvio account"),
+            )
+        }
         settings.setNuvioSession(
             accessToken = session.access_token,
             refreshToken = session.refresh_token.ifBlank { refreshToken },
             email = session.user?.email ?: settings.nuvioEmail.first(),
-            userId = session.user?.id ?: settings.nuvioUserId.first(),
+            userId = refreshedUserId ?: userId,
         )
-
-        val retry = attempt(session.access_token)
-        if (retry.isSuccess && retry.getOrNull() == null) {
-            return Result.success(Unit)
-        }
-
-        return Result.failure(
-            retry.exceptionOrNull()
-                ?: IllegalStateException(
-                    "Nuvio sync failed after token refresh: " +
-                        (retry.getOrNull() ?: "unknown error"),
-                ),
-        )
+        attempt(session.access_token)
     }
 
     private data class PendingDelete(
@@ -263,9 +335,27 @@ object NuvioAutoSync {
         val contentId: String,
     )
 
-    private fun pendingLibraryDeletes(context: Context): List<PendingDelete> {
+    private fun libraryDeletePreferenceKey(userId: String, localProfileId: String): String =
+        "${PENDING_LIBRARY_DELETES}_${stableKey("$userId:$localProfileId").take(16)}"
+
+    private fun pendingLibraryDeletes(
+        context: Context,
+        userId: String,
+        localProfileId: String,
+    ): List<PendingDelete> {
         val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        return prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().mapNotNull { value ->
+        val scopedKey = libraryDeletePreferenceKey(userId, localProfileId)
+        val legacyDeletes = prefs.getStringSet(PENDING_LIBRARY_DELETES, null)
+        if (legacyDeletes != null) {
+            val scopedDeletes = prefs.getStringSet(scopedKey, emptySet()).orEmpty()
+            check(
+                prefs.edit()
+                    .putStringSet(scopedKey, scopedDeletes + legacyDeletes)
+                    .remove(PENDING_LIBRARY_DELETES)
+                    .commit(),
+            ) { "Could not migrate the pending Nuvio library deletions" }
+        }
+        return prefs.getStringSet(scopedKey, emptySet()).orEmpty().mapNotNull { value ->
             val separator = value.indexOf(':')
             if (separator <= 0 || separator == value.lastIndex) return@mapNotNull null
             val contentType = value.substring(0, separator)
@@ -274,12 +364,20 @@ object NuvioAutoSync {
         }
     }
 
-    private fun clearLibraryDeletes(context: Context, deletes: Collection<PendingDelete>) {
+    private fun clearLibraryDeletes(
+        context: Context,
+        deletes: Collection<PendingDelete>,
+        userId: String,
+        localProfileId: String,
+    ) {
         if (deletes.isEmpty()) return
         val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        val pending = prefs.getStringSet(PENDING_LIBRARY_DELETES, emptySet()).orEmpty().toMutableSet()
+        val key = libraryDeletePreferenceKey(userId, localProfileId)
+        val pending = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
         deletes.forEach { pending.remove(it.serialized) }
-        prefs.edit().putStringSet(PENDING_LIBRARY_DELETES, pending).commit()
+        check(prefs.edit().putStringSet(key, pending).commit()) {
+            "Could not clear confirmed Nuvio library deletions"
+        }
     }
 
     /**
@@ -288,10 +386,9 @@ object NuvioAutoSync {
      */
     suspend fun pullAfterPendingLibraryDeletes(
         context: Context,
-        accessToken: String,
+        @Suppress("UNUSED_PARAMETER") accessToken: String,
     ): Result<NuvioPullResult> = runCatching {
-        pushPendingLibraryDeletes(context, accessToken)
-        NuvioAccountService.get(context.applicationContext).syncPull(accessToken)
+        syncNowDetailed(context).getOrThrow().pull
     }
 
     private fun networkConstraints() = Constraints.Builder()

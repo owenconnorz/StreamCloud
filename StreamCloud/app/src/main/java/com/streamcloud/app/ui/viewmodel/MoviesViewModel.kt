@@ -836,7 +836,7 @@ class MoviesViewModel(
                 return MoviesViewModel(
                     ServiceLocator.get(context),
                     PluginRepository(context.applicationContext),
-                    StremioRepository(context.applicationContext),
+                    ServiceLocator.get(context).stremio,
                     context.applicationContext,
                 ) as T
             }

@@ -9,15 +9,25 @@ import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.UserCollectionEntity
 import com.streamcloud.app.data.network.Net
+import com.streamcloud.app.data.nuvio.NuvioStorageScope
+import com.streamcloud.app.data.nuvio.stableKey
+import com.streamcloud.app.data.profiles.ProfileRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import com.streamcloud.app.data.network.BrowserCookieJar
@@ -29,6 +39,7 @@ import java.util.concurrent.TimeUnit
 
 private val Context.stremioStore by preferencesDataStore("streamcloud_stremio")
 private val KEY_ADDONS = stringPreferencesKey("addons_json")
+private val KEY_LEGACY_SCOPE_OWNER = stringPreferencesKey("legacy_scope_owner")
 
 internal fun reorderInstalledStremioAddons(
     installed: List<InstalledStremioAddon>,
@@ -82,7 +93,26 @@ internal fun normalizeStremioManifestUrl(input: String): String {
     return manifestUrl + query
 }
 
-class StremioRepository(private val context: Context) {
+class StremioRepository(
+    private val context: Context,
+    private val settings: SettingsRepository,
+    private val profiles: ProfileRepository,
+) {
+
+    private val legacyMigrationMutex = Mutex()
+    private val scopeFlow = combine(
+        settings.nuvioUserId,
+        profiles.activeProfileId,
+        profiles.profiles,
+    ) { userId, activeProfileId, currentProfiles ->
+        NuvioStorageScope(
+            userId = userId.trim(),
+            localProfileId = activeProfileId
+                ?.takeIf(String::isNotBlank)
+                ?: currentProfiles.firstOrNull()?.id
+                ?: "default",
+        )
+    }.distinctUntilChanged()
 
     private val http = OkHttpClient.Builder()
         .cookieJar(BrowserCookieJar)
@@ -91,26 +121,80 @@ class StremioRepository(private val context: Context) {
         .followRedirects(true)
         .build()
 
-    val addons: Flow<List<InstalledStremioAddon>> = context.stremioStore.data.map { prefs ->
-        prefs[KEY_ADDONS]?.let {
+    private fun addonsKey(scope: NuvioStorageScope) =
+        if (scope.userId.isBlank()) KEY_ADDONS
+        else stringPreferencesKey("addons_${scope.storageKey}")
+
+    val addons: Flow<List<InstalledStremioAddon>> =
+        scopeFlow.flatMapLatest(::addonsFor).distinctUntilChanged()
+
+    suspend fun addonsFor(scope: NuvioStorageScope): Flow<List<InstalledStremioAddon>> = flow {
+        migrateLegacyAddons(scope)
+        emitAll(
+            context.stremioStore.data.map { prefs ->
+                prefs[addonsKey(scope)]?.let {
+                    runCatching {
+                        Net.json.decodeFromString(ListSerializer(InstalledStremioAddon.serializer()), it)
+                    }.getOrDefault(emptyList())
+                } ?: emptyList()
+            },
+        )
+    }
+
+    private suspend fun migrateLegacyAddons(scope: NuvioStorageScope) {
+        if (scope.userId.isBlank()) return
+        legacyMigrationMutex.withLock {
+            val before = context.stremioStore.data.first()
+            if (before[KEY_LEGACY_SCOPE_OWNER] != null) return
+            val oldAddons = before[KEY_ADDONS]?.let {
+                runCatching {
+                    Net.json.decodeFromString(ListSerializer(InstalledStremioAddon.serializer()), it)
+                }.getOrDefault(emptyList())
+            }.orEmpty()
+            val mergedByUrl = linkedMapOf<String, InstalledStremioAddon>()
+            (oldAddons + decodeScopedAddons(before[addonsKey(scope)])).forEach { addon ->
+                mergedByUrl[normalizeStremioManifestUrl(addon.manifestUrl)] = addon
+            }
+            val mergedAddons = mergedByUrl.values.toList()
+            val encoded = Net.json.encodeToString(
+                ListSerializer(InstalledStremioAddon.serializer()),
+                mergedAddons,
+            )
+            context.stremioStore.edit { prefs ->
+                if (prefs[KEY_LEGACY_SCOPE_OWNER] != null) return@edit
+                if (mergedAddons.isNotEmpty()) {
+                    prefs[addonsKey(scope)] = encoded
+                }
+                prefs[KEY_LEGACY_SCOPE_OWNER] = scope.storageKey
+                prefs.remove(KEY_ADDONS)
+            }
+        }
+    }
+
+    private fun decodeScopedAddons(raw: String?): List<InstalledStremioAddon> =
+        raw?.let {
             runCatching {
                 Net.json.decodeFromString(ListSerializer(InstalledStremioAddon.serializer()), it)
             }.getOrDefault(emptyList())
-        } ?: emptyList()
-    }
+        }.orEmpty()
 
-    private suspend fun saveAddons(list: List<InstalledStremioAddon>) {
+    private suspend fun saveAddons(list: List<InstalledStremioAddon>, scope: NuvioStorageScope) {
         val text = Net.json.encodeToString(ListSerializer(InstalledStremioAddon.serializer()), list)
-        context.stremioStore.edit { it[KEY_ADDONS] = text }
+        context.stremioStore.edit { it[addonsKey(scope)] = text }
     }
 
-    suspend fun reorderAddons(orderedUrls: List<String>) {
-        val current = addons.first()
+    suspend fun reorderAddons(orderedUrls: List<String>, scope: NuvioStorageScope? = null) {
+        val targetScope = scope ?: scopeFlow.first()
+        val current = addonsFor(targetScope).first()
         val reordered = reorderInstalledStremioAddons(current, orderedUrls)
-        if (reordered != current) saveAddons(reordered)
+        if (reordered != current) saveAddons(reordered, targetScope)
     }
 
-    suspend fun addAddon(manifestUrlOrBase: String): InstalledStremioAddon = withContext(Dispatchers.IO) {
+    suspend fun addAddon(
+        manifestUrlOrBase: String,
+        scope: NuvioStorageScope? = null,
+    ): InstalledStremioAddon = withContext(Dispatchers.IO) {
+        val targetScope = scope ?: scopeFlow.first()
         val url = normalize(manifestUrlOrBase)
         val baseUrl = url.removeSuffix("/manifest.json").trimEnd('/')
         val mf = fetchManifest(url)
@@ -119,22 +203,33 @@ class StremioRepository(private val context: Context) {
             logo = mf.logo ?: mf.icon, installedAt = System.currentTimeMillis(),
             version = mf.version,
         )
-        val list = addons.first().filterNot { it.manifestUrl == url } + addon
-        saveAddons(list)
+        val list = addonsFor(targetScope).first().filterNot { it.manifestUrl == url } + addon
+        saveAddons(list, targetScope)
         addon
     }
 
-    suspend fun updateAddon(updated: InstalledStremioAddon) {
-        val list = addons.first().map { if (it.manifestUrl == updated.manifestUrl) updated else it }
-        saveAddons(list)
+    suspend fun updateAddon(updated: InstalledStremioAddon, scope: NuvioStorageScope? = null) {
+        val targetScope = scope ?: scopeFlow.first()
+        val list = addonsFor(targetScope).first().map {
+            if (it.manifestUrl == updated.manifestUrl) updated else it
+        }
+        saveAddons(list, targetScope)
     }
 
-    suspend fun removeAddon(manifestUrl: String) {
-        val target = addons.first().firstOrNull { it.manifestUrl == manifestUrl }
-        saveAddons(addons.first().filterNot { it.manifestUrl == manifestUrl })
+    suspend fun removeAddon(manifestUrl: String, scope: NuvioStorageScope? = null) {
+        val targetScope = scope ?: scopeFlow.first()
+        val target = addonsFor(targetScope).first().firstOrNull { it.manifestUrl == manifestUrl }
+        saveAddons(
+            addonsFor(targetScope).first().filterNot { it.manifestUrl == manifestUrl },
+            targetScope,
+        )
         if (target != null) {
             runCatching {
-                val db = LibraryDb.get(context)
+                val db = LibraryDb.getForProfile(
+                    context,
+                    targetScope.localProfileId,
+                    targetScope.userId,
+                )
                 val collectionDao = db.userCollections()
                 val folderDao = db.collectionFolders()
                 val cols = collectionDao.bySourceAddon(target.id)

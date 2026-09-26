@@ -10,7 +10,9 @@ data class UserProfile(
     val avatarUrl: String = "",
     val avatarSeed: String = "",
     val pinHash: String = "",
+    // Kept to migrate profile mappings written by older app versions.
     val nuvioProfileIndex: Int? = null,
+    val nuvioProfileIndexes: Map<String, Int> = emptyMap(),
 ) {
     companion object {
         fun create(name: String) = UserProfile(

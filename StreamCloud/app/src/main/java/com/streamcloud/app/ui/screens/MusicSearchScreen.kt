@@ -80,7 +80,15 @@ fun MusicSearchScreen(
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
     val scope = rememberCoroutineScope()
-    val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
+    val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
+    val activeProfileId by sl.profiles.activeProfileId.collectAsState(
+        initial = sl.profiles.currentActiveId(),
+    )
+    val storageScopeKey = "$nuvioUserId:${activeProfileId ?: "default"}"
+    val vm: MusicViewModel = viewModel(
+        key = "music-search-$storageScopeKey",
+        factory = MusicViewModel.factory(context),
+    )
     val state by vm.state.collectAsState()
     val nowPlayingMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
     val playbackIsPlaying by PlaybackBus.isPlaying.collectAsState()

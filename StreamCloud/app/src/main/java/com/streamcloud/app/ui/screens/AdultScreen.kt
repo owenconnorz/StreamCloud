@@ -88,7 +88,16 @@ fun AdultScreen(
     screenSubtitle: String = "",
 ) {
     val context = LocalContext.current
-    val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(context))
+    val services = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
+    val nuvioUserId by services.settings.nuvioUserId.collectAsState(initial = "")
+    val activeProfileId by services.profiles.activeProfileId.collectAsState(
+        initial = services.profiles.currentActiveId(),
+    )
+    val storageScopeKey = "$nuvioUserId:${activeProfileId ?: "default"}"
+    val vm: AdultViewModel = viewModel(
+        key = "adult-$storageScopeKey",
+        factory = AdultViewModel.factory(context),
+    )
     val state by vm.state.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -608,7 +617,16 @@ fun AdultSearchScreen(
     onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
 ) {
     val context = LocalContext.current
-    val vm: AdultViewModel = viewModel(factory = AdultViewModel.factory(context))
+    val services = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
+    val nuvioUserId by services.settings.nuvioUserId.collectAsState(initial = "")
+    val activeProfileId by services.profiles.activeProfileId.collectAsState(
+        initial = services.profiles.currentActiveId(),
+    )
+    val storageScopeKey = "$nuvioUserId:${activeProfileId ?: "default"}"
+    val vm: AdultViewModel = viewModel(
+        key = "adult-feed-$storageScopeKey",
+        factory = AdultViewModel.factory(context),
+    )
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }

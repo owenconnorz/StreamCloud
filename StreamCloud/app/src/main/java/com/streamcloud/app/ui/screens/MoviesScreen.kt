@@ -66,7 +66,6 @@ import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
-import com.streamcloud.app.data.profiles.ProfileRepository
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.StremioHomeRow
@@ -169,17 +168,18 @@ fun MoviesScreen(
     onOpenCollectionTabbed: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
-    val profileRepo = remember(context) {
-        ProfileRepository(context.applicationContext)
-    }
+    val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
+    val profileRepo = sl.profiles
     val activeProfile by profileRepo.activeProfile.collectAsState(initial = null)
+    val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
     val profileKey = activeProfile?.id ?: "default"
+    val storageScopeKey = "$nuvioUserId:$profileKey"
     val vm: MoviesViewModel = viewModel(
-        key = "movies-$profileKey",
+        key = "movies-$storageScopeKey",
         factory = MoviesViewModel.factory(context),
     )
     val state by vm.state.collectAsState()
-    val watchedItems by remember(context) {
+    val watchedItems by remember(storageScopeKey) {
         LibraryDb.get(context.applicationContext).watchedMovies().all()
     }.collectAsState(initial = emptyList())
     val watchedTmdbIds = remember(watchedItems) {

@@ -15,8 +15,14 @@ The sync service must update the same in-memory `ProfileRepository` instance tha
 
 **How to apply:** Obtain profile state through the application service locator during sync, and cache per-sync external-ID resolutions before writing watch progress, watched titles, or library items.
 
-Addon state is shared locally across Nuvio profiles, so remote reconciliation must use a durable account-and-profile snapshot. An empty read is not proof of deletion; if a profile previously had synced addons but the preflight is empty, block the replacement push. Library deletion must also fail closed when the selected local profile has no Nuvio mapping—never default to profile 1.
+Nuvio-derived local state is isolated by Nuvio account and StreamCloud profile, including providers, repositories, addons, collections, watch history, and the Room library. Preserve old unscoped data by assigning it only to the first authenticated account/profile that claims it; never copy it into later accounts.
 
-**Why:** An incomplete or misrouted snapshot can remove addons owned by another profile, while a profile-index fallback can delete or verify items against the wrong Nuvio library.
+**Why:** A shared local store makes one Nuvio account appear to contain another account's data. Older local stores did not record the owning account, so a single first-claim migration preserves them without guessing or duplicating them across accounts.
 
-**How to apply:** Keep a per-user, per-profile addon baseline, preserve local-only and other-profile entries, and prune only after a complete non-empty pull. Route deletion through the selected profile's mapped index and clear its durable delete request only after the remote row is confirmed gone.
+**How to apply:** Include the authenticated user and local profile in storage keys and database selection. Claim legacy scalar profile mappings and unscoped data for the first authenticated account/profile only. Persist each explicit addon deletion before local removal, scoped to the signed-in user and selected Nuvio profile. Use an exact-count REST range as the completeness check, remove only previously synced URLs absent from a verified snapshot, and preserve a local re-add made after that snapshot. Push the replacement excluding pending tombstones, verify the complete saved URL set, then clear only confirmed tombstones. Route library deletion through the selected profile's mapped index and clear its durable delete request only after the remote row is confirmed gone.
+
+A remote addon may remain saved in Nuvio after its manifest becomes unreachable. Treat an individual manifest fetch failure as a warning, not an account-sync failure: continue processing other addons, retain the remote URL in the baseline, and never show its query-bearing URL to the user.
+
+**Why:** Addon availability is independent of account authentication and unrelated sync datasets; one dead endpoint should not block watch-history or library sync, and addon query strings can contain credentials.
+
+**How to apply:** Catch manifest-install failures per addon while rethrowing coroutine cancellation. Sanitize warnings to the host and HTTP status, continue the pull, and reserve hard errors for failures reading or persisting the Nuvio snapshot.

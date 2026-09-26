@@ -14,10 +14,10 @@ import kotlinx.coroutines.flow.first
 
 class ServiceLocator(context: Context) {
     val settings = SettingsRepository(context.applicationContext)
-    val plugins = PluginRepository(context.applicationContext)
-    val stremio = StremioRepository(context.applicationContext)
-    val nuvio = NuvioRepository(context.applicationContext)
     val profiles = ProfileRepository(context.applicationContext)
+    val plugins = PluginRepository(context.applicationContext)
+    val stremio = StremioRepository(context.applicationContext, settings, profiles)
+    val nuvio = NuvioRepository(context.applicationContext, settings, profiles)
 
     val torrentService: TorrentService = TorrentService(context.applicationContext)
 

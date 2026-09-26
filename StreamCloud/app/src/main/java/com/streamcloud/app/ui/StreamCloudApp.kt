@@ -197,6 +197,14 @@ fun StreamCloudApp() {
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
     val navHiddenCsv by sl.settings.navHiddenTabsCsv.collectAsState(initial = null)
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
+    val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
+    var libraryScopeReady by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val storedUserId = sl.settings.nuvioUserId.first().trim()
+        com.streamcloud.app.data.nuvio.NuvioAccountScopeStore
+            .setCurrentUserId(context.applicationContext, storedUserId)
+        libraryScopeReady = true
+    }
     val miniNowPlayingId by com.streamcloud.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState(initial = null)
     var dismissedMiniPlayerId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(miniNowPlayingId) {
@@ -580,8 +588,11 @@ fun StreamCloudApp() {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxSize()) {
                         val startRoute = resolvedStartRoute
-                         if (startRoute != null) {
-                         key(activeProfile?.id ?: "no-profile") {
+                         if (startRoute != null && libraryScopeReady) {
+                         key(
+                             activeProfile?.id ?: "no-profile",
+                             nuvioUserId.ifBlank { "signed-out" },
+                         ) {
                          NavHost(
                  navController = nav,
                  startDestination = startRoute,
@@ -723,7 +734,7 @@ fun StreamCloudApp() {
                 composable("collections") {
                     val ctx = LocalContext.current
                     val pluginRepo = remember { com.streamcloud.app.data.plugins.PluginRepository(ctx.applicationContext) }
-                    val stremioRepo = remember { com.streamcloud.app.data.stremio.StremioRepository(ctx.applicationContext) }
+                    val stremioRepo = remember { com.streamcloud.app.data.ServiceLocator.get(ctx).stremio }
                     val installedPlugins by pluginRepo.installed.collectAsState(initial = emptyList())
                     val installedAddons by stremioRepo.addons.collectAsState(initial = emptyList())
                     com.streamcloud.app.ui.theme.StaticAppTheme {
@@ -1048,6 +1059,7 @@ fun StreamCloudApp() {
                     val artistContext = LocalContext.current
                     val artistVm: com.streamcloud.app.ui.viewmodel.MusicViewModel =
                         androidx.lifecycle.viewmodel.compose.viewModel(
+                            key = "artist-music-$nuvioUserId-${activeProfile?.id ?: "default"}",
                             factory = com.streamcloud.app.ui.viewmodel.MusicViewModel.factory(artistContext)
                         )
                     com.streamcloud.app.ui.screens.MusicArtistScreen(
@@ -1085,6 +1097,7 @@ fun StreamCloudApp() {
                     val artistContext = LocalContext.current
                     val artistVm: com.streamcloud.app.ui.viewmodel.MusicViewModel =
                         androidx.lifecycle.viewmodel.compose.viewModel(
+                            key = "artist-section-music-$nuvioUserId-${activeProfile?.id ?: "default"}",
                             factory = com.streamcloud.app.ui.viewmodel.MusicViewModel.factory(artistContext)
                         )
                     com.streamcloud.app.ui.screens.MusicArtistSectionScreen(

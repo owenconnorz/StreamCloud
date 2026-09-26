@@ -4,14 +4,23 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.data.network.Net
+import com.streamcloud.app.data.profiles.ProfileRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import com.streamcloud.app.data.network.BrowserCookieJar
@@ -25,8 +34,28 @@ import java.util.concurrent.TimeUnit
 private val Context.nuvioStore by preferencesDataStore("streamcloud_nuvio")
 private val KEY_INSTALLED   = stringPreferencesKey("installed_json")
 private val KEY_SAVED_REPOS = stringPreferencesKey("saved_repos_json")
+private val KEY_LEGACY_SCOPE_OWNER = stringPreferencesKey("legacy_scope_owner")
 
-class NuvioRepository(private val context: Context) {
+class NuvioRepository(
+    private val context: Context,
+    private val settings: SettingsRepository,
+    private val profiles: ProfileRepository,
+) {
+
+    private val legacyMigrationMutex = Mutex()
+    private val scopeFlow = combine(
+        settings.nuvioUserId,
+        profiles.activeProfileId,
+        profiles.profiles,
+    ) { userId, activeProfileId, currentProfiles ->
+        NuvioStorageScope(
+            userId = userId.trim(),
+            localProfileId = activeProfileId
+                ?.takeIf(String::isNotBlank)
+                ?: currentProfiles.firstOrNull()?.id
+                ?: "default",
+        )
+    }.distinctUntilChanged()
 
     private val http = OkHttpClient.Builder()
         .cookieJar(BrowserCookieJar)
@@ -35,28 +64,111 @@ class NuvioRepository(private val context: Context) {
         .followRedirects(true)
         .build()
 
-    private fun cacheDir(): File =
-        File(context.filesDir, "nuvio").apply { mkdirs() }
+    private fun cacheDir(scope: NuvioStorageScope): File =
+        File(context.filesDir, "nuvio/${scope.storageKey}").apply { mkdirs() }
 
-    val installed: Flow<List<InstalledNuvioProvider>> = context.nuvioStore.data.map { prefs ->
-        prefs[KEY_INSTALLED]?.let {
+    private fun installedKey(scope: NuvioStorageScope) =
+        stringPreferencesKey("installed_${scope.storageKey}")
+
+    private fun savedReposKey(scope: NuvioStorageScope) =
+        stringPreferencesKey("saved_repos_${scope.storageKey}")
+
+    val installed: Flow<List<InstalledNuvioProvider>> =
+        scopeFlow.flatMapLatest(::installedFor).distinctUntilChanged()
+
+    val savedRepos: Flow<List<NuvioSavedRepo>> =
+        scopeFlow.flatMapLatest(::savedReposFor).distinctUntilChanged()
+
+    suspend fun currentScope(): NuvioStorageScope = scopeFlow.first()
+
+    fun scopeFor(userId: String, localProfileId: String) =
+        NuvioStorageScope(userId.trim(), localProfileId.ifBlank { "default" })
+
+    suspend fun installedFor(scope: NuvioStorageScope): Flow<List<InstalledNuvioProvider>> = flow {
+        migrateLegacyData(scope)
+        emitAll(
+            context.nuvioStore.data.map { prefs ->
+                decodeInstalled(prefs[installedKey(scope)])
+            },
+        )
+    }
+
+    suspend fun savedReposFor(scope: NuvioStorageScope): Flow<List<NuvioSavedRepo>> = flow {
+        migrateLegacyData(scope)
+        emitAll(
+            context.nuvioStore.data.map { prefs ->
+                decodeSavedRepos(prefs[savedReposKey(scope)])
+            },
+        )
+    }
+
+    private fun decodeInstalled(raw: String?): List<InstalledNuvioProvider> =
+        raw?.let {
             runCatching {
                 Net.json.decodeFromString(ListSerializer(InstalledNuvioProvider.serializer()), it)
             }.getOrDefault(emptyList())
         } ?: emptyList()
-    }
 
-    val savedRepos: Flow<List<NuvioSavedRepo>> = context.nuvioStore.data.map { prefs ->
-        prefs[KEY_SAVED_REPOS]?.let {
+    private fun decodeSavedRepos(raw: String?): List<NuvioSavedRepo> =
+        raw?.let {
             runCatching {
                 Net.json.decodeFromString(ListSerializer(NuvioSavedRepo.serializer()), it)
             }.getOrDefault(emptyList())
         } ?: emptyList()
+
+    private suspend fun migrateLegacyData(scope: NuvioStorageScope) {
+        if (scope.userId.isBlank()) return
+        legacyMigrationMutex.withLock {
+            val before = context.nuvioStore.data.first()
+            if (before[KEY_LEGACY_SCOPE_OWNER] != null) return
+
+            val oldInstalled = decodeInstalled(before[KEY_INSTALLED]).map { provider ->
+                val source = File(provider.filePath)
+                val safeId = provider.id.replace(Regex("[^A-Za-z0-9_.-]"), "_")
+                val target = File(cacheDir(scope), "$safeId.js")
+                if (source.isFile && source.absolutePath != target.absolutePath && !target.exists()) {
+                    source.copyTo(target, overwrite = true)
+                }
+                provider.copy(filePath = target.absolutePath)
+            }
+            val oldRepos = decodeSavedRepos(before[KEY_SAVED_REPOS])
+            val currentInstalled = decodeInstalled(before[installedKey(scope)])
+            val mergedInstalledById = linkedMapOf<String, InstalledNuvioProvider>()
+            (oldInstalled + currentInstalled).forEach { mergedInstalledById[it.id] = it }
+            val mergedInstalled = mergedInstalledById.values.toList()
+            val mergedRepos = (decodeSavedRepos(before[savedReposKey(scope)]) + oldRepos)
+                .distinctBy { normaliseRepoUrl(it.url) }
+            val installedText = Net.json.encodeToString(
+                ListSerializer(InstalledNuvioProvider.serializer()),
+                mergedInstalled,
+            )
+            val reposText = Net.json.encodeToString(
+                ListSerializer(NuvioSavedRepo.serializer()),
+                mergedRepos,
+            )
+            context.nuvioStore.edit { prefs ->
+                if (prefs[KEY_LEGACY_SCOPE_OWNER] != null) return@edit
+                if (mergedInstalled.isNotEmpty()) {
+                    prefs[installedKey(scope)] = installedText
+                }
+                if (mergedRepos.isNotEmpty()) {
+                    prefs[savedReposKey(scope)] = reposText
+                }
+                prefs[KEY_LEGACY_SCOPE_OWNER] = scope.storageKey
+                prefs.remove(KEY_INSTALLED)
+                prefs.remove(KEY_SAVED_REPOS)
+            }
+        }
     }
 
-    suspend fun addSavedRepo(url: String, name: String?) {
+    suspend fun addSavedRepo(
+        url: String,
+        name: String?,
+        scope: NuvioStorageScope? = null,
+    ) {
+        val targetScope = scope ?: currentScope()
         val normalised = normaliseRepoUrl(url)
-        val existing = savedRepos.first()
+        val existing = savedReposFor(targetScope).first()
         if (existing.any { it.url == normalised }) return
         val repo = NuvioSavedRepo(
             id = normalised.hashCode().toString(),
@@ -66,14 +178,17 @@ class NuvioRepository(private val context: Context) {
         )
         val updated = existing + repo
         context.nuvioStore.edit {
-            it[KEY_SAVED_REPOS] = Net.json.encodeToString(ListSerializer(NuvioSavedRepo.serializer()), updated)
+            it[savedReposKey(targetScope)] =
+                Net.json.encodeToString(ListSerializer(NuvioSavedRepo.serializer()), updated)
         }
     }
 
-    suspend fun removeSavedRepo(id: String) {
-        val updated = savedRepos.first().filterNot { it.id == id }
+    suspend fun removeSavedRepo(id: String, scope: NuvioStorageScope? = null) {
+        val targetScope = scope ?: currentScope()
+        val updated = savedReposFor(targetScope).first().filterNot { it.id == id }
         context.nuvioStore.edit {
-            it[KEY_SAVED_REPOS] = Net.json.encodeToString(ListSerializer(NuvioSavedRepo.serializer()), updated)
+            it[savedReposKey(targetScope)] =
+                Net.json.encodeToString(ListSerializer(NuvioSavedRepo.serializer()), updated)
         }
     }
 
@@ -85,11 +200,12 @@ class NuvioRepository(private val context: Context) {
 
     suspend fun installProvider(repoUrl: String, entry: NuvioProviderEntry): InstalledNuvioProvider =
         withContext(Dispatchers.IO) {
+            val scope = currentScope()
             val manifestUrl = normaliseRepoUrl(repoUrl)
             val absDl = resolveDownloadUrl(manifestUrl, entry)
                 ?: error("Provider entry has no downloadUrl/url")
             val safeId = entry.id.replace(Regex("[^A-Za-z0-9_.-]"), "_")
-            val outFile = File(cacheDir(), "$safeId.js")
+            val outFile = File(cacheDir(scope), "$safeId.js")
             val text = httpGet(absDl)
             outFile.writeText(text)
 
@@ -100,20 +216,24 @@ class NuvioRepository(private val context: Context) {
                 logo = entry.logo ?: entry.icon, description = entry.description,
                 version = entry.version,
             )
-            val list = installed.first().filterNot { it.id == entry.id } + rec
-            save(list)
+            val list = installedFor(scope).first().filterNot { it.id == entry.id } + rec
+            save(list, scope)
             rec
         }
 
-    suspend fun updateProvider(updated: InstalledNuvioProvider) {
-        val list = installed.first().map { if (it.id == updated.id) updated else it }
-        save(list)
+    suspend fun updateProvider(updated: InstalledNuvioProvider, scope: NuvioStorageScope? = null) {
+        val targetScope = scope ?: currentScope()
+        val list = installedFor(targetScope).first().map {
+            if (it.id == updated.id) updated else it
+        }
+        save(list, targetScope)
     }
 
-    suspend fun uninstall(id: String) {
-        val list = installed.first()
+    suspend fun uninstall(id: String, scope: NuvioStorageScope? = null) {
+        val targetScope = scope ?: currentScope()
+        val list = installedFor(targetScope).first()
         list.firstOrNull { it.id == id }?.let { File(it.filePath).delete() }
-        save(list.filterNot { it.id == id })
+        save(list.filterNot { it.id == id }, targetScope)
     }
 
 
@@ -125,7 +245,7 @@ class NuvioRepository(private val context: Context) {
         imdbId: String? = null,
     ): List<Pair<InstalledNuvioProvider, NuvioStream>> = coroutineScope {
         val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
-        val list = installed.first()
+        val list = installedFor(currentScope()).first()
         list.map { provider ->
             async(Dispatchers.IO) {
                 val js = runCatching { File(provider.filePath).readText() }.getOrNull()
@@ -204,7 +324,11 @@ class NuvioRepository(private val context: Context) {
         episode: Int? = null,
         imdbId: String? = null,
     ): List<NuvioStream> = withContext(Dispatchers.IO) {
-        val js = runCatching { File(provider.filePath).readText() }.getOrNull()
+        val scope = currentScope()
+        val scopedProvider = installedFor(scope).first()
+            .firstOrNull { it.id == provider.id }
+            ?: return@withContext emptyList()
+        val js = runCatching { File(scopedProvider.filePath).readText() }.getOrNull()
             ?: return@withContext emptyList()
         val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
         NuvioRuntime.runProvider(
@@ -214,7 +338,7 @@ class NuvioRepository(private val context: Context) {
             mediaType = nuvioMediaType(mediaType),
             season = season,
             episode = episode,
-            scriptKey = provider.id,
+            scriptKey = scopedProvider.id,
             context = context,
         )
     }
@@ -246,9 +370,12 @@ class NuvioRepository(private val context: Context) {
         }
     }
 
-    private suspend fun save(list: List<InstalledNuvioProvider>) {
+    private suspend fun save(
+        list: List<InstalledNuvioProvider>,
+        scope: NuvioStorageScope,
+    ) {
         val text = Net.json.encodeToString(ListSerializer(InstalledNuvioProvider.serializer()), list)
-        context.nuvioStore.edit { it[KEY_INSTALLED] = text }
+        context.nuvioStore.edit { it[installedKey(scope)] = text }
     }
 
     private fun normaliseRepoUrl(s: String): String {

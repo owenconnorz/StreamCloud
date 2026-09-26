@@ -117,8 +117,10 @@ fun LibraryScreen(
     val gridColumns = if (isTv) 4 else 2
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
+    val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
     val profileKey = activeProfile?.id ?: "default"
-    val db = remember(profileKey) { LibraryDb.get(context.applicationContext) }
+    val storageScopeKey = "$nuvioUserId:$profileKey"
+    val db = remember(storageScopeKey) { LibraryDb.get(context.applicationContext) }
     val dao = remember(db) { db.tracks() }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
     val spotifyCookie by sl.settings.spotifyCookie.collectAsState(initial = "")
@@ -243,7 +245,7 @@ fun LibraryScreen(
     val downloadedMovies by db.movieDownloads().all().collectAsState(initial = emptyList())
     var movieSubTab by remember { mutableStateOf("Watchlist") }
 
-    val localPlaylists by remember(profileKey) {
+    val localPlaylists by remember(storageScopeKey) {
         db.localPlaylists().allPlaylists()
     }.collectAsState(initial = emptyList())
 
@@ -444,7 +446,7 @@ fun LibraryScreen(
                 MovieWatchlistsLibrarySection(
                     defaultItems = watchlistItems,
                     isTv = isTv,
-                    profileKey = profileKey,
+                    profileKey = storageScopeKey,
                     onOpen = { entry ->
                         when (entry.mediaType) {
                             "tv" -> onTvClick(entry.tmdbId)

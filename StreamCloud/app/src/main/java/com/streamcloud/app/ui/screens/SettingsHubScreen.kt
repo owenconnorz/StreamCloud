@@ -4898,6 +4898,7 @@ private fun NuvioAccountRow() {
 
     val accessToken by sl.settings.nuvioAccessToken.collectAsState(initial = "")
     val email       by sl.settings.nuvioEmail.collectAsState(initial = "")
+    val userId      by sl.settings.nuvioUserId.collectAsState(initial = "")
     val signedIn    = accessToken.isNotBlank()
 
     var showDialog   by remember { mutableStateOf(false) }
@@ -4915,25 +4916,26 @@ private fun NuvioAccountRow() {
             didAutoSync = true
             syncStatus  = "Syncing from cloud…"
             val r = com.streamcloud.app.data.nuvio.NuvioAutoSync
-                .pullAfterPendingLibraryDeletes(context.applicationContext, accessToken)
+                .syncNowDetailed(context.applicationContext)
             syncStatus  = r.fold(
-                onSuccess = { p ->
-                    p.errors.takeIf { it.isNotEmpty() }?.let {
-                        "Partial sync: ${it.joinToString("; ").take(150)}"
-                    } ?: run {
-                        val total = p.watchProgress + p.library + p.collections + p.watchedItems +
-                            p.profiles + p.addons + p.plugins
-                        if (total > 0)
-                            buildString {
-                                append("↓ Synced ")
-                                if (p.watchProgress > 0) append("${p.watchProgress} in-progress · ")
-                                if (p.profiles > 0) append("${p.profiles} profiles · ")
-                                if (p.library > 0) append("${p.library} saved · ")
-                                if (p.collections > 0) append("${p.collections} collections · ")
-                                if (p.addons > 0) append("${p.addons} addons · ")
-                                if (p.plugins > 0) append("${p.plugins} plugins · ")
-                            }.trimEnd(' ', '·')
-                        else ""
+                onSuccess = { result ->
+                    val p = result.pull
+                    val push = result.push
+                    val total = p.watchProgress + p.library + p.collections + p.watchedItems +
+                        p.profiles + p.addons + p.plugins + push.watchProgress + push.library +
+                        push.collections + push.watchedItems + push.profiles + push.addons + push.plugins
+                    if (total > 0) {
+                        buildString {
+                            append("Synced ")
+                            if (p.watchProgress + push.watchProgress > 0) append("${p.watchProgress + push.watchProgress} progress · ")
+                            if (p.profiles + push.profiles > 0) append("${p.profiles + push.profiles} profiles · ")
+                            if (p.library + push.library > 0) append("${p.library + push.library} saved · ")
+                            if (p.collections + push.collections > 0) append("${p.collections + push.collections} collections · ")
+                            if (p.addons + push.addons > 0) append("${p.addons + push.addons} addons · ")
+                            if (p.plugins + push.plugins > 0) append("${p.plugins + push.plugins} plugins · ")
+                        }.trimEnd(' ', '·')
+                    } else {
+                        "Nuvio is up to date"
                     }
                 },
                 onFailure = { "Error: ${it.message?.take(90) ?: "Nuvio sync failed"}" },
@@ -4978,39 +4980,18 @@ private fun NuvioAccountRow() {
             TextButton(onClick = {
                 scope.launch {
                     syncStatus = "Syncing…"
-                    val pendingDeletes = runCatching {
-                        com.streamcloud.app.data.nuvio.NuvioAutoSync.pushPendingLibraryDeletes(
-                            context.applicationContext,
-                            accessToken,
-                        )
-                    }
-                    val pendingError = pendingDeletes.exceptionOrNull()
-                    val pull = if (pendingError == null) {
-                        runCatching { nuvioSvc.syncPull(accessToken) }
-                    } else {
-                        Result.failure(pendingError)
-                    }
-                    val pullHasErrors = pull.getOrNull()?.errors?.isNotEmpty() == true
-                    val push = if (pendingError == null && pull.isSuccess && !pullHasErrors) {
-                        runCatching { nuvioSvc.syncAll(accessToken) }
-                    } else if (pendingError != null) {
-                        Result.failure(pendingError)
-                    } else if (pull.exceptionOrNull() != null) {
-                        Result.failure(pull.exceptionOrNull()!!)
-                    } else {
-                        Result.failure(
-                            IllegalStateException(
-                                pull.getOrNull()?.errors?.distinct()?.joinToString("; ")
-                                    ?: "Nuvio pull was incomplete",
-                            ),
-                        )
-                    }
+                    val sync = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                        .syncNowDetailed(context.applicationContext)
+                    val pendingDeletes = Result.success(Unit)
+                    val pull = sync.map { it.pull }
+                    val push = sync.map { it.push }
                     val profiles = sl.profiles.currentProfiles()
                     val activeProfileId = sl.profiles.currentActiveId()
                     val selectedProfile = profiles.firstOrNull { it.id == activeProfileId }
                         ?: profiles.firstOrNull()
                     val targetProfile = selectedProfile?.let { profile ->
-                        profile.nuvioProfileIndex?.let { "${profile.name} (Nuvio #$it)" }
+                        sl.profiles.nuvioProfileIndex(userId, profile.id)
+                            ?.let { "${profile.name} (Nuvio #$it)" }
                             ?: profile.name
                     }
                     syncStatus = when {
@@ -5078,7 +5059,7 @@ private fun NuvioAccountRow() {
             }) { Text("Sync ↕") }
             TextButton(onClick = {
                 scope.launch {
-                    nuvioSvc.signOut(accessToken)
+                    runCatching { nuvioSvc.signOut(accessToken) }
                     sl.settings.clearNuvioSession()
                     syncStatus = ""
                 }
@@ -5165,6 +5146,7 @@ private fun NuvioAccountRow() {
                                 onSuccess = { session ->
                                     val userEmail = session.user?.email ?: emailInput.trim()
                                     val userId = session.user?.id ?: ""
+                                    didAutoSync = true
                                     sl.settings.setNuvioSession(
                                         session.access_token,
                                         session.refresh_token,
@@ -5174,56 +5156,34 @@ private fun NuvioAccountRow() {
                                     showDialog = false
                                     emailInput = ""; passInput = ""; errorMsg = ""
                                     syncStatus = "Syncing your data…"
-                                    // Immediately pull cloud data so home screen shows it
+                                    // Use the same refresh-aware path as background and manual sync.
                                     scope.launch {
-                                        val pull = com.streamcloud.app.data.nuvio.NuvioAutoSync
-                                            .pullAfterPendingLibraryDeletes(
-                                                context.applicationContext,
-                                                session.access_token,
-                                            )
-                                        val pullHasErrors = pull.getOrNull()?.errors?.isNotEmpty() == true
-                                        val push = if (pull.isSuccess && !pullHasErrors) {
-                                            runCatching { nuvioSvc.syncAll(session.access_token) }
-                                        } else {
-                                            Result.failure(
-                                                IllegalStateException(
-                                                    pull.getOrNull()?.errors?.distinct()?.joinToString("; ")
-                                                        ?: pull.exceptionOrNull()?.message
-                                                        ?: "Nuvio pull was incomplete",
-                                                ),
-                                            )
-                                        }
-                                        syncStatus = when {
-                                            pull.isSuccess && push.isSuccess -> {
-                                                val d = pull.getOrThrow()
-                                                val errors = (d.errors + push.getOrThrow().errors).distinct()
-                                                val warnings = d.warnings.distinct()
+                                        val sync = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                                            .syncNowDetailed(context.applicationContext)
+                                        syncStatus = sync.fold(
+                                            onSuccess = { outcome ->
+                                                val down = outcome.pull
+                                                val up = outcome.push
+                                                val warnings = down.warnings.distinct()
                                                 when {
-                                                    errors.isNotEmpty() ->
-                                                        "Partial sync: ${(errors + warnings).distinct().joinToString("; ").take(150)}"
                                                     warnings.isNotEmpty() ->
                                                         "Synced with warnings: ${warnings.joinToString("; ").take(150)}"
                                                     else -> buildString {
                                                         append("Synced ✓  ")
-                                                        if (d.profiles > 0) append("${d.profiles} profiles · ")
-                                                        if (d.watchProgress > 0) append("${d.watchProgress} watching · ")
-                                                        if (d.watchedItems > 0) append("${d.watchedItems} watched · ")
-                                                        if (d.library > 0)       append("${d.library} saved · ")
-                                                        if (d.collections > 0)   append("${d.collections} collections · ")
-                                                        if (d.addons > 0)        append("${d.addons} addons · ")
-                                                        if (d.plugins > 0)       append("${d.plugins} plugins · ")
+                                                        if (down.profiles + up.profiles > 0) append("${down.profiles + up.profiles} profiles · ")
+                                                        if (down.watchProgress + up.watchProgress > 0) append("${down.watchProgress + up.watchProgress} watching · ")
+                                                        if (down.watchedItems + up.watchedItems > 0) append("${down.watchedItems + up.watchedItems} watched · ")
+                                                        if (down.library + up.library > 0) append("${down.library + up.library} saved · ")
+                                                        if (down.collections + up.collections > 0) append("${down.collections + up.collections} collections · ")
+                                                        if (down.addons + up.addons > 0) append("${down.addons + up.addons} addons · ")
+                                                        if (down.plugins + up.plugins > 0) append("${down.plugins + up.plugins} plugins · ")
                                                     }.trimEnd(' ', '·').ifBlank { "Synced ✓" }
                                                 }
-                                            }
-                                            pull.isSuccess -> "Signed in ✓  (upload failed: ${
-                                                push.exceptionOrNull()?.message?.take(90) ?: "partial sync"
-                                            })"
-                                            push.isSuccess -> "Signed in ✓  (download failed: ${
-                                                pull.exceptionOrNull()?.message?.take(90) ?: "partial sync"
-                                            })"
-                                            else -> "Signed in ✓  (sync unavailable)"
-                                        }
-                                        didAutoSync = true
+                                            },
+                                            onFailure = {
+                                                "Signed in ✓  (sync failed: ${it.message?.take(90) ?: "unknown error"})"
+                                            },
+                                        )
                                     }
                                 },
                                 onFailure = { errorMsg = it.message ?: "Sign in failed" },

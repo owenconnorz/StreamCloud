@@ -12,7 +12,6 @@ import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.profiles.UserProfile
-import com.streamcloud.app.data.stremio.StremioRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -86,6 +85,7 @@ data class NuvioPullResult(
     val collectionError: String? = null,
     val errors: List<String> = emptyList(),
     val warnings: List<String> = emptyList(),
+    val localProfileId: String = "",
 )
 
 data class NuvioLibraryDeleteKey(
@@ -500,13 +500,14 @@ class NuvioAccountService(private val context: Context) {
         )
     }
 
-    private fun syncOriginClientId(): String {
+    private fun syncOriginClientId(userId: String, profileIndex: Int): String {
         val prefs = context.getSharedPreferences("nuvio_sync", Context.MODE_PRIVATE)
-        return prefs.getString("origin_client_id", null) ?: UUID.randomUUID().toString().also {
+        val key = "origin_client_id_${stableKey("$userId:$profileIndex").take(16)}"
+        return prefs.getString(key, null) ?: UUID.randomUUID().toString().also {
             // The identity must survive an immediate process stop after the
             // first local mutation; otherwise later deletes can use a new
             // client identity than the preceding push.
-            prefs.edit().putString("origin_client_id", it).commit()
+            prefs.edit().putString(key, it).commit()
         }
     }
 
@@ -545,9 +546,22 @@ class NuvioAccountService(private val context: Context) {
         }
     }
 
-    suspend fun syncPull(accessToken: String): NuvioPullResult = withContext(Dispatchers.IO) {
-        val stremioRepo = StremioRepository(context)
-        val nuvioRepo = ServiceLocator.get(context).nuvio
+    suspend fun syncPull(
+        accessToken: String,
+        userId: String? = null,
+        localProfileId: String? = null,
+    ): NuvioPullResult = withContext(Dispatchers.IO) {
+        val services = ServiceLocator.get(context)
+        val stremioRepo = services.stremio
+        val nuvioRepo = services.nuvio
+        val syncUserId = userId?.trim()?.takeIf { it.isNotBlank() }
+            ?: services.settings.nuvioUserId.first().trim()
+        val preferredLocalProfileId = localProfileId?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentActiveId()
+                ?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentProfiles().firstOrNull()?.id
+            ?: "default"
+        if (syncUserId.isBlank()) error("No Nuvio account is signed in")
         val resolvedTmdbIds = mutableMapOf<String, Long?>()
         val metadataCache = mutableMapOf<String, TmdbMovie?>()
 
@@ -591,20 +605,42 @@ class NuvioAccountService(private val context: Context) {
 
         // ── Profiles ─────────────────────────────────────────────────────────
         runCatching {
-            pulledProfiles = pullProfiles(accessToken)
+            pulledProfiles = pullProfiles(
+                accessToken = accessToken,
+                userId = syncUserId,
+                preferredLocalProfileId = preferredLocalProfileId,
+            )
         }.onFailure {
             errors += "profiles pull: ${it.message ?: "unknown error"}"
             Log.w(TAG, "pull profiles: ${it.message}")
         }
 
-        val profileIndex = activeCloudProfileIndex()
+        val syncLocalProfileId = if (
+            services.profiles.nuvioProfileIndex(syncUserId, preferredLocalProfileId) != null
+        ) {
+            preferredLocalProfileId
+        } else {
+            services.profiles.currentActiveId()
+                ?.takeIf { services.profiles.nuvioProfileIndex(syncUserId, it) != null }
+                ?: services.profiles.currentProfiles()
+                    .firstOrNull { services.profiles.nuvioProfileIndex(syncUserId, it.id) != null }
+                    ?.id
+                ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
+        }
+        val storageScope = nuvioRepo.scopeFor(syncUserId, syncLocalProfileId)
+        val db = LibraryDb.getForProfile(context, syncLocalProfileId, syncUserId)
+        val profileIndex = activeCloudProfileIndex(syncUserId, syncLocalProfileId)
             ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
-        val syncUserId = SettingsRepository(context).nuvioUserId.first().trim()
+        NuvioAutoSync.pushPendingLibraryDeletes(
+            context = context,
+            accessToken = accessToken,
+            userId = syncUserId,
+            localProfileId = syncLocalProfileId,
+        )
         Log.i(
             TAG,
-            "Pulling Nuvio data for profile_index=$profileIndex active_profile_id=${ServiceLocator.get(context).profiles.currentActiveId()}",
+            "Pulling Nuvio data for profile_index=$profileIndex active_profile_id=$syncLocalProfileId",
         )
-        val db = LibraryDb.get(context)
 
         // ── Stremio addons ──────────────────────────────────────────────────
         runCatching {
@@ -612,7 +648,7 @@ class NuvioAccountService(private val context: Context) {
             val orderedRemoteUrls = remoteSnapshot.addons.sortedBy { it.sort_order }
                 .map { it.url.trim() }
                 .filter { it.isNotBlank() }
-            val localBeforePull = stremioRepo.addons.first()
+            val localBeforePull = stremioRepo.addonsFor(storageScope).first()
             val previousRemoteUrls = lastRemoteAddonUrls(syncUserId, profileIndex)
             val lastSnapshotAt = lastRemoteAddonSnapshotAt(syncUserId, profileIndex)
             val localAddedAfterSnapshot = localBeforePull
@@ -638,8 +674,8 @@ class NuvioAccountService(private val context: Context) {
             // are safe to apply even if the remote read is incomplete.
             localBeforePull
                 .filter { normalizedNuvioAddonKey(it.manifestUrl) in removedKeys }
-                .forEach { stremioRepo.removeAddon(it.manifestUrl) }
-            val localAfterPull = stremioRepo.addons.first()
+                .forEach { stremioRepo.removeAddon(it.manifestUrl, storageScope) }
+            val localAfterPull = stremioRepo.addonsFor(storageScope).first()
             val targetUrls = reconcileNuvioAddonUrls(
                 remote = orderedRemoteUrls,
                 local = localAfterPull.map { it.manifestUrl },
@@ -656,7 +692,7 @@ class NuvioAccountService(private val context: Context) {
                 val key = normalizedNuvioAddonKey(url)
                 if (key.isNotBlank() && knownKeys.add(key)) {
                     try {
-                        val added = stremioRepo.addAddon(url)
+                        val added = stremioRepo.addAddon(url, storageScope)
                         knownKeys += normalizedNuvioAddonKey(added.manifestUrl)
                         pulledAddons++
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -668,7 +704,7 @@ class NuvioAccountService(private val context: Context) {
                     }
                 }
             }
-            stremioRepo.reorderAddons(targetUrls)
+            stremioRepo.reorderAddons(targetUrls, storageScope)
             if (remoteSnapshot.isComplete) {
                 saveRemoteAddonUrls(syncUserId, profileIndex, orderedRemoteUrls)
             } else {
@@ -688,16 +724,16 @@ class NuvioAccountService(private val context: Context) {
                 select = "url,name,enabled,sort_order,repo_type",
             )
             val plugins = json.decodeFromString(ListSerializer(PullPlugin.serializer()), text)
-            val existingRepos = nuvioRepo.savedRepos.first()
+            val existingRepos = nuvioRepo.savedReposFor(storageScope).first()
             val remoteUrls = plugins.map { it.url.trim() }.filter { it.isNotBlank() }.toSet()
             existingRepos
                 .filter { it.url !in remoteUrls }
-                .forEach { nuvioRepo.removeSavedRepo(it.id) }
+                .forEach { nuvioRepo.removeSavedRepo(it.id, storageScope) }
             plugins.forEach { pulled ->
                 val url = pulled.url.trim()
                 if (url.isNotBlank() && existingRepos.none { it.url == url }) {
                     val name = pulled.name?.takeIf { it.isNotBlank() } ?: url.substringAfterLast("/").substringBefore(".")
-                    nuvioRepo.addSavedRepo(url, name)
+                    nuvioRepo.addSavedRepo(url, name, storageScope)
                     pulledPlugins++
                 }
             }
@@ -877,13 +913,28 @@ class NuvioAccountService(private val context: Context) {
             collectionError = collectionError,
             errors = errors.distinct(),
             warnings = warnings.distinct(),
+            localProfileId = syncLocalProfileId,
         )
     }
 
-    suspend fun syncAll(accessToken: String): NuvioSyncResult = withContext(Dispatchers.IO) {
-        val db = LibraryDb.get(context)
-        val nuvioRepo = ServiceLocator.get(context).nuvio
-        val stremioRepo = StremioRepository(context)
+    suspend fun syncAll(
+        accessToken: String,
+        userId: String? = null,
+        localProfileId: String? = null,
+    ): NuvioSyncResult = withContext(Dispatchers.IO) {
+        val services = ServiceLocator.get(context)
+        val nuvioRepo = services.nuvio
+        val stremioRepo = services.stremio
+        val syncUserId = userId?.trim()?.takeIf { it.isNotBlank() }
+            ?: services.settings.nuvioUserId.first().trim()
+        val syncLocalProfileId = localProfileId?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentActiveId()
+                ?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentProfiles().firstOrNull()?.id
+            ?: "default"
+        if (syncUserId.isBlank()) error("No Nuvio account is signed in")
+        val storageScope = nuvioRepo.scopeFor(syncUserId, syncLocalProfileId)
+        val db = LibraryDb.getForProfile(context, syncLocalProfileId, syncUserId)
         var plugins = 0
         var addons = 0
         var progress = 0
@@ -893,12 +944,11 @@ class NuvioAccountService(private val context: Context) {
         var collectionError: String? = null
         val errors = mutableListOf<String>()
 
-        val profileIndex = activeCloudProfileIndex()
+        val profileIndex = activeCloudProfileIndex(syncUserId, syncLocalProfileId)
             ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
-        val syncUserId = SettingsRepository(context).nuvioUserId.first().trim()
         Log.i(
             TAG,
-            "Pushing Nuvio data for profile_index=$profileIndex active_profile_id=${ServiceLocator.get(context).profiles.currentActiveId()}",
+            "Pushing Nuvio data for profile_index=$profileIndex active_profile_id=$syncLocalProfileId",
         )
 
         // Profile indexes are assigned during the preceding pull. Do not assign
@@ -906,14 +956,14 @@ class NuvioAccountService(private val context: Context) {
         // otherwise make a different local profile look like the selected cloud
         // profile and route every replacement-style dataset to the wrong rows.
         runCatching {
-            profiles = pushProfiles(accessToken)
+            profiles = pushProfiles(accessToken, syncUserId)
         }.onFailure {
             errors += "profiles push: ${it.message ?: "unknown error"}"
             Log.w(TAG, "push profiles: ${it.message}")
         }
 
         runCatching {
-            val repos = nuvioRepo.savedRepos.first()
+            val repos = nuvioRepo.savedReposFor(storageScope).first()
             val arr = buildJsonArray {
                 repos.forEachIndexed { i, repo ->
                     addJsonObject {
@@ -930,7 +980,7 @@ class NuvioAccountService(private val context: Context) {
                 buildJsonObject {
                     put("p_plugins", arr)
                     put("p_profile_id", profileIndex)
-                    put("p_origin_client_id", syncOriginClientId())
+                    put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
                 },
                 accessToken,
             ).getOrThrow()
@@ -953,7 +1003,7 @@ class NuvioAccountService(private val context: Context) {
                 error("Nuvio's addon list was incomplete; refusing to replace the profile snapshot")
             }
 
-            val localBeforePush = stremioRepo.addons.first()
+            val localBeforePush = stremioRepo.addonsFor(storageScope).first()
             val localAddedAfterSnapshot = localBeforePush
                 .filter { it.installedAt >= lastRemoteAddonSnapshotAt(syncUserId, profileIndex) }
                 .map { it.manifestUrl }
@@ -968,8 +1018,8 @@ class NuvioAccountService(private val context: Context) {
             val localRemovalKeys = remotelyRemovedKeys + pendingDeleteKeys
             localBeforePush
                 .filter { normalizedNuvioAddonKey(it.manifestUrl) in localRemovalKeys }
-                .forEach { stremioRepo.removeAddon(it.manifestUrl) }
-            val addonList = stremioRepo.addons.first()
+                .forEach { stremioRepo.removeAddon(it.manifestUrl, storageScope) }
+            val addonList = stremioRepo.addonsFor(storageScope).first()
 
             if (remoteSnapshot.isComplete) {
                 saveRemoteAddonUrls(
@@ -1038,7 +1088,7 @@ class NuvioAccountService(private val context: Context) {
                     buildJsonObject {
                         put("p_addons", arr)
                         put("p_profile_id", profileIndex)
-                        put("p_origin_client_id", syncOriginClientId())
+                        put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
                     },
                     accessToken,
                 ).getOrThrow()
@@ -1138,7 +1188,7 @@ class NuvioAccountService(private val context: Context) {
                 buildJsonObject {
                     put("p_items", arr)
                     put("p_profile_id", profileIndex)
-                    put("p_origin_client_id", syncOriginClientId())
+                    put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
                 },
                 accessToken,
             ).getOrThrow()
@@ -1231,14 +1281,25 @@ class NuvioAccountService(private val context: Context) {
     suspend fun deleteLibraryItems(
         accessToken: String,
         keys: Collection<NuvioLibraryDeleteKey>,
+        userId: String? = null,
+        localProfileId: String? = null,
     ) = withContext(Dispatchers.IO) {
         if (keys.isEmpty()) return@withContext
-        val profileIndex = activeCloudProfileIndex()
+        val services = ServiceLocator.get(context)
+        val syncUserId = userId?.trim()?.takeIf { it.isNotBlank() }
+            ?: services.settings.nuvioUserId.first().trim()
+        val syncLocalProfileId = localProfileId?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentActiveId()
+                ?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentProfiles().firstOrNull()?.id
+            ?: "default"
+        if (syncUserId.isBlank()) error("No Nuvio account is signed in")
+        val profileIndex = activeCloudProfileIndex(syncUserId, syncLocalProfileId)
             ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
         Log.i(
             TAG,
             "Deleting Nuvio library items count=${keys.size} profile_index=$profileIndex " +
-                "active_profile_id=${ServiceLocator.get(context).profiles.currentActiveId()}",
+                "active_profile_id=$syncLocalProfileId",
         )
 
         suspend fun libraryRows(): List<PullLibraryItem> {
@@ -1314,7 +1375,7 @@ class NuvioAccountService(private val context: Context) {
             buildJsonObject {
                 put("p_keys", payload)
                 put("p_profile_id", profileIndex)
-                put("p_origin_client_id", syncOriginClientId())
+                put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
             },
             accessToken,
         ).getOrThrow()
@@ -1333,17 +1394,19 @@ class NuvioAccountService(private val context: Context) {
         }
     }
 
-    private suspend fun pushProfiles(accessToken: String): Int {
+    private suspend fun pushProfiles(accessToken: String, userId: String): Int {
         val profileRepo = ServiceLocator.get(context).profiles
-        val localProfiles = profileRepo.currentProfiles().take(6)
+        val localProfiles = profileRepo.profilesForNuvioAccount(userId).take(6)
         if (localProfiles.isEmpty()) return 0
 
-        val usedIndexes = localProfiles.mapNotNull { it.nuvioProfileIndex }.toMutableSet()
+        val usedIndexes = localProfiles.mapNotNull {
+            profileRepo.nuvioProfileIndex(userId, it.id)
+        }.toMutableSet()
         var nextIndex = 1
         val assignedIndexes = mutableMapOf<String, Int>()
         val payload = buildJsonArray {
             localProfiles.forEach { profile ->
-                val profileIndex = profile.nuvioProfileIndex ?: run {
+                val profileIndex = profileRepo.nuvioProfileIndex(userId, profile.id) ?: run {
                     while (nextIndex in usedIndexes) nextIndex++
                     nextIndex.also { usedIndexes += it; nextIndex++ }
                 }
@@ -1365,24 +1428,20 @@ class NuvioAccountService(private val context: Context) {
             },
             accessToken,
         ).getOrThrow()
-        profileRepo.setNuvioProfileIndexes(assignedIndexes)
+        profileRepo.setNuvioProfileIndexes(userId, assignedIndexes)
         return localProfiles.size
     }
 
-    private fun activeCloudProfileIndex(): Int? {
+    private fun activeCloudProfileIndex(userId: String, localProfileId: String): Int? {
         val repo = ServiceLocator.get(context).profiles
-        val activeId = repo.currentActiveId()
-        val profiles = repo.currentProfiles()
-        // ProfileRepository treats the first profile as selected when there is
-        // no persisted active id. Match that behavior, but never fall back to
-        // some other mapped profile: doing so sends one user's changes to a
-        // different Nuvio profile.
-        val selected = profiles.firstOrNull { it.id == activeId }
-            ?: profiles.firstOrNull()
-        return selected?.nuvioProfileIndex
+        return repo.nuvioProfileIndex(userId, localProfileId)
     }
 
-    private suspend fun pullProfiles(accessToken: String): Int {
+    private suspend fun pullProfiles(
+        accessToken: String,
+        userId: String,
+        preferredLocalProfileId: String,
+    ): Int {
         val text = rpc(
             "sync_pull_profiles",
             buildJsonObject {},
@@ -1405,7 +1464,11 @@ class NuvioAccountService(private val context: Context) {
                     nuvioProfileIndex = remote.profile_index,
                 )
             }
-        ServiceLocator.get(context).profiles.mergeNuvioProfiles(localProfiles)
+        ServiceLocator.get(context).profiles.mergeNuvioProfiles(
+            userId = userId,
+            remoteProfiles = localProfiles,
+            preferredLocalProfileId = preferredLocalProfileId,
+        )
         return localProfiles.size
     }
 

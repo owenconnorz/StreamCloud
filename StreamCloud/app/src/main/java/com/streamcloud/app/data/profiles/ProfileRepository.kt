@@ -27,10 +27,58 @@ class ProfileRepository(context: Context) {
 
     fun currentActiveId(): String? = _activeId.value
 
-    fun setNuvioProfileIndexes(indexes: Map<String, Int>) {
-        if (indexes.isEmpty()) return
+    fun nuvioProfileIndex(userId: String, profileId: String): Int? {
+        val accountId = userId.trim()
+        if (accountId.isBlank()) return null
+        claimLegacyNuvioMappings(accountId)
+        return _profiles.value.firstOrNull { it.id == profileId }
+            ?.nuvioProfileIndexes
+            ?.get(accountId)
+    }
+
+    fun profilesForNuvioAccount(userId: String): List<UserProfile> {
+        val accountId = userId.trim()
+        return if (accountId.isBlank()) {
+            _profiles.value
+        } else {
+            claimLegacyNuvioMappings(accountId)
+            _profiles.value.filter {
+                accountId in it.nuvioProfileIndexes ||
+                    (it.nuvioProfileIndexes.isEmpty() && it.nuvioProfileIndex == null)
+            }
+        }
+    }
+
+    private fun claimLegacyNuvioMappings(accountId: String) {
+        val migrated = _profiles.value.map { profile ->
+            val legacyIndex = profile.nuvioProfileIndex
+            if (legacyIndex != null && profile.nuvioProfileIndexes.isEmpty()) {
+                profile.copy(
+                    nuvioProfileIndex = null,
+                    nuvioProfileIndexes = mapOf(accountId to legacyIndex),
+                )
+            } else if (legacyIndex != null) {
+                profile.copy(nuvioProfileIndex = null)
+            } else {
+                profile
+            }
+        }
+        if (migrated != _profiles.value) {
+            _profiles.value = migrated
+            persist()
+        }
+    }
+
+    fun setNuvioProfileIndexes(userId: String, indexes: Map<String, Int>) {
+        val accountId = userId.trim()
+        if (accountId.isBlank() || indexes.isEmpty()) return
         _profiles.value = _profiles.value.map { profile ->
-            indexes[profile.id]?.let { profile.copy(nuvioProfileIndex = it) } ?: profile
+            indexes[profile.id]?.let {
+                profile.copy(
+                    nuvioProfileIndex = null,
+                    nuvioProfileIndexes = profile.nuvioProfileIndexes + (accountId to it),
+                )
+            } ?: profile
         }
         persist()
     }
@@ -41,10 +89,35 @@ class ProfileRepository(context: Context) {
      * Profiles created locally remain available, while profiles previously imported
      * from Nuvio are updated or removed to match the account's current profile list.
      */
-    fun mergeNuvioProfiles(remoteProfiles: List<UserProfile>) {
-        val current = _profiles.value
-        if (remoteProfiles.isEmpty()) {
-            _profiles.value = current.filter { it.nuvioProfileIndex == null }
+    fun mergeNuvioProfiles(
+        userId: String,
+        remoteProfiles: List<UserProfile>,
+        preferredLocalProfileId: String? = null,
+    ) {
+        val accountId = userId.trim()
+        if (accountId.isBlank()) return
+
+        // Old versions stored one global Nuvio profile index. Claim that legacy
+        // mapping for the first account that syncs it; never reuse it for later
+        // accounts.
+        val current = _profiles.value.map { profile ->
+            val oldIndex = profile.nuvioProfileIndex
+            if (oldIndex != null && profile.nuvioProfileIndexes.isEmpty()) {
+                profile.copy(
+                    nuvioProfileIndex = null,
+                    nuvioProfileIndexes = mapOf(accountId to oldIndex),
+                )
+            } else if (oldIndex != null) {
+                profile.copy(nuvioProfileIndex = null)
+            } else {
+                profile
+            }
+        }
+        val indexedRemoteProfiles = remoteProfiles.filter { it.nuvioProfileIndex != null }
+        if (indexedRemoteProfiles.isEmpty()) {
+            _profiles.value = current.map { profile ->
+                profile.copy(nuvioProfileIndexes = profile.nuvioProfileIndexes - accountId)
+            }
             if (_activeId.value !in _profiles.value.map { it.id }) {
                 setActiveProfile(_profiles.value.firstOrNull()?.id)
             }
@@ -53,49 +126,54 @@ class ProfileRepository(context: Context) {
         }
 
         val localOnlyByName = current
-            .filter { it.nuvioProfileIndex == null }
+            .filter { it.nuvioProfileIndexes.isEmpty() }
             .groupBy { it.name.trim().lowercase() }
         val claimedLocalIds = mutableSetOf<String>()
-        val imported = remoteProfiles.map { remote ->
+        val preferredLocal = current.firstOrNull {
+            it.id == preferredLocalProfileId && it.nuvioProfileIndexes.isEmpty()
+        }
+        val imported = indexedRemoteProfiles.map { remote ->
             val existing = current.firstOrNull {
-                it.nuvioProfileIndex == remote.nuvioProfileIndex
+                it.nuvioProfileIndexes[accountId] == remote.nuvioProfileIndex
+            } ?: preferredLocal?.takeIf {
+                indexedRemoteProfiles.size == 1 && it.id !in claimedLocalIds
             } ?: localOnlyByName[remote.name.trim().lowercase()]
                 ?.singleOrNull { it.id !in claimedLocalIds }
             if (existing == null) {
-                remote
+                remote.copy(
+                    id = "nuvio-${stableKey("$accountId:${remote.nuvioProfileIndex}").take(16)}",
+                    nuvioProfileIndex = null,
+                    nuvioProfileIndexes = mapOf(
+                        accountId to requireNotNull(remote.nuvioProfileIndex),
+                    ),
+                )
             } else {
                 claimedLocalIds += existing.id
                 remote.copy(
                     id = existing.id,
                     pinHash = existing.pinHash,
+                    nuvioProfileIndex = null,
+                    nuvioProfileIndexes = existing.nuvioProfileIndexes +
+                        (accountId to requireNotNull(remote.nuvioProfileIndex)),
                 )
             }
         }
-        val localOnly = current.filter {
-            it.nuvioProfileIndex == null && it.id !in claimedLocalIds
-        }
-        _profiles.value = imported + localOnly
-
-        if (_activeId.value !in _profiles.value.map { it.id }) {
-            setActiveProfile(_profiles.value.firstOrNull()?.id)
-        }
-
-        // A Nuvio account with one cloud profile is unambiguous even when the
-        // local profile was renamed. Link the current local profile so account
-        // sync can continue to collections, library, and watch history instead
-        // of stopping at the profile pull.
-        if (remoteProfiles.size == 1) {
-            val activeId = _activeId.value ?: _profiles.value.firstOrNull()?.id
-            val active = _profiles.value.firstOrNull { it.id == activeId }
-            if (active != null && active.nuvioProfileIndex == null) {
-                _profiles.value = _profiles.value.map { profile ->
-                    if (profile.id == active.id) {
-                        profile.copy(nuvioProfileIndex = remoteProfiles.single().nuvioProfileIndex)
-                    } else {
-                        profile
-                    }
-                }
+        val importedIds = imported.map { it.id }.toSet()
+        val retained = current.mapNotNull { profile ->
+            if (profile.id in importedIds) return@mapNotNull null
+            val oldIndex = profile.nuvioProfileIndexes[accountId]
+            if (oldIndex != null && indexedRemoteProfiles.none { it.nuvioProfileIndex == oldIndex }) {
+                profile.copy(nuvioProfileIndexes = profile.nuvioProfileIndexes - accountId)
+            } else {
+                profile
             }
+        }
+        _profiles.value = imported + retained
+
+        val active = _profiles.value.firstOrNull { it.id == _activeId.value }
+        if (active?.nuvioProfileIndexes?.containsKey(accountId) != true) {
+            _profiles.value.firstOrNull { accountId in it.nuvioProfileIndexes }
+                ?.let { setActiveProfile(it.id) }
         }
         persist()
     }

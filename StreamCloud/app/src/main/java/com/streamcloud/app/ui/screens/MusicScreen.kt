@@ -282,7 +282,16 @@ fun MusicScreen(
     tvNavFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
-    val vm: MusicViewModel = viewModel(factory = MusicViewModel.factory(context))
+    val services = remember(context) { ServiceLocator.get(context) }
+    val nuvioUserId by services.settings.nuvioUserId.collectAsState(initial = "")
+    val activeProfileId by services.profiles.activeProfileId.collectAsState(
+        initial = services.profiles.currentActiveId(),
+    )
+    val storageScopeKey = "$nuvioUserId:${activeProfileId ?: "default"}"
+    val vm: MusicViewModel = viewModel(
+        key = "music-$storageScopeKey",
+        factory = MusicViewModel.factory(context),
+    )
     val state by vm.state.collectAsState()
     val nowPlayingMediaId by PlaybackBus.nowPlayingMediaId.collectAsState()
     val playbackIsPlaying by PlaybackBus.isPlaying.collectAsState()
@@ -294,7 +303,7 @@ fun MusicScreen(
     var djStarting by remember { mutableStateOf(false) }
     var djQuickMixLoading by remember { mutableStateOf(false) }
     val dlScope = rememberCoroutineScope()
-    val settings = remember(context) { ServiceLocator.get(context).settings }
+    val settings = services.settings
     val ytMusicUserName by settings.ytMusicUserName.collectAsState(initial = "")
     val ytMusicUserAvatar by settings.ytMusicUserAvatar.collectAsState(initial = "")
     val ytMusicCookie by settings.ytMusicCookie.collectAsState(initial = "")
@@ -328,7 +337,10 @@ fun MusicScreen(
             onOpenPlaylist(item.id, item.title, item.thumbnail)
         }
     }
-    val djViewModel: DjViewModel = viewModel(factory = DjViewModel.factory(context))
+    val djViewModel: DjViewModel = viewModel(
+        key = "dj-$storageScopeKey",
+        factory = DjViewModel.factory(context),
+    )
     val djState by djViewModel.state.collectAsState()
     val djVoicePresetName by settings.djVoicePreset.collectAsState(initial = DjVoicePreset.BrightHost.name)
     val djVoicePreset = remember(djVoicePresetName) {
