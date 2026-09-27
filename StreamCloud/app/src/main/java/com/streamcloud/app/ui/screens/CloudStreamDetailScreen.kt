@@ -553,34 +553,36 @@ private fun CsReadyContent(
                     Spacer(Modifier.height(6.dp))
                 }
 
-                // ── Tags ───────────────────────────────────────────────────
-                val tags = lr.tags
-                if (!tags.isNullOrEmpty()) {
-                    Spacer(Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        tags.take(4).forEach { tag ->
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(bannerPalette.surfaceTint)
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
-                            ) {
-                                Text(tag, color = TextSecondary,
-                                    style = MaterialTheme.typography.labelMedium)
+                if (!isSeries) {
+                    // ── Tags ───────────────────────────────────────────────────
+                    val tags = lr.tags
+                    if (!tags.isNullOrEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            tags.take(4).forEach { tag ->
+                                Box(
+                                    Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(bannerPalette.surfaceTint)
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(tag, color = TextSecondary,
+                                        style = MaterialTheme.typography.labelMedium)
+                                }
                             }
                         }
                     }
-                }
 
-                // ── Overview ───────────────────────────────────────────────
-                lr.plot?.takeIf { it.isNotBlank() }?.let { plot ->
-                    Spacer(Modifier.height(24.dp))
-                    Text("Overview",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = TextPrimary)
-                    Spacer(Modifier.height(8.dp))
-                    Text(plot, color = TextSecondary,
-                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 26.sp))
+                    // ── Overview ───────────────────────────────────────────────
+                    lr.plot?.takeIf { it.isNotBlank() }?.let { plot ->
+                        Spacer(Modifier.height(24.dp))
+                        Text("Overview",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = TextPrimary)
+                        Spacer(Modifier.height(8.dp))
+                        Text(plot, color = TextSecondary,
+                            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 26.sp))
+                    }
                 }
 
                 // ── Episodes heading ───────────────────────────────────────
@@ -611,6 +613,50 @@ private fun CsReadyContent(
                 )
             }
             item { Spacer(Modifier.height(24.dp)) }
+        }
+
+        // Keep secondary series metadata below the episode list so episodes are
+        // immediately available after the title and essential controls.
+        if (isSeries) {
+            item {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(bannerPalette.backgroundTint)
+                        .padding(horizontal = 20.dp),
+                ) {
+                    // ── Tags ───────────────────────────────────────────────
+                    val tags = lr.tags
+                    if (!tags.isNullOrEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            tags.take(4).forEach { tag ->
+                                Box(
+                                    Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(bannerPalette.surfaceTint)
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(tag, color = TextSecondary,
+                                        style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Overview ────────────────────────────────────────────
+                    lr.plot?.takeIf { it.isNotBlank() }?.let { plot ->
+                        Spacer(Modifier.height(24.dp))
+                        Text("Overview",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = TextPrimary)
+                        Spacer(Modifier.height(8.dp))
+                        Text(plot, color = TextSecondary,
+                            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 26.sp))
+                    }
+                    Spacer(Modifier.height(24.dp))
+                }
+            }
         }
     }
 }

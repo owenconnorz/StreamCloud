@@ -41,14 +41,15 @@ private data class ResolvedTrailer(
 )
 
 /**
- * Requests a TMDB trailer only after a movie card has stayed focused for six
- * seconds. The caller removes this composable on blur, cancelling lookups and
- * releasing the preview player immediately.
+ * Resolves a muted, looping TMDB trailer preview. Focused cards use a delay;
+ * detail banners can use the already-loaded videos and start immediately.
  */
 @Composable
-internal fun FocusedMovieTrailerPreview(
+internal fun TmdbTrailerPreview(
     movie: TmdbMovie,
     modifier: Modifier = Modifier,
+    videos: List<TmdbVideo>? = null,
+    startDelayMs: Long = 6_000L,
 ) {
     val context = LocalContext.current.applicationContext
     val services = remember(context) { ServiceLocator.get(context) }
@@ -56,8 +57,8 @@ internal fun FocusedMovieTrailerPreview(
     var isResumed by remember(lifecycleOwner) {
         mutableStateOf(lifecycleOwner.lifecycle.currentState == Lifecycle.State.RESUMED)
     }
-    var trailer by remember(movie.id) { mutableStateOf<ResolvedTrailer?>(null) }
-    var playbackFailed by remember(movie.id) { mutableStateOf(false) }
+    var trailer by remember(movie.id, movie.title == null) { mutableStateOf<ResolvedTrailer?>(null) }
+    var playbackFailed by remember(movie.id, movie.title == null) { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -71,19 +72,19 @@ internal fun FocusedMovieTrailerPreview(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(movie.id, movie.title == null, isResumed) {
+    LaunchedEffect(movie.id, movie.title == null, isResumed, videos, startDelayMs) {
         trailer = null
         playbackFailed = false
         if (!isResumed) return@LaunchedEffect
 
-        delay(6_000L)
+        if (startDelayMs > 0L) delay(startDelayMs)
         try {
-            val response = if (movie.title != null) {
-                services.tmdb.videos(movie.id, services.tmdbApiKey)
+            val availableVideos = videos ?: if (movie.title != null) {
+                services.tmdb.videos(movie.id, services.tmdbApiKey).results
             } else {
-                services.tmdb.tvVideos(movie.id, services.tmdbApiKey)
+                services.tmdb.tvVideos(movie.id, services.tmdbApiKey).results
             }
-            val video = response.results
+            val video = availableVideos
                 .filter {
                     it.site.equals("YouTube", ignoreCase = true) &&
                         (it.type.equals("Trailer", ignoreCase = true) ||

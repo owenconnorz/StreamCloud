@@ -75,7 +75,7 @@ import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.ui.components.MovieArtwork
-import com.streamcloud.app.ui.components.FocusedMovieTrailerPreview
+import com.streamcloud.app.ui.components.TmdbTrailerPreview
 import com.streamcloud.app.ui.components.WatchedPosterBadge
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
 import com.streamcloud.app.ui.viewmodel.HeroBannerItem
@@ -1608,7 +1608,7 @@ private fun MidPoster(
                     .background(MaterialTheme.colorScheme.surface),
             )
             if (isExpanded) {
-                FocusedMovieTrailerPreview(
+                TmdbTrailerPreview(
                     movie = m,
                     modifier = Modifier.fillMaxSize(),
                 )

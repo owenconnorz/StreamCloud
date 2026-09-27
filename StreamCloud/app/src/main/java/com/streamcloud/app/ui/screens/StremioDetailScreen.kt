@@ -31,7 +31,9 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.stremio.StremioMeta
 import com.streamcloud.app.data.stremio.StremioStream
+import com.streamcloud.app.data.stremio.StremioVideo
 import com.streamcloud.app.ui.theme.rememberBannerPalette
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.net.URLEncoder
 
@@ -61,17 +63,27 @@ fun StremioDetailScreen(
         .collectAsState(initial = false)
     val isWatchlisted = isDefaultWatchlisted || isCustomWatchlisted
 
-    var meta by remember(addonId, metaId) { mutableStateOf<StremioMeta?>(null) }
-    var streams by remember(addonId, metaId) { mutableStateOf<List<StremioStream>>(emptyList()) }
+    var meta by remember(addonId, type, metaId) { mutableStateOf<StremioMeta?>(null) }
+    var streams by remember(addonId, type, metaId) { mutableStateOf<List<StremioStream>>(emptyList()) }
     var loadingStreams by remember { mutableStateOf(true) }
+    var selectedEpisode by remember(addonId, type, metaId) { mutableStateOf<StremioVideo?>(null) }
+    var loadingEpisodeStreams by remember(addonId, type, metaId) { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var actionsExpanded by remember(addonId, metaId) { mutableStateOf(false) }
-    var markedWatched by remember(addonId, metaId) { mutableStateOf(false) }
-    var watchlistPickerEntry by remember(addonId, metaId) {
+    var actionsExpanded by remember(addonId, type, metaId) { mutableStateOf(false) }
+    var markedWatched by remember(addonId, type, metaId) { mutableStateOf(false) }
+    var watchlistPickerEntry by remember(addonId, type, metaId) {
         mutableStateOf<WatchlistEntity?>(null)
     }
 
-    LaunchedEffect(addonId, metaId) {
+    val isSeries = type.equals("series", ignoreCase = true) ||
+        type.equals("tv", ignoreCase = true) ||
+        type.equals("show", ignoreCase = true)
+    val episodes = remember(meta?.videos) {
+        meta?.videos.orEmpty()
+            .sortedWith(compareBy<StremioVideo> { it.season ?: Int.MAX_VALUE }.thenBy { it.episode ?: Int.MAX_VALUE })
+    }
+
+    LaunchedEffect(addonId, type, metaId) {
         loadingStreams = true
         error = null
         runCatching {
@@ -82,15 +94,47 @@ fun StremioDetailScreen(
                 return@runCatching
             }
 
-            meta = runCatching { sl.stremio.fetchMeta(addon, type, metaId) }.getOrNull()
+            val loadedMeta = runCatching { sl.stremio.fetchMeta(addon, type, metaId) }.getOrNull()
+            meta = loadedMeta
+            val hasEpisodes = isSeries && !loadedMeta?.videos.isNullOrEmpty()
 
-            streams = runCatching { sl.stremio.fetchStreams(addon, type, metaId) }
-                .getOrDefault(emptyList())
-            if (streams.isEmpty()) {
+            // Series stream endpoints are episode-specific. Movies retain the
+            // item-level request only when the addon did not provide episodes.
+            streams = if (hasEpisodes) {
+                emptyList()
+            } else {
+                runCatching { sl.stremio.fetchStreams(addon, type, metaId) }
+                    .getOrDefault(emptyList())
+            }
+            if (!hasEpisodes && streams.isEmpty()) {
                 error = "No streams returned by this addon for this item."
             }
         }.onFailure { error = "Failed: ${it.message}" }
         loadingStreams = false
+    }
+
+    LaunchedEffect(addonId, type, metaId, selectedEpisode?.id) {
+        val episode = selectedEpisode ?: return@LaunchedEffect
+        loadingEpisodeStreams = true
+        error = null
+        streams = emptyList()
+        try {
+            val addon = sl.stremio.addons.first().firstOrNull { it.id == addonId }
+            if (addon == null) {
+                error = "Addon no longer installed."
+                return@LaunchedEffect
+            }
+            streams = sl.stremio.fetchStreams(addon, type, episode.id)
+            if (streams.isEmpty()) {
+                error = "No streams returned for ${episode.displayLabel()}."
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            error = "Failed to load ${episode.displayLabel()}: ${failure.message}"
+        } finally {
+            loadingEpisodeStreams = false
+        }
     }
 
     val firstPlayableStream = streams.firstNotNullOfOrNull { buildStreamUrl(it) }
@@ -150,26 +194,35 @@ fun StremioDetailScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Button(
-                                onClick = {
-                                    firstPlayableStream?.let {
-                                        onPlay(it, meta?.name ?: initialTitle)
-                                    }
-                                },
-                                enabled = firstPlayableStream != null,
-                                modifier = Modifier.weight(1f).height(52.dp),
-                                shape = RoundedCornerShape(50),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = bannerPalette.accent,
-                                    contentColor = bannerPalette.onAccent,
-                                ),
-                            ) {
-                                Icon(Icons.Default.PlayArrow, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    "Play Movie · ${streams.size} sources",
-                                    fontWeight = FontWeight.Bold,
-                                )
+                            if (!isSeries || selectedEpisode != null || episodes.isEmpty()) {
+                                Button(
+                                    onClick = {
+                                        firstPlayableStream?.let {
+                                            val title = selectedEpisode?.displayLabel()
+                                                ?.let { episodeTitle -> "${meta?.name ?: initialTitle} · $episodeTitle" }
+                                                ?: (meta?.name ?: initialTitle)
+                                            onPlay(it, title)
+                                        }
+                                    },
+                                    enabled = firstPlayableStream != null && !loadingEpisodeStreams,
+                                    modifier = Modifier.weight(1f).height(52.dp),
+                                    shape = RoundedCornerShape(50),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = bannerPalette.accent,
+                                        contentColor = bannerPalette.onAccent,
+                                    ),
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        if (isSeries) {
+                                            "Play ${selectedEpisode?.displayLabel() ?: "Series"} · ${streams.size} sources"
+                                        } else {
+                                            "Play Movie · ${streams.size} sources"
+                                        },
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
                             }
                             if (actionsExpanded) {
                                 IconButton(
@@ -220,6 +273,76 @@ fun StremioDetailScreen(
                                     if (actionsExpanded) "Close actions" else "More actions",
                                 )
                             }
+                        }
+                        if (isSeries && episodes.isNotEmpty()) {
+                            Spacer(Modifier.height(22.dp))
+                            Text(
+                                "Episodes",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            episodes.forEach { episode ->
+                                val selected = selectedEpisode?.id == episode.id
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (selected) bannerPalette.accentContainer
+                                            else bannerPalette.surfaceTint.copy(alpha = 0.55f),
+                                        )
+                                        .clickable { selectedEpisode = episode }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    AsyncImage(
+                                        model = episode.thumbnail ?: bannerImageUrl,
+                                        contentDescription = episode.displayLabel(),
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(width = 92.dp, height = 52.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            episode.displayLabel(),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = bannerPalette.accent,
+                                        )
+                                        Text(
+                                            episode.title ?: "Episode",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onBackground,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    if (selected && loadingEpisodeStreams) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = bannerPalette.accent,
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Default.PlayArrow,
+                                            contentDescription = "Load episode streams",
+                                            tint = bannerPalette.accent,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                            }
+                        } else if (isSeries) {
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "This addon did not provide an episode list; available streams are shown below.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -280,14 +403,26 @@ fun StremioDetailScreen(
             }
             item {
                 Text(
-                    "Streams",
+                    if (isSeries && selectedEpisode != null) {
+                        "Streams · ${selectedEpisode?.displayLabel()}"
+                    } else {
+                        "Streams"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 )
+                if (isSeries && episodes.isNotEmpty() && selectedEpisode == null) {
+                    Text(
+                        "Choose an episode above to load streams.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    )
+                }
             }
-            if (loadingStreams) {
+            if (loadingStreams || loadingEpisodeStreams) {
                 item {
                     Row(
                         Modifier.fillMaxWidth().padding(20.dp),
@@ -299,7 +434,10 @@ fun StremioDetailScreen(
                             color = bannerPalette.accent,
                         )
                         Spacer(Modifier.width(12.dp))
-                        Text("Asking addon for streams…")
+                        Text(
+                            if (loadingEpisodeStreams) "Asking addon for episode streams…"
+                            else "Asking addon for streams…",
+                        )
                     }
                 }
             }
@@ -324,7 +462,10 @@ fun StremioDetailScreen(
                     accentContainerColor = bannerPalette.accentContainer,
                 ) {
                     val streamUrl = buildStreamUrl(s) ?: return@StreamRow
-                    onPlay(streamUrl, meta?.name ?: initialTitle)
+                    val title = selectedEpisode?.displayLabel()
+                        ?.let { episodeTitle -> "${meta?.name ?: initialTitle} · $episodeTitle" }
+                        ?: (meta?.name ?: initialTitle)
+                    onPlay(streamUrl, title)
                 }
             }
         }
@@ -364,6 +505,14 @@ private fun buildStreamUrl(s: StremioStream): String? {
 
 
     return if (s.fileIdx != null) "$magnet&_sc_fidx=${s.fileIdx}" else magnet
+}
+
+private fun StremioVideo.displayLabel(): String {
+    return when {
+        season != null && episode != null -> "S${season}E${episode}"
+        episode != null -> "Episode $episode"
+        else -> "Episode"
+    }
 }
 
 @Composable

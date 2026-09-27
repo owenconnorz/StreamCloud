@@ -84,6 +84,7 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.ui.components.MagnetOptionsSheet
 import com.streamcloud.app.ui.components.MovieArtwork
+import com.streamcloud.app.ui.components.TmdbTrailerPreview
 import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
@@ -169,9 +170,11 @@ fun MovieDetailScreen(
     var csPickerSelSource by remember { mutableStateOf<ExtractorLink?>(null) }
     var csPickerSelSub by remember { mutableStateOf<SubtitleFile?>(null) }
 
-    LaunchedEffect(movieId) {
+    LaunchedEffect(movieId, mediaType) {
         imdbId = null; movie = null; credits = null; similar = emptyList()
-        certification = null; overviewExpanded = false
+        videos = emptyList(); certification = null; overviewExpanded = false
+        tvSeasons = emptyList(); selectedSeason = null; tvEpisodes = emptyList()
+        loadingEpisodes = false; error = null
 
         try {
             val movieJob = async {
@@ -238,7 +241,7 @@ fun MovieDetailScreen(
         }
     }
 
-    LaunchedEffect(selectedSeason) {
+    LaunchedEffect(movieId, mediaType, selectedSeason) {
         val s = selectedSeason ?: return@LaunchedEffect
         if (mediaType != "tv") return@LaunchedEffect
         loadingEpisodes = true
@@ -264,8 +267,8 @@ fun MovieDetailScreen(
 
     fun playEpisode(seasonNum: Int, episodeNum: Int, episodeTitle: String?) {
         imdbId ?: run { resolverMessage = "Loading IMDB id… try again in a second."; return }
-        if (installedAddons.isEmpty() && installedNuvio.isEmpty()) {
-            resolverMessage = "No Stremio addons or Nuvio providers installed."
+        if (installedAddons.isEmpty() && installedNuvio.isEmpty() && installedCsPlugins.isEmpty()) {
+            resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed."
             return
         }
         pickerForDownload = false
@@ -472,6 +475,14 @@ fun MovieDetailScreen(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
                 )
+                movie?.let { loadedMovie ->
+                    TmdbTrailerPreview(
+                        movie = loadedMovie,
+                        modifier = Modifier.fillMaxSize(),
+                        videos = videos,
+                        startDelayMs = 0L,
+                    )
+                }
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.verticalGradient(
@@ -623,6 +634,22 @@ fun MovieDetailScreen(
                 }
 
                 Spacer(Modifier.height(16.dp))
+
+                // Put series episodes directly after the hero actions, before
+                // the rest of the show metadata, on both phone and TV.
+                if (mediaType == "tv" && tvSeasons.isNotEmpty()) {
+                    TvEpisodesSection(
+                        seasons = tvSeasons,
+                        selectedSeason = selectedSeason,
+                        onSeasonSelected = { selectedSeason = it },
+                        loadingEpisodes = loadingEpisodes,
+                        episodes = tvEpisodes,
+                        onEpisodeSelected = { ep ->
+                            playEpisode(ep.seasonNumber, ep.episodeNumber, ep.name)
+                        },
+                    )
+                    Spacer(Modifier.height(16.dp))
+                }
 
                 // ── Metadata row: Year · Runtime · Cert · IMDb ────────────────
                 movie?.let { m ->
@@ -854,96 +881,6 @@ fun MovieDetailScreen(
                             runCatching {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(vid.watchUrl)))
                             }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            Column(Modifier.padding(horizontal = 20.dp)) {
-
-                // ── TV: Seasons poster carousel + episode list ─────────────────
-                if (mediaType == "tv" && tvSeasons.isNotEmpty()) {
-                    Spacer(Modifier.height(28.dp))
-                    SectionHeader("Seasons")
-                    Spacer(Modifier.height(12.dp))
-                }
-            }
-
-            if (mediaType == "tv" && tvSeasons.isNotEmpty()) {
-                // Season poster carousel
-                LazyRow(
-                    modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(tvSeasons.filter { it.seasonNumber > 0 }, key = { it.seasonNumber }) { season ->
-                        val isSelected = selectedSeason == season.seasonNumber
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .width(100.dp)
-                                .tvFocusBorder(RoundedCornerShape(10.dp))
-                                .clickable { selectedSeason = season.seasonNumber },
-                        ) {
-                            Box(
-                                Modifier.fillMaxWidth().aspectRatio(2f / 3f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                    .then(
-                                        if (isSelected) Modifier.border(
-                                            2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)
-                                        ) else Modifier
-                                    ),
-                            ) {
-                                AsyncImage(
-                                    model = season.posterUrl,
-                                    contentDescription = season.name ?: "Season ${season.seasonNumber}",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                season.name ?: "Season ${season.seasonNumber}",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                ),
-                                color = if (isSelected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(20.dp))
-
-                // Episodes header
-                selectedSeason?.let { s ->
-                    Column(Modifier.padding(horizontal = 20.dp)) {
-                        SectionHeader("Season $s")
-                        Spacer(Modifier.height(12.dp))
-                    }
-                }
-
-                // Episode cards (horizontal Nuvio-style)
-                when {
-                    loadingEpisodes -> Box(Modifier.fillMaxWidth().height(180.dp), Alignment.Center) {
-                        CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
-                    }
-                    tvEpisodes.isEmpty() -> Column(Modifier.padding(horizontal = 20.dp)) {
-                        Text("No episodes found.", color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium)
-                    }
-                    else -> LazyRow(
-                        modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
-                        contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(tvEpisodes, key = { "${it.seasonNumber}x${it.episodeNumber}" }) { ep ->
-                            NuvioEpisodeCard(ep) { playEpisode(ep.seasonNumber, ep.episodeNumber, ep.name) }
                         }
                     }
                 }
@@ -1574,6 +1511,91 @@ private fun TrailerCard(video: TmdbVideo, onClick: () -> Unit) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Nuvio-style episode card (horizontal carousel)
 // ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun TvEpisodesSection(
+    seasons: List<TmdbTvSeasonSummary>,
+    selectedSeason: Int?,
+    onSeasonSelected: (Int) -> Unit,
+    loadingEpisodes: Boolean,
+    episodes: List<TmdbEpisode>,
+    onEpisodeSelected: (TmdbEpisode) -> Unit,
+) {
+    SectionHeader("Seasons")
+    Spacer(Modifier.height(12.dp))
+    LazyRow(
+        modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
+        contentPadding = PaddingValues(0.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(seasons.filter { it.seasonNumber > 0 }, key = { it.seasonNumber }) { season ->
+            val isSelected = selectedSeason == season.seasonNumber
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .width(100.dp)
+                    .tvFocusBorder(RoundedCornerShape(10.dp))
+                    .clickable { onSeasonSelected(season.seasonNumber) },
+            ) {
+                Box(
+                    Modifier.fillMaxWidth().aspectRatio(2f / 3f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .then(
+                            if (isSelected) Modifier.border(
+                                2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)
+                            ) else Modifier
+                        ),
+                ) {
+                    AsyncImage(
+                        model = season.posterUrl,
+                        contentDescription = season.name ?: "Season ${season.seasonNumber}",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    season.name ?: "Season ${season.seasonNumber}",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    ),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+
+    Spacer(Modifier.height(20.dp))
+    selectedSeason?.let { season ->
+        SectionHeader("Season $season")
+        Spacer(Modifier.height(12.dp))
+    }
+
+    when {
+        loadingEpisodes -> Box(Modifier.fillMaxWidth().height(180.dp), Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
+        }
+        episodes.isEmpty() -> Text(
+            "No episodes found.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        else -> LazyRow(
+            modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
+            contentPadding = PaddingValues(0.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(episodes, key = { "${it.seasonNumber}x${it.episodeNumber}" }) { episode ->
+                NuvioEpisodeCard(episode) { onEpisodeSelected(episode) }
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+}
 
 @Composable
 private fun NuvioEpisodeCard(ep: TmdbEpisode, onClick: () -> Unit) {
