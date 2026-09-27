@@ -813,13 +813,22 @@ fun NativePlayerScreen(
                 if (!locked) {
                     // Title bar
                     Column(Modifier.align(Alignment.TopStart)
-                        .padding(start = 28.dp, top = 22.dp, end = if (isLandscape) 220.dp else 90.dp)) {
+                        .padding(
+                            start = if (!isTv && isLandscape) 90.dp else 28.dp,
+                            top = if (!isTv && !isLandscape) 70.dp else 22.dp,
+                            end = if (isLandscape) 220.dp else 90.dp,
+                        )) {
                         Text(title, color = Color.White, style = MaterialTheme.typography.headlineSmall, maxLines = 2)
                         if (!episodeLabel.isNullOrBlank()) {
                             Spacer(Modifier.height(2.dp))
                             Text(episodeLabel, color = Color.White.copy(alpha = 0.7f),
                                 style = MaterialTheme.typography.bodyMedium)
                         }
+                    }
+                }
+                if (!isTv && !locked) {
+                    Box(Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 14.dp)) {
+                        PlayerCapsuleIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
                     }
                 }
                 // Top-right icon row
@@ -829,12 +838,10 @@ fun NativePlayerScreen(
                     if (!locked && !anyDeviceCasting) {
                         com.streamcloud.app.cast.CastButton(showDialog = showCastDialog, onShowDialogChange = { showCastDialog = it })
                     }
-                    // Lock and back capsule buttons are not needed on TV — D-pad back
-                    // navigates away and locking controls is a touch-centric feature.
+                    // Lock capsule is touch-centric; TV users leave with D-pad Back.
                     if (!isTv) {
                         PlayerCapsuleIcon(if (locked) Icons.Default.LockOpen else Icons.Default.Lock,
                             if (locked) "Unlock" else "Lock controls") { locked = !locked; bumpInteraction() }
-                        if (!locked) PlayerCapsuleIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
                     }
                 }
 
