@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -309,7 +308,6 @@ private fun CloudStreamPluginsPage(
 
     var addName    by remember { mutableStateOf("") }
     var addUrl     by remember { mutableStateOf("") }
-    var searchQuery by remember { mutableStateOf("") }
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     var showRepoDialog by remember { mutableStateOf(false) }
 
@@ -545,29 +543,11 @@ private fun CloudStreamPluginsPage(
                 }
             }
 
-            // Search filter for plugins
-            if (state.repos.isNotEmpty()) {
-                item {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search plugins…") },
-                        leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(20.dp)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                }
-            }
 
             items(state.repos, key = { it.id }) { repo ->
                 RepoCard(
                     repo             = repo,
-                    plugins          = state.pluginsByRepo[repo.id].orEmpty()
-                        .let { list ->
-                            if (searchQuery.isBlank()) list
-                            else list.filter { it.name.contains(searchQuery, ignoreCase = true) }
-                        },
+                    plugins          = state.pluginsByRepo[repo.id].orEmpty(),
                     isLoading        = state.loadingRepoIds.contains(repo.id),
                     installingNames  = state.installingNames,
                     installedNames   = state.installed.map { it.internalName }.toSet(),
