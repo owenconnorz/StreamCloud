@@ -803,12 +803,13 @@ object YtPlayerUtils {
         val userAgent: String? = null,
         /** Adaptive video-only formats are silent; muxed formats include an audio track. */
         val hasAudioTrack: Boolean = true,
+        /** Separate adaptive audio URL to merge with [url], when YouTube does not offer muxed media. */
+        val audioUrl: String? = null,
     )
 
     /**
-     * Resolves the best MP4 visual stream for [videoId]. Audio-backed muxed formats are
-     * searched across all supported clients before a video-only adaptive format is returned.
-     * Set [requireAudioTrack] to suppress that silent visual fallback.
+     * Resolves a visual trailer stream from YouTube. It prefers separate adaptive audio/video,
+     * then HLS and muxed MP4; silent adaptive video is the final fallback unless audio is required.
      *
      * Detection heuristic: audio-only tracks expose no `video/mp4` format. Modern YouTube
      * responses commonly place visual tracks only in `adaptiveFormats[]`, so treating an empty
@@ -825,7 +826,9 @@ object YtPlayerUtils {
             return@withContext VideoStreamResult(isMusicVideo = false, url = null)
         }
         var foundVisualTrack = false
-        var adaptiveCandidate: VideoStreamResult? = null
+        var hlsCandidate: VideoStreamResult? = null
+        var muxedCandidate: VideoStreamResult? = null
+        var adaptiveVideoCandidate: VideoStreamResult? = null
         val clients = listOf(
             "VISIONOS",
             "ANDROID_VR_1_43",
@@ -838,74 +841,116 @@ object YtPlayerUtils {
             try {
                 val root = fetchPlayerResponse(client, videoId, null, null) ?: continue
                 val streamingData = root["streamingData"]?.jsonObject ?: continue
+                val hlsUrl = streamingData["hlsManifestUrl"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
 
                 val muxedFormats = streamingData["formats"]?.jsonArray
                     ?.mapNotNull { it as? JsonObject }
                     ?.filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("video/mp4") }
                     ?: emptyList()
-                val adaptiveVideoFormats = streamingData["adaptiveFormats"]?.jsonArray
+                val adaptiveFormats = streamingData["adaptiveFormats"]?.jsonArray
                     ?.mapNotNull { it as? JsonObject }
-                    ?.filter { it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("video/mp4") }
                     ?: emptyList()
+                val adaptiveVideoFormats = adaptiveFormats.filter {
+                    it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("video/mp4")
+                }
+                val adaptiveAudioFormats = adaptiveFormats.filter {
+                    it["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/")
+                }
 
-                if (muxedFormats.isEmpty() && adaptiveVideoFormats.isEmpty()) {
-                    AppLogger.i(TAG, "resolveVideoStream $videoId via ${client.label} — no visual MP4")
+                if (muxedFormats.isEmpty() && adaptiveVideoFormats.isEmpty() && hlsUrl == null) {
+                    AppLogger.i(TAG, "resolveVideoStream $videoId via ${client.label} — no visual format")
                     continue
                 }
-                foundVisualTrack = true
+                foundVisualTrack = muxedFormats.isNotEmpty() || adaptiveVideoFormats.isNotEmpty() || hlsUrl != null
+
+                val bestAdaptiveVideo = adaptiveVideoFormats
+                    .filter {
+                        it["height"]?.jsonPrimitive?.content?.toIntOrNull()
+                            ?.let { height -> height <= 720 }
+                            ?: false
+                    }
+                    .maxByOrNull { it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0 }
+                    ?: adaptiveVideoFormats.minByOrNull {
+                        it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: Int.MAX_VALUE
+                    }
+                val defaultAdaptiveAudioFormats = adaptiveAudioFormats.filter { format ->
+                    format["audioTrack"]?.jsonObject?.get("audioIsDefault")?.jsonPrimitive?.content
+                        ?.toBooleanStrictOrNull() != false
+                }.ifEmpty { adaptiveAudioFormats }
+                val bestAdaptiveAudio = defaultAdaptiveAudioFormats.maxByOrNull { format ->
+                    format["averageBitrate"]?.jsonPrimitive?.content?.toIntOrNull()
+                        ?: format["bitrate"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                }
+
+                if (bestAdaptiveVideo != null && bestAdaptiveAudio != null) {
+                    val rawVideoUrl = bestAdaptiveVideo["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                        ?: bestAdaptiveVideo["signatureCipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
+                        ?: bestAdaptiveVideo["cipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
+                    val rawAudioUrl = bestAdaptiveAudio["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                        ?: bestAdaptiveAudio["signatureCipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
+                        ?: bestAdaptiveAudio["cipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
+                    if (!rawVideoUrl.isNullOrBlank() && !rawAudioUrl.isNullOrBlank()) {
+                        val cpn = generateCpn()
+                        val videoItag = bestAdaptiveVideo["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                        val audioItag = bestAdaptiveAudio["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                        AppLogger.i(
+                            TAG,
+                            "resolveVideoStream $videoId via ${client.label} — adaptive A/V itags=$videoItag/$audioItag ok",
+                        )
+                        return@withContext VideoStreamResult(
+                            isMusicVideo = true,
+                            url = withCpn(rawVideoUrl, cpn),
+                            userAgent = client.userAgent,
+                            hasAudioTrack = true,
+                            audioUrl = withCpn(rawAudioUrl, cpn),
+                        )
+                    }
+                }
+
+                if (hlsCandidate == null && hlsUrl != null) {
+                    AppLogger.i(TAG, "resolveVideoStream $videoId via ${client.label} — HLS trailer candidate")
+                    hlsCandidate = VideoStreamResult(
+                        isMusicVideo = true,
+                        url = hlsUrl,
+                        userAgent = client.userAgent,
+                        hasAudioTrack = true,
+                    )
+                }
 
                 val bestMuxed = muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 22 }
                     ?: muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 18 }
                     ?: muxedFormats.firstOrNull()
-                if (bestMuxed != null) {
+                if (muxedCandidate == null && bestMuxed != null) {
                     val rawMuxedUrl = bestMuxed["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                         ?: bestMuxed["signatureCipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
                         ?: bestMuxed["cipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
                     if (!rawMuxedUrl.isNullOrBlank()) {
                         val cpn = generateCpn()
                         val itag = bestMuxed["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-                        AppLogger.i(TAG, "resolveVideoStream $videoId via ${client.label} — itag=$itag muxed ok")
-                        return@withContext VideoStreamResult(
+                        AppLogger.i(TAG, "resolveVideoStream $videoId via ${client.label} — itag=$itag muxed candidate")
+                        muxedCandidate = VideoStreamResult(
                             isMusicVideo = true,
                             url = withCpn(rawMuxedUrl, cpn),
                             userAgent = client.userAgent,
                             hasAudioTrack = true,
                         )
                     }
-                    AppLogger.w(TAG, "resolveVideoStream $videoId via ${client.label} — muxed URL is ciphered")
                 }
 
-                if (!requireAudioTrack && adaptiveCandidate == null) {
-                    val bestAdaptive = adaptiveVideoFormats
-                        .filter {
-                            it["height"]?.jsonPrimitive?.content?.toIntOrNull()
-                                ?.let { height -> height <= 720 }
-                                ?: false
-                        }
-                        .maxByOrNull { it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0 }
-                        ?: adaptiveVideoFormats.minByOrNull {
-                            it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: Int.MAX_VALUE
-                        }
-                    if (bestAdaptive != null) {
-                        val rawAdaptiveUrl = bestAdaptive["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                            ?: bestAdaptive["signatureCipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
-                            ?: bestAdaptive["cipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
-                        if (!rawAdaptiveUrl.isNullOrBlank()) {
-                            val cpn = generateCpn()
-                            val itag = bestAdaptive["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-                            AppLogger.i(
-                                TAG,
-                                "resolveVideoStream $videoId via ${client.label} — itag=$itag adaptive-video fallback candidate",
-                            )
-                            adaptiveCandidate = VideoStreamResult(
-                                isMusicVideo = true,
-                                url = withCpn(rawAdaptiveUrl, cpn),
-                                userAgent = client.userAgent,
-                                hasAudioTrack = false,
-                            )
-                        } else {
-                            AppLogger.w(TAG, "resolveVideoStream $videoId via ${client.label} — adaptive URL is ciphered")
-                        }
+                if (!requireAudioTrack && adaptiveVideoCandidate == null && bestAdaptiveVideo != null) {
+                    val rawAdaptiveUrl = bestAdaptiveVideo["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                        ?: bestAdaptiveVideo["signatureCipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
+                        ?: bestAdaptiveVideo["cipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
+                    if (!rawAdaptiveUrl.isNullOrBlank()) {
+                        val cpn = generateCpn()
+                        val itag = bestAdaptiveVideo["itag"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                        AppLogger.i(TAG, "resolveVideoStream $videoId via ${client.label} — itag=$itag silent adaptive fallback")
+                        adaptiveVideoCandidate = VideoStreamResult(
+                            isMusicVideo = true,
+                            url = withCpn(rawAdaptiveUrl, cpn),
+                            userAgent = client.userAgent,
+                            hasAudioTrack = false,
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -913,9 +958,9 @@ object YtPlayerUtils {
             }
         }
 
-        if (adaptiveCandidate != null) {
-            return@withContext adaptiveCandidate
-        }
+        hlsCandidate?.let { return@withContext it }
+        muxedCandidate?.let { return@withContext it }
+        adaptiveVideoCandidate?.let { return@withContext it }
 
         val extractorStream = runCatching {
             if (requireAudioTrack) {
@@ -945,7 +990,6 @@ object YtPlayerUtils {
 
         VideoStreamResult(isMusicVideo = foundVisualTrack, url = null)
     }
-
     private val AGE_GATE_STATUSES = setOf(
         "AGE_CHECK_REQUIRED",
         "AGE_VERIFICATION_REQUIRED",

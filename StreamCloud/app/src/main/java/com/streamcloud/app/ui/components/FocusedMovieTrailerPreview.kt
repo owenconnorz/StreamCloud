@@ -37,7 +37,8 @@ private const val TAG = "MovieTrailerPreview"
 private data class ResolvedTrailer(
     val url: String,
     val userAgent: String?,
-    val hasAudioTrack: Boolean,
+    val hasAudioTrack: Boolean,    val audioUrl: String? = null,
+
 )
 
 /**
@@ -118,6 +119,7 @@ internal fun TmdbTrailerPreview(
                             url = url,
                             userAgent = stream.userAgent,
                             hasAudioTrack = stream.hasAudioTrack,
+                            audioUrl = stream.audioUrl,
                         )
                         return@LaunchedEffect
                     }
@@ -168,11 +170,12 @@ private fun TrailerPlayer(
     onPlaybackError: (PlaybackException) -> Unit,
 ) {
     val context = LocalContext.current
-    val player = remember(trailer.url, trailer.userAgent) {
-        val dataSourceFactory = YtPlayerUtils.createTrailerDataSourceFactory(trailer.userAgent)
-
+    val mediaSourceFactory = remember(trailer.userAgent) {
+        DefaultMediaSourceFactory(YtPlayerUtils.createTrailerDataSourceFactory(trailer.userAgent))
+    }
+    val player = remember(trailer.url, trailer.audioUrl, trailer.userAgent) {
         ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setMediaSourceFactory(mediaSourceFactory)
             .build()
             .apply {
                 setAudioAttributes(
@@ -249,7 +252,16 @@ private fun TrailerPlayer(
 
     LaunchedEffect(player, trailer.url, surfaceRef.value) {
         if (surfaceRef.value == null) return@LaunchedEffect
-        player.setMediaItem(MediaItem.fromUri(trailer.url))
+        val audioUrl = trailer.audioUrl
+        if (!audioUrl.isNullOrBlank()) {
+            val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(trailer.url))
+            val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(audioUrl))
+            player.setMediaSource(
+                androidx.media3.exoplayer.source.MergingMediaSource(videoSource, audioSource),
+            )
+        } else {
+            player.setMediaItem(MediaItem.fromUri(trailer.url))
+        }
         player.prepare()
         player.play()
     }

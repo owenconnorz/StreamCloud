@@ -1,6 +1,11 @@
 # StreamCloud
 
-## Latest — Keep Android TV trailers loading
+## Latest — Add Nuvio-style trailer audio
+
+### Trailer previews
+- **Adaptive YouTube trailers can play sound** — StreamCloud now pairs adaptive video and audio tracks when YouTube does not provide a muxed stream, with HLS, muxed MP4, and silent video as fallbacks.
+
+## Previous — Keep Android TV trailers loading
 
 ### Trailer previews
 - **Trailer previews stay available when YouTube has no audio-backed format** — The resolver now searches all supported clients for muxed audio/video first, then uses video-only adaptive playback only as a fallback.
