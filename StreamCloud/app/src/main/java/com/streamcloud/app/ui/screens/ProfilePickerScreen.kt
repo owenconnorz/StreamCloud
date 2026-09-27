@@ -627,7 +627,7 @@ private fun EditProfileView(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         userScrollEnabled = false,
                     ) {
-                        items(BUILT_IN_AVATAR_SEEDS) { seed ->
+                        gridItems(BUILT_IN_AVATAR_SEEDS) { seed ->
                             val selected = avatarSeed == seed && customUrl.isBlank()
                             Box(
                                 Modifier
