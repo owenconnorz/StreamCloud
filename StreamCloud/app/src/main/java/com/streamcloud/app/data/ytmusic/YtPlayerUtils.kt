@@ -787,14 +787,18 @@ object YtPlayerUtils {
 
     /**
      * Determines whether [videoId] is a proper music video and, if so, resolves the best
-     * MP4 visual stream. A muxed stream is preferred, but a video-only adaptive MP4 works too:
-     * the visual player is muted and stays synced to the primary audio player.
+     * MP4 visual stream. A muxed stream is preferred, but a video-only adaptive MP4 works too
+     * for the muted Now Playing visualizer. Set [requireAudioTrack] for trailer previews, which
+     * must not use a silent adaptive video track.
      *
      * Detection heuristic: audio-only tracks expose no `video/mp4` format. Modern YouTube
      * responses commonly place visual tracks only in `adaptiveFormats[]`, so treating an empty
      * muxed list as audio-only hides valid music videos.
      */
-    suspend fun resolveVideoStream(videoId: String): VideoStreamResult = withContext(Dispatchers.IO) {
+    suspend fun resolveVideoStream(
+        videoId: String,
+        requireAudioTrack: Boolean = false,
+    ): VideoStreamResult = withContext(Dispatchers.IO) {
         try {
             ensureVisitorData()
         } catch (e: Exception) {
@@ -830,12 +834,24 @@ object YtPlayerUtils {
                 }
                 foundVisualTrack = true
 
+                if (requireAudioTrack && muxedFormats.isEmpty()) {
+                    AppLogger.i(
+                        TAG,
+                        "resolveVideoStream $videoId via ${client.label} — no muxed audio/video track",
+                    )
+                    continue
+                }
+
                 // Prefer a compact muxed stream. If YouTube only exposes DASH video, use the
                 // best video-only MP4 at or below 720p; the muted visual player needs no audio.
-                val best = muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 22 }
+                // Trailer previews set requireAudioTrack and skip that adaptive-only fallback.
+                val bestMuxed = muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 22 }
                     ?: muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 18 }
                     ?: muxedFormats.firstOrNull()
-                    ?: adaptiveVideoFormats
+                val bestAdaptive = if (requireAudioTrack) {
+                    null
+                } else {
+                    adaptiveVideoFormats
                         .filter {
                             it["height"]?.jsonPrimitive?.content?.toIntOrNull()
                                 ?.let { height -> height <= 720 }
@@ -846,7 +862,8 @@ object YtPlayerUtils {
                         .minByOrNull {
                             it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: Int.MAX_VALUE
                         }
-                    ?: continue
+                }
+                val best = bestMuxed ?: bestAdaptive ?: continue
 
                 val rawUrl = best["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                     ?: best["signatureCipher"]?.jsonPrimitive?.content
@@ -876,7 +893,15 @@ object YtPlayerUtils {
         }
 
         val extractorStream = runCatching {
-            NewPipeRepository.resolveVerifiedVideoStream("https://www.youtube.com/watch?v=$videoId")
+            if (requireAudioTrack) {
+                NewPipeRepository.resolveVerifiedMuxedVideoStream(
+                    "https://www.youtube.com/watch?v=$videoId",
+                )
+            } else {
+                NewPipeRepository.resolveVerifiedVideoStream(
+                    "https://www.youtube.com/watch?v=$videoId",
+                )
+            }
         }.onFailure { error ->
             AppLogger.w(TAG, "resolveVideoStream $videoId — extractor fallback failed: ${error.message}")
         }.getOrNull()

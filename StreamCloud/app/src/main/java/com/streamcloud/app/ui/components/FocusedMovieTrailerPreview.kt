@@ -99,7 +99,12 @@ internal fun TmdbTrailerPreview(
                 )
                 ?: return@LaunchedEffect
 
-            val stream = YtPlayerUtils.resolveVideoStream(video.key)
+            // Home previews need their own audio. The normal visual-stream resolver may
+            // return an adaptive video-only track, which cannot produce sound at any volume.
+            val stream = YtPlayerUtils.resolveVideoStream(
+                video.key,
+                requireAudioTrack = true,
+            )
             val url = stream.url?.takeIf { stream.isMusicVideo && it.isNotBlank() }
                 ?: return@LaunchedEffect
             trailer = ResolvedTrailer(url = url, userAgent = stream.userAgent)

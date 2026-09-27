@@ -928,9 +928,8 @@ private fun HeroPager(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // Keep the TV billboard wide and inset like the Netflix reference, with the
-    // same crop ratio after its rounded-card margins are applied.
-    val tvHeroWidth = (LocalConfiguration.current.screenWidthDp.dp - 48.dp).coerceAtLeast(320.dp)
+    // Netflix-style TV artwork runs edge-to-edge; retain a cinematic 16:7 crop.
+    val tvHeroWidth = LocalConfiguration.current.screenWidthDp.dp.coerceAtLeast(320.dp)
     val tvHeroHeight = tvHeroWidth * (7f / 16f)
 
     if (isTv) {
@@ -946,14 +945,10 @@ private fun HeroPager(
                 currentPage = (currentPage + 1) % items.size
             }
         }
-        Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(tvHeroHeight)) {
             Crossfade(
                 targetState = currentPage,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .height(tvHeroHeight)
-                    .clip(RoundedCornerShape(20.dp)),
+                modifier = Modifier.fillMaxSize(),
                 label = "tvHeroBanner",
             ) { page ->
                 val item = items.getOrNull(page) ?: return@Crossfade
@@ -971,8 +966,11 @@ private fun HeroPager(
                     },
                 )
             }
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            Row(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 48.dp, bottom = 22.dp),
+            ) {
                 items.forEachIndexed { i, _ ->
                     val active = i == currentPage
                     Box(
@@ -988,7 +986,6 @@ private fun HeroPager(
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
         }
     } else {
         // Mobile / tablet: keep the swipeable horizontal pager.
@@ -1136,11 +1133,13 @@ private fun HeroBannerSlide(
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.55f),
-                            Color.Black.copy(alpha = 0.97f),
-                        )
+                        colorStops = arrayOf(
+                            0f to Color.Black.copy(alpha = 0.58f),
+                            0.2f to Color.Black.copy(alpha = 0.08f),
+                            0.5f to Color.Transparent,
+                            0.78f to Color.Black.copy(alpha = 0.5f),
+                            1f to Color.Black.copy(alpha = 0.97f),
+                        ),
                     )
                 )
             )

@@ -407,6 +407,16 @@ object NewPipeRepository {
             resolveVideoWithPipePipe(url) ?: resolveVideoWithBravePipe(url)
         }
 
+    /**
+     * Resolves only muxed video streams that include audio. Trailer previews cannot use
+     * video-only adaptive streams because they have no audio track.
+     */
+    suspend fun resolveVerifiedMuxedVideoStream(url: String): ExtractedVideoStream? =
+        withContext(Dispatchers.IO) {
+            resolveVideoWithPipePipe(url, muxedOnly = true)
+                ?: resolveVideoWithBravePipe(url, muxedOnly = true)
+        }
+
     /** Maintains the legacy URL-only call surface for downloads, Sonos, and older call sites. */
     suspend fun resolveAudioStream(url: String): String =
         resolveVerifiedAudioStream(url)?.url
@@ -478,7 +488,10 @@ object NewPipeRepository {
         }
     }
 
-    private fun resolveVideoWithPipePipe(watchUrl: String): ExtractedVideoStream? = runCatching {
+    private fun resolveVideoWithPipePipe(
+        watchUrl: String,
+        muxedOnly: Boolean = false,
+    ): ExtractedVideoStream? = runCatching {
         synchronized(pipePipeInitLock) {
             PipePipeDownloader.instance.ytMusicCookie = NewPipeDownloader.instance.ytMusicCookie
             PipePipe.init(PipePipeDownloader.instance)
@@ -489,7 +502,11 @@ object NewPipeRepository {
         )
         selectVerifiedVideoCandidate(
             "PIPEPIPE",
-            (info.videoStreams.orEmpty() + info.videoOnlyStreams.orEmpty()).mapNotNull { stream ->
+            (if (muxedOnly) {
+                info.videoStreams.orEmpty()
+            } else {
+                info.videoStreams.orEmpty() + info.videoOnlyStreams.orEmpty()
+            }).mapNotNull { stream ->
                 stream.content?.takeIf { it.isNotBlank() }?.let { streamUrl ->
                     VideoCandidate(
                         url = streamUrl,
@@ -506,7 +523,10 @@ object NewPipeRepository {
         AppLogger.w(TAG, "PipePipe video extraction failed: ${error.message}")
     }.getOrNull()
 
-    private fun resolveVideoWithBravePipe(watchUrl: String): ExtractedVideoStream? {
+    private fun resolveVideoWithBravePipe(
+        watchUrl: String,
+        muxedOnly: Boolean = false,
+    ): ExtractedVideoStream? {
         fun extract(): ExtractedVideoStream? {
             val info = BravePipeStreamInfo.getInfo(
                 BravePipe.getService(0),
@@ -514,7 +534,11 @@ object NewPipeRepository {
             )
             return selectVerifiedVideoCandidate(
                 "BRAVEPIPE",
-                (info.videoStreams.orEmpty() + info.videoOnlyStreams.orEmpty()).mapNotNull { stream ->
+                (if (muxedOnly) {
+                    info.videoStreams.orEmpty()
+                } else {
+                    info.videoStreams.orEmpty() + info.videoOnlyStreams.orEmpty()
+                }).mapNotNull { stream ->
                     stream.content?.takeIf { it.isNotBlank() }?.let { streamUrl ->
                         VideoCandidate(
                             url = streamUrl,
