@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -445,6 +446,152 @@ fun MovieDetailScreen(
     LaunchedEffect(Unit) {
         if (!isTv) try { focusRequester.requestFocus() } catch (_: Exception) {}
     }
+    val detailHeader: @Composable () -> Unit = {
+        Text(
+            movie?.displayTitle ?: "Loading…",
+            style = if (isTv) {
+                MaterialTheme.typography.headlineLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 40.sp,
+                    lineHeight = 44.sp,
+                )
+            } else {
+                MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Bold)
+            },
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = if (isTv) 2 else Int.MAX_VALUE,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        movie?.genres?.takeIf { it.isNotEmpty() && mediaType == "tv" }?.let { genres ->
+            Spacer(Modifier.height(4.dp))
+            Text(
+                genres.joinToString(" • ") { it.name },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (isTv) 2 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        val addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size
+        val playEnabled = imdbId != null && addonCount > 0 && !resolving
+        if (mediaType == "tv") {
+            val firstSeason = tvSeasons.firstOrNull()
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Button(
+                    onClick = {
+                        firstSeason?.let { playEpisode(it.seasonNumber, 1, null) }
+                            ?: run { resolverMessage = "Seasons not loaded yet." }
+                    },
+                    enabled = playEnabled && firstSeason != null,
+                    modifier = (if (isTv) Modifier else Modifier.weight(1f))
+                        .height(if (isTv) 44.dp else 52.dp)
+                        .tvFocusBorder(RoundedCornerShape(50))
+                        .then(if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier),
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surface,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                ) {
+                    Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Play S${firstSeason?.seasonNumber ?: 1}E1",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    )
+                }
+                if (isTv) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MovieActionCircle(
+                            icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                            active = isWatched,
+                            description = if (isWatched) "Mark as unwatched" else "Mark as watched",
+                        ) { toggleWatched() }
+                    }
+                } else {
+                    AnimatedVisibility(
+                        visible = actionsExpanded,
+                        enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
+                        exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MovieActionCircle(
+                                icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                                active = isWatched,
+                                description = if (isWatched) "Mark as unwatched" else "Mark as watched",
+                            ) { toggleWatched() }
+                        }
+                    }
+                    MovieActionCircle(
+                        icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
+                        active = false,
+                        description = if (actionsExpanded) "Hide more actions" else "Show more actions",
+                    ) { actionsExpanded = !actionsExpanded }
+                }
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(if (isTv) Modifier else Modifier.weight(1f)) {
+                    PlayMovieCta(
+                        addonCount = addonCount,
+                        enabled = playEnabled,
+                        loading = resolving,
+                        downloadProgress = downloadProgress,
+                        onClick = { playMovie() },
+                        isTv = isTv,
+                        modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
+                    )
+                }
+                if (isTv) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MovieActionCircle(
+                            icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                            active = isWatched,
+                            description = if (isWatched) "Mark as unwatched" else "Mark as watched",
+                        ) { toggleWatched() }
+                    }
+                } else {
+                    AnimatedVisibility(
+                        visible = actionsExpanded,
+                        enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
+                        exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MovieActionCircle(
+                                icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                                active = isWatched,
+                                description = if (isWatched) "Mark as unwatched" else "Mark as watched",
+                            ) { toggleWatched() }
+                        }
+                    }
+                    MovieActionCircle(
+                        icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
+                        active = false,
+                        description = if (actionsExpanded) "Hide more actions" else "Show more actions",
+                    ) { actionsExpanded = !actionsExpanded }
+                }
+            }
+        }
+
+        resolverMessage?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
     Box(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             .focusRequester(focusRequester)
@@ -466,173 +613,90 @@ fun MovieDetailScreen(
     ) {
         Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
 
-            // ── Backdrop ──────────────────────────────────────────────────────
-            Box(Modifier.fillMaxWidth().height(300.dp)) {
-                MovieArtwork(
-                    primaryUrl = movie?.backdropUrl,
-                    fallbackUrl = movie?.posterUrl,
-                    contentDescription = movie?.displayTitle ?: "Movie artwork",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
-                )
-                movie?.let { loadedMovie ->
-                    TmdbTrailerPreview(
-                        movie = loadedMovie,
-                        modifier = Modifier.fillMaxSize(),
-                        videos = videos,
-                        startDelayMs = 0L,
-                    )
+            if (isTv) {
+                val previewWidth = (LocalConfiguration.current.screenWidthDp.dp * 0.44f)
+                    .coerceIn(260.dp, 560.dp)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 40.dp, vertical = 20.dp)
+                        .height(previewWidth * (9f / 16f)),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        detailHeader()
+                    }
+                    Spacer(Modifier.width(24.dp))
+                    Box(
+                        Modifier
+                            .width(previewWidth)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.Black),
+                    ) {
+                        MovieArtwork(
+                            primaryUrl = movie?.backdropUrl,
+                            fallbackUrl = movie?.posterUrl,
+                            contentDescription = movie?.displayTitle ?: "Movie artwork",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        movie?.let { loadedMovie ->
+                            TmdbTrailerPreview(
+                                movie = loadedMovie,
+                                modifier = Modifier.fillMaxSize(),
+                                videos = videos,
+                                startDelayMs = 0L,
+                            )
+                        }
+                        Box(
+                            Modifier.fillMaxSize().background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.18f)),
+                                ),
+                            ),
+                        )
+                    }
                 }
-                Box(
-                    Modifier.fillMaxSize().background(
-                        Brush.verticalGradient(
-                            listOf(Color.Black.copy(alpha = 0.3f), Color.Transparent, Color.Transparent,
-                                MaterialTheme.colorScheme.background)
+            } else {
+                // Mobile keeps the full-width artwork above its stacked details.
+                Box(Modifier.fillMaxWidth().height(300.dp)) {
+                    MovieArtwork(
+                        primaryUrl = movie?.backdropUrl,
+                        fallbackUrl = movie?.posterUrl,
+                        contentDescription = movie?.displayTitle ?: "Movie artwork",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
+                    )
+                    movie?.let { loadedMovie ->
+                        TmdbTrailerPreview(
+                            movie = loadedMovie,
+                            modifier = Modifier.fillMaxSize(),
+                            videos = videos,
+                            startDelayMs = 0L,
+                        )
+                    }
+                    Box(
+                        Modifier.fillMaxSize().background(
+                            Brush.verticalGradient(
+                                listOf(Color.Black.copy(alpha = 0.3f), Color.Transparent, Color.Transparent,
+                                    MaterialTheme.colorScheme.background)
+                            )
                         )
                     )
-                )
+                }
             }
-
             // ── Main content ──────────────────────────────────────────────────
             Column(
-                Modifier.padding(horizontal = 20.dp).offset(y = (-50).dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (isTv) 40.dp else 20.dp)
+                    .then(if (isTv) Modifier else Modifier.offset(y = (-50).dp)),
             ) {
-                // Title
-                Text(
-                    movie?.displayTitle ?: "Loading…",
-                    style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-
-                // TV genres subtitle
-                movie?.genres?.takeIf { it.isNotEmpty() && mediaType == "tv" }?.let { genres ->
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        genres.joinToString(" • ") { it.name },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                // ── Play button ───────────────────────────────────────────────
-                val addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size
-                val playEnabled = imdbId != null && addonCount > 0 && !resolving
-                if (mediaType == "tv") {
-                    val firstSeason = tvSeasons.firstOrNull()
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Button(
-                            onClick = {
-                                firstSeason?.let { playEpisode(it.seasonNumber, 1, null) }
-                                    ?: run { resolverMessage = "Seasons not loaded yet." }
-                            },
-                            enabled = playEnabled && firstSeason != null,
-                            modifier = (if (isTv) Modifier else Modifier.weight(1f))
-                                .height(if (isTv) 44.dp else 52.dp)
-                                .tvFocusBorder(RoundedCornerShape(50))
-                                .then(if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier),
-                            shape = RoundedCornerShape(50),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                                disabledContainerColor = MaterialTheme.colorScheme.surface,
-                                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        ) {
-                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(22.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "Play S${firstSeason?.seasonNumber ?: 1}E1",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            )
-                        }
-                        if (isTv) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                MovieActionCircle(
-                                    icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
-                                    active = isWatched,
-                                    description = if (isWatched) "Mark as unwatched" else "Mark as watched",
-                                ) { toggleWatched() }
-                            }
-                        } else {
-                            AnimatedVisibility(
-                                visible = actionsExpanded,
-                                enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
-                                exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
-                            ) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    MovieActionCircle(
-                                        icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
-                                        active = isWatched,
-                                        description = if (isWatched) "Mark as unwatched" else "Mark as watched",
-                                    ) { toggleWatched() }
-                                }
-                            }
-                            MovieActionCircle(
-                                icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
-                                active = false,
-                                description = if (actionsExpanded) "Hide more actions" else "Show more actions",
-                            ) { actionsExpanded = !actionsExpanded }
-                        }
-                    }
-                } else {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Box(if (isTv) Modifier else Modifier.weight(1f)) {
-                            PlayMovieCta(
-                                addonCount = addonCount,
-                                enabled = playEnabled,
-                                loading = resolving,
-                                downloadProgress = downloadProgress,
-                                onClick = { playMovie() },
-                                isTv = isTv,
-                                modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
-                            )
-                        }
-                        if (isTv) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                MovieActionCircle(
-                                    icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
-                                    active = isWatched,
-                                    description = if (isWatched) "Mark as unwatched" else "Mark as watched",
-                                ) { toggleWatched() }
-                            }
-                        } else {
-                            AnimatedVisibility(
-                                visible = actionsExpanded,
-                                enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
-                                exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End),
-                            ) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    MovieActionCircle(
-                                        icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
-                                        active = isWatched,
-                                        description = if (isWatched) "Mark as unwatched" else "Mark as watched",
-                                    ) { toggleWatched() }
-                                }
-                            }
-                            MovieActionCircle(
-                                icon = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreVert,
-                                active = false,
-                                description = if (actionsExpanded) "Hide more actions" else "Show more actions",
-                            ) { actionsExpanded = !actionsExpanded }
-                        }
-                    }
-                }
-
-                resolverMessage?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                }
-
+                if (!isTv) detailHeader()
                 Spacer(Modifier.height(16.dp))
 
                 // Put series episodes directly after the hero actions, before

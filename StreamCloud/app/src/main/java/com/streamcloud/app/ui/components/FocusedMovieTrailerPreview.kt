@@ -41,7 +41,7 @@ private data class ResolvedTrailer(
 )
 
 /**
- * Resolves a muted, looping TMDB trailer preview. Focused cards use a delay;
+ * Resolves an audio-enabled, looping TMDB trailer preview. Focused cards use a delay;
  * detail banners can use the already-loaded videos and start immediately.
  */
 @Composable
@@ -112,7 +112,7 @@ internal fun TmdbTrailerPreview(
 
     val resolvedTrailer = trailer
     if (resolvedTrailer != null && !playbackFailed && isResumed) {
-        MutedTrailerPlayer(
+        TrailerPlayer(
             trailer = resolvedTrailer,
             modifier = modifier,
             onPlaybackError = { error ->
@@ -124,7 +124,7 @@ internal fun TmdbTrailerPreview(
 }
 
 @Composable
-private fun MutedTrailerPlayer(
+private fun TrailerPlayer(
     trailer: ResolvedTrailer,
     modifier: Modifier,
     onPlaybackError: (PlaybackException) -> Unit,
@@ -142,7 +142,14 @@ private fun MutedTrailerPlayer(
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .build()
             .apply {
-                volume = 0f
+                setAudioAttributes(
+                    androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .build(),
+                    true,
+                )
+                volume = 1f
                 repeatMode = Player.REPEAT_MODE_ONE
             }
     }

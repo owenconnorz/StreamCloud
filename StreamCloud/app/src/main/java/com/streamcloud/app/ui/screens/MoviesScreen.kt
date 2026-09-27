@@ -928,8 +928,10 @@ private fun HeroPager(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // Netflix-style TV billboard: keep a wide 16:7 frame across display sizes and densities.
-    val tvHeroHeight = LocalConfiguration.current.screenWidthDp.dp * (7f / 16f)
+    // Keep the TV billboard wide and inset like the Netflix reference, with the
+    // same crop ratio after its rounded-card margins are applied.
+    val tvHeroWidth = (LocalConfiguration.current.screenWidthDp.dp - 48.dp).coerceAtLeast(320.dp)
+    val tvHeroHeight = tvHeroWidth * (7f / 16f)
 
     if (isTv) {
         // HorizontalPager intercepts every D-pad left/right at the input level and permanently
@@ -947,7 +949,11 @@ private fun HeroPager(
         Column(Modifier.fillMaxWidth()) {
             Crossfade(
                 targetState = currentPage,
-                modifier = Modifier.fillMaxWidth().height(tvHeroHeight),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .height(tvHeroHeight)
+                    .clip(RoundedCornerShape(20.dp)),
                 label = "tvHeroBanner",
             ) { page ->
                 val item = items.getOrNull(page) ?: return@Crossfade
@@ -1580,32 +1586,32 @@ private fun MidPoster(
             .tvOkPress(onClick, onLongPress)
             .width(animatedWidth)
             .onFocusChanged { isFocused = it.isFocused }
-            .tvFocusBorder(RoundedCornerShape(12.dp))
             .animateContentSize(animationSpec = tween(durationMillis = 260))
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isExpanded) Color(0xFF171717) else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(animatedImageHeight)
-                .background(Color.Black),
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black)
+                .then(
+                    if (isExpanded) {
+                        Modifier.border(
+                            2.dp,
+                            MaterialTheme.colorScheme.primary,
+                            RoundedCornerShape(12.dp),
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
             AsyncImage(
                 model = if (isExpanded) m.backdropUrl ?: imageUrl else imageUrl,
                 contentDescription = m.displayTitle,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(
-                        if (isExpanded) {
-                            RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-                        } else {
-                            RoundedCornerShape(12.dp)
-                        },
-                    )
-                    .background(MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxSize(),
             )
             if (isExpanded) {
                 TmdbTrailerPreview(
