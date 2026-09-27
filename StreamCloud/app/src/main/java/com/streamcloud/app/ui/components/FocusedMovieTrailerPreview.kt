@@ -81,40 +81,56 @@ internal fun TmdbTrailerPreview(
         }
 
         if (startDelayMs > 0L && retryAttempt == 0) delay(startDelayMs)
-        try {
-            val availableVideos = videos ?: if (movie.title != null) {
-                services.tmdb.videos(movie.id, services.tmdbApiKey).results
-            } else {
-                services.tmdb.tvVideos(movie.id, services.tmdbApiKey).results
-            }
-            val video = availableVideos
-                .filter {
-                    it.site.equals("YouTube", ignoreCase = true) &&
-                        (it.type.equals("Trailer", ignoreCase = true) ||
-                            it.type.equals("Teaser", ignoreCase = true))
+        var lastFailure: Exception? = null
+        for (resolutionAttempt in 0..1) {
+            try {
+                // Empty detail responses are not authoritative: retry through TMDB instead
+                // of treating an early/failed empty list as proof that no trailer exists.
+                val availableVideos = videos?.takeIf { it.isNotEmpty() } ?: if (movie.title != null) {
+                    services.tmdb.videos(movie.id, services.tmdbApiKey).results
+                } else {
+                    services.tmdb.tvVideos(movie.id, services.tmdbApiKey).results
                 }
-                .minWithOrNull(
-                    compareBy<TmdbVideo> {
-                        if (it.type.equals("Trailer", ignoreCase = true)) 0 else 1
-                    }.thenBy {
-                        if (it.name.orEmpty().contains("official", ignoreCase = true)) 0 else 1
-                    },
-                )
-                ?: return@LaunchedEffect
+                val video = availableVideos
+                    .filter {
+                        it.key.isNotBlank() &&
+                            it.site.equals("YouTube", ignoreCase = true) &&
+                            (it.type.equals("Trailer", ignoreCase = true) ||
+                                it.type.equals("Teaser", ignoreCase = true))
+                    }
+                    .minWithOrNull(
+                        compareBy<TmdbVideo> {
+                            if (it.type.equals("Trailer", ignoreCase = true)) 0 else 1
+                        }.thenBy {
+                            if (it.name.orEmpty().contains("official", ignoreCase = true)) 0 else 1
+                        },
+                    )
 
-            // Home previews need their own audio. The normal visual-stream resolver may
-            // return an adaptive video-only track, which cannot produce sound at any volume.
-            val stream = YtPlayerUtils.resolveVideoStream(
-                video.key,
-                requireAudioTrack = true,
-            )
-            val url = stream.url?.takeIf { stream.isMusicVideo && it.isNotBlank() }
-                ?: return@LaunchedEffect
-            trailer = ResolvedTrailer(url = url, userAgent = stream.userAgent)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            Log.w(TAG, "Could not prepare trailer preview for TMDB item ${movie.id}", failure)
+                if (video != null) {
+                    // Trailer previews require muxed audio/video; adaptive video-only
+                    // streams look like a failed autoplay because they have no audio track.
+                    val stream = YtPlayerUtils.resolveVideoStream(
+                        video.key,
+                        requireAudioTrack = true,
+                    )
+                    val url = stream.url?.takeIf { stream.isMusicVideo && it.isNotBlank() }
+                    if (url != null) {
+                        trailer = ResolvedTrailer(url = url, userAgent = stream.userAgent)
+                        return@LaunchedEffect
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                lastFailure = failure
+            }
+
+            if (resolutionAttempt == 0) delay(1_200L)
+        }
+        if (lastFailure != null) {
+            Log.w(TAG, "Could not prepare trailer preview for TMDB item ${movie.id}", lastFailure)
+        } else {
+            Log.w(TAG, "No playable trailer stream found for TMDB item ${movie.id}")
         }
     }
 
@@ -231,7 +247,7 @@ private fun TrailerPlayer(
     LaunchedEffect(player, trailer.url) {
         player.setMediaItem(MediaItem.fromUri(trailer.url))
         player.prepare()
-        player.playWhenReady = true
+        player.play()
     }
 
     AndroidView(

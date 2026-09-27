@@ -29,6 +29,7 @@ data class BannerPalette(
     val backgroundTint: Color,
     val surfaceTint: Color,
     val accentContainer: Color,
+    val artworkColor: Color,
 )
 
 @Composable
@@ -56,6 +57,7 @@ fun rememberBannerPalette(
         backgroundTint = fallbackBackground,
         surfaceTint = fallbackSurface,
         accentContainer = fallbackAccent.copy(alpha = 0.18f),
+        artworkColor = fallbackAccent,
     )
 }
 
@@ -120,5 +122,6 @@ private fun paletteFrom(bitmap: Bitmap): BannerPalette? {
         backgroundTint = Color(ColorUtils.HSLToColor(backgroundHsl)),
         surfaceTint = Color(ColorUtils.HSLToColor(surfaceHsl)),
         accentContainer = Color(ColorUtils.HSLToColor(accentContainerHsl)),
+        artworkColor = Color(swatch.rgb),
     )
 }

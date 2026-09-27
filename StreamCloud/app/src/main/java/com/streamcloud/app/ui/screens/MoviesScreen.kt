@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.rememberBannerPalette
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -312,6 +313,13 @@ fun MoviesScreen(
                     )
                 }
             } else {
+                if (isTv && state.heroBanner.isNotEmpty() && state.showHeroSection) {
+                    item(key = "tv_hero_nav_spacing") {
+                        // The transparent TV navigation bar is an overlay. Keep the hero
+                        // below the actual nav row instead of placing artwork behind it.
+                        Spacer(Modifier.statusBarsPadding().height(64.dp))
+                    }
+                }
                 if (state.heroBanner.isNotEmpty() && state.showHeroSection) {
                     item(key = "hero_pager") {
                         HeroPager(
@@ -943,7 +951,7 @@ private fun HeroPager(
         LaunchedEffect(items.size, buttonHasFocus) {
             if (items.size <= 1 || buttonHasFocus) return@LaunchedEffect
             while (true) {
-                kotlinx.coroutines.delay(6_000)
+                kotlinx.coroutines.delay(15_000L)
                 currentPage = (currentPage + 1) % items.size
             }
         }
@@ -968,6 +976,7 @@ private fun HeroPager(
                     // requester to every page would cause a duplicate-requester error.
                     buttonFocusRequester = if (page == 0) initialFocusRequester else null,
                     navFocusRequester = if (page == currentPage) navFocusRequester else null,
+                    showTrailerPreview = page == currentPage,
                     onButtonFocusChanged = { focused ->
                         buttonHasFocus = focused
                         onInitialItemFocusChanged(focused)
@@ -1100,9 +1109,21 @@ private fun HeroBannerSlide(
     buttonFocusRequester: FocusRequester? = null,
     // TV only: always-active nav requester so D-pad Down from the top bar lands here.
     navFocusRequester: FocusRequester? = null,
+    showTrailerPreview: Boolean = false,
     onButtonFocusChanged: (Boolean) -> Unit = {},
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val bannerColor = if (isTv) {
+        rememberBannerPalette(
+            imageUrl = item.imageUrl,
+            fallbackAccent = MaterialTheme.colorScheme.primary,
+            fallbackOnAccent = MaterialTheme.colorScheme.onPrimary,
+            fallbackBackground = MaterialTheme.colorScheme.background,
+            fallbackSurface = MaterialTheme.colorScheme.surface,
+        ).artworkColor
+    } else {
+        Color.Black
+    }
     Box(
         modifier
             .fillMaxSize()
@@ -1120,6 +1141,24 @@ private fun HeroBannerSlide(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
+        if (isTv && showTrailerPreview) {
+            val previewMovie = remember(item.tmdbId, item.mediaType, item.title) {
+                item.tmdbId?.let { id ->
+                    if (item.mediaType == "tv") {
+                        TmdbMovie(id = id, name = item.title)
+                    } else {
+                        TmdbMovie(id = id, title = item.title)
+                    }
+                }
+            }
+            if (previewMovie != null) {
+                TmdbTrailerPreview(
+                    movie = previewMovie,
+                    modifier = Modifier.fillMaxSize(),
+                    startDelayMs = 2_000L,
+                )
+            }
+        }
         val meta = listOfNotNull(
             if (item.mediaType == "tv") "Series" else "Movie",
             item.year.takeIf { it.isNotBlank() },
@@ -1143,10 +1182,11 @@ private fun HeroBannerSlide(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0f to Color.Black.copy(alpha = 0.58f),
-                            0.2f to Color.Black.copy(alpha = 0.08f),
-                            0.5f to Color.Transparent,
-                            0.78f to Color.Black.copy(alpha = 0.5f),
+                            0f to Color.Black.copy(alpha = 0.38f),
+                            0.18f to Color.Black.copy(alpha = 0.04f),
+                            0.48f to Color.Transparent,
+                            0.74f to bannerColor.copy(alpha = 0.38f),
+                            0.88f to Color.Black.copy(alpha = 0.68f),
                             1f to Color.Black.copy(alpha = 0.97f),
                         ),
                     )
