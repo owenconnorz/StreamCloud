@@ -1,6 +1,11 @@
 # StreamCloud
 
-## Latest — Android TV trailer audio fix
+## Latest — Keep Android TV trailers loading
+
+### Trailer previews
+- **Trailer previews stay available when YouTube has no audio-backed format** — The resolver now searches all supported clients for muxed audio/video first, then uses video-only adaptive playback only as a fallback.
+
+## Previous — Android TV trailer audio fix
 
 ### Trailer previews
 - **Trailer audio is restored on Android TV** — Preview resolution now requires an audio-backed stream instead of choosing a silent video-only adaptive track.
