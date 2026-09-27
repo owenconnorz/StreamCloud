@@ -23,7 +23,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.streamcloud.app.data.ServiceLocator
@@ -59,6 +58,7 @@ internal fun TmdbTrailerPreview(
     }
     var trailer by remember(movie.id, movie.title == null) { mutableStateOf<ResolvedTrailer?>(null) }
     var playbackFailed by remember(movie.id, movie.title == null) { mutableStateOf(false) }
+    var retryAttempt by remember(movie.id, movie.title == null) { mutableStateOf(0) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -72,12 +72,15 @@ internal fun TmdbTrailerPreview(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(movie.id, movie.title == null, isResumed, videos, startDelayMs) {
+    LaunchedEffect(movie.id, movie.title == null, isResumed, videos, startDelayMs, retryAttempt) {
         trailer = null
         playbackFailed = false
-        if (!isResumed) return@LaunchedEffect
+        if (!isResumed) {
+            retryAttempt = 0
+            return@LaunchedEffect
+        }
 
-        if (startDelayMs > 0L) delay(startDelayMs)
+        if (startDelayMs > 0L && retryAttempt == 0) delay(startDelayMs)
         try {
             val availableVideos = videos ?: if (movie.title != null) {
                 services.tmdb.videos(movie.id, services.tmdbApiKey).results
@@ -121,8 +124,19 @@ internal fun TmdbTrailerPreview(
             trailer = resolvedTrailer,
             modifier = modifier,
             onPlaybackError = { error ->
-                Log.w(TAG, "Trailer preview playback failed for TMDB item ${movie.id}", error)
-                playbackFailed = true
+                Log.w(
+                    TAG,
+                    "Trailer preview playback failed for TMDB item ${movie.id} " +
+                        "(attempt ${retryAttempt + 1})",
+                    error,
+                )
+                if (retryAttempt < 1) {
+                    // Re-resolve once so a transient CDN failure or an expiring URL does not
+                    // permanently hide the preview for this focused item.
+                    retryAttempt += 1
+                } else {
+                    playbackFailed = true
+                }
             },
         )
     }
@@ -136,12 +150,7 @@ private fun TrailerPlayer(
 ) {
     val context = LocalContext.current
     val player = remember(trailer.url, trailer.userAgent) {
-        val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(
-                trailer.userAgent?.takeIf { it.isNotBlank() }
-                    ?: "StreamCloud/1.0",
-            )
-            .setAllowCrossProtocolRedirects(true)
+        val dataSourceFactory = YtPlayerUtils.createTrailerDataSourceFactory(trailer.userAgent)
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))

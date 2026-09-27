@@ -928,8 +928,10 @@ private fun HeroPager(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // Netflix-style TV artwork runs edge-to-edge; retain a cinematic 16:7 crop.
-    val tvHeroWidth = LocalConfiguration.current.screenWidthDp.dp.coerceAtLeast(320.dp)
+    // Keep the TV hero inset like Netflix's rounded landscape card.
+    val tvHeroInset = 24.dp
+    val tvHeroWidth = (LocalConfiguration.current.screenWidthDp.dp - tvHeroInset * 2)
+        .coerceAtLeast(320.dp)
     val tvHeroHeight = tvHeroWidth * (7f / 16f)
 
     if (isTv) {
@@ -945,7 +947,13 @@ private fun HeroPager(
                 currentPage = (currentPage + 1) % items.size
             }
         }
-        Box(Modifier.fillMaxWidth().height(tvHeroHeight)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = tvHeroInset)
+                .height(tvHeroHeight)
+                .clip(RoundedCornerShape(24.dp)),
+        ) {
             Crossfade(
                 targetState = currentPage,
                 modifier = Modifier.fillMaxSize(),
@@ -969,7 +977,7 @@ private fun HeroPager(
             Row(
                 Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 48.dp, bottom = 22.dp),
+                    .padding(end = 32.dp, bottom = 18.dp),
             ) {
                 items.forEachIndexed { i, _ ->
                     val active = i == currentPage
@@ -1098,6 +1106,7 @@ private fun HeroBannerSlide(
     Box(
         modifier
             .fillMaxSize()
+            .then(if (isTv) Modifier.clip(RoundedCornerShape(24.dp)) else Modifier)
             .background(MaterialTheme.colorScheme.surface)
             // On TV the outer box is a visual container only; the button below is the
             // sole focus target so D-pad navigates freely in all directions.

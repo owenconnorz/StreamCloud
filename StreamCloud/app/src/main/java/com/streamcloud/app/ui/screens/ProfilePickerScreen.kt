@@ -27,9 +27,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyRowItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -244,31 +246,55 @@ private fun ProfileGridView(
             color = Color.White,
         )
         Spacer(Modifier.height(36.dp))
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 24.dp),
-            contentPadding = PaddingValues(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-        ) {
-            items(profiles, key = { it.id }) { profile ->
-                ProfileGridItem(
-                    profile  = profile,
-                    isActive = profile.id == activeId,
-                    onSelect = { onSelect(profile) },
-                    onEdit   = { onEdit(profile) },
-                    initialFocusRequester = if (isTv && profile.id == initialFocusId) {
-                        initialFocusRequester
-                    } else null,
-                )
+        if (isTv) {
+            LazyRow(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                contentPadding = PaddingValues(horizontal = 32.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                lazyRowItems(profiles, key = { it.id }) { profile ->
+                    ProfileGridItem(
+                        profile = profile,
+                        isActive = profile.id == activeId,
+                        onSelect = { onSelect(profile) },
+                        onEdit = { onEdit(profile) },
+                        initialFocusRequester = if (profile.id == initialFocusId) {
+                            initialFocusRequester
+                        } else null,
+                    )
+                }
+                item {
+                    AddProfileItem(
+                        onClick = onAddNew,
+                        initialFocusRequester = if (profiles.isEmpty()) initialFocusRequester else null,
+                    )
+                }
             }
-            item {
-                AddProfileItem(
-                    onClick = onAddNew,
-                    initialFocusRequester = if (isTv && profiles.isEmpty()) initialFocusRequester else null,
-                )
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 24.dp),
+                contentPadding = PaddingValues(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                gridItems(profiles, key = { it.id }) { profile ->
+                    ProfileGridItem(
+                        profile = profile,
+                        isActive = profile.id == activeId,
+                        onSelect = { onSelect(profile) },
+                        onEdit = { onEdit(profile) },
+                    )
+                }
+                item {
+                    AddProfileItem(onClick = onAddNew)
+                }
             }
         }
 

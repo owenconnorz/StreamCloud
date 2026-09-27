@@ -273,6 +273,23 @@ object YtPlayerUtils {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Trailer stream URLs are signed for the IPv4 identity used by the resolver. Keep the
+     * preview player's DNS family aligned with that resolver and allow slower TV networks time
+     * to establish and fill progressive MP4 requests.
+     */
+    @OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun createTrailerDataSourceFactory(
+        userAgent: String?,
+    ): androidx.media3.datasource.DataSource.Factory {
+        val trailerClient = http.newBuilder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .build()
+        return androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(trailerClient)
+            .setUserAgent(userAgent?.takeIf { it.isNotBlank() } ?: "StreamCloud/1.0")
+    }
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     private val poTokenGenerator = PoTokenGenerator()
