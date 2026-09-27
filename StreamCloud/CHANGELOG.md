@@ -1,6 +1,17 @@
 # StreamCloud
 
-## Latest — Android TV hero and trailer autoplay
+## Latest — Android TV playback, trailers, and episode progress
+
+### Playback & navigation
+- **More reliable Android TV source navigation** — Reopening Sources for a saved item returns to its movie or episode, while Back and long-press actions follow the remote's intent.
+- **Trailer previews support adaptive video** — Previews can use video-only streams when needed and remain silent when no audio track is available.
+
+### Watched episodes & resume
+- **Episode-level watch history** — Completed episodes are tracked individually by show, season, and episode rather than marking the entire series watched.
+- **Nuvio episode watch state syncs correctly** — Episode identifiers and metadata remain attached to the correct show during account synchronization.
+- **Episode resumes preserve their identity** — Explicit progress keys are kept; episode-specific fallback keys are generated only when needed.
+
+## Previous — Android TV hero and trailer autoplay
 
 ### Android TV
 - **Navigation-safe, artwork-matched hero** — The rounded home banner now sits below the top navigation and uses a gradient tinted with its sampled artwork.
