@@ -498,7 +498,7 @@ interface WatchedMovieDao {
 
 @Entity(
     tableName = "watched_episodes",
-    primaryKeys = ["tmdbShowId", "seasonNumber", "episodeNumber"],
+    primaryKeys = ["tmdb_show_id", "season_number", "episode_number"],
 )
 data class WatchedEpisodeEntity(
     @ColumnInfo(name = "tmdb_show_id") val tmdbShowId: Long,
