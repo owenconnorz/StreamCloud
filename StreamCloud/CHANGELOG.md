@@ -1,6 +1,17 @@
 # StreamCloud
 
-## Latest — Stremio collection controls
+## Latest — Episode-first series details and trailer autoplay
+
+### Series details
+- **Episodes come first on mobile and Android TV** — the shared TMDB/Nuvio page now places season and episode browsing before secondary series information.
+- **CloudStream and Stremio series pages** — episode lists appear before secondary metadata; selecting a Stremio episode requests that episode’s streams, while addons without episode lists retain their series-level stream fallback.
+- **TV episode provider check** — CloudStream plugins are recognized when starting an episode from shared TMDB details.
+
+### Trailer previews
+- **TMDB movie and series banners** — available YouTube trailers autoplay muted and looped, with artwork retained if no playable trailer is available.
+- **Home-card previews** — the existing focus delay remains unchanged.
+
+## Previous — Stremio collection controls
 
 ### Stremio
 - **No automatic collection imports** — adding an addon or opening Plugins no longer creates collections automatically; use an addon's Refresh action to import its catalogs on demand.
