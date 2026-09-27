@@ -808,8 +808,9 @@ object YtPlayerUtils {
     )
 
     /**
-     * Resolves a visual trailer stream from YouTube. It prefers separate adaptive audio/video,
-     * then HLS and muxed MP4; silent adaptive video is the final fallback unless audio is required.
+     * Resolves a visual YouTube stream for trailer previews and music-video surfaces. It prefers
+     * HLS and muxed MP4; separate adaptive audio/video is opt-in, followed by silent visual fallback.
+     * Enable [allowSeparateAudio] only when the caller merges [VideoStreamResult.audioUrl].
      *
      * Detection heuristic: audio-only tracks expose no `video/mp4` format. Modern YouTube
      * responses commonly place visual tracks only in `adaptiveFormats[]`, so treating an empty
@@ -818,6 +819,7 @@ object YtPlayerUtils {
     suspend fun resolveVideoStream(
         videoId: String,
         requireAudioTrack: Boolean = false,
+        allowSeparateAudio: Boolean = false,
     ): VideoStreamResult = withContext(Dispatchers.IO) {
         try {
             ensureVisitorData()
@@ -882,7 +884,7 @@ object YtPlayerUtils {
                         ?: format["bitrate"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
                 }
 
-                if (bestAdaptiveVideo != null && bestAdaptiveAudio != null) {
+                if (allowSeparateAudio && bestAdaptiveVideo != null && bestAdaptiveAudio != null) {
                     val rawVideoUrl = bestAdaptiveVideo["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                         ?: bestAdaptiveVideo["signatureCipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)
                         ?: bestAdaptiveVideo["cipher"]?.jsonPrimitive?.content?.let(::parseCipherUrl)

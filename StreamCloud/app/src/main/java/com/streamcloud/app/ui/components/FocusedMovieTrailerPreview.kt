@@ -112,6 +112,7 @@ internal fun TmdbTrailerPreview(
                     val stream = YtPlayerUtils.resolveVideoStream(
                         video.key,
                         requireAudioTrack = false,
+                        allowSeparateAudio = true,
                     )
                     val url = stream.url?.takeIf { stream.isMusicVideo && it.isNotBlank() }
                     if (url != null) {
