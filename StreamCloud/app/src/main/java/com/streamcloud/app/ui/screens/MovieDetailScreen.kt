@@ -1703,7 +1703,7 @@ private fun TvEpisodesSection(
         ) {
             items(episodes, key = { "${it.seasonNumber}x${it.episodeNumber}" }) { episode ->
                 NuvioEpisodeCard(
-                    episode = episode,
+                    ep = episode,
                     watched = (episode.seasonNumber to episode.episodeNumber) in watchedEpisodeKeys,
                 ) { onEpisodeSelected(episode) }
             }
