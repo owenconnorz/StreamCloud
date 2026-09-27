@@ -99,7 +99,7 @@ private fun Modifier.tvOkPress(
 ): Modifier {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     var okKeyDown by remember { mutableStateOf(false) }
-    var longPressHandled by remember { mutableStateOf(false) }
+    var longPressDetected by remember { mutableStateOf(false) }
     val currentOnClick by rememberUpdatedState(onClick)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
 
@@ -118,13 +118,10 @@ private fun Modifier.tvOkPress(
                 val isLongPress = native.repeatCount > 0 || native.isLongPress()
                 if (!isLongPress) {
                     okKeyDown = true
-                    longPressHandled = false
+                    longPressDetected = false
                 } else {
                     okKeyDown = true
-                    if (!longPressHandled) {
-                        longPressHandled = true
-                        currentOnLongPress()
-                    }
+                    longPressDetected = true
                 }
                 true
             }
@@ -132,9 +129,16 @@ private fun Modifier.tvOkPress(
                 if (!okKeyDown) {
                     false
                 } else {
-                    if (!longPressHandled) currentOnClick()
+                    val wasLongPress = longPressDetected ||
+                        native.repeatCount > 0 ||
+                        native.isLongPress()
                     okKeyDown = false
-                    longPressHandled = false
+                    longPressDetected = false
+                    // Open the menu only after the key-up is consumed. Opening it on
+                    // a repeated key-down can detach this card before the remote sends
+                    // key-up, allowing Compose's clickable to interpret that release
+                    // as a second, ordinary click.
+                    if (wasLongPress) currentOnLongPress() else currentOnClick()
                     true
                 }
             }
@@ -167,6 +171,7 @@ fun MoviesScreen(
         { _, _, _, _, _ -> },
     onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit =
         { _, _, _, _ -> },
+    onOpenSourcePage: ((tmdbId: Long, mediaType: String, season: Int?, episode: Int?) -> Unit)? = null,
     onViewAllCsSection: (pluginInternalName: String, sectionName: String, pluginDisplayName: String) -> Unit =
         { _, _, _ -> },
     onOpenCollectionFolder: (Long) -> Unit = {},
@@ -206,7 +211,17 @@ fun MoviesScreen(
             val url    = parts.getOrElse(1) { "" }
             val name   = parts.getOrElse(2) { entry.title }
             val poster = parts.getOrElse(3) { "" }.takeIf { it.isNotBlank() }
-            onOpenCsItem(plugin, url, name, poster)
+            if (plugin.isNotBlank() && url.isNotBlank()) {
+                onOpenCsItem(plugin, url, name, poster)
+            } else {
+                if (entry.mediaType == "tv") onTvClick(entry.tmdbId) else onMovieClick(entry.tmdbId)
+            }
+        } else if (sr != null && sr.startsWith("sources:") && onOpenSourcePage != null) {
+            val parts = sr.removePrefix("sources:").split("|||", limit = 3)
+            val type = parts.getOrElse(0) { entry.mediaType }
+            val season = parts.getOrElse(1) { "" }.toIntOrNull()
+            val episode = parts.getOrElse(2) { "" }.toIntOrNull()
+            onOpenSourcePage(entry.tmdbId, type, season, episode)
         } else {
             if (entry.mediaType == "tv") onTvClick(entry.tmdbId) else onMovieClick(entry.tmdbId)
         }

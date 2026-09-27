@@ -126,7 +126,21 @@ data class WatchProgressKey(
     val posterUrl: String?,
     val mediaType: String,
     val sourceRoute: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val showTitle: String? = null,
+    val episodeTitle: String? = null,
 )
+
+internal fun sourceSelectionRoute(
+    mediaType: String,
+    season: Int? = null,
+    episode: Int? = null,
+): String = listOf(
+    "sources:$mediaType",
+    season?.toString().orEmpty(),
+    episode?.toString().orEmpty(),
+).joinToString("|||")
 
 data class BingeEpisode(
     val tmdbId: Long,

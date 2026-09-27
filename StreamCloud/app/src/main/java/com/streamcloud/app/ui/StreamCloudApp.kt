@@ -635,6 +635,14 @@ fun StreamCloudApp() {
                             val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("cs-detail/$p/$u/$n/$po")
                         },
+                        onOpenSourcePage = { id, mediaType, season, episode ->
+                            val route = if (mediaType == "tv") "tv" else "movie"
+                            nav.navigate(
+                                "$route/$id?openSources=true" +
+                                    "&season=${season?.toString().orEmpty()}" +
+                                    "&episode=${episode?.toString().orEmpty()}",
+                            )
+                        },
                         onViewAllCsSection = { plugin, section, displayName ->
                             val p = URLEncoder.encode(plugin, "UTF-8")
                             val s = URLEncoder.encode(section, "UTF-8")
@@ -877,12 +885,27 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(
-                    "movie/{id}",
-                    arguments = listOf(navArgument("id") { type = NavType.LongType })
-                ) {
+                    "movie/{id}?openSources={openSources}&season={season}&episode={episode}",
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.LongType },
+                        navArgument("openSources") { type = NavType.BoolType; defaultValue = false },
+                        navArgument("season") {
+                            type = NavType.StringType; nullable = true; defaultValue = null
+                        },
+                        navArgument("episode") {
+                            type = NavType.StringType; nullable = true; defaultValue = null
+                        },
+                    ),
+                ) { entry ->
                     MovieDetailScreen(
-                        movieId = it.arguments!!.getLong("id"),
+                        movieId = entry.arguments!!.getLong("id"),
                         mediaType = "movie",
+                        openSourcePickerOnStart =
+                            entry.arguments?.getBoolean("openSources") == true,
+                        initialPickerSeason =
+                            entry.arguments?.getString("season")?.toIntOrNull(),
+                        initialPickerEpisode =
+                            entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
                         onPlay = { initialUrl, title, sources, progressKey ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
@@ -904,12 +927,27 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(
-                    "tv/{id}",
-                    arguments = listOf(navArgument("id") { type = NavType.LongType })
-                ) {
+                    "tv/{id}?openSources={openSources}&season={season}&episode={episode}",
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.LongType },
+                        navArgument("openSources") { type = NavType.BoolType; defaultValue = false },
+                        navArgument("season") {
+                            type = NavType.StringType; nullable = true; defaultValue = null
+                        },
+                        navArgument("episode") {
+                            type = NavType.StringType; nullable = true; defaultValue = null
+                        },
+                    ),
+                ) { entry ->
                     MovieDetailScreen(
-                        movieId = it.arguments!!.getLong("id"),
+                        movieId = entry.arguments!!.getLong("id"),
                         mediaType = "tv",
+                        openSourcePickerOnStart =
+                            entry.arguments?.getBoolean("openSources") == true,
+                        initialPickerSeason =
+                            entry.arguments?.getString("season")?.toIntOrNull(),
+                        initialPickerEpisode =
+                            entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
                         onPlay = { initialUrl, title, sources, progressKey ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
@@ -1153,6 +1191,8 @@ fun StreamCloudApp() {
                                     title = title,
                                     posterUrl = null,
                                     mediaType = mediaType,
+                                    sourceRoute =
+                                        com.streamcloud.app.player.sourceSelectionRoute(mediaType),
                                 ),
                                 tmdbId = tmdbId,
                                 mediaType = mediaType,

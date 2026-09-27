@@ -8,6 +8,7 @@ import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.UserCollectionEntity
+import com.streamcloud.app.data.library.WatchedEpisodeEntity
 import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
@@ -286,6 +287,10 @@ private data class PullWatchProgress(
     val last_watched: Long = 0L,
     val name: String? = null,
     val poster: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val season_number: Int? = null,
+    val episode_number: Int? = null,
 )
 
 @Serializable
@@ -293,6 +298,10 @@ private data class PullWatchedItem(
     val content_id: String = "",
     val content_type: String = "movie",
     val title: String = "",
+    val season: Int? = null,
+    val episode: Int? = null,
+    val season_number: Int? = null,
+    val episode_number: Int? = null,
     val watched_at: Long = 0L,
 )
 
@@ -755,8 +764,21 @@ class NuvioAccountService(private val context: Context) {
             val entries = json.decodeFromString(ListSerializer(PullWatchProgress.serializer()), text)
             val progressDao = db.watchProgress()
             entries.forEach { e ->
-                val tmdbId = resolveTmdbId(e.content_id, e.content_type) ?: return@forEach
-                val mediaType = if (e.content_type == "series") "tv" else "movie"
+                val season = e.season ?: e.season_number
+                val episode = e.episode ?: e.episode_number
+                val isSeries = e.content_type.equals("series", ignoreCase = true) ||
+                    e.content_type.equals("tv", ignoreCase = true) ||
+                    e.content_type.equals("episode", ignoreCase = true)
+                val mediaType = if (isSeries) "tv" else "movie"
+                val normalizedContentId = normaliseNuvioContentId(
+                    e.content_id,
+                    season,
+                    episode,
+                ) ?: e.content_id
+                val tmdbId = resolveTmdbId(
+                    normalizedContentId,
+                    if (isSeries) "series" else e.content_type,
+                ) ?: return@forEach
                 val existing = progressDao.byId(tmdbId)
                 val updatedAt = e.last_watched.takeIf { it > 0 } ?: System.currentTimeMillis()
                 val shouldUseProgress = existing == null || existing.updatedAt < updatedAt
@@ -765,9 +787,10 @@ class NuvioAccountService(private val context: Context) {
                     existing.title == "Movie" ||
                     existing.title == "Series" ||
                     existing.posterUrl.isNullOrBlank()
-                if (shouldUseProgress || needsMetadata) {
+                val needsSourceRoute = existing?.sourceRoute.isNullOrBlank()
+                if (shouldUseProgress || needsMetadata || needsSourceRoute) {
                     val metadata = if (needsMetadata) {
-                        resolveMetadata(tmdbId, e.content_type)
+                        resolveMetadata(tmdbId, if (isSeries) "series" else e.content_type)
                     } else {
                         null
                     }
@@ -785,7 +808,12 @@ class NuvioAccountService(private val context: Context) {
                             positionMs = if (shouldUseProgress) e.position else existing!!.positionMs,
                             durationMs = if (shouldUseProgress) e.duration else existing!!.durationMs,
                             updatedAt = if (shouldUseProgress) updatedAt else existing!!.updatedAt,
-                            sourceRoute = existing?.sourceRoute,
+                            sourceRoute = existing?.sourceRoute?.takeIf { it.isNotBlank() }
+                                ?: listOf(
+                                    "sources:$mediaType",
+                                    season?.toString().orEmpty(),
+                                    episode?.toString().orEmpty(),
+                                ).joinToString("|||"),
                         )
                     )
                     if (shouldUseProgress) {
@@ -1479,12 +1507,23 @@ class NuvioAccountService(private val context: Context) {
     ): Int {
         val items = db.watchedMovies().all().first()
             .filter { it.mediaType == "movie" || it.mediaType == "tv" }
+        val episodes = db.watchedEpisodes().all()
         val payload = buildJsonArray {
             items.forEach { item ->
                 addJsonObject {
                     put("content_id", "tmdb:${item.tmdbId}")
                     put("content_type", if (item.mediaType == "tv") "series" else "movie")
                     put("title", item.title)
+                    put("watched_at", item.watchedAt)
+                }
+            }
+            episodes.forEach { item ->
+                addJsonObject {
+                    put("content_id", "tmdb:${item.tmdbShowId}")
+                    put("content_type", "series")
+                    put("title", item.showTitle)
+                    put("season", item.seasonNumber)
+                    put("episode", item.episodeNumber)
                     put("watched_at", item.watchedAt)
                 }
             }
@@ -1497,7 +1536,7 @@ class NuvioAccountService(private val context: Context) {
             },
             accessToken,
         ).getOrThrow()
-        return items.size
+        return items.size + episodes.size
     }
 
     private suspend fun pullWatchedItems(
@@ -1525,16 +1564,49 @@ class NuvioAccountService(private val context: Context) {
                 text,
             )
             items.forEach { item ->
-                val tmdbId = resolveTmdbId(item.content_id, item.content_type) ?: return@forEach
-                watchedDao.mark(
-                    WatchedMovieEntity(
-                        tmdbId = tmdbId,
-                        title = item.title,
-                        posterUrl = null,
-                        mediaType = if (item.content_type == "series") "tv" else "movie",
-                        watchedAt = item.watched_at.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                    )
+                val season = item.season ?: item.season_number
+                val episode = item.episode ?: item.episode_number
+                val isSeries = item.content_type.equals("series", ignoreCase = true) ||
+                    item.content_type.equals("tv", ignoreCase = true) ||
+                    item.content_type.equals("episode", ignoreCase = true)
+                val validSeason = season?.takeIf { it > 0 }
+                val validEpisode = episode?.takeIf { it > 0 }
+                val isEpisode = isSeries &&
+                    validSeason != null && validEpisode != null
+                val normalizedContentId = normaliseNuvioContentId(
+                    item.content_id,
+                    season,
+                    episode,
+                ) ?: item.content_id
+                val tmdbId = resolveTmdbId(
+                    normalizedContentId,
+                    if (isSeries) "series" else item.content_type,
                 )
+                    ?: return@forEach
+                val watchedAt = item.watched_at.takeIf { it > 0 }
+                    ?: System.currentTimeMillis()
+
+                if (isEpisode) {
+                    db.watchedEpisodes().mark(
+                        WatchedEpisodeEntity(
+                            tmdbShowId = tmdbId,
+                            seasonNumber = validSeason!!,
+                            episodeNumber = validEpisode!!,
+                            showTitle = item.title.ifBlank { "Series" },
+                            watchedAt = watchedAt,
+                        ),
+                    )
+                } else {
+                    watchedDao.mark(
+                        WatchedMovieEntity(
+                            tmdbId = tmdbId,
+                            title = item.title,
+                            posterUrl = null,
+                            mediaType = if (isSeries) "tv" else "movie",
+                            watchedAt = watchedAt,
+                        ),
+                    )
+                }
                 onItemPulled()
             }
             page++

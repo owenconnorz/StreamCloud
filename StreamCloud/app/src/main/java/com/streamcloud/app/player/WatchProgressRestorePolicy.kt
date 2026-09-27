@@ -35,10 +35,33 @@ internal fun progressKeyForBingeEpisode(episode: BingeEpisode): WatchProgressKey
                 append(it)
             }
     }
-    return episode.progressKey ?: WatchProgressKey(
-        tmdbId = episode.tmdbId,
-        title = title,
-        posterUrl = episode.posterUrl,
-        mediaType = "tv",
-    )
+    val base = episode.progressKey
+    return if (base != null) {
+        base.copy(
+            tmdbId = episode.tmdbId,
+            title = title,
+            posterUrl = episode.posterUrl ?: base.posterUrl,
+            mediaType = "tv",
+            seasonNumber = episode.seasonNumber,
+            episodeNumber = episode.episodeNumber,
+            showTitle = base.showTitle ?: episode.title,
+            episodeTitle = base.episodeTitle ?: episode.episodeTitle,
+            sourceRoute = base.sourceRoute?.takeIf {
+                it.isNotBlank() && !it.startsWith("sources:")
+            }
+                ?: sourceSelectionRoute("tv", episode.seasonNumber, episode.episodeNumber),
+        )
+    } else {
+        WatchProgressKey(
+            tmdbId = episode.tmdbId,
+            title = title,
+            posterUrl = episode.posterUrl,
+            mediaType = "tv",
+            sourceRoute = sourceSelectionRoute("tv", episode.seasonNumber, episode.episodeNumber),
+            seasonNumber = episode.seasonNumber,
+            episodeNumber = episode.episodeNumber,
+            showTitle = episode.title,
+            episodeTitle = episode.episodeTitle,
+        )
+    }
 }

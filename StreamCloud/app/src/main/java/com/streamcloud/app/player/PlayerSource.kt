@@ -15,6 +15,7 @@ data class PlayerSource(
     val fileSizeBytes: Long? = null,
     val debridHost: String? = null,
     val skipIntervals: List<SkipInterval> = emptyList(),
+    val sourceRoute: String? = null,
 ) {
     companion object {
         private val KNOWN_DEBRID_HOSTS = setOf(

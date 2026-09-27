@@ -496,6 +496,34 @@ interface WatchedMovieDao {
     fun all(): Flow<List<WatchedMovieEntity>>
 }
 
+@Entity(
+    tableName = "watched_episodes",
+    primaryKeys = ["tmdbShowId", "seasonNumber", "episodeNumber"],
+)
+data class WatchedEpisodeEntity(
+    @ColumnInfo(name = "tmdb_show_id") val tmdbShowId: Long,
+    @ColumnInfo(name = "season_number") val seasonNumber: Int,
+    @ColumnInfo(name = "episode_number") val episodeNumber: Int,
+    @ColumnInfo(name = "show_title") val showTitle: String,
+    @ColumnInfo(name = "episode_title") val episodeTitle: String? = null,
+    @ColumnInfo(name = "watched_at") val watchedAt: Long = System.currentTimeMillis(),
+)
+
+@Dao
+interface WatchedEpisodeDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun mark(entity: WatchedEpisodeEntity)
+
+    @Query(
+        "SELECT * FROM watched_episodes WHERE tmdb_show_id = :showId " +
+            "ORDER BY season_number, episode_number",
+    )
+    fun forShow(showId: Long): Flow<List<WatchedEpisodeEntity>>
+
+    @Query("SELECT * FROM watched_episodes ORDER BY watched_at DESC")
+    suspend fun all(): List<WatchedEpisodeEntity>
+}
+
 // ── Movie Downloads ───────────────────────────────────────────────────────────
 
 @Entity(tableName = "movie_downloads")
@@ -577,9 +605,10 @@ interface FollowedArtistDao {
         AdultHistoryEntity::class,
         FollowedArtistEntity::class,
         WatchedMovieEntity::class,
+        WatchedEpisodeEntity::class,
         MovieDownloadEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -594,6 +623,7 @@ abstract class LibraryDb : RoomDatabase() {
     abstract fun adultHistory(): AdultHistoryDao
     abstract fun followedArtists(): FollowedArtistDao
     abstract fun watchedMovies(): WatchedMovieDao
+    abstract fun watchedEpisodes(): WatchedEpisodeDao
     abstract fun movieDownloads(): MovieDownloadDao
 
     companion object {
@@ -831,6 +861,24 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS watched_episodes (
+                        tmdb_show_id INTEGER NOT NULL,
+                        season_number INTEGER NOT NULL,
+                        episode_number INTEGER NOT NULL,
+                        show_title TEXT NOT NULL,
+                        episode_title TEXT,
+                        watched_at INTEGER NOT NULL,
+                        PRIMARY KEY(tmdb_show_id, season_number, episode_number)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         private const val LEGACY_DATABASE_NAME = "streamcloud-library.db"
         private const val PROFILE_DATABASE_PREFIX = "streamcloud-profile-"
         private const val NUVIO_DATABASE_PREFIX = "streamcloud-nuvio-"
@@ -886,6 +934,7 @@ abstract class LibraryDb : RoomDatabase() {
                         MIGRATION_14_15,
                         MIGRATION_15_16,
                         MIGRATION_16_17,
+                        MIGRATION_17_18,
                     )
                         .fallbackToDestructiveMigration()
                         .build()

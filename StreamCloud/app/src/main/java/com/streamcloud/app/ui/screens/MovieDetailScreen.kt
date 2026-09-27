@@ -92,6 +92,7 @@ import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.StreamCacheRepository
 import com.streamcloud.app.player.WatchProgressKey
+import com.streamcloud.app.player.sourceSelectionRoute
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -120,6 +121,9 @@ fun MovieDetailScreen(
     onOpenCsPluginForMovie: (internalName: String, title: String) -> Unit = { _, _ -> },
     onMovieClick: (Long) -> Unit = {},
     onTvClick: (Long) -> Unit = {},
+    openSourcePickerOnStart: Boolean = false,
+    initialPickerSeason: Int? = null,
+    initialPickerEpisode: Int? = null,
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
@@ -147,12 +151,17 @@ fun MovieDetailScreen(
 
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val playBtnFocus = remember { FocusRequester() }
-    LaunchedEffect(movie != null) {
-        if (isTv && movie != null) try { playBtnFocus.requestFocus() } catch (_: Exception) {}
+    LaunchedEffect(movie != null, openSourcePickerOnStart) {
+        if (isTv && movie != null && !openSourcePickerOnStart) {
+            try { playBtnFocus.requestFocus() } catch (_: Exception) {}
+        }
     }
 
     var showStreamPicker by remember { mutableStateOf(false) }
     var pickerForDownload by remember { mutableStateOf(false) }
+    var openInitialSourcePicker by remember(movieId, mediaType) {
+        mutableStateOf(openSourcePickerOnStart)
+    }
     var showDownloadEpisodePicker by remember { mutableStateOf(false) }
     var pickerSeason by remember { mutableStateOf<Int?>(null) }
     var pickerEpisode by remember { mutableStateOf<Int?>(null) }
@@ -170,6 +179,7 @@ fun MovieDetailScreen(
     var csPickerError by remember { mutableStateOf<String?>(null) }
     var csPickerSelSource by remember { mutableStateOf<ExtractorLink?>(null) }
     var csPickerSelSub by remember { mutableStateOf<SubtitleFile?>(null) }
+    var csPickerDetailUrl by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(movieId, mediaType) {
         imdbId = null; movie = null; credits = null; similar = emptyList()
@@ -252,8 +262,23 @@ fun MovieDetailScreen(
         loadingEpisodes = false
     }
 
+    LaunchedEffect(movie, openInitialSourcePicker) {
+        if (movie != null && openInitialSourcePicker) {
+            pickerSeason = initialPickerSeason
+            pickerEpisode = initialPickerEpisode
+            pickerEpTitle = null
+            pickerForDownload = false
+            showStreamPicker = true
+        }
+    }
+
     val watchedDao = remember { LibraryDb.get(context.applicationContext).watchedMovies() }
     val isWatched by watchedDao.isWatched(movieId).collectAsState(initial = false)
+    val watchedEpisodeDao = remember { LibraryDb.get(context.applicationContext).watchedEpisodes() }
+    val watchedEpisodes by watchedEpisodeDao.forShow(movieId).collectAsState(initial = emptyList())
+    val watchedEpisodeKeys = remember(watchedEpisodes) {
+        watchedEpisodes.map { it.seasonNumber to it.episodeNumber }.toSet()
+    }
 
     fun playMovie() {
         imdbId ?: run { resolverMessage = "Loading IMDB id… try again in a second."; return }
@@ -298,12 +323,14 @@ fun MovieDetailScreen(
         val title = movie?.displayTitle ?: return
         val year = movie?.year()
         csPickerPlugin = plugin; csPickerSources = emptyList(); csPickerSubs = emptyList()
+        csPickerDetailUrl = null
         csPickerSelSource = null; csPickerSelSub = null; csPickerError = null; csPickerLoading = true
         scope.launch {
             try {
                 val results = runCatching { PluginRuntime.search(context, plugin.filePath, title) }.getOrDefault(emptyList())
                 val best = pickBestMatch(results, title, year)
                 if (best == null) { csPickerError = "No results found for \"$title\" in ${plugin.name}."; return@launch }
+                csPickerDetailUrl = best.url
                 val detail = runCatching { PluginRuntime.loadDetail(context, plugin.filePath, best.url) }.getOrNull()
                 val dataStr = when (detail) {
                     is MovieLoadResponse -> detail.dataUrl
@@ -708,6 +735,7 @@ fun MovieDetailScreen(
                         onSeasonSelected = { selectedSeason = it },
                         loadingEpisodes = loadingEpisodes,
                         episodes = tvEpisodes,
+                        watchedEpisodeKeys = watchedEpisodeKeys,
                         onEpisodeSelected = { ep ->
                             playEpisode(ep.seasonNumber, ep.episodeNumber, ep.name)
                         },
@@ -1183,8 +1211,17 @@ fun MovieDetailScreen(
                                     val selLink = csPickerSelSource ?: return@Button
                                     val m = movie
                                     val displayTitle = m?.displayTitle ?: "Playback"
+                                    val sourceRoute = csPickerDetailUrl?.let { detailUrl ->
+                                        "cs:${csPickerPlugin?.internalName.orEmpty()}|||$detailUrl" +
+                                            "|||$displayTitle|||${m?.posterUrl.orEmpty()}"
+                                    } ?: sourceSelectionRoute(mediaType, pickerSeason, pickerEpisode)
                                     val progressKey = WatchProgressKey(tmdbId = movieId, title = displayTitle,
-                                        posterUrl = m?.posterUrl ?: m?.backdropUrl, mediaType = mediaType)
+                                        posterUrl = m?.posterUrl ?: m?.backdropUrl, mediaType = mediaType,
+                                        sourceRoute = sourceRoute,
+                                        seasonNumber = pickerSeason,
+                                        episodeNumber = pickerEpisode,
+                                        showTitle = m?.displayTitle,
+                                        episodeTitle = pickerEpTitle)
                                     val ps = csPickerSources.toCsPlayerSources(pickerPlugin.name)
                                     val selIdx = csPickerSources.indexOf(selLink)
                                     val selPs = ps.find { it.url == selLink.url }
@@ -1288,10 +1325,11 @@ fun MovieDetailScreen(
             season = pickerSeason, episode = pickerEpisode, episodeTitle = pickerEpTitle,
             installedAddons = installedAddons, installedNuvio = installedNuvio, installedCsPlugins = installedCsPlugins,
             // Download intent must always wait for an explicit source selection.
-            autoPlayBest = if (pickerForDownload) false else autoplayBestStream,
+            autoPlayBest = if (pickerForDownload || openInitialSourcePicker) false else autoplayBestStream,
             onBack = {
                 showStreamPicker = false
                 pickerForDownload = false
+                openInitialSourcePicker = false
             },
             onPlay = { url, sources ->
                 if (pickerForDownload) {
@@ -1303,6 +1341,7 @@ fun MovieDetailScreen(
                     }
                 } else {
                     showStreamPicker = false
+                    openInitialSourcePicker = false
                     val m = movie
                     val displayTitle = buildString {
                         append(m?.displayTitle ?: "Playback")
@@ -1310,8 +1349,16 @@ fun MovieDetailScreen(
                         if (s != null && e != null) append(" S${s}E${e}")
                         pickerEpTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
                     }
+                    val selectedSource = sources.firstOrNull { it.url == url }
+                    val sourceRoute = selectedSource?.sourceRoute?.takeIf { it.isNotBlank() }
+                        ?: sourceSelectionRoute(mediaType, pickerSeason, pickerEpisode)
                     val progressKey = WatchProgressKey(tmdbId = movieId, title = displayTitle,
-                        posterUrl = m?.posterUrl ?: m?.backdropUrl, mediaType = mediaType)
+                        posterUrl = m?.posterUrl ?: m?.backdropUrl, mediaType = mediaType,
+                        sourceRoute = sourceRoute,
+                        seasonNumber = pickerSeason,
+                        episodeNumber = pickerEpisode,
+                        showTitle = m?.displayTitle,
+                        episodeTitle = pickerEpTitle)
                     onPlay(url, displayTitle, sources, progressKey)
                 }
             },
@@ -1583,6 +1630,7 @@ private fun TvEpisodesSection(
     onSeasonSelected: (Int) -> Unit,
     loadingEpisodes: Boolean,
     episodes: List<TmdbEpisode>,
+    watchedEpisodeKeys: Set<Pair<Int, Int>>,
     onEpisodeSelected: (TmdbEpisode) -> Unit,
 ) {
     SectionHeader("Seasons")
@@ -1654,7 +1702,10 @@ private fun TvEpisodesSection(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(episodes, key = { "${it.seasonNumber}x${it.episodeNumber}" }) { episode ->
-                NuvioEpisodeCard(episode) { onEpisodeSelected(episode) }
+                NuvioEpisodeCard(
+                    episode = episode,
+                    watched = (episode.seasonNumber to episode.episodeNumber) in watchedEpisodeKeys,
+                ) { onEpisodeSelected(episode) }
             }
         }
     }
@@ -1662,7 +1713,7 @@ private fun TvEpisodesSection(
 }
 
 @Composable
-private fun NuvioEpisodeCard(ep: TmdbEpisode, onClick: () -> Unit) {
+private fun NuvioEpisodeCard(ep: TmdbEpisode, watched: Boolean, onClick: () -> Unit) {
     Column(Modifier.width(300.dp).tvFocusBorder(RoundedCornerShape(12.dp)).clickable(onClick = onClick)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -1681,6 +1732,23 @@ private fun NuvioEpisodeCard(ep: TmdbEpisode, onClick: () -> Unit) {
                 Text("S${ep.seasonNumber}E${ep.episodeNumber}",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = Color.White, fontSize = 10.sp)
+            }
+            if (watched) {
+                Box(
+                    Modifier.align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(26.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Watched",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
             // Bottom gradient + title
             Box(

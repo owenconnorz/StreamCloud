@@ -37,11 +37,12 @@ private const val TAG = "MovieTrailerPreview"
 private data class ResolvedTrailer(
     val url: String,
     val userAgent: String?,
+    val hasAudioTrack: Boolean,
 )
 
 /**
- * Resolves an audio-enabled, looping TMDB trailer preview. Focused cards use a delay;
- * detail banners can use the already-loaded videos and start immediately.
+ * Resolves a looping TMDB trailer preview. Muxed streams include audio; if YouTube
+ * only exposes adaptive video, the preview remains visible but silent.
  */
 @Composable
 internal fun TmdbTrailerPreview(
@@ -107,15 +108,17 @@ internal fun TmdbTrailerPreview(
                     )
 
                 if (video != null) {
-                    // Trailer previews require muxed audio/video; adaptive video-only
-                    // streams look like a failed autoplay because they have no audio track.
                     val stream = YtPlayerUtils.resolveVideoStream(
                         video.key,
-                        requireAudioTrack = true,
+                        requireAudioTrack = false,
                     )
                     val url = stream.url?.takeIf { stream.isMusicVideo && it.isNotBlank() }
                     if (url != null) {
-                        trailer = ResolvedTrailer(url = url, userAgent = stream.userAgent)
+                        trailer = ResolvedTrailer(
+                            url = url,
+                            userAgent = stream.userAgent,
+                            hasAudioTrack = stream.hasAudioTrack,
+                        )
                         return@LaunchedEffect
                     }
                 }
@@ -179,7 +182,7 @@ private fun TrailerPlayer(
                         .build(),
                     true,
                 )
-                volume = 1f
+                volume = if (trailer.hasAudioTrack) 1f else 0f
                 repeatMode = Player.REPEAT_MODE_ONE
             }
     }
@@ -244,7 +247,8 @@ private fun TrailerPlayer(
         }
     }
 
-    LaunchedEffect(player, trailer.url) {
+    LaunchedEffect(player, trailer.url, surfaceRef.value) {
+        if (surfaceRef.value == null) return@LaunchedEffect
         player.setMediaItem(MediaItem.fromUri(trailer.url))
         player.prepare()
         player.play()

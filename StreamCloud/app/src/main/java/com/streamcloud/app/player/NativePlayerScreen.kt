@@ -85,6 +85,7 @@ import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.MovieAudioPreferences
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.library.WatchedEpisodeEntity
 import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.torrent.TorrentService
 import com.streamcloud.app.torrent.TorrentState
@@ -427,14 +428,33 @@ fun NativePlayerScreen(
                     runCatching {
                         val libraryDb = LibraryDb.get(playerAppContext)
                         kotlinx.coroutines.runBlocking {
-                            libraryDb.watchedMovies().mark(
-                                WatchedMovieEntity(
-                                    tmdbId = completedItem.tmdbId,
-                                    title = completedItem.title,
-                                    posterUrl = completedItem.posterUrl,
-                                    mediaType = completedItem.mediaType,
-                                ),
-                            )
+                            val season = completedItem.seasonNumber
+                            val episode = completedItem.episodeNumber
+                            if (completedItem.mediaType == "tv" &&
+                                season != null && season > 0 &&
+                                episode != null && episode > 0
+                            ) {
+                                libraryDb.watchedEpisodes().mark(
+                                    WatchedEpisodeEntity(
+                                        tmdbShowId = completedItem.tmdbId,
+                                        seasonNumber = season,
+                                        episodeNumber = episode,
+                                        showTitle = completedItem.showTitle
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?: completedItem.title.substringBefore(" · "),
+                                        episodeTitle = completedItem.episodeTitle,
+                                    ),
+                                )
+                            } else {
+                                libraryDb.watchedMovies().mark(
+                                    WatchedMovieEntity(
+                                        tmdbId = completedItem.tmdbId,
+                                        title = completedItem.title,
+                                        posterUrl = completedItem.posterUrl,
+                                        mediaType = completedItem.mediaType,
+                                    ),
+                                )
+                            }
                             libraryDb.watchProgress().remove(completedItem.tmdbId)
                             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(playerAppContext)
                         }

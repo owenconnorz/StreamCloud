@@ -780,7 +780,8 @@ private suspend fun resolveCsForPicker(
         val (links, _) = runCatching {
             PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
         }.getOrElse { return emptyList() }
-        links.pickerToCsSources(plugin.name)
+        val sourceRoute = "cs:${plugin.internalName}|||${best.url}|||${best.name}|||"
+        links.pickerToCsSources(plugin.name, sourceRoute)
     } catch (_: Throwable) {
         emptyList()
     }
@@ -803,7 +804,10 @@ private fun pickerBestMatch(results: List<SearchResponse>, title: String, year: 
     }.sortedByDescending { it.second }.firstOrNull()?.first
 }
 
-private fun List<ExtractorLink>.pickerToCsSources(pluginName: String): List<PlayerSource> =
+private fun List<ExtractorLink>.pickerToCsSources(
+    pluginName: String,
+    sourceRoute: String,
+): List<PlayerSource> =
     mapIndexedNotNull { idx, link ->
         if (link.url.isBlank()) return@mapIndexedNotNull null
         val extractorName = link.source.takeIf { it.isNotBlank() } ?: pluginName
@@ -828,6 +832,7 @@ private fun List<ExtractorLink>.pickerToCsSources(pluginName: String): List<Play
             addonName = extractorName,
             qualityTag = quality,
             isMagnet = link.url.startsWith("magnet:"),
+            sourceRoute = sourceRoute,
             headers = buildMap {
                 if (link.referer.isNotBlank()) put("Referer", link.referer)
                 putAll(link.headers)

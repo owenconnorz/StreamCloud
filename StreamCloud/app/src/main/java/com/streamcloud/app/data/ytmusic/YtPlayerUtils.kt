@@ -1,6 +1,7 @@
 package com.streamcloud.app.data.ytmusic
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.newpipe.NewPipeRepository
@@ -800,13 +801,14 @@ object YtPlayerUtils {
         val url: String?,
         /** Must match the client that generated [url] so the CDN accepts the video request. */
         val userAgent: String? = null,
+        /** Adaptive video-only formats are silent; muxed formats include an audio track. */
+        val hasAudioTrack: Boolean = true,
     )
 
     /**
      * Determines whether [videoId] is a proper music video and, if so, resolves the best
      * MP4 visual stream. A muxed stream is preferred, but a video-only adaptive MP4 works too
-     * for the muted Now Playing visualizer. Set [requireAudioTrack] for trailer previews, which
-     * must not use a silent adaptive video track.
+     * for silent visual previews. Set [requireAudioTrack] only when audio is mandatory.
      *
      * Detection heuristic: audio-only tracks expose no `video/mp4` format. Modern YouTube
      * responses commonly place visual tracks only in `adaptiveFormats[]`, so treating an empty
@@ -861,7 +863,6 @@ object YtPlayerUtils {
 
                 // Prefer a compact muxed stream. If YouTube only exposes DASH video, use the
                 // best video-only MP4 at or below 720p; the muted visual player needs no audio.
-                // Trailer previews set requireAudioTrack and skip that adaptive-only fallback.
                 val bestMuxed = muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 22 }
                     ?: muxedFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 18 }
                     ?: muxedFormats.firstOrNull()
@@ -901,8 +902,9 @@ object YtPlayerUtils {
                 )
                 return@withContext VideoStreamResult(
                     isMusicVideo = true,
-                    url = "$rawUrl&cpn=$cpn",
+                    url = withCpn(rawUrl, cpn),
                     userAgent = client.userAgent,
+                    hasAudioTrack = visualSource == "muxed",
                 )
             } catch (e: Exception) {
                 AppLogger.w(TAG, "resolveVideoStream $videoId via ${client.label} — ${e.message}")
@@ -931,6 +933,7 @@ object YtPlayerUtils {
                 isMusicVideo = true,
                 url = extractorStream.url,
                 userAgent = extractorStream.userAgent,
+                hasAudioTrack = requireAudioTrack,
             )
         }
 
@@ -1243,6 +1246,15 @@ object YtPlayerUtils {
         }
         return null
     }
+
+    private fun withCpn(url: String, cpn: String): String = runCatching {
+        val uri = Uri.parse(url)
+        if (uri.getQueryParameter("cpn") != null) {
+            url
+        } else {
+            uri.buildUpon().appendQueryParameter("cpn", cpn).build().toString()
+        }
+    }.getOrDefault(url)
 
     private fun generateCpn(): String {
         val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"

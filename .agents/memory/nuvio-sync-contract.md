@@ -15,6 +15,12 @@ The sync service must update the same in-memory `ProfileRepository` instance tha
 
 **How to apply:** Obtain profile state through the application service locator during sync, and cache per-sync external-ID resolutions before writing watch progress, watched titles, or library items.
 
+Per-episode watched state is separate from the parent-level watched movie/series row. Use the show TMDB ID plus numeric season and episode as the local identity, and map it to the Nuvio watched-items `season` and `episode` fields rather than synthetic IDs or title suffixes.
+
+**Why:** Parent-level completion and episode completion are different facts; synthetic IDs can no longer resolve to the show's TMDB metadata.
+
+**How to apply:** Read and write episode records through the active profile's `LibraryDb`, preserve parent watched-title sync, and request account sync after local episode completion.
+
 Nuvio-derived local state is isolated by Nuvio account and StreamCloud profile, including providers, repositories, addons, collections, watch history, and the Room library. Preserve old unscoped data by assigning it only to the first authenticated account/profile that claims it; never copy it into later accounts.
 
 **Why:** A shared local store makes one Nuvio account appear to contain another account's data. Older local stores did not record the owning account, so a single first-claim migration preserves them without guessing or duplicating them across accounts.

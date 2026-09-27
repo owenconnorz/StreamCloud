@@ -24,7 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -84,7 +83,6 @@ fun MovieSearchScreen(
     }
     var query by remember { mutableStateOf("") }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
-    var searchFieldFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocusRequester = remember { FocusRequester() }
     val firstHistoryFocusRequester = remember { FocusRequester() }
@@ -137,10 +135,10 @@ fun MovieSearchScreen(
         focusManager.clearFocus(force = true)
     }
 
-    // On TV, Back while the search field owns focus means “close the keyboard
-    // and show results”, not “leave the search screen”.
-    BackHandler(enabled = isTv && searchFieldFocused) {
-        submitSearch(query)
+    // Back always leaves search on TV. Do not turn the remote's Back key into
+    // another search submission when the text field or results own focus.
+    BackHandler(enabled = isTv) {
+        onBack()
     }
 
     val searchField: @Composable (Modifier) -> Unit = { fieldModifier ->
@@ -155,10 +153,7 @@ fun MovieSearchScreen(
                 .onPreviewKeyEvent { event ->
                     if (isTv && event.type == KeyEventType.KeyDown) {
                         when (event.key) {
-                            Key.Back, Key.Escape -> {
-                                submitSearch(query)
-                                true
-                            }
+                            Key.Back, Key.Escape -> false
                             Key.DirectionDown -> runCatching {
                                 if (query.length < 2) {
                                     firstHistoryFocusRequester.requestFocus()
@@ -173,7 +168,6 @@ fun MovieSearchScreen(
                         false
                     }
                 }
-                .onFocusChanged { searchFieldFocused = it.isFocused }
                 .tvFocusBorder(RoundedCornerShape(28.dp)),
             placeholder = {
                 Text(
