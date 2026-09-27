@@ -1,6 +1,14 @@
 # StreamCloud
 
-## Latest — Android TV movie detail and trailer hotfix
+## Latest — Full-bleed Android TV hero and trailer audio
+
+### Android TV
+- **Full-bleed home banner** — movie artwork now reaches the screen edges, with carousel markers inside the banner and a top fade for navigation contrast.
+
+### Trailer previews
+- **Audio-backed previews** — trailer resolution skips video-only streams and uses muxed audio/video fallback streams, avoiding silent playback.
+
+## Previous — Android TV movie detail and trailer hotfix
 
 ### Android TV
 - **Inset widescreen home hero** — the movie billboard uses a rounded, inset layout.
@@ -10,7 +18,7 @@
 ### Trailer previews
 - **Trailer audio is enabled** — movie-detail previews now play audible, looping trailers.
 
-## Latest — Episode-first series details and trailer autoplay
+## Previous — Episode-first series details and trailer autoplay
 
 ### Series details
 - **Episodes come first on mobile and Android TV** — the shared TMDB/Nuvio page now places season and episode browsing before secondary series information.
