@@ -18,10 +18,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
@@ -72,6 +75,7 @@ import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.ui.components.MovieArtwork
+import com.streamcloud.app.ui.components.FocusedMovieTrailerPreview
 import com.streamcloud.app.ui.components.WatchedPosterBadge
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
 import com.streamcloud.app.ui.viewmodel.HeroBannerItem
@@ -513,7 +517,9 @@ fun MoviesScreen(
 
 
                         LazyRow(
-                            modifier = Modifier.tvFocusGroup(),
+                            modifier = Modifier
+                                .tvFocusGroup()
+                                .animateContentSize(animationSpec = tween(durationMillis = 260)),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -525,6 +531,7 @@ fun MoviesScreen(
                                     m = m,
                                     posterStyle = posterStyle,
                                     isWatched = m.id in watchedTmdbIds,
+                                    isTv = isTv,
                                     modifier = if (
                                         row.id == firstCollectionRowId &&
                                         index == 0 &&
@@ -1548,6 +1555,7 @@ private fun MidPoster(
     m: TmdbMovie,
     posterStyle: String = "portrait",
     isWatched: Boolean = false,
+    isTv: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongPress: () -> Unit = {},
@@ -1556,36 +1564,117 @@ private fun MidPoster(
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
+    var isFocused by remember(m.id) { mutableStateOf(false) }
+    val isExpanded = isTv && isFocused
+    val animatedWidth by animateDpAsState(
+        targetValue = if (isExpanded) 320.dp else width,
+        animationSpec = tween(durationMillis = 260),
+        label = "movie-card-width",
+    )
+    val animatedImageHeight by animateDpAsState(
+        targetValue = if (isExpanded) 180.dp else width / ratio,
+        animationSpec = tween(durationMillis = 260),
+        label = "movie-card-image-height",
+    )
     Column(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
-            .width(width)
+            .width(animatedWidth)
+            .onFocusChanged { isFocused = it.isFocused }
             .tvFocusBorder(RoundedCornerShape(12.dp))
+            .animateContentSize(animationSpec = tween(durationMillis = 260))
             .clip(RoundedCornerShape(12.dp))
+            .background(if (isExpanded) Color(0xFF171717) else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(ratio)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(animatedImageHeight)
+                .background(Color.Black),
+        ) {
             AsyncImage(
-                model = imageUrl,
+                model = if (isExpanded) m.backdropUrl ?: imageUrl else imageUrl,
                 contentDescription = m.displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(
+                        if (isExpanded) {
+                            RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                        } else {
+                            RoundedCornerShape(12.dp)
+                        },
+                    )
                     .background(MaterialTheme.colorScheme.surface),
             )
+            if (isExpanded) {
+                FocusedMovieTrailerPreview(
+                    movie = m,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             if (isWatched) {
                 WatchedPosterBadge(Modifier.align(Alignment.TopEnd).padding(7.dp))
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            m.displayTitle,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (isExpanded) {
+            val releaseInfo = m.displayReleaseInfo()
+            val overview = m.overview?.trim().orEmpty()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    m.displayTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        listOfNotNull(
+                            releaseInfo?.takeIf { it.isNotBlank() },
+                            if (m.title != null) "Movie" else "Series",
+                        ).joinToString("  •  "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.72f),
+                    )
+                    if (m.voteAverage > 0.0) {
+                        Text(
+                            "★ ${"%.1f".format(m.voteAverage)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFFD166),
+                        )
+                    }
+                }
+                if (overview.isNotBlank()) {
+                    Text(
+                        overview,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.82f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        } else {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                m.displayTitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
