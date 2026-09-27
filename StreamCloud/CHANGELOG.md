@@ -1,6 +1,13 @@
 # StreamCloud
 
-## Latest — Android TV and CloudStream improvements
+## Latest — Android TV hero and trailer autoplay
+
+### Android TV
+- **Navigation-safe, artwork-matched hero** — The rounded home banner now sits below the top navigation and uses a gradient tinted with its sampled artwork.
+- **Trailer autoplay** — TMDB-backed home slides start audio-backed previews after two seconds; movie-detail previews start immediately.
+- **Trailer recovery** — Empty TMDB video results trigger a fresh lookup; stream-resolution and playback failures retry once.
+
+## Previous — Android TV and CloudStream improvements
 
 ### Android TV
 - **More reliable trailer previews** — TV previews refresh a failed stream URL once to recover from transient playback errors.
