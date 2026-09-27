@@ -801,7 +801,7 @@ object YtPlayerUtils {
         val url: String?,
         /** Must match the client that generated [url] so the CDN accepts the video request. */
         val userAgent: String? = null,
-        /** Adaptive video-only formats are silent; muxed formats include an audio track. */
+        /** True when the selected source includes audio (muxed, adaptive pair, or HLS). */
         val hasAudioTrack: Boolean = true,
         /** Separate adaptive audio URL to merge with [url], when YouTube does not offer muxed media. */
         val audioUrl: String? = null,
@@ -874,7 +874,7 @@ object YtPlayerUtils {
                         it["height"]?.jsonPrimitive?.content?.toIntOrNull() ?: Int.MAX_VALUE
                     }
                 val defaultAdaptiveAudioFormats = adaptiveAudioFormats.filter { format ->
-                    format["audioTrack"]?.jsonObject?.get("audioIsDefault")?.jsonPrimitive?.content
+                    (format["audioTrack"] as? JsonObject)?.get("audioIsDefault")?.jsonPrimitive?.content
                         ?.toBooleanStrictOrNull() != false
                 }.ifEmpty { adaptiveAudioFormats }
                 val bestAdaptiveAudio = defaultAdaptiveAudioFormats.maxByOrNull { format ->

@@ -37,8 +37,8 @@ private const val TAG = "MovieTrailerPreview"
 private data class ResolvedTrailer(
     val url: String,
     val userAgent: String?,
-    val hasAudioTrack: Boolean,    val audioUrl: String? = null,
-
+    val hasAudioTrack: Boolean,
+    val audioUrl: String? = null,
 )
 
 /**
