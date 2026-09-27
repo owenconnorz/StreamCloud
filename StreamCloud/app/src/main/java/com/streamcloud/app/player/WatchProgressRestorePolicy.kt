@@ -21,6 +21,8 @@ internal fun canRestoreWatchPosition(positionMs: Long, durationMs: Long): Boolea
         positionMs.toDouble() / durationMs.toDouble() < 0.95
 
 internal fun progressKeyForBingeEpisode(episode: BingeEpisode): WatchProgressKey {
+    episode.progressKey?.let { return it }
+
     val episodeIdentity = "S${episode.seasonNumber}E${episode.episodeNumber}"
     val title = buildString {
         append(episode.title)
@@ -35,33 +37,15 @@ internal fun progressKeyForBingeEpisode(episode: BingeEpisode): WatchProgressKey
                 append(it)
             }
     }
-    val base = episode.progressKey
-    return if (base != null) {
-        base.copy(
-            tmdbId = episode.tmdbId,
-            title = title,
-            posterUrl = episode.posterUrl ?: base.posterUrl,
-            mediaType = "tv",
-            seasonNumber = episode.seasonNumber,
-            episodeNumber = episode.episodeNumber,
-            showTitle = base.showTitle ?: episode.title,
-            episodeTitle = base.episodeTitle ?: episode.episodeTitle,
-            sourceRoute = base.sourceRoute?.takeIf {
-                it.isNotBlank() && !it.startsWith("sources:")
-            }
-                ?: sourceSelectionRoute("tv", episode.seasonNumber, episode.episodeNumber),
-        )
-    } else {
-        WatchProgressKey(
-            tmdbId = episode.tmdbId,
-            title = title,
-            posterUrl = episode.posterUrl,
-            mediaType = "tv",
-            sourceRoute = sourceSelectionRoute("tv", episode.seasonNumber, episode.episodeNumber),
-            seasonNumber = episode.seasonNumber,
-            episodeNumber = episode.episodeNumber,
-            showTitle = episode.title,
-            episodeTitle = episode.episodeTitle,
-        )
-    }
+    return WatchProgressKey(
+        tmdbId = episode.tmdbId,
+        title = title,
+        posterUrl = episode.posterUrl,
+        mediaType = "tv",
+        sourceRoute = sourceSelectionRoute("tv", episode.seasonNumber, episode.episodeNumber),
+        seasonNumber = episode.seasonNumber,
+        episodeNumber = episode.episodeNumber,
+        showTitle = episode.title,
+        episodeTitle = episode.episodeTitle,
+    )
 }
