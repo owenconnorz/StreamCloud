@@ -1,6 +1,11 @@
 # StreamCloud
 
-## Latest — Android TV playback, trailers, and episode progress
+## Latest — Android TV trailer audio fix
+
+### Trailer previews
+- **Trailer audio is restored on Android TV** — Preview resolution now requires an audio-backed stream instead of choosing a silent video-only adaptive track.
+
+## Previous — Android TV playback, trailers, and episode progress
 
 ### Playback & navigation
 - **More reliable Android TV source navigation** — Reopening Sources for a saved item returns to its movie or episode, while Back and long-press actions follow the remote's intent.

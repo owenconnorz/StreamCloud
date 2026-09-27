@@ -41,8 +41,8 @@ private data class ResolvedTrailer(
 )
 
 /**
- * Resolves a looping TMDB trailer preview. Muxed streams include audio; if YouTube
- * only exposes adaptive video, the preview remains visible but silent.
+ * Resolves an audio-backed looping TMDB trailer preview. Video-only adaptive streams are
+ * not used here, so available trailer audio is never replaced with a silent visual track.
  */
 @Composable
 internal fun TmdbTrailerPreview(
@@ -110,7 +110,7 @@ internal fun TmdbTrailerPreview(
                 if (video != null) {
                     val stream = YtPlayerUtils.resolveVideoStream(
                         video.key,
-                        requireAudioTrack = false,
+                        requireAudioTrack = true,
                     )
                     val url = stream.url?.takeIf { stream.isMusicVideo && it.isNotBlank() }
                     if (url != null) {
