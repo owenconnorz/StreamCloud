@@ -928,9 +928,8 @@ private fun HeroPager(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // Nuvio-style: hero is full-screen minus ~120 dp so the first content row peeks from below.
-    // This gives the user a visual cue to scroll down without reducing the hero's impact.
-    val tvHeroHeight = (LocalConfiguration.current.screenHeightDp.dp - 120.dp).coerceAtLeast(320.dp)
+    // Netflix-style TV billboard: keep a wide 16:7 frame across display sizes and densities.
+    val tvHeroHeight = LocalConfiguration.current.screenWidthDp.dp * (7f / 16f)
 
     if (isTv) {
         // HorizontalPager intercepts every D-pad left/right at the input level and permanently
