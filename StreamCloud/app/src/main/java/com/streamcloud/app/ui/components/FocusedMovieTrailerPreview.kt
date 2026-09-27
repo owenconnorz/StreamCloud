@@ -112,7 +112,8 @@ internal fun TmdbTrailerPreview(
                     val stream = YtPlayerUtils.resolveVideoStream(
                         video.key,
                         requireAudioTrack = false,
-                        allowSeparateAudio = true,
+                        // After a playback failure, try HLS or muxed fallback instead of repeating the pair.
+                        allowSeparateAudio = retryAttempt == 0,
                     )
                     val url = stream.url?.takeIf { stream.isMusicVideo && it.isNotBlank() }
                     if (url != null) {
