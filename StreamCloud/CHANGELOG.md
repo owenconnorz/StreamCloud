@@ -1,6 +1,15 @@
 # StreamCloud
 
-## Latest — Full-bleed Android TV hero and trailer audio
+## Latest — Android TV and CloudStream improvements
+
+### Android TV
+- **More reliable trailer previews** — TV previews refresh a failed stream URL once to recover from transient playback errors.
+- **Rounded home hero** — The Android TV banner is inset and uses rounded corners.
+- **Horizontal profile picker** — TV profiles appear in a single row; the mobile profile grid is unchanged.
+
+### CloudStream / CS3
+- **Cleaner repository settings** — Removed the unused plugin search field while keeping repository and plugin management controls.
+## Previous — Full-bleed Android TV hero and trailer audio
 
 ### Android TV
 - **Full-bleed home banner** — movie artwork now reaches the screen edges, with carousel markers inside the banner and a top fade for navigation contrast.
