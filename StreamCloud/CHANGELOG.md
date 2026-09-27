@@ -1,5 +1,15 @@
 # StreamCloud
 
+## Latest — Android TV movie detail and trailer hotfix
+
+### Android TV
+- **Inset widescreen home hero** — the movie billboard uses a rounded, inset layout.
+- **Focused poster highlight** — the focus border stays on the expanded image instead of framing the title below it.
+- **Side-by-side detail hero** — TV movie details place the title and playback actions beside the artwork and trailer.
+
+### Trailer previews
+- **Trailer audio is enabled** — movie-detail previews now play audible, looping trailers.
+
 ## Latest — Episode-first series details and trailer autoplay
 
 ### Series details
