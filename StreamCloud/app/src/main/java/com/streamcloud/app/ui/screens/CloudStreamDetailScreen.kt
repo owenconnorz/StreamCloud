@@ -181,7 +181,13 @@ fun CloudStreamDetailScreen(
         }
     }
 
-    fun resolveAndPlay(data: String, episodeTitle: String?) {
+    fun resolveAndPlay(
+        data: String,
+        episodeTitle: String?,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null,
+        episodeName: String? = null,
+    ) {
         val path = pluginFilePath ?: return
         if (resolvingData != null) return          // already resolving — ignore double-tap
         scope.launch {
@@ -209,13 +215,31 @@ fun CloudStreamDetailScreen(
                 val sources = links.toPlayerSources(pluginDisplayName ?: pluginInternalName)
                 val sorted = sources.sortedByDescending { it.qualityScoreCs() }
                 val displayTitle = listOfNotNull(initialTitle, episodeTitle).joinToString(" · ")
-                val poster = (state as? CsDetailState.Ready)?.response?.posterUrl ?: initialPoster
+                val response = (state as? CsDetailState.Ready)?.response
+                val poster = response?.posterUrl ?: initialPoster
+                val isEpisode = episodeTitle != null
+                val cloudStreamTmdbId = response?.let { loadResponse ->
+                    with(LoadResponse.Companion) { loadResponse.getTMDbId() }
+                }?.toLongOrNull()?.takeIf { it > 0L }
                 val progressKey = WatchProgressKey(
-                    tmdbId = -((pluginInternalName + "|" + url + "|" + (episodeTitle ?: "")).hashCode().toLong()),
+                    tmdbId = if (isEpisode) {
+                        cloudStreamTmdbId
+                            ?: -((pluginInternalName + "|" + url + "|" + (episodeTitle ?: "")).hashCode().toLong())
+                    } else {
+                        -((pluginInternalName + "|" + url + "|" + (episodeTitle ?: "")).hashCode().toLong())
+                    },
                     title = displayTitle,
                     posterUrl = poster,
-                    mediaType = if (episodeTitle != null) "tv" else "movie",
+                    mediaType = if (isEpisode) "tv" else "movie",
                     sourceRoute = "cs:$pluginInternalName|||$url|||$displayTitle|||${poster ?: ""}",
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                    showTitle = if (isEpisode) {
+                        response?.name?.takeIf { it.isNotBlank() } ?: initialTitle
+                    } else {
+                        null
+                    },
+                    episodeTitle = episodeName?.takeIf { it.isNotBlank() },
                 )
                 onPlay(sorted.first().url, displayTitle, sorted, progressKey)
             } catch (e: Throwable) {
@@ -265,7 +289,15 @@ fun CloudStreamDetailScreen(
                 actionsExpanded   = actionsExpanded,
                 onActionsExpanded = { actionsExpanded = it },
                 onPlayMovie       = { resolveAndPlay((s.response as MovieLoadResponse).dataUrl, null) },
-                onPlayEpisode     = { ep -> resolveAndPlay(ep.data, ep.displayLabel()) },
+                onPlayEpisode     = { ep ->
+                    resolveAndPlay(
+                        data = ep.data,
+                        episodeTitle = ep.displayLabel(),
+                        seasonNumber = ep.season,
+                        episodeNumber = ep.episode,
+                        episodeName = ep.name,
+                    )
+                },
                 onToggleWatchlist = {
                     watchlistPickerEntry = WatchlistEntity(
                         tmdbId = syntheticId,

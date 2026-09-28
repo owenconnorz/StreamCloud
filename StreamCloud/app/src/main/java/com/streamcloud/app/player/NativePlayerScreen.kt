@@ -390,6 +390,54 @@ fun NativePlayerScreen(
 
     val ex = player.value
     val playerAppContext = remember(context) { context.applicationContext }
+    val completionHandled = remember(ex, progressKey, seasonNumber, episodeNumber) {
+        java.util.concurrent.atomic.AtomicBoolean(false)
+    }
+    val completionTarget = remember(progressKey, seasonNumber, episodeNumber) {
+        completedWatchTarget(progressKey, seasonNumber, episodeNumber)
+    }
+
+    fun markCompletedPlayback(target: CompletedWatchTarget?) {
+        target ?: return
+        if (!completionHandled.compareAndSet(false, true)) return
+        Thread {
+            runCatching {
+                val libraryDb = LibraryDb.get(playerAppContext)
+                kotlinx.coroutines.runBlocking {
+                    when (target) {
+                        is CompletedWatchTarget.Episode -> {
+                            libraryDb.watchedEpisodes().mark(
+                                WatchedEpisodeEntity(
+                                    tmdbShowId = target.tmdbId,
+                                    seasonNumber = target.seasonNumber,
+                                    episodeNumber = target.episodeNumber,
+                                    showTitle = target.showTitle,
+                                    episodeTitle = target.episodeTitle,
+                                ),
+                            )
+                        }
+
+                        is CompletedWatchTarget.Movie -> {
+                            libraryDb.watchedMovies().mark(
+                                WatchedMovieEntity(
+                                    tmdbId = target.tmdbId,
+                                    title = target.title,
+                                    posterUrl = target.posterUrl,
+                                    mediaType = "movie",
+                                ),
+                            )
+                        }
+                    }
+                    libraryDb.watchProgress().remove(target.tmdbId)
+                    com.streamcloud.app.data.nuvio.NuvioAutoSync.request(playerAppContext)
+                }
+            }.onFailure {
+                completionHandled.set(false)
+                Log.e("NativePlayerScreen", "Could not save completed playback as watched", it)
+            }
+        }.start()
+    }
+
     var isPlaying         by remember { mutableStateOf(true) }
     var positionMs        by remember { mutableStateOf(0L) }
     var durationMs        by remember { mutableStateOf(0L) }
@@ -407,61 +455,13 @@ fun NativePlayerScreen(
         }
     }
 
-    LaunchedEffect(ex, progressKey) {
+    LaunchedEffect(ex, progressKey, completionTarget, completionHandled) {
         ex ?: return@LaunchedEffect
-        var completionHandled = false
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
             override fun onPlaybackStateChanged(state: Int) {
                 durationMs = ex.duration.coerceAtLeast(0L)
-                if (state != Player.STATE_ENDED || completionHandled) return
-
-                val completedItem = progressKey ?: return
-                if (completedItem.tmdbId <= 0L ||
-                    (completedItem.mediaType != "movie" && completedItem.mediaType != "tv")
-                ) {
-                    return
-                }
-
-                completionHandled = true
-                Thread {
-                    runCatching {
-                        val libraryDb = LibraryDb.get(playerAppContext)
-                        kotlinx.coroutines.runBlocking {
-                            val season = completedItem.seasonNumber
-                            val episode = completedItem.episodeNumber
-                            if (completedItem.mediaType == "tv" &&
-                                season != null && season > 0 &&
-                                episode != null && episode > 0
-                            ) {
-                                libraryDb.watchedEpisodes().mark(
-                                    WatchedEpisodeEntity(
-                                        tmdbShowId = completedItem.tmdbId,
-                                        seasonNumber = season,
-                                        episodeNumber = episode,
-                                        showTitle = completedItem.showTitle
-                                            ?.takeIf { it.isNotBlank() }
-                                            ?: completedItem.title.substringBefore(" · "),
-                                        episodeTitle = completedItem.episodeTitle,
-                                    ),
-                                )
-                            } else {
-                                libraryDb.watchedMovies().mark(
-                                    WatchedMovieEntity(
-                                        tmdbId = completedItem.tmdbId,
-                                        title = completedItem.title,
-                                        posterUrl = completedItem.posterUrl,
-                                        mediaType = completedItem.mediaType,
-                                    ),
-                                )
-                            }
-                            libraryDb.watchProgress().remove(completedItem.tmdbId)
-                            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(playerAppContext)
-                        }
-                    }.onFailure {
-                        Log.e("NativePlayerScreen", "Could not save completed playback as watched", it)
-                    }
-                }.start()
+                if (state == Player.STATE_ENDED) markCompletedPlayback(completionTarget)
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (sources.size <= 1) {
@@ -503,13 +503,17 @@ fun NativePlayerScreen(
     // Watch progress persistence
     if (progressKey != null) {
         val appContext = playerAppContext
-        LaunchedEffect(ex, progressKey) {
+        LaunchedEffect(ex, progressKey, completionTarget, completionHandled) {
             ex ?: return@LaunchedEffect
             while (true) {
                 delay(10_000)
                 val pos = ex.currentPosition.coerceAtLeast(0L)
                 val dur = ex.duration.coerceAtLeast(0L)
-                if (dur > 0L && pos > 0L && ex.playbackState != Player.STATE_ENDED) {
+                val ended = ex.playbackState == Player.STATE_ENDED
+                if (playbackReachedWatchCompletion(pos, dur, ended)) {
+                    markCompletedPlayback(completionTarget)
+                }
+                if (dur > 0L && pos > 0L && !ended && !completionHandled.get()) {
                     runCatching {
                         com.streamcloud.app.data.library.LibraryDb.get(appContext)
                             .watchProgress().upsert(
@@ -531,7 +535,10 @@ fun NativePlayerScreen(
                 if (cur != null) {
                     val pos = cur.currentPosition.coerceAtLeast(0L)
                     val dur = cur.duration.coerceAtLeast(0L)
-                    if (dur > 0L && pos > 0L && cur.playbackState != Player.STATE_ENDED) {
+                    if (dur > 0L && pos > 0L &&
+                        cur.playbackState != Player.STATE_ENDED &&
+                        !completionHandled.get()
+                    ) {
                         Thread {
                             runCatching {
                                 com.streamcloud.app.data.library.LibraryDb.get(appContext).watchProgress().let { dao ->
