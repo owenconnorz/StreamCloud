@@ -1,9 +1,11 @@
 package com.streamcloud.app
 
 import android.Manifest
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
@@ -15,6 +17,8 @@ import androidx.core.content.PermissionChecker
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.ui.StreamCloudApp
 import com.streamcloud.app.ui.theme.StreamCloudTheme
+import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.detectFormFactor
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
@@ -67,7 +71,8 @@ class MainActivity : AppCompatActivity() {
 
         runOnUiThread {
             runCatching {
-                AlertDialog.Builder(this, R.style.Theme_StreamCloud_AppCompat)
+                val isTv = detectFormFactor(this) == UiFormFactor.Tv
+                val dialog = AlertDialog.Builder(this, R.style.Theme_StreamCloud_AppCompat)
                     .setTitle("Previous crash detected")
                     .setMessage(report.take(2000))
                     .setPositiveButton("OK", null)
@@ -76,7 +81,16 @@ class MainActivity : AppCompatActivity() {
                         cm.setPrimaryClip(android.content.ClipData.newPlainText("crash", report))
                         Toast.makeText(this, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                     }
-                    .show()
+                    .create()
+                dialog.setOnShowListener {
+                    if (isTv) {
+                        dialog.findViewById<TextView>(android.R.id.message)
+                            ?.setTextColor(Color.WHITE)
+                        dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
+                            ?.setTextColor(Color.WHITE)
+                    }
+                }
+                dialog.show()
             }
         }
     }

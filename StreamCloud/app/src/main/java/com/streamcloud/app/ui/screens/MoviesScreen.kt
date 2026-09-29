@@ -422,7 +422,9 @@ fun MoviesScreen(
                         ) {
                             itemsIndexed(
                                 state.continueWatching,
-                                key = { _, entry -> "cw_${entry.tmdbId}" },
+                                key = { _, entry ->
+                                    "cw_${entry.tmdbId}_${entry.mediaType}_${entry.seasonNumber}_${entry.episodeNumber}"
+                                },
                             ) { index, entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
