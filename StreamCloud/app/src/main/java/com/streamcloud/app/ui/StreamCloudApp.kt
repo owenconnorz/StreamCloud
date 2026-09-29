@@ -103,6 +103,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.first
@@ -199,6 +201,7 @@ fun StreamCloudApp() {
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
     val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
     var libraryScopeReady by remember { mutableStateOf(false) }
+    var hasStartedOnce by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val storedUserId = sl.settings.nuvioUserId.first().trim()
         com.streamcloud.app.data.nuvio.NuvioAccountScopeStore
@@ -229,6 +232,13 @@ fun StreamCloudApp() {
                 failure,
             )
             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
+        }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        if (hasStartedOnce) {
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
+        } else {
+            hasStartedOnce = true
         }
     }
 

@@ -559,7 +559,7 @@ fun NativePlayerScreen(
                                      episodeNumber = progressKey.episodeNumber ?: 0,
                                 )
                             )
-                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
+                        com.streamcloud.app.data.nuvio.NuvioAutoSync.requestProgress(appContext)
                     }
                 }
             }
@@ -586,7 +586,7 @@ fun NativePlayerScreen(
                                             seasonNumber = progressKey.seasonNumber ?: 0,
                                             episodeNumber = progressKey.episodeNumber ?: 0,
                                         ))
-                                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
+                                        com.streamcloud.app.data.nuvio.NuvioAutoSync.requestProgress(appContext)
                                     }
                                 }
                             }

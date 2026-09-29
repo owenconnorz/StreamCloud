@@ -50,13 +50,26 @@ object NuvioAutoSync {
     }
 
     fun request(context: Context) {
+        enqueue(context, progressOnly = false)
+    }
+
+    /**
+     * Playback position changes are frequent and replaceable. Keep at most one
+     * sync in the unique chain for them; explicit changes and watch completion
+     * still append a guaranteed follow-up through [request].
+     */
+    fun requestProgress(context: Context) {
+        enqueue(context, progressOnly = true)
+    }
+
+    private fun enqueue(context: Context, progressOnly: Boolean) {
         val request = OneTimeWorkRequestBuilder<NuvioAutoSyncWorker>()
             .setConstraints(networkConstraints())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             IMMEDIATE_WORK,
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            syncRequestWorkPolicy(progressOnly),
             request,
         )
     }
@@ -508,6 +521,9 @@ object NuvioAutoSync {
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
 }
+
+internal fun syncRequestWorkPolicy(progressOnly: Boolean): ExistingWorkPolicy =
+    if (progressOnly) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.APPEND_OR_REPLACE
 
 
 class NuvioAutoSyncWorker(

@@ -1,5 +1,6 @@
 package com.streamcloud.app.data.nuvio
 
+import androidx.work.ExistingWorkPolicy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -50,5 +51,14 @@ class NuvioSyncContractTest {
         assertEquals("series", key.contentType)
         assertEquals("tmdb:123", key.contentId)
         assertEquals("tmdb:123:2:5", key.remoteKey)
+    }
+
+    @Test
+    fun playbackProgressSyncCoalescesButExplicitSyncIsAppended() {
+        assertEquals(ExistingWorkPolicy.KEEP, syncRequestWorkPolicy(progressOnly = true))
+        assertEquals(
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            syncRequestWorkPolicy(progressOnly = false),
+        )
     }
 }

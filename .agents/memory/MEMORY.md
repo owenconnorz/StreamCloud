@@ -16,5 +16,6 @@
 - [StreamCloud release scope](streamcloud-release-scope.md) — Publish and mirror APK updates only within StreamCloud; AioWeb is not part of this project.
 - [Android Auto queue resumption](android-auto-queue-resumption.md) — Resume from durable logical media identities and position, never in-memory timelines or signed CDN URLs.
 - [Nuvio sync contract](nuvio-sync-contract.md) — Keep Nuvio RPC datasets separate, mutate the shared profile repository, and resolve provider IDs before local writes.
+- [Playback sync priority](nuvio-playback-sync-priority.md) — Coalesce replaceable playback-position updates, but always queue watched-state completion and refresh cloud state on foreground return.
 - [GitHub APK release publishing](github-apk-release-publishing.md) — Verify release assets through authenticated GitHub CLI after Actions publishing; rebuild the release if indexing is inconsistent.
 - [GitHub Actions log access](github-actions-log-access.md) — If the connector blocks job-log downloads, use readable run/job/annotation data and report the limit.
