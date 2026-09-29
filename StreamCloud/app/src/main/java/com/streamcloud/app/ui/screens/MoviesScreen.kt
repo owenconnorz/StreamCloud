@@ -747,24 +747,31 @@ fun MoviesScreen(
                                             onOpenCsItem(row.pluginInternalName, sr.url, sr.name, sr.posterUrl)
                                         },
                                 ) {
-                                    AsyncImage(
-                                        model = sr.posterUrl,
-                                        contentDescription = sr.name,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
+                                    Box(
+                                        Modifier
                                             .fillMaxWidth()
                                             .aspectRatio(csAspect)
                                             .clip(RoundedCornerShape(12.dp))
                                             .background(MaterialTheme.colorScheme.surface),
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        sr.name,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                                    ) {
+                                        AsyncImage(
+                                            model = sr.posterUrl,
+                                            contentDescription = sr.name,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                        if (csLandscape) LandscapeCardTitle(sr.name)
+                                    }
+                                    if (!csLandscape) {
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            sr.name,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onBackground,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
                                 }
                             }
                             if (isTv) {
@@ -1627,6 +1634,35 @@ private fun ContinueWatchingCard(
     }
 }
 
+@Composable
+private fun LandscapeCardTitle(title: String) {
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(58.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f)),
+                    ),
+                ),
+        )
+        Text(
+            title,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.White,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MidPoster(
@@ -1692,6 +1728,9 @@ private fun MidPoster(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+            if (useLandscape) {
+                LandscapeCardTitle(m.displayTitle)
+            }
             if (isWatched) {
                 WatchedPosterBadge(Modifier.align(Alignment.TopEnd).padding(7.dp))
             }
@@ -1705,14 +1744,16 @@ private fun MidPoster(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    m.displayTitle,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (!useLandscape) {
+                    Text(
+                        m.displayTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1743,7 +1784,7 @@ private fun MidPoster(
                     )
                 }
             }
-        } else {
+        } else if (!useLandscape) {
             Spacer(Modifier.height(6.dp))
             Text(
                 m.displayTitle,
@@ -1781,29 +1822,37 @@ private fun StremioPoster(
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
-        MovieArtwork(
-            primaryUrl = primaryArtwork,
-            fallbackUrl = fallbackArtwork,
-            contentDescription = meta.name,
-            modifier = Modifier
-                .fillMaxWidth().aspectRatio(ratio)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(ratio)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surface),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            meta.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (!meta.releaseInfo.isNullOrBlank()) {
-            Text(
-                meta.releaseInfo,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        ) {
+            MovieArtwork(
+                primaryUrl = primaryArtwork,
+                fallbackUrl = fallbackArtwork,
+                contentDescription = meta.name,
+                modifier = Modifier.fillMaxSize(),
             )
+            if (useLandscape) LandscapeCardTitle(meta.name)
+        }
+        if (!useLandscape) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                meta.name,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!meta.releaseInfo.isNullOrBlank()) {
+                Text(
+                    meta.releaseInfo,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
