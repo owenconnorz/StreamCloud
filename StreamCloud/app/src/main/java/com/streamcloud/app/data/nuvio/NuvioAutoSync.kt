@@ -34,6 +34,7 @@ object NuvioAutoSync {
     private const val SYNC_PREFS = "nuvio_sync"
     private const val PENDING_LIBRARY_DELETES = "pending_library_deletes"
     private const val PENDING_ADDON_DELETES = "pending_addon_deletes"
+    private const val PENDING_WATCH_PROGRESS_DELETES = "pending_watch_progress_deletes"
     private val syncMutex = Mutex()
 
     fun installPeriodic(context: Context) {
@@ -201,6 +202,68 @@ object NuvioAutoSync {
         request(context)
     }
 
+    suspend fun recordWatchProgressDelete(
+        context: Context,
+        tmdbId: Long,
+        mediaType: String,
+        seasonNumber: Int,
+        episodeNumber: Int,
+    ) {
+        if (tmdbId <= 0L || mediaType !in setOf("movie", "tv", "series")) return
+        val appContext = context.applicationContext
+        val services = ServiceLocator.get(appContext)
+        val userId = services.settings.nuvioUserId.first().trim()
+        if (userId.isBlank()) return
+        NuvioAccountScopeStore.setCurrentUserId(appContext, userId)
+        val profiles = services.profiles
+        val localProfileId = profiles.currentActiveId()
+            ?: profiles.currentProfiles().firstOrNull()?.id
+            ?: return
+        if (profiles.nuvioProfileIndex(userId, localProfileId) == null) return
+
+        val normalizedMediaType = if (mediaType == "series") "tv" else mediaType
+        val serialized = listOf(
+            tmdbId.toString(),
+            normalizedMediaType,
+            seasonNumber.coerceAtLeast(0).toString(),
+            episodeNumber.coerceAtLeast(0).toString(),
+        ).joinToString("|")
+        val prefs = appContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val key = watchProgressDeletePreferenceKey(userId, localProfileId)
+        val pending = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
+        pending += serialized
+        check(prefs.edit().putStringSet(key, pending).commit()) {
+            "Could not persist the Nuvio watch progress deletion request"
+        }
+    }
+
+    suspend fun pushPendingWatchProgressDeletes(
+        context: Context,
+        accessToken: String,
+        userId: String? = null,
+        localProfileId: String? = null,
+    ) {
+        val appContext = context.applicationContext
+        val services = ServiceLocator.get(appContext)
+        val targetUserId = userId?.trim()?.takeIf { it.isNotBlank() }
+            ?: services.settings.nuvioUserId.first().trim()
+        val targetProfileId = localProfileId?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentActiveId()
+                ?: services.profiles.currentProfiles().firstOrNull()?.id
+                ?: return
+        if (targetUserId.isBlank()) return
+        val pending = pendingWatchProgressDeletes(appContext, targetUserId, targetProfileId)
+        if (pending.isEmpty()) return
+
+        NuvioAccountService.get(appContext).deleteWatchProgressItems(
+            accessToken = accessToken,
+            keys = pending.map { it.key },
+            userId = targetUserId,
+            localProfileId = targetProfileId,
+        )
+        clearWatchProgressDeletes(appContext, targetUserId, targetProfileId, pending)
+    }
+
     suspend fun pushPendingLibraryDeletes(
         context: Context,
         accessToken: String,
@@ -335,8 +398,58 @@ object NuvioAutoSync {
         val contentId: String,
     )
 
+    private data class PendingWatchProgressDelete(
+        val serialized: String,
+        val key: NuvioWatchProgressDeleteKey,
+    )
+
     private fun libraryDeletePreferenceKey(userId: String, localProfileId: String): String =
         "${PENDING_LIBRARY_DELETES}_${stableKey("$userId:$localProfileId").take(16)}"
+
+    private fun watchProgressDeletePreferenceKey(userId: String, localProfileId: String): String =
+        "${PENDING_WATCH_PROGRESS_DELETES}_${stableKey("$userId:$localProfileId").take(16)}"
+
+    private fun pendingWatchProgressDeletes(
+        context: Context,
+        userId: String,
+        localProfileId: String,
+    ): List<PendingWatchProgressDelete> {
+        val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val key = watchProgressDeletePreferenceKey(userId, localProfileId)
+        return prefs.getStringSet(key, emptySet()).orEmpty().mapNotNull { serialized ->
+            val parts = serialized.split('|')
+            if (parts.size != 4) return@mapNotNull null
+            val tmdbId = parts[0].toLongOrNull()?.takeIf { it > 0L } ?: return@mapNotNull null
+            val mediaType = parts[1].takeIf { it == "movie" || it == "tv" } ?: return@mapNotNull null
+            val seasonNumber = parts[2].toIntOrNull()?.takeIf { it >= 0 } ?: return@mapNotNull null
+            val episodeNumber = parts[3].toIntOrNull()?.takeIf { it >= 0 } ?: return@mapNotNull null
+            PendingWatchProgressDelete(
+                serialized = serialized,
+                key = NuvioWatchProgressDeleteKey(
+                    tmdbId = tmdbId,
+                    mediaType = mediaType,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                ),
+            )
+        }
+    }
+
+    private fun clearWatchProgressDeletes(
+        context: Context,
+        userId: String,
+        localProfileId: String,
+        deletes: Collection<PendingWatchProgressDelete>,
+    ) {
+        if (deletes.isEmpty()) return
+        val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val key = watchProgressDeletePreferenceKey(userId, localProfileId)
+        val pending = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
+        deletes.forEach { pending.remove(it.serialized) }
+        check(prefs.edit().putStringSet(key, pending).commit()) {
+            "Could not clear confirmed Nuvio watch progress deletions"
+        }
+    }
 
     private fun pendingLibraryDeletes(
         context: Context,

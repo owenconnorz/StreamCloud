@@ -290,7 +290,12 @@ fun NativePlayerScreen(
                     val savedProgress = com.streamcloud.app.data.library.LibraryDb
                         .get(context.applicationContext)
                         .watchProgress()
-                        .byId(pk.tmdbId)
+                        .byKey(
+                            pk.tmdbId,
+                            pk.mediaType,
+                            pk.seasonNumber ?: 0,
+                            pk.episodeNumber ?: 0,
+                        )
                     restorableWatchPosition(pk, savedProgress)
                 }.getOrNull()
             }
@@ -428,7 +433,35 @@ fun NativePlayerScreen(
                             )
                         }
                     }
-                    libraryDb.watchProgress().remove(target.tmdbId)
+                    val mediaType: String
+                    val seasonNumber: Int
+                    val episodeNumber: Int
+                    when (target) {
+                        is CompletedWatchTarget.Episode -> {
+                            mediaType = "tv"
+                            seasonNumber = target.seasonNumber
+                            episodeNumber = target.episodeNumber
+                        }
+
+                        is CompletedWatchTarget.Movie -> {
+                            mediaType = "movie"
+                            seasonNumber = 0
+                            episodeNumber = 0
+                        }
+                    }
+                    com.streamcloud.app.data.nuvio.NuvioAutoSync.recordWatchProgressDelete(
+                        playerAppContext,
+                        target.tmdbId,
+                        mediaType,
+                        seasonNumber,
+                        episodeNumber,
+                    )
+                    libraryDb.watchProgress().removeKey(
+                        target.tmdbId,
+                        mediaType,
+                        seasonNumber,
+                        episodeNumber,
+                    )
                     com.streamcloud.app.data.nuvio.NuvioAutoSync.request(playerAppContext)
                 }
             }.onFailure {
@@ -522,6 +555,8 @@ fun NativePlayerScreen(
                                     posterUrl = progressKey.posterUrl, mediaType = progressKey.mediaType,
                                     positionMs = pos, durationMs = dur,
                                     updatedAt = System.currentTimeMillis(), sourceRoute = progressKey.sourceRoute,
+                                     seasonNumber = progressKey.seasonNumber ?: 0,
+                                     episodeNumber = progressKey.episodeNumber ?: 0,
                                 )
                             )
                         com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
@@ -548,6 +583,8 @@ fun NativePlayerScreen(
                                             posterUrl = progressKey.posterUrl, mediaType = progressKey.mediaType,
                                             positionMs = pos, durationMs = dur,
                                             updatedAt = System.currentTimeMillis(), sourceRoute = progressKey.sourceRoute,
+                                            seasonNumber = progressKey.seasonNumber ?: 0,
+                                            episodeNumber = progressKey.episodeNumber ?: 0,
                                         ))
                                         com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
                                     }

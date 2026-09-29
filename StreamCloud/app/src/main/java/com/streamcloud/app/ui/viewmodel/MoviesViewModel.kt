@@ -796,17 +796,39 @@ class MoviesViewModel(
         viewModelScope.launch { runCatching { sl.settings.clearMovieSearchHistory() } }
     }
 
-    fun deleteWatchProgress(tmdbId: Long) {
+    fun deleteWatchProgress(
+        tmdbId: Long,
+        mediaType: String,
+        seasonNumber: Int,
+        episodeNumber: Int,
+    ) {
         viewModelScope.launch {
-            LibraryDb.get(appContext).watchProgress().remove(tmdbId)
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.recordWatchProgressDelete(
+                appContext,
+                tmdbId,
+                mediaType,
+                seasonNumber,
+                episodeNumber,
+            )
+            LibraryDb.get(appContext).watchProgress().removeKey(
+                tmdbId,
+                mediaType,
+                seasonNumber,
+                episodeNumber,
+            )
             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
     }
 
-    fun resetWatchProgress(tmdbId: Long) {
+    fun resetWatchProgress(
+        tmdbId: Long,
+        mediaType: String,
+        seasonNumber: Int,
+        episodeNumber: Int,
+    ) {
         viewModelScope.launch {
             val dao = LibraryDb.get(appContext).watchProgress()
-            val existing = dao.byId(tmdbId) ?: return@launch
+            val existing = dao.byKey(tmdbId, mediaType, seasonNumber, episodeNumber) ?: return@launch
             dao.upsert(existing.copy(positionMs = 0L, updatedAt = System.currentTimeMillis()))
             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
@@ -824,6 +846,17 @@ class MoviesViewModel(
                     mediaType = mediaType,
                 )
             )
+            db.watchProgress().getAllEntries()
+                .filter { it.tmdbId == tmdbId }
+                .forEach { entry ->
+                    com.streamcloud.app.data.nuvio.NuvioAutoSync.recordWatchProgressDelete(
+                        appContext,
+                        entry.tmdbId,
+                        entry.mediaType,
+                        entry.seasonNumber,
+                        entry.episodeNumber,
+                    )
+                }
             db.watchProgress().remove(tmdbId)
             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }

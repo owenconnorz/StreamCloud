@@ -2,6 +2,7 @@ package com.streamcloud.app.data.nuvio
 
 import android.content.Context
 import android.util.Log
+import androidx.room.withTransaction
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.SettingsRepository
@@ -20,8 +21,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -32,6 +35,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URI
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 
@@ -41,6 +45,45 @@ private const val NUVIO_DISCOVERY_URL = "$NUVIO_OFFICIAL_SERVER/.well-known/nuvi
 private val JSON_MT = "application/json; charset=utf-8".toMediaType()
 
 private const val NUVIO_CLOUD_SOURCE = "__nuvio__"
+private const val STREAMCLOUD_HOME_PLATFORM = "streamcloud"
+
+internal data class NuvioWatchProgressDeleteKey(
+    val tmdbId: Long,
+    val mediaType: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+) {
+    val contentId: String get() = "tmdb:$tmdbId"
+    val contentType: String get() = if (mediaType == "tv" || mediaType == "series") "series" else "movie"
+    val remoteKey: String
+        get() = if (seasonNumber > 0 && episodeNumber > 0) {
+            "$contentId:$seasonNumber:$episodeNumber"
+        } else {
+            contentId
+        }
+}
+
+internal fun extractStreamCloudHomeSettings(response: String): JsonObject? {
+    val parser = Json { ignoreUnknownKeys = true; isLenient = true }
+    val root = runCatching { parser.parseToJsonElement(response) }.getOrNull() ?: return null
+    val candidates = when (root) {
+        is JsonArray -> root.toList()
+        else -> listOf(root)
+    }
+    for (candidate in candidates) {
+        val row = candidate as? JsonObject ?: continue
+        val rawSettings = row["settings_json"] ?: row["settings"] ?: row["data"] ?: candidate
+        val settings = when (rawSettings) {
+            is JsonObject -> rawSettings
+            is JsonPrimitive -> rawSettings.contentOrNull
+                ?.let { runCatching { parser.parseToJsonElement(it) }.getOrNull() as? JsonObject }
+            else -> null
+        } ?: continue
+        val streamCloud = settings["streamcloud"] as? JsonObject
+        if (streamCloud != null) return streamCloud
+    }
+    return null
+}
 
 @Serializable
 data class NuvioUser(
@@ -287,6 +330,8 @@ private data class PullWatchProgress(
     val last_watched: Long = 0L,
     val name: String? = null,
     val poster: String? = null,
+    val video_id: String? = null,
+    val progress_key: String? = null,
     val season: Int? = null,
     val episode: Int? = null,
     val season_number: Int? = null,
@@ -322,13 +367,16 @@ private data class PullCollectionFolder(
     val linked_category_id: String = "",
     val tile_shape: String = "wide",
     val sort_order: Int = 0,
+    val hide_title: Boolean = false,
 )
 
 @Serializable
 private data class PullCollection(
     val name: String = "",
+    val cover_url: String = "",
     val is_pinned: Boolean = true,
     val sort_order: Int = 0,
+    val view_mode: String = "rows",
     val folders: List<PullCollectionFolder> = emptyList(),
 )
 
@@ -646,10 +694,33 @@ class NuvioAccountService(private val context: Context) {
             userId = syncUserId,
             localProfileId = syncLocalProfileId,
         )
+        NuvioAutoSync.pushPendingWatchProgressDeletes(
+            context = context,
+            accessToken = accessToken,
+            userId = syncUserId,
+            localProfileId = syncLocalProfileId,
+        )
         Log.i(
             TAG,
             "Pulling Nuvio data for profile_index=$profileIndex active_profile_id=$syncLocalProfileId",
         )
+
+        runCatching {
+            val text = rpc(
+                "sync_pull_home_catalog_settings",
+                buildJsonObject {
+                    put("p_profile_id", profileIndex)
+                    put("p_platform", STREAMCLOUD_HOME_PLATFORM)
+                },
+                accessToken,
+            ).getOrThrow()
+            extractStreamCloudHomeSettings(text)?.let {
+                ServiceLocator.get(context).settings.applyHomeCatalogSyncSnapshot(it)
+            }
+        }.onFailure {
+            errors += "home layout pull: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "pull home layout: ${it.message}")
+        }
 
         // ── Stremio addons ──────────────────────────────────────────────────
         runCatching {
@@ -766,6 +837,8 @@ class NuvioAccountService(private val context: Context) {
             entries.forEach { e ->
                 val season = e.season ?: e.season_number
                 val episode = e.episode ?: e.episode_number
+                val seasonNumber = season?.takeIf { it > 0 } ?: 0
+                val episodeNumber = episode?.takeIf { it > 0 } ?: 0
                 val isSeries = e.content_type.equals("series", ignoreCase = true) ||
                     e.content_type.equals("tv", ignoreCase = true) ||
                     e.content_type.equals("episode", ignoreCase = true)
@@ -779,7 +852,7 @@ class NuvioAccountService(private val context: Context) {
                     normalizedContentId,
                     if (isSeries) "series" else e.content_type,
                 ) ?: return@forEach
-                val existing = progressDao.byId(tmdbId)
+                val existing = progressDao.byKey(tmdbId, mediaType, seasonNumber, episodeNumber)
                 val updatedAt = e.last_watched.takeIf { it > 0 } ?: System.currentTimeMillis()
                 val shouldUseProgress = existing == null || existing.updatedAt < updatedAt
                 val needsMetadata = existing == null ||
@@ -809,11 +882,13 @@ class NuvioAccountService(private val context: Context) {
                             durationMs = if (shouldUseProgress) e.duration else existing!!.durationMs,
                             updatedAt = if (shouldUseProgress) updatedAt else existing!!.updatedAt,
                             sourceRoute = existing?.sourceRoute?.takeIf { it.isNotBlank() }
-                                ?: listOf(
-                                    "sources:$mediaType",
-                                    season?.toString().orEmpty(),
-                                    episode?.toString().orEmpty(),
-                                ).joinToString("|||"),
+                                ?: if (seasonNumber > 0 && episodeNumber > 0) {
+                                    "sources:$mediaType|||$seasonNumber|||$episodeNumber"
+                                } else {
+                                    "sources:$mediaType"
+                                },
+                            seasonNumber = seasonNumber,
+                            episodeNumber = episodeNumber,
                         )
                     )
                     if (shouldUseProgress) {
@@ -829,35 +904,41 @@ class NuvioAccountService(private val context: Context) {
 
         // ── Library / watchlist ─────────────────────────────────────────────
         runCatching {
-            val text = rpc(
-                "sync_pull_library",
-                buildJsonObject {
-                    put("p_profile_id", profileIndex)
-                    put("p_limit", 500)
-                    put("p_offset", 0)
-                },
-                accessToken,
-            ).getOrThrow()
-            val items = json.decodeFromString(ListSerializer(PullLibraryItem.serializer()), text)
             val watchlistDao = db.watchlist()
-            val existingIds = watchlistDao.all().first().map { it.tmdbId }.toSet()
-            items.forEach { item ->
-                val tmdbId = resolveTmdbId(item.content_id, item.content_type) ?: return@forEach
-                if (tmdbId !in existingIds) {
-                    val mediaType = if (item.content_type == "series") "tv" else "movie"
-                    val addedAt = item.added_at.takeIf { it > 0 } ?: System.currentTimeMillis()
-                    watchlistDao.add(
-                        WatchlistEntity(
-                            tmdbId = tmdbId,
-                            title = item.name,
-                            posterUrl = item.poster,
-                            mediaType = mediaType,
-                            addedAt = addedAt,
+            val existingIds = watchlistDao.all().first().map { it.tmdbId }.toMutableSet()
+            val pageSize = 500
+            var offset = 0
+            var page: List<PullLibraryItem>
+            do {
+                val text = rpc(
+                    "sync_pull_library",
+                    buildJsonObject {
+                        put("p_profile_id", profileIndex)
+                        put("p_limit", pageSize)
+                        put("p_offset", offset)
+                    },
+                    accessToken,
+                ).getOrThrow()
+                page = json.decodeFromString(ListSerializer(PullLibraryItem.serializer()), text)
+                page.forEach { item ->
+                    val tmdbId = resolveTmdbId(item.content_id, item.content_type) ?: return@forEach
+                    if (existingIds.add(tmdbId)) {
+                        val mediaType = if (item.content_type.equals("series", ignoreCase = true)) "tv" else "movie"
+                        val addedAt = item.added_at.takeIf { it > 0 } ?: System.currentTimeMillis()
+                        watchlistDao.add(
+                            WatchlistEntity(
+                                tmdbId = tmdbId,
+                                title = item.name,
+                                posterUrl = item.poster,
+                                mediaType = mediaType,
+                                addedAt = addedAt,
+                            )
                         )
-                    )
-                    pulledLibrary++
+                        pulledLibrary++
+                    }
                 }
-            }
+                offset += page.size
+            } while (page.size == pageSize)
         }.onFailure {
             errors += "library pull: ${it.message ?: "unknown error"}"
             Log.w(TAG, "pull library: ${it.message}")
@@ -875,40 +956,44 @@ class NuvioAccountService(private val context: Context) {
             val folderDao = db.collectionFolders()
             val deletedKeys = SettingsRepository(context).deletedManagedCollections.first()
 
-            // Nuvio is authoritative for the collections it owns. Always remove the
-            // previous cloud set first, including when the server returns an empty
-            // list, so deleted remote collections do not remain as local ghosts.
-            val oldNuvio = collectionDao.bySourceAddon(NUVIO_CLOUD_SOURCE)
-            oldNuvio.forEach { col ->
-                folderDao.deleteForCollection(col.id)
-                collectionDao.delete(col.id)
-            }
+            db.withTransaction {
+                // Replace the Nuvio-owned snapshot atomically so a failed write
+                // cannot leave the local collection set partially erased.
+                val oldNuvio = collectionDao.bySourceAddon(NUVIO_CLOUD_SOURCE)
+                oldNuvio.forEach { col ->
+                    folderDao.deleteForCollection(col.id)
+                    collectionDao.delete(col.id)
+                }
 
-            collections.forEachIndexed { idx, col ->
-                // Skip collections the user has manually deleted.
-                if ("$NUVIO_CLOUD_SOURCE::${col.name}" in deletedKeys) return@forEachIndexed
-                val colId = collectionDao.upsert(
-                    UserCollectionEntity(
-                        name = col.name,
-                        isPinned = col.is_pinned,
-                        sortOrder = col.sort_order.takeIf { it >= 0 } ?: idx,
-                        sourceAddonId = NUVIO_CLOUD_SOURCE,
-                    )
-                )
-                col.folders.forEachIndexed { fIdx, folder ->
-                    folderDao.upsert(
-                        CollectionFolderEntity(
-                            collectionId = colId,
-                            name = folder.name,
-                            coverUrl = folder.cover_url,
-                            tileShape = folder.tile_shape,
-                            providerType = folder.provider_type,
-                            linkedCategoryId = folder.linked_category_id,
-                            sortOrder = folder.sort_order.takeIf { it >= 0 } ?: fIdx,
+                collections.forEachIndexed { idx, col ->
+                    // Skip collections the user has manually deleted.
+                    if ("$NUVIO_CLOUD_SOURCE::${col.name}" in deletedKeys) return@forEachIndexed
+                    val colId = collectionDao.upsert(
+                        UserCollectionEntity(
+                            name = col.name,
+                            coverUrl = col.cover_url,
+                            isPinned = col.is_pinned,
+                            sortOrder = col.sort_order.takeIf { it >= 0 } ?: idx,
+                            sourceAddonId = NUVIO_CLOUD_SOURCE,
+                            viewMode = col.view_mode,
                         )
                     )
+                    col.folders.forEachIndexed { fIdx, folder ->
+                        folderDao.upsert(
+                            CollectionFolderEntity(
+                                collectionId = colId,
+                                name = folder.name,
+                                coverUrl = folder.cover_url,
+                                tileShape = folder.tile_shape,
+                                providerType = folder.provider_type,
+                                linkedCategoryId = folder.linked_category_id,
+                                sortOrder = folder.sort_order.takeIf { it >= 0 } ?: fIdx,
+                                hideTitle = folder.hide_title,
+                            )
+                        )
+                    }
+                    pulledCollections++
                 }
-                pulledCollections++
             }
         }.onFailure {
             collectionError = it.message ?: "Nuvio collections could not be pulled"
@@ -984,10 +1069,29 @@ class NuvioAccountService(private val context: Context) {
         // otherwise make a different local profile look like the selected cloud
         // profile and route every replacement-style dataset to the wrong rows.
         runCatching {
-            profiles = pushProfiles(accessToken, syncUserId)
+            profiles = pushProfiles(accessToken, syncUserId, profileIndex)
         }.onFailure {
             errors += "profiles push: ${it.message ?: "unknown error"}"
             Log.w(TAG, "push profiles: ${it.message}")
+        }
+
+        runCatching {
+            val settingsJson = buildJsonObject {
+                put("streamcloud", services.settings.homeCatalogSyncSnapshot())
+            }
+            rpc(
+                "sync_push_home_catalog_settings",
+                buildJsonObject {
+                    put("p_profile_id", profileIndex)
+                    put("p_platform", STREAMCLOUD_HOME_PLATFORM)
+                    put("p_settings_json", settingsJson)
+                    put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
+                },
+                accessToken,
+            ).getOrThrow()
+        }.onFailure {
+            errors += "home layout push: ${it.message ?: "unknown error"}"
+            Log.w(TAG, "push home layout: ${it.message}")
         }
 
         runCatching {
@@ -1170,14 +1274,23 @@ class NuvioAccountService(private val context: Context) {
                 entries.forEach { e ->
                     val cid = "tmdb:${e.tmdbId}"
                     val ctype = if (e.mediaType == "tv") "series" else "movie"
+                    val season = e.seasonNumber.takeIf { it > 0 }
+                    val episode = e.episodeNumber.takeIf { it > 0 }
+                    val progressKey = if (season != null && episode != null) {
+                        "$cid:$season:$episode"
+                    } else {
+                        cid
+                    }
                     addJsonObject {
                         put("content_id", cid)
                         put("content_type", ctype)
-                        put("video_id", cid)
+                        put("video_id", progressKey)
                         put("position", e.positionMs)
                         put("duration", e.durationMs)
                         put("last_watched", e.updatedAt)
-                        put("progress_key", cid)
+                        put("progress_key", progressKey)
+                        season?.let { put("season", it) }
+                        episode?.let { put("episode", it) }
                         e.title.takeIf { it.isNotBlank() }?.let { put("name", it) }
                         e.posterUrl?.let { put("poster", it) }
                     }
@@ -1185,7 +1298,11 @@ class NuvioAccountService(private val context: Context) {
             }
             rpc(
                 "sync_push_watch_progress",
-                buildJsonObject { put("p_entries", arr); put("p_profile_id", profileIndex) },
+                buildJsonObject {
+                    put("p_entries", arr)
+                    put("p_profile_id", profileIndex)
+                    put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
+                },
                 accessToken,
             ).getOrThrow()
             progress = entries.size
@@ -1212,7 +1329,7 @@ class NuvioAccountService(private val context: Context) {
                 }
             }
             rpc(
-                "sync_push_library_items",
+                "sync_push_library",
                 buildJsonObject {
                     put("p_items", arr)
                     put("p_profile_id", profileIndex)
@@ -1255,9 +1372,11 @@ class NuvioAccountService(private val context: Context) {
                 nuvioCols.forEachIndexed { _, col ->
                     addJsonObject {
                         put("name", col.name)
+                        put("cover_url", col.coverUrl)
                         put("is_pinned", col.isPinned)
                         put("sort_order", col.sortOrder)
                         put("source_addon_id", col.sourceAddonId)
+                        put("view_mode", col.viewMode)
                         val folders = foldersByCol[col.id] ?: emptyList()
                         put("folders", buildJsonArray {
                             folders.forEach { f ->
@@ -1268,6 +1387,7 @@ class NuvioAccountService(private val context: Context) {
                                     put("linked_category_id", f.linkedCategoryId)
                                     put("tile_shape", f.tileShape)
                                     put("sort_order", f.sortOrder)
+                                    put("hide_title", f.hideTitle)
                                 }
                             }
                         })
@@ -1276,7 +1396,11 @@ class NuvioAccountService(private val context: Context) {
             }
             rpc(
                 "sync_push_collections",
-                buildJsonObject { put("p_collections", arr); put("p_profile_id", profileIndex) },
+                buildJsonObject {
+                    put("p_collections_json", arr)
+                    put("p_profile_id", profileIndex)
+                    put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
+                },
                 accessToken,
             ).getOrThrow()
             collections = nuvioCols.size
@@ -1287,7 +1411,7 @@ class NuvioAccountService(private val context: Context) {
         }
 
         val watchedItems = runCatching {
-            pushWatchedItems(accessToken, db, profileIndex)
+            pushWatchedItems(accessToken, db, profileIndex, syncUserId)
         }.onFailure {
             errors += "watched items push: ${it.message ?: "unknown error"}"
             Log.w(TAG, "push watched items: ${it.message}")
@@ -1304,6 +1428,47 @@ class NuvioAccountService(private val context: Context) {
             profiles = profiles,
             errors = errors.distinct(),
         )
+    }
+
+    suspend fun deleteWatchProgressItems(
+        accessToken: String,
+        keys: Collection<NuvioWatchProgressDeleteKey>,
+        userId: String? = null,
+        localProfileId: String? = null,
+    ) = withContext(Dispatchers.IO) {
+        if (keys.isEmpty()) return@withContext
+        val services = ServiceLocator.get(context)
+        val syncUserId = userId?.trim()?.takeIf { it.isNotBlank() }
+            ?: services.settings.nuvioUserId.first().trim()
+        val syncLocalProfileId = localProfileId?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentActiveId()
+                ?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentProfiles().firstOrNull()?.id
+            ?: "default"
+        if (syncUserId.isBlank()) error("No Nuvio account is signed in")
+        val profileIndex = activeCloudProfileIndex(syncUserId, syncLocalProfileId)
+            ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
+        val payload = buildJsonArray {
+            keys.distinctBy { "${it.contentId}|${it.remoteKey}|${it.contentType}" }.forEach { key ->
+                addJsonObject {
+                    put("content_id", key.contentId)
+                    put("content_type", key.contentType)
+                    put("video_id", key.remoteKey)
+                    put("progress_key", key.remoteKey)
+                    key.seasonNumber.takeIf { it > 0 }?.let { put("season", it) }
+                    key.episodeNumber.takeIf { it > 0 }?.let { put("episode", it) }
+                }
+            }
+        }
+        rpc(
+            "sync_delete_watch_progress",
+            buildJsonObject {
+                put("p_keys", payload)
+                put("p_profile_id", profileIndex)
+                put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
+            },
+            accessToken,
+        ).getOrThrow()
     }
 
     suspend fun deleteLibraryItems(
@@ -1331,19 +1496,25 @@ class NuvioAccountService(private val context: Context) {
         )
 
         suspend fun libraryRows(): List<PullLibraryItem> {
-            val text = rpc(
-                "sync_pull_library",
-                buildJsonObject {
-                    put("p_profile_id", profileIndex)
-                    put("p_limit", 500)
-                    put("p_offset", 0)
-                },
-                accessToken,
-            ).getOrThrow()
-            return json.decodeFromString(
-                ListSerializer(PullLibraryItem.serializer()),
-                text,
-            )
+            val pageSize = 500
+            var offset = 0
+            val rows = mutableListOf<PullLibraryItem>()
+            var page: List<PullLibraryItem>
+            do {
+                val text = rpc(
+                    "sync_pull_library",
+                    buildJsonObject {
+                        put("p_profile_id", profileIndex)
+                        put("p_limit", pageSize)
+                        put("p_offset", offset)
+                    },
+                    accessToken,
+                ).getOrThrow()
+                page = json.decodeFromString(ListSerializer(PullLibraryItem.serializer()), text)
+                rows += page
+                offset += page.size
+            } while (page.size == pageSize)
+            return rows
         }
 
         fun sameContentType(left: String, right: String): Boolean {
@@ -1390,23 +1561,28 @@ class NuvioAccountService(private val context: Context) {
 
         val deleteKeys = (keys.flatMap(::keyVariants) + matchingRemoteKeys)
             .distinctBy { "${it.contentId}|${it.contentType}" }
-        val payload = buildJsonArray {
-            deleteKeys.forEach { key ->
-                addJsonObject {
-                    put("content_id", key.contentId)
-                    put("content_type", key.contentType)
+        val config = currentServerConfiguration()
+        deleteKeys.forEach { key ->
+            val encodedContentId = URLEncoder.encode(key.contentId, "UTF-8")
+            val encodedContentType = URLEncoder.encode(key.contentType, "UTF-8")
+            val request = Request.Builder()
+                .url(
+                    "${config.backendUrl}/rest/v1/library_items" +
+                        "?profile_id=eq.$profileIndex" +
+                        "&content_id=eq.$encodedContentId" +
+                        "&content_type=eq.$encodedContentType",
+                )
+                .delete()
+                .header("apikey", config.publishableKey)
+                .header("Authorization", "Bearer $accessToken")
+                .header("Prefer", "return=minimal")
+                .build()
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    error("Nuvio library delete failed (${response.code})")
                 }
             }
         }
-        rpc(
-            "sync_delete_library_items",
-            buildJsonObject {
-                put("p_keys", payload)
-                put("p_profile_id", profileIndex)
-                put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
-            },
-            accessToken,
-        ).getOrThrow()
 
         val after = libraryRows()
         val stillPresent = after.filter { row ->
@@ -1422,7 +1598,7 @@ class NuvioAccountService(private val context: Context) {
         }
     }
 
-    private suspend fun pushProfiles(accessToken: String, userId: String): Int {
+    private suspend fun pushProfiles(accessToken: String, userId: String, profileIndex: Int): Int {
         val profileRepo = ServiceLocator.get(context).profiles
         val localProfiles = profileRepo.profilesForNuvioAccount(userId).take(6)
         if (localProfiles.isEmpty()) return 0
@@ -1453,6 +1629,7 @@ class NuvioAccountService(private val context: Context) {
             buildJsonObject {
                 put("p_client_max_profiles", 6)
                 put("p_profiles", payload)
+                put("p_origin_client_id", syncOriginClientId(userId, profileIndex))
             },
             accessToken,
         ).getOrThrow()
@@ -1504,6 +1681,7 @@ class NuvioAccountService(private val context: Context) {
         accessToken: String,
         db: LibraryDb,
         profileIndex: Int,
+        userId: String,
     ): Int {
         val items = db.watchedMovies().all().first()
             .filter { it.mediaType == "movie" || it.mediaType == "tv" }
@@ -1533,6 +1711,7 @@ class NuvioAccountService(private val context: Context) {
             buildJsonObject {
                 put("p_items", payload)
                 put("p_profile_id", profileIndex)
+                put("p_origin_client_id", syncOriginClientId(userId, profileIndex))
             },
             accessToken,
         ).getOrThrow()

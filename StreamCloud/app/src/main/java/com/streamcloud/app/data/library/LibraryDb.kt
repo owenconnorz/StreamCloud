@@ -78,9 +78,12 @@ interface TrackDao {
     suspend fun clearRecent()
 }
 
-@Entity(tableName = "watch_progress")
+@Entity(
+    tableName = "watch_progress",
+    primaryKeys = ["tmdb_id", "media_type", "season_number", "episode_number"],
+)
 data class WatchProgressEntity(
-    @PrimaryKey @ColumnInfo(name = "tmdb_id") val tmdbId: Long,
+    @ColumnInfo(name = "tmdb_id") val tmdbId: Long,
     val title: String,
     @ColumnInfo(name = "poster_url") val posterUrl: String?,
     @ColumnInfo(name = "media_type") val mediaType: String,
@@ -90,6 +93,8 @@ data class WatchProgressEntity(
     // For CloudStream movies, stores "cs:{plugin}|||{url}|||{title}|||{poster}"
     // so Continue Watching can navigate back to the correct plugin screen.
     @ColumnInfo(name = "source_route") val sourceRoute: String? = null,
+    @ColumnInfo(name = "season_number", defaultValue = "0") val seasonNumber: Int = 0,
+    @ColumnInfo(name = "episode_number", defaultValue = "0") val episodeNumber: Int = 0,
 )
 
 @Dao
@@ -109,7 +114,19 @@ interface WatchProgressDao {
     @Query("DELETE FROM watch_progress WHERE tmdb_id = :tmdbId")
     suspend fun remove(tmdbId: Long)
 
-    @Query("SELECT * FROM watch_progress WHERE tmdb_id = :tmdbId LIMIT 1")
+    @Query(
+        "DELETE FROM watch_progress WHERE tmdb_id = :tmdbId AND media_type = :mediaType " +
+            "AND season_number = :seasonNumber AND episode_number = :episodeNumber",
+    )
+    suspend fun removeKey(tmdbId: Long, mediaType: String, seasonNumber: Int, episodeNumber: Int)
+
+    @Query(
+        "SELECT * FROM watch_progress WHERE tmdb_id = :tmdbId AND media_type = :mediaType " +
+            "AND season_number = :seasonNumber AND episode_number = :episodeNumber LIMIT 1",
+    )
+    suspend fun byKey(tmdbId: Long, mediaType: String, seasonNumber: Int, episodeNumber: Int): WatchProgressEntity?
+
+    @Query("SELECT * FROM watch_progress WHERE tmdb_id = :tmdbId ORDER BY updated_at DESC LIMIT 1")
     suspend fun byId(tmdbId: Long): WatchProgressEntity?
 
     @Query("SELECT * FROM watch_progress ORDER BY updated_at DESC")
@@ -608,7 +625,7 @@ interface FollowedArtistDao {
         WatchedEpisodeEntity::class,
         MovieDownloadEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
@@ -879,6 +896,41 @@ abstract class LibraryDb : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE watch_progress_new (
+                        tmdb_id INTEGER NOT NULL,
+                        title TEXT NOT NULL,
+                        poster_url TEXT,
+                        media_type TEXT NOT NULL,
+                        position_ms INTEGER NOT NULL,
+                        duration_ms INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        source_route TEXT,
+                        season_number INTEGER NOT NULL DEFAULT 0,
+                        episode_number INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(tmdb_id, media_type, season_number, episode_number)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO watch_progress_new (
+                        tmdb_id, title, poster_url, media_type, position_ms, duration_ms,
+                        updated_at, source_route, season_number, episode_number
+                    )
+                    SELECT tmdb_id, title, poster_url, media_type, position_ms, duration_ms,
+                           updated_at, source_route, 0, 0
+                    FROM watch_progress
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE watch_progress")
+                db.execSQL("ALTER TABLE watch_progress_new RENAME TO watch_progress")
+            }
+        }
+
         private const val LEGACY_DATABASE_NAME = "streamcloud-library.db"
         private const val PROFILE_DATABASE_PREFIX = "streamcloud-profile-"
         private const val NUVIO_DATABASE_PREFIX = "streamcloud-nuvio-"
@@ -935,6 +987,7 @@ abstract class LibraryDb : RoomDatabase() {
                         MIGRATION_15_16,
                         MIGRATION_16_17,
                         MIGRATION_17_18,
+                        MIGRATION_18_19,
                     )
                         .fallbackToDestructiveMigration()
                         .build()

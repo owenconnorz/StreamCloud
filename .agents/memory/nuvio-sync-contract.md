@@ -3,11 +3,11 @@ name: Nuvio sync contract
 description: The current official Nuvio server uses separate RPCs for progress, watched titles, library items, addons, plugins, and collections.
 ---
 
-The current official Nuvio sync API treats continue-watching progress, completed watched titles, and profiles as separate datasets. Library mutations use the item-specific RPC, while addons, plugins, and collections retain their own sync methods.
+The current official Nuvio sync API treats continue-watching progress, completed watched titles, profiles, and saved-library items as separate datasets. Library push uses `sync_push_library`; library deletion uses authenticated REST deletes; collection push uses `p_collections_json`.
 
-**Why:** A client that only syncs watch progress or continues using the retired library mutation RPC can appear to sync successfully while missing completed titles or saved library changes.
+**Why:** A client that only syncs watch progress or uses retired library RPC names/arguments can appear to sync successfully while missing completed titles or saved-library changes.
 
-**How to apply:** When updating Nuvio account sync, compare both pull and push methods with the current official sync adapters. Keep progress fields (`content_id`, `video_id`, `position`, `duration`, `last_watched`, `progress_key`) separate from watched-item fields (`content_id`, `content_type`, `title`, `season`, `episode`, `watched_at`). Profile sync uses `sync_pull_profiles` and `sync_push_profiles` with `profile_index`; never transfer PIN hashes.
+**How to apply:** When updating Nuvio account sync, compare both pull and push methods with the current official sync adapters. Keep progress fields (`content_id`, `video_id`, `position`, `duration`, `last_watched`, `progress_key`) separate from watched-item fields (`content_id`, `content_type`, `title`, `season`, `episode`, `watched_at`). Push RPCs require `p_origin_client_id`; profile sync uses `sync_pull_profiles` and `sync_push_profiles` with `profile_index`; never transfer PIN hashes.
 
 The sync service must update the same in-memory `ProfileRepository` instance that drives the UI, not only a newly constructed repository that writes preferences to disk. Nuvio library and watched records may use IMDb/provider IDs; resolve supported external IDs to TMDB IDs before inserting local TMDB-keyed entities instead of dropping them silently.
 
@@ -20,6 +20,18 @@ Per-episode watched state is separate from the parent-level watched movie/series
 **Why:** Parent-level completion and episode completion are different facts; synthetic IDs can no longer resolve to the show's TMDB metadata.
 
 **How to apply:** Read and write episode records through the active profile's `LibraryDb`, preserve parent watched-title sync, and request account sync after local episode completion.
+
+Continue-Watching progress also needs an episode identity: keep the show TMDB ID and distinguish rows by media type, season, and episode. Send the same episode key in `video_id` and `progress_key`; persist delete tombstones and apply them before pulling remote progress.
+
+**Why:** A show-only progress key overwrites one episode with another, and pulling before a pending delete recreates items the user removed.
+
+**How to apply:** Use the composite local identity and `sync_delete_watch_progress` before account pulls. Keep the movie key at the show/movie TMDB ID when no episode numbers are present.
+
+Home-layout preferences use the dedicated home-catalog-settings RPCs on a separate `streamcloud` platform row, with StreamCloud preferences inside a `streamcloud` JSON namespace. Do not reuse the native `android` platform row.
+
+**Why:** Platform rows are isolated, and overwriting the Android row risks replacing Nuvio's own layout. The public schema accepts JSON settings but does not establish whether Nuvio's official app reads StreamCloud-specific keys.
+
+**How to apply:** Pull and push only the StreamCloud namespace under the `streamcloud` platform. Do not claim official Nuvio-app compatibility without validating it against an authorized account.
 
 Nuvio-derived local state is isolated by Nuvio account and StreamCloud profile, including providers, repositories, addons, collections, watch history, and the Room library. Preserve old unscoped data by assigning it only to the first authenticated account/profile that claims it; never copy it into later accounts.
 

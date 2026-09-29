@@ -821,12 +821,22 @@ fun MoviesScreen(
                     },
                     onStartFromBeginning = {
                         cwSheetEntry = null
-                        vm.resetWatchProgress(cwEntry.tmdbId)
+                        vm.resetWatchProgress(
+                            cwEntry.tmdbId,
+                            cwEntry.mediaType,
+                            cwEntry.seasonNumber,
+                            cwEntry.episodeNumber,
+                        )
                         openCwEntry(cwEntry)
                     },
                     onRemove = {
                         cwSheetEntry = null
-                        vm.deleteWatchProgress(cwEntry.tmdbId)
+                        vm.deleteWatchProgress(
+                            cwEntry.tmdbId,
+                            cwEntry.mediaType,
+                            cwEntry.seasonNumber,
+                            cwEntry.episodeNumber,
+                        )
                     },
                 )
             }
@@ -1587,7 +1597,7 @@ private fun ContinueWatchingCard(
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                if (entry.mediaType == "tv") "Series" else "Movie",
+                watchProgressDisplayLabel(entry),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -1867,6 +1877,15 @@ private fun PosterGrid(
     }
 }
 
+private fun watchProgressDisplayLabel(entry: WatchProgressEntity): String {
+    if (entry.mediaType != "tv") return "Movie"
+    return if (entry.seasonNumber > 0 && entry.episodeNumber > 0) {
+        "Series · S${entry.seasonNumber.toString().padStart(2, '0')} E${entry.episodeNumber.toString().padStart(2, '0')}"
+    } else {
+        "Series"
+    }
+}
+
 @Composable
 private fun CwOptionsSheet(
     entry: WatchProgressEntity,
@@ -1900,7 +1919,7 @@ private fun CwOptionsSheet(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    if (entry.mediaType == "tv") "Series" else "Movie",
+                    watchProgressDisplayLabel(entry),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
