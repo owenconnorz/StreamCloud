@@ -714,8 +714,23 @@ class NuvioAccountService(private val context: Context) {
                 },
                 accessToken,
             ).getOrThrow()
-            extractStreamCloudHomeSettings(text)?.let {
-                ServiceLocator.get(context).settings.applyHomeCatalogSyncSnapshot(it)
+            extractStreamCloudHomeSettings(text)?.let { snapshot ->
+                val currentUserId = services.settings.nuvioUserId.first().trim()
+                val currentLocalProfileId = services.profiles.currentActiveId()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: services.profiles.currentProfiles().firstOrNull()?.id
+                    ?: "default"
+                if (currentUserId != syncUserId || currentLocalProfileId != syncLocalProfileId) {
+                    Log.i(TAG, "Skipping home layout pull because the active Nuvio profile changed")
+                } else if (
+                    !services.settings.applyHomeCatalogSyncSnapshotIfUnchanged(
+                        snapshot = snapshot,
+                        userId = syncUserId,
+                        localProfileId = syncLocalProfileId,
+                    )
+                ) {
+                    Log.i(TAG, "Keeping locally changed home layout ahead of the cloud snapshot")
+                }
             }
         }.onFailure {
             errors += "home layout pull: ${it.message ?: "unknown error"}"
@@ -1076,19 +1091,32 @@ class NuvioAccountService(private val context: Context) {
         }
 
         runCatching {
-            val settingsJson = buildJsonObject {
-                put("streamcloud", services.settings.homeCatalogSyncSnapshot())
+            val currentUserId = services.settings.nuvioUserId.first().trim()
+            val currentLocalProfileId = services.profiles.currentActiveId()
+                ?.takeIf { it.isNotBlank() }
+                ?: services.profiles.currentProfiles().firstOrNull()?.id
+                ?: "default"
+            if (currentUserId != syncUserId || currentLocalProfileId != syncLocalProfileId) {
+                Log.i(TAG, "Skipping home layout push because the active Nuvio profile changed")
+            } else {
+                val homeSettingsSnapshot = services.settings.homeCatalogSyncSnapshot()
+                val settingsJson = buildJsonObject { put("streamcloud", homeSettingsSnapshot) }
+                rpc(
+                    "sync_push_home_catalog_settings",
+                    buildJsonObject {
+                        put("p_profile_id", profileIndex)
+                        put("p_platform", STREAMCLOUD_HOME_PLATFORM)
+                        put("p_settings_json", settingsJson)
+                        put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
+                    },
+                    accessToken,
+                ).getOrThrow()
+                services.settings.acknowledgeHomeCatalogSyncSnapshot(
+                    userId = syncUserId,
+                    localProfileId = syncLocalProfileId,
+                    sentSnapshot = homeSettingsSnapshot,
+                )
             }
-            rpc(
-                "sync_push_home_catalog_settings",
-                buildJsonObject {
-                    put("p_profile_id", profileIndex)
-                    put("p_platform", STREAMCLOUD_HOME_PLATFORM)
-                    put("p_settings_json", settingsJson)
-                    put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
-                },
-                accessToken,
-            ).getOrThrow()
         }.onFailure {
             errors += "home layout push: ${it.message ?: "unknown error"}"
             Log.w(TAG, "push home layout: ${it.message}")

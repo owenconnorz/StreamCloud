@@ -1,12 +1,17 @@
 package com.streamcloud.app.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.streamcloud.app.BuildConfig
+import com.streamcloud.app.data.nuvio.HomeCatalogSyncPolicy
 import com.streamcloud.app.data.nuvio.NuvioAccountScopeStore
+import com.streamcloud.app.data.nuvio.NuvioStorageScope
 import com.streamcloud.app.data.plugins.PinnedCsSection
 import com.streamcloud.app.data.plugins.csHomeSectionsJson
 import com.streamcloud.app.data.ytmusic.YtmSong
@@ -272,33 +277,55 @@ class SettingsRepository(private val context: Context) {
     val stremioDisabledCatalogsCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.STREMIO_HOME_CATALOGS] }
     val stremioCatalogOrderCsv:    Flow<String?> = context.dataStore.data.map { it[SettingsKeys.STREMIO_CATALOG_ORDER] }
 
-    suspend fun setStremioCatalogOrder(keys: List<String>) {
-        context.dataStore.edit { it[SettingsKeys.STREMIO_CATALOG_ORDER] = keys.joinToString(",") }
-        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context)
-    }
+    suspend fun setStremioCatalogOrder(keys: List<String>) =
+        updateHomeCatalogSetting {
+            it[SettingsKeys.STREMIO_CATALOG_ORDER] = keys.joinToString(",")
+        }
 
     // Home Layout toggles
     val showHeroSection:       Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_SHOW_HERO]       ?: true  }
     val hideUnreleasedContent: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_HIDE_UNRELEASED] ?: false }
     val hideCatalogUnderline:  Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_HIDE_UNDERLINE]  ?: false }
 
-    suspend fun setShowHeroSection(v: Boolean) {
-        context.dataStore.edit { it[SettingsKeys.HOME_SHOW_HERO] = v }
+    suspend fun setShowHeroSection(v: Boolean) =
+        updateHomeCatalogSetting { it[SettingsKeys.HOME_SHOW_HERO] = v }
+
+    suspend fun setHideUnreleasedContent(v: Boolean) =
+        updateHomeCatalogSetting { it[SettingsKeys.HOME_HIDE_UNRELEASED] = v }
+
+    suspend fun setHideCatalogUnderline(v: Boolean) =
+        updateHomeCatalogSetting { it[SettingsKeys.HOME_HIDE_UNDERLINE] = v }
+
+    private fun homeCatalogSyncBaselineKey(scope: NuvioStorageScope) =
+        stringPreferencesKey("home_catalog_sync_baseline_v1_${scope.storageKey}")
+
+    private fun homeCatalogSyncDirtyKey(scope: NuvioStorageScope) =
+        longPreferencesKey("home_catalog_sync_dirty_v1_${scope.storageKey}")
+
+    private suspend fun currentHomeCatalogSyncScope(): NuvioStorageScope {
+        val services = ServiceLocator.get(context.applicationContext)
+        val userId = services.settings.nuvioUserId.first().trim()
+        val localProfileId = services.profiles.currentActiveId()
+            ?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentProfiles().firstOrNull()?.id
+            ?: "default"
+        return NuvioStorageScope(userId, localProfileId)
+    }
+
+    private suspend fun updateHomeCatalogSetting(update: (MutablePreferences) -> Unit) {
+        val scope = currentHomeCatalogSyncScope()
+        val dirtyKey = homeCatalogSyncDirtyKey(scope)
+        context.dataStore.edit { prefs ->
+            update(prefs)
+            prefs[dirtyKey] = (prefs[dirtyKey] ?: 0L) + 1L
+        }
         com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context)
     }
 
-    suspend fun setHideUnreleasedContent(v: Boolean) {
-        context.dataStore.edit { it[SettingsKeys.HOME_HIDE_UNRELEASED] = v }
-        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context)
-    }
+    suspend fun homeCatalogSyncSnapshot(): JsonObject =
+        homeCatalogSyncSnapshot(context.dataStore.data.first())
 
-    suspend fun setHideCatalogUnderline(v: Boolean) {
-        context.dataStore.edit { it[SettingsKeys.HOME_HIDE_UNDERLINE] = v }
-        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context)
-    }
-
-    suspend fun homeCatalogSyncSnapshot(): JsonObject {
-        val prefs = context.dataStore.data.first()
+    private fun homeCatalogSyncSnapshot(prefs: Preferences): JsonObject {
         val sections = prefs[SettingsKeys.CS_HOME_SECTIONS]?.let { raw ->
             val parsed = runCatching { Json.parseToJsonElement(raw) }
                 .getOrElse { error("Could not read the local CloudStream home layout") }
@@ -317,39 +344,115 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    suspend fun applyHomeCatalogSyncSnapshot(snapshot: JsonObject) {
+    suspend fun applyHomeCatalogSyncSnapshotIfUnchanged(
+        snapshot: JsonObject,
+        userId: String,
+        localProfileId: String,
+    ): Boolean {
+        require(userId.isNotBlank()) { "Cannot apply home settings without a Nuvio account ID" }
+        require(localProfileId.isNotBlank()) { "Cannot apply home settings without a local profile ID" }
+
+        val scope = NuvioStorageScope(userId.trim(), localProfileId.trim())
+        val signedInDirtyKey = homeCatalogSyncDirtyKey(scope)
+        val signedOutDirtyKey = homeCatalogSyncDirtyKey(NuvioStorageScope("", scope.localProfileId))
+        val baselineKey = homeCatalogSyncBaselineKey(scope)
+        var applied = false
+
         context.dataStore.edit { prefs ->
-            snapshot["home_collections_csv"]?.let { value ->
-                val raw = if (value == JsonNull) null else value.jsonPrimitive.contentOrNull
-                if (raw == null) prefs.remove(SettingsKeys.HOME_COLLECTIONS)
-                else prefs[SettingsKeys.HOME_COLLECTIONS] = raw
+            val localSnapshot = homeCatalogSyncSnapshot(prefs)
+            val mayApply = HomeCatalogSyncPolicy.shouldApplyRemoteSnapshot(
+                localSnapshot = localSnapshot,
+                lastAcknowledgedSnapshot = prefs[baselineKey],
+                hasPendingLocalChanges =
+                    prefs[signedInDirtyKey] != null || prefs[signedOutDirtyKey] != null,
+                hasLegacyExplicitLocalValues = hasExplicitHomeCatalogValues(prefs),
+            )
+            if (mayApply) {
+                applyHomeCatalogSyncSnapshot(prefs, snapshot)
+                prefs[baselineKey] =
+                    HomeCatalogSyncPolicy.canonicalSnapshot(homeCatalogSyncSnapshot(prefs))
+                applied = true
             }
-            snapshot["show_hero_section"]?.jsonPrimitive?.booleanOrNull?.let {
-                prefs[SettingsKeys.HOME_SHOW_HERO] = it
+        }
+        return applied
+    }
+
+    suspend fun acknowledgeHomeCatalogSyncSnapshot(
+        userId: String,
+        localProfileId: String,
+        sentSnapshot: JsonObject,
+    ) {
+        require(userId.isNotBlank()) { "Cannot acknowledge home settings without a Nuvio account ID" }
+        require(localProfileId.isNotBlank()) { "Cannot acknowledge home settings without a local profile ID" }
+
+        val scope = NuvioStorageScope(userId.trim(), localProfileId.trim())
+        val baselineKey = homeCatalogSyncBaselineKey(scope)
+        val signedInDirtyKey = homeCatalogSyncDirtyKey(scope)
+        val signedOutDirtyKey = homeCatalogSyncDirtyKey(NuvioStorageScope("", scope.localProfileId))
+        val sentCanonical = HomeCatalogSyncPolicy.canonicalSnapshot(sentSnapshot)
+        if (currentHomeCatalogSyncScope() != scope) return
+
+        context.dataStore.edit { prefs ->
+            prefs[baselineKey] = sentCanonical
+            if (
+                HomeCatalogSyncPolicy.isSentSnapshotStillCurrent(
+                    currentLocalSnapshot = homeCatalogSyncSnapshot(prefs),
+                    sentSnapshot = sentSnapshot,
+                )
+            ) {
+                prefs.remove(signedInDirtyKey)
+                prefs.remove(signedOutDirtyKey)
+            } else if (prefs[signedInDirtyKey] == null) {
+                // A setting changed while the request was in flight. Keep it pending
+                // so the next sync pushes the newer value instead of pulling over it.
+                prefs[signedInDirtyKey] = 1L
             }
-            snapshot["hide_unreleased_content"]?.jsonPrimitive?.booleanOrNull?.let {
-                prefs[SettingsKeys.HOME_HIDE_UNRELEASED] = it
-            }
-            snapshot["hide_catalog_underline"]?.jsonPrimitive?.booleanOrNull?.let {
-                prefs[SettingsKeys.HOME_HIDE_UNDERLINE] = it
-            }
-            snapshot["stremio_disabled_catalogs_csv"]?.let { value ->
-                val raw = if (value == JsonNull) null else value.jsonPrimitive.contentOrNull
-                if (raw == null) prefs.remove(SettingsKeys.STREMIO_HOME_CATALOGS)
-                else prefs[SettingsKeys.STREMIO_HOME_CATALOGS] = raw
-            }
-            snapshot["stremio_catalog_order_csv"]?.let { value ->
-                val raw = if (value == JsonNull) null else value.jsonPrimitive.contentOrNull
-                if (raw == null) prefs.remove(SettingsKeys.STREMIO_CATALOG_ORDER)
-                else prefs[SettingsKeys.STREMIO_CATALOG_ORDER] = raw
-            }
-            snapshot["cs_home_sections"]?.let { sections ->
-                val raw = sections.toString()
-                val decoded = runCatching {
-                    csHomeSectionsJson.decodeFromString<List<PinnedCsSection>>(raw)
-                }.getOrElse { error("Invalid CloudStream home settings received from Nuvio") }
-                prefs[SettingsKeys.CS_HOME_SECTIONS] = csHomeSectionsJson.encodeToString(decoded)
-            }
+        }
+    }
+
+    private fun hasExplicitHomeCatalogValues(prefs: Preferences): Boolean =
+        prefs[SettingsKeys.HOME_COLLECTIONS] != null ||
+            prefs[SettingsKeys.STREMIO_HOME_CATALOGS] != null ||
+            prefs[SettingsKeys.STREMIO_CATALOG_ORDER] != null ||
+            prefs[SettingsKeys.CS_HOME_SECTIONS] != null ||
+            prefs[SettingsKeys.HOME_SHOW_HERO]?.let { !it } == true ||
+            prefs[SettingsKeys.HOME_HIDE_UNRELEASED] == true ||
+            prefs[SettingsKeys.HOME_HIDE_UNDERLINE] == true
+
+    private fun applyHomeCatalogSyncSnapshot(
+        prefs: MutablePreferences,
+        snapshot: JsonObject,
+    ) {
+        snapshot["home_collections_csv"]?.let { value ->
+            val raw = if (value == JsonNull) null else value.jsonPrimitive.contentOrNull
+            if (raw == null) prefs.remove(SettingsKeys.HOME_COLLECTIONS)
+            else prefs[SettingsKeys.HOME_COLLECTIONS] = raw
+        }
+        snapshot["show_hero_section"]?.jsonPrimitive?.booleanOrNull?.let {
+            prefs[SettingsKeys.HOME_SHOW_HERO] = it
+        }
+        snapshot["hide_unreleased_content"]?.jsonPrimitive?.booleanOrNull?.let {
+            prefs[SettingsKeys.HOME_HIDE_UNRELEASED] = it
+        }
+        snapshot["hide_catalog_underline"]?.jsonPrimitive?.booleanOrNull?.let {
+            prefs[SettingsKeys.HOME_HIDE_UNDERLINE] = it
+        }
+        snapshot["stremio_disabled_catalogs_csv"]?.let { value ->
+            val raw = if (value == JsonNull) null else value.jsonPrimitive.contentOrNull
+            if (raw == null) prefs.remove(SettingsKeys.STREMIO_HOME_CATALOGS)
+            else prefs[SettingsKeys.STREMIO_HOME_CATALOGS] = raw
+        }
+        snapshot["stremio_catalog_order_csv"]?.let { value ->
+            val raw = if (value == JsonNull) null else value.jsonPrimitive.contentOrNull
+            if (raw == null) prefs.remove(SettingsKeys.STREMIO_CATALOG_ORDER)
+            else prefs[SettingsKeys.STREMIO_CATALOG_ORDER] = raw
+        }
+        snapshot["cs_home_sections"]?.let { sections ->
+            val raw = sections.toString()
+            val decoded = runCatching {
+                csHomeSectionsJson.decodeFromString<List<PinnedCsSection>>(raw)
+            }.getOrElse { error("Invalid CloudStream home settings received from Nuvio") }
+            prefs[SettingsKeys.CS_HOME_SECTIONS] = csHomeSectionsJson.encodeToString(decoded)
         }
     }
 
@@ -444,17 +547,16 @@ class SettingsRepository(private val context: Context) {
     suspend fun setFalApiKey(k: String) = context.dataStore.edit { it[SettingsKeys.HF_TOKEN] = k }
     suspend fun setHfToken(k: String) = context.dataStore.edit { it[SettingsKeys.HF_TOKEN] = k }
 
-    suspend fun setHomeCollections(ids: List<String>) {
-        context.dataStore.edit {
-            it[SettingsKeys.HOME_COLLECTIONS] = if (ids.isEmpty()) "_none_" else ids.joinToString(",")
+    suspend fun setHomeCollections(ids: List<String>) =
+        updateHomeCatalogSetting {
+            it[SettingsKeys.HOME_COLLECTIONS] =
+                if (ids.isEmpty()) "_none_" else ids.joinToString(",")
         }
-        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context)
-    }
 
-    suspend fun setStremioDisabledCatalogs(keys: Set<String>) {
-        context.dataStore.edit { it[SettingsKeys.STREMIO_HOME_CATALOGS] = keys.joinToString(",") }
-        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context)
-    }
+    suspend fun setStremioDisabledCatalogs(keys: Set<String>) =
+        updateHomeCatalogSetting {
+            it[SettingsKeys.STREMIO_HOME_CATALOGS] = keys.joinToString(",")
+        }
 
     suspend fun setNavTabOrder(ids: List<String>) =
         context.dataStore.edit { it[SettingsKeys.NAV_TAB_ORDER] = ids.joinToString(",") }
@@ -788,10 +890,10 @@ class SettingsRepository(private val context: Context) {
         try { csHomeSectionsJson.decodeFromString(json) } catch (_: Throwable) { emptyList() }
     }
 
-    suspend fun setCsHomeSections(sections: List<PinnedCsSection>) {
-        context.dataStore.edit { it[SettingsKeys.CS_HOME_SECTIONS] = csHomeSectionsJson.encodeToString(sections) }
-        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context)
-    }
+    suspend fun setCsHomeSections(sections: List<PinnedCsSection>) =
+        updateHomeCatalogSetting {
+            it[SettingsKeys.CS_HOME_SECTIONS] = csHomeSectionsJson.encodeToString(sections)
+        }
 
     val smartTrimmer: Flow<Boolean>        = context.dataStore.data.map { it[SettingsKeys.SMART_TRIMMER] ?: false }
     val videoCacheMaxMb: Flow<String>      = context.dataStore.data.map { it[SettingsKeys.VIDEO_CACHE_MAX_MB] ?: "unlimited" }
