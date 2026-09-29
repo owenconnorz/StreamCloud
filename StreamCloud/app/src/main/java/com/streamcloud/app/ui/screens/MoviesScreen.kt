@@ -64,6 +64,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.collections.HomeCollections
@@ -189,6 +192,14 @@ fun MoviesScreen(
         factory = MoviesViewModel.factory(context),
     )
     val state by vm.state.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, vm) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) vm.refreshDiscoverIfStale()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val watchedItems by remember(storageScopeKey) {
         LibraryDb.get(context.applicationContext).watchedMovies().all()
     }.collectAsState(initial = emptyList())

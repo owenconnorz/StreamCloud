@@ -1,6 +1,7 @@
 package com.streamcloud.app.ui.viewmodel
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -34,14 +35,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 const val SOURCE_BUILTIN = "builtin"
 private const val HOME_COLLECTION_TIMEOUT_MS = 30_000L
+private const val HOME_COLLECTION_STALE_AFTER_MS = 15 * 60 * 1000L
 
 data class HeroBannerItem(
     val imageUrl: String,
@@ -127,6 +132,11 @@ private data class HomeCollectionFetchResult(
     val failure: String?,
 )
 
+private data class HomeCollectionConfig(
+    val ids: List<String>,
+    val hideUnreleased: Boolean,
+)
+
 private fun normalizeStremioRows(rows: Any?): List<StremioHomeRow> =
     (rows as? List<*>)
         .orEmpty()
@@ -169,6 +179,10 @@ class MoviesViewModel(
     private val tmdbCache = HashMap<String, TmdbSearchCacheEntry>()
     private val requestedStremioTmdbIds = mutableSetOf<String>()
     private var discoverJob: Job? = null
+    private var activeDiscoverConfig: HomeCollectionConfig? = null
+    private var lastSuccessfulDiscoverConfig: HomeCollectionConfig? = null
+    private var lastSuccessfulDiscoverAt: Long? = null
+    private val homeCollectionRowsCache = mutableMapOf<String, CollectionRow>()
 
     init {
         viewModelScope.launch {
@@ -188,7 +202,14 @@ class MoviesViewModel(
             }
         }
         viewModelScope.launch {
-            sl.settings.homeCollectionsCsv.collectLatest { loadDiscover() }
+            combine(
+                sl.settings.homeCollectionsCsv,
+                sl.settings.hideUnreleasedContent,
+            ) { csv, hideUnreleased ->
+                homeCollectionConfig(csv, hideUnreleased)
+            }
+                .distinctUntilChanged()
+                .collect { config -> startDiscoverLoad(config) }
         }
         viewModelScope.launch {
             LibraryDb.get(appContext).watchProgress().continueWatching().collect { rows ->
@@ -220,7 +241,6 @@ class MoviesViewModel(
         viewModelScope.launch {
             sl.settings.hideUnreleasedContent.collectLatest { v ->
                 _state.update { it.copy(hideUnreleasedContent = v) }
-                loadDiscover()
             }
         }
         viewModelScope.launch {
@@ -269,71 +289,137 @@ class MoviesViewModel(
     }
 
     fun loadDiscover() {
-        discoverJob?.cancel()
+        viewModelScope.launch {
+            val config = combine(
+                sl.settings.homeCollectionsCsv,
+                sl.settings.hideUnreleasedContent,
+            ) { csv, hideUnreleased ->
+                homeCollectionConfig(csv, hideUnreleased)
+            }.first()
+            startDiscoverLoad(config, force = true)
+        }
+    }
+
+    fun refreshDiscoverIfStale() {
+        viewModelScope.launch {
+            val config = combine(
+                sl.settings.homeCollectionsCsv,
+                sl.settings.hideUnreleasedContent,
+            ) { csv, hideUnreleased ->
+                homeCollectionConfig(csv, hideUnreleased)
+            }.first()
+            startDiscoverLoad(config)
+        }
+    }
+
+    private fun homeCollectionConfig(csv: String?, hideUnreleased: Boolean): HomeCollectionConfig {
+        val ids = csv?.takeIf { it.isNotBlank() }
+            ?.split(',')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }
+        return HomeCollectionConfig(ids.distinct(), hideUnreleased)
+    }
+
+    private fun startDiscoverLoad(config: HomeCollectionConfig, force: Boolean = false) {
+        if (discoverJob?.isActive == true) {
+            if (!force && activeDiscoverConfig == config) return
+            discoverJob?.cancel()
+        } else if (!force && isDiscoverConfigFresh(config)) {
+            return
+        }
+
+        activeDiscoverConfig = config
         discoverJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             try {
-                val key = sl.tmdbApiKey
-                val csv = sl.settings.homeCollectionsCsv.first()
-                val ids = csv?.takeIf { it.isNotBlank() }?.split(',')
-                    ?: HomeCollections.ALL.filter { it.defaultEnabled }.map { it.id }
-                val collections: List<HomeCollection> = ids.mapNotNull { HomeCollections.byId(it) }
-                val hideUnreleased = sl.settings.hideUnreleasedContent.first()
+                val collections: List<HomeCollection> =
+                    config.ids.mapNotNull { HomeCollections.byId(it) }
                 val today = java.time.LocalDate.now().toString()
+                val rowsById = config.ids
+                    .mapNotNull { id ->
+                        homeCollectionRowsCache[id]
+                            ?.let { row -> displayCollectionRow(row, config, today) }
+                            ?.let { row -> id to row }
+                    }
+                    .toMap()
+                    .toMutableMap()
+                val failures = mutableListOf<String>()
+                val publishMutex = Mutex()
 
-                val results = collections.map { def ->
-                    async {
-                        try {
-                            val fetchedItems = withTimeoutOrNull(HOME_COLLECTION_TIMEOUT_MS) {
-                                def.fetch(sl.tmdb, key)
-                            }
-                            if (fetchedItems == null) {
-                                HomeCollectionFetchResult(
-                                    row = null,
-                                    failure = "${def.title}: request timed out",
-                                )
-                            } else {
-                                val visibleItems = if (hideUnreleased) {
-                                    fetchedItems.filter { m ->
-                                        val rd = m.releaseDate ?: m.firstAirDate
-                                        !rd.isNullOrBlank() && rd <= today
-                                    }
+                applyCollectionRows(
+                    config.ids.mapNotNull(rowsById::get),
+                    loading = true,
+                )
+
+                coroutineScope {
+                    collections.map { def ->
+                        async {
+                            val result = try {
+                                val fetchedItems = withTimeoutOrNull(HOME_COLLECTION_TIMEOUT_MS) {
+                                    def.fetch(sl.tmdb, sl.tmdbApiKey)
+                                }
+                                if (fetchedItems == null) {
+                                    HomeCollectionFetchResult(
+                                        row = null,
+                                        failure = "${def.title}: request timed out",
+                                    )
                                 } else {
-                                    fetchedItems
+                                    HomeCollectionFetchResult(
+                                        row = fetchedItems.takeIf { it.isNotEmpty() }
+                                            ?.let { CollectionRow(def.id, def.title, def.emoji, it) },
+                                        failure = null,
+                                    )
+                                }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                val reason = when (e) {
+                                    is HttpException -> "HTTP ${e.code()}"
+                                    is IOException -> "network request failed"
+                                    else -> "request failed"
                                 }
                                 HomeCollectionFetchResult(
-                                    row = visibleItems.takeIf { it.isNotEmpty() }
-                                        ?.let { CollectionRow(def.id, def.title, def.emoji, it) },
-                                    failure = null,
+                                    row = null,
+                                    failure = "${def.title}: $reason",
                                 )
                             }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            val reason = when (e) {
-                                is HttpException -> "HTTP ${e.code()}"
-                                is IOException -> "network request failed"
-                                else -> "request failed"
+
+                            publishMutex.withLock {
+                                result.row?.let { rawRow ->
+                                    homeCollectionRowsCache[def.id] = rawRow
+                                    val visibleRow = displayCollectionRow(rawRow, config, today)
+                                    if (visibleRow == null) {
+                                        rowsById.remove(def.id)
+                                    } else {
+                                        rowsById[def.id] = visibleRow
+                                    }
+                                }
+                                result.failure?.let(failures::add)
+                                applyCollectionRows(
+                                    config.ids.mapNotNull(rowsById::get),
+                                    loading = true,
+                                )
                             }
-                            HomeCollectionFetchResult(
-                                row = null,
-                                failure = "${def.title}: $reason",
-                            )
+                            result
                         }
-                    }
-                }.awaitAll()
-                val rows = results.mapNotNull { it.row }
-                val failures = results.mapNotNull { it.failure }
+                    }.awaitAll()
+                }
 
                 if (!isActive) return@launch
+                val rows = config.ids.mapNotNull(rowsById::get)
                 applyCollectionRows(rows, loading = false)
                 val loadError = when {
-                    collections.isEmpty() -> null
                     failures.isNotEmpty() -> failures.joinToString("; ").take(240)
-                    rows.isEmpty() -> "TMDB returned no movies for the selected Home collections."
+                    rows.isEmpty() && collections.isNotEmpty() ->
+                        "TMDB returned no movies for the selected Home collections."
                     else -> null
                 }
                 _state.update { it.copy(error = loadError) }
+                if (failures.isEmpty()) {
+                    lastSuccessfulDiscoverConfig = config
+                    lastSuccessfulDiscoverAt = SystemClock.elapsedRealtime()
+                }
                 refreshStremioRows(_state.value.installedStremioAddons)
             } catch (e: CancellationException) {
                 throw e
@@ -342,6 +428,28 @@ class MoviesViewModel(
                 _state.update { it.copy(error = "Failed to load: ${e.message}", loading = false) }
             }
         }
+    }
+
+    private fun displayCollectionRow(
+        row: CollectionRow,
+        config: HomeCollectionConfig,
+        today: String,
+    ): CollectionRow? {
+        val visibleItems = if (config.hideUnreleased) {
+            row.items.filter { movie ->
+                val releaseDate = movie.releaseDate ?: movie.firstAirDate
+                !releaseDate.isNullOrBlank() && releaseDate <= today
+            }
+        } else {
+            row.items
+        }
+        return visibleItems.takeIf { it.isNotEmpty() }?.let { row.copy(items = it) }
+    }
+
+    private fun isDiscoverConfigFresh(config: HomeCollectionConfig): Boolean {
+        if (lastSuccessfulDiscoverConfig != config) return false
+        val lastSuccessAt = lastSuccessfulDiscoverAt ?: return false
+        return SystemClock.elapsedRealtime() - lastSuccessAt < HOME_COLLECTION_STALE_AFTER_MS
     }
 
     private fun applyCollectionRows(rows: List<CollectionRow>, loading: Boolean) {
