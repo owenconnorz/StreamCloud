@@ -237,6 +237,23 @@ data class TmdbFindResponse(
     @kotlinx.serialization.SerialName("tv_results") val tvResults: List<TmdbMovie> = emptyList(),
 )
 
+@Serializable
+data class TmdbImagesResponse(
+    val logos: List<TmdbTitleLogo> = emptyList(),
+)
+
+@Serializable
+data class TmdbTitleLogo(
+    @SerialName("file_path") val filePath: String = "",
+    @SerialName("iso_639_1") val language: String? = null,
+    @SerialName("vote_average") val voteAverage: Double = 0.0,
+    val width: Int = 0,
+) {
+    val imageUrl: String? get() = filePath.takeIf { it.isNotBlank() }?.let {
+        "https://image.tmdb.org/t/p/w500$it"
+    }
+}
+
 // ─── API interface ─────────────────────────────────────────────────────────────
 
 interface TmdbApi {
@@ -405,4 +422,12 @@ interface TmdbApi {
         @Query("api_key") apiKey: String,
         @Query("external_source") externalSource: String = "imdb_id",
     ): TmdbFindResponse
+
+    @GET("3/{mediaType}/{id}/images")
+    suspend fun images(
+        @retrofit2.http.Path("mediaType") mediaType: String,
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+        @Query("include_image_language") includeImageLanguage: String = "en,null",
+    ): TmdbImagesResponse
 }

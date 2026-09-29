@@ -550,9 +550,15 @@ fun MoviesScreen(
                                 row.items,
                                 key = { _, movie -> "${row.id}_${movie.id}" },
                             ) { index, m ->
+                                val logoMediaType = if (m.title != null) "movie" else "tv"
+                                val logoKey = "tmdb:$logoMediaType:${m.id}"
                                 MidPoster(
                                     m = m,
                                     posterStyle = posterStyle,
+                                    titleLogoUrl = state.titleLogoUrls[logoKey],
+                                    onRequestTitleLogo = {
+                                        vm.requestTmdbTitleLogo(logoMediaType, m.id)
+                                    },
                                     isWatched = m.id in watchedTmdbIds,
                                     isTv = isTv,
                                     modifier = if (
@@ -624,9 +630,12 @@ fun MoviesScreen(
                                 row.items,
                                 key = { _, meta -> "${row.rowKey}_${meta.id}" },
                             ) { index, meta ->
+                                val logoKey = "stremio:${meta.type}:${meta.id}"
                                 StremioPoster(
                                     meta = meta,
                                     posterStyle = posterStyle,
+                                    titleLogoUrl = state.titleLogoUrls[logoKey],
+                                    onRequestTitleLogo = { vm.requestStremioTitleLogo(meta) },
                                     modifier = if (
                                         row.rowKey == firstStremioRowKey &&
                                         index == 0 &&
@@ -747,31 +756,24 @@ fun MoviesScreen(
                                             onOpenCsItem(row.pluginInternalName, sr.url, sr.name, sr.posterUrl)
                                         },
                                 ) {
-                                    Box(
-                                        Modifier
+                                    AsyncImage(
+                                        model = sr.posterUrl,
+                                        contentDescription = sr.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
                                             .fillMaxWidth()
                                             .aspectRatio(csAspect)
                                             .clip(RoundedCornerShape(12.dp))
                                             .background(MaterialTheme.colorScheme.surface),
-                                    ) {
-                                        AsyncImage(
-                                            model = sr.posterUrl,
-                                            contentDescription = sr.name,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                        if (csLandscape) LandscapeCardTitle(sr.name)
-                                    }
-                                    if (!csLandscape) {
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            sr.name,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onBackground,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        sr.name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
                             }
                             if (isTv) {
@@ -1635,32 +1637,18 @@ private fun ContinueWatchingCard(
 }
 
 @Composable
-private fun LandscapeCardTitle(title: String) {
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(58.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f)),
-                    ),
-                ),
-        )
-        Text(
-            title,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.titleSmall,
-            color = Color.White,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+private fun BoxScope.TitleLogoArtwork(logoUrl: String?) {
+    if (logoUrl.isNullOrBlank()) return
+    AsyncImage(
+        model = logoUrl,
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth(0.88f)
+            .fillMaxHeight(0.58f)
+            .padding(bottom = 8.dp),
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1668,6 +1656,8 @@ private fun LandscapeCardTitle(title: String) {
 private fun MidPoster(
     m: TmdbMovie,
     posterStyle: String = "portrait",
+    titleLogoUrl: String?,
+    onRequestTitleLogo: () -> Unit,
     isWatched: Boolean = false,
     isTv: Boolean = false,
     modifier: Modifier = Modifier,
@@ -1675,6 +1665,9 @@ private fun MidPoster(
     onLongPress: () -> Unit = {},
 ) {
     val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
+    LaunchedEffect(useLandscape, m.id) {
+        if (useLandscape) onRequestTitleLogo()
+    }
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
@@ -1729,7 +1722,7 @@ private fun MidPoster(
                 )
             }
             if (useLandscape) {
-                LandscapeCardTitle(m.displayTitle)
+                TitleLogoArtwork(titleLogoUrl)
             }
             if (isWatched) {
                 WatchedPosterBadge(Modifier.align(Alignment.TopEnd).padding(7.dp))
@@ -1802,6 +1795,8 @@ private fun MidPoster(
 private fun StremioPoster(
     meta: StremioMetaPreview,
     posterStyle: String = "portrait",
+    titleLogoUrl: String?,
+    onRequestTitleLogo: () -> Unit,
     modifier: Modifier = Modifier,
     onLongPress: () -> Unit = {},
     onClick: () -> Unit,
@@ -1810,6 +1805,9 @@ private fun StremioPoster(
         (posterStyle == "auto" &&
             (!meta.background.isNullOrBlank() ||
                 meta.posterShape.equals("landscape", ignoreCase = true)))
+    LaunchedEffect(useLandscape, meta.id, meta.type) {
+        if (useLandscape) onRequestTitleLogo()
+    }
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     val primaryArtwork = if (useLandscape) meta.background else meta.poster
@@ -1835,7 +1833,7 @@ private fun StremioPoster(
                 contentDescription = meta.name,
                 modifier = Modifier.fillMaxSize(),
             )
-            if (useLandscape) LandscapeCardTitle(meta.name)
+            if (useLandscape) TitleLogoArtwork(titleLogoUrl)
         }
         if (!useLandscape) {
             Spacer(Modifier.height(6.dp))

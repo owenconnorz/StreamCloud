@@ -52,6 +52,7 @@ data class StremioMetaPreview(
     val poster: String? = null,
     val posterShape: String? = null,
     val background: String? = null,
+    val logo: String? = null,
     val description: String? = null,
     @SerialName("releaseInfo") val releaseInfo: String? = null,
     val imdbRating: String? = null,

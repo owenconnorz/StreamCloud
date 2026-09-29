@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.api.TmdbMovie
+import com.streamcloud.app.data.api.TmdbTitleLogo
 import com.streamcloud.app.data.collections.HomeCollection
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.CollectionFolderEntity
@@ -110,6 +111,7 @@ data class MoviesState(
     val installedPlugins: List<InstalledPlugin> = emptyList(),
     val installedStremioAddons: List<InstalledStremioAddon> = emptyList(),
     val stremioRows: List<StremioHomeRow> = emptyList(),
+    val titleLogoUrls: Map<String, String> = emptyMap(),
     val watchlist: List<WatchlistEntity> = emptyList(),
     val csPluginRows: List<CsPluginRow> = emptyList(),
     val pinnedCollections: List<PinnedCollectionRow> = emptyList(),
@@ -166,6 +168,8 @@ class MoviesViewModel(
 
     /** In-memory cache of all fetched TMDB pages. Cleared when this VM is cleared. */
     private val tmdbCache = HashMap<String, TmdbSearchCacheEntry>()
+    private val requestedTitleLogoKeys = mutableSetOf<String>()
+    private val tmdbTitleLogoCache = mutableMapOf<String, String?>()
     private var discoverJob: Job? = null
 
     init {
@@ -448,6 +452,86 @@ class MoviesViewModel(
             }
             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
+    }
+
+    fun requestTmdbTitleLogo(mediaType: String, tmdbId: Long) {
+        val normalizedType = if (mediaType.equals("tv", ignoreCase = true)) "tv" else "movie"
+        val key = "tmdb:$normalizedType:$tmdbId"
+        if (!requestedTitleLogoKeys.add(key)) return
+
+        viewModelScope.launch {
+            val logoUrl = runCatching { fetchTmdbTitleLogo(normalizedType, tmdbId) }.getOrNull()
+            if (!logoUrl.isNullOrBlank()) {
+                _state.update { it.copy(titleLogoUrls = it.titleLogoUrls + (key to logoUrl)) }
+            }
+        }
+    }
+
+    fun requestStremioTitleLogo(meta: StremioMetaPreview) {
+        val key = "stremio:${meta.type}:${meta.id}"
+        if (!requestedTitleLogoKeys.add(key)) return
+
+        viewModelScope.launch {
+            val mediaType = if (
+                meta.type.equals("series", ignoreCase = true) ||
+                meta.type.equals("tv", ignoreCase = true)
+            ) {
+                "tv"
+            } else {
+                "movie"
+            }
+            val logoUrl = meta.logo?.takeIf { it.isNotBlank() } ?: runCatching {
+                val tmdbId = resolveStremioTmdbId(meta, mediaType) ?: return@runCatching null
+                fetchTmdbTitleLogo(mediaType, tmdbId)
+            }.getOrNull()
+
+            if (!logoUrl.isNullOrBlank()) {
+                _state.update { it.copy(titleLogoUrls = it.titleLogoUrls + (key to logoUrl)) }
+            }
+        }
+    }
+
+    private suspend fun resolveStremioTmdbId(
+        meta: StremioMetaPreview,
+        mediaType: String,
+    ): Long? {
+        val directTmdbId = Regex("""^tmdb:(?:(?:movie|tv|series):)?(\d+)$""", RegexOption.IGNORE_CASE)
+            .matchEntire(meta.id)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
+        if (directTmdbId != null) return directTmdbId
+
+        if (meta.id.startsWith("tt", ignoreCase = true)) {
+            val matches = sl.tmdb.find(meta.id, sl.tmdbApiKey, "imdb_id")
+            return if (mediaType == "tv") {
+                matches.tvResults.firstOrNull()?.id ?: matches.movieResults.firstOrNull()?.id
+            } else {
+                matches.movieResults.firstOrNull()?.id ?: matches.tvResults.firstOrNull()?.id
+            }
+        }
+
+        return if (mediaType == "tv") {
+            sl.tmdb.searchTv(sl.tmdbApiKey, meta.name).results.firstOrNull()?.id
+        } else {
+            sl.tmdb.search(sl.tmdbApiKey, meta.name).results.firstOrNull()?.id
+        }
+    }
+
+    private suspend fun fetchTmdbTitleLogo(mediaType: String, tmdbId: Long): String? {
+        val cacheKey = "$mediaType:$tmdbId"
+        if (tmdbTitleLogoCache.containsKey(cacheKey)) return tmdbTitleLogoCache[cacheKey]
+
+        val logos = sl.tmdb.images(mediaType, tmdbId, sl.tmdbApiKey).logos
+            .filter { !it.imageUrl.isNullOrBlank() }
+        val candidates = logos.filter { it.language.equals("en", ignoreCase = true) }
+            .ifEmpty { logos.filter { it.language.isNullOrBlank() } }
+            .ifEmpty { logos }
+        val logoUrl = candidates
+            .maxWithOrNull(compareBy<TmdbTitleLogo> { it.voteAverage }.thenBy { it.width })
+            ?.imageUrl
+        tmdbTitleLogoCache[cacheKey] = logoUrl
+        return logoUrl
     }
 
     fun openStremioMeta(
