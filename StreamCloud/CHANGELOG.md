@@ -1,6 +1,13 @@
 # StreamCloud
 
-## Latest — Continue Watching crash and TV error text fix
+## Latest — Faster, more reliable Movies home loading
+
+### Movies home
+- **Cached sections stay visible during refresh** — the home screen keeps showing existing movie rows while updated results load.
+- **Categories appear as they finish loading** — each section can update without waiting for every TMDB request to complete.
+- **Refreshes avoid duplicate work** — settings changes are combined, in-flight requests are deduplicated, and stale results refresh when you return after 15 minutes.
+
+## Previous — Continue Watching crash and TV error text fix
 
 ### Continue Watching
 - **Scrolling no longer crashes on shows with multiple saved episodes** — Each progress card uses the show's, season's, and episode's identity, so separate episode entries keep distinct keys.
