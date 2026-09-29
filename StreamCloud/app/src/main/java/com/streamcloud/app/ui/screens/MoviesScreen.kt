@@ -434,7 +434,7 @@ fun MoviesScreen(
                                         Modifier
                                             .focusRequester(initialFocusRequester)
                                             .onFocusChanged {
-                                                onFirstMovieFocusedChanged(it.isFocused)
+                                                onFirstMovieFocusedChanged(it.isFocused || it.hasFocus)
                                             }
                                     } else {
                                         Modifier
@@ -550,15 +550,9 @@ fun MoviesScreen(
                                 row.items,
                                 key = { _, movie -> "${row.id}_${movie.id}" },
                             ) { index, m ->
-                                val logoMediaType = if (m.title != null) "movie" else "tv"
-                                val logoKey = "tmdb:$logoMediaType:${m.id}"
                                 MidPoster(
                                     m = m,
                                     posterStyle = posterStyle,
-                                    titleLogoUrl = state.titleLogoUrls[logoKey],
-                                    onRequestTitleLogo = {
-                                        vm.requestTmdbTitleLogo(logoMediaType, m.id)
-                                    },
                                     isWatched = m.id in watchedTmdbIds,
                                     isTv = isTv,
                                     modifier = if (
@@ -570,7 +564,7 @@ fun MoviesScreen(
                                         Modifier
                                             .focusRequester(initialFocusRequester)
                                             .onFocusChanged {
-                                                onFirstMovieFocusedChanged(it.isFocused)
+                                                onFirstMovieFocusedChanged(it.isFocused || it.hasFocus)
                                             }
                                     } else {
                                         Modifier
@@ -630,12 +624,12 @@ fun MoviesScreen(
                                 row.items,
                                 key = { _, meta -> "${row.rowKey}_${meta.id}" },
                             ) { index, meta ->
-                                val logoKey = "stremio:${meta.type}:${meta.id}"
+                                val stremioKey = "stremio:${meta.type}:${meta.id}"
                                 StremioPoster(
                                     meta = meta,
                                     posterStyle = posterStyle,
-                                    titleLogoUrl = state.titleLogoUrls[logoKey],
-                                    onRequestTitleLogo = { vm.requestStremioTitleLogo(meta) },
+                                    resolvedTmdbId = state.stremioTmdbIds[stremioKey],
+                                    onRequestTmdbId = { vm.requestStremioTmdbId(meta) },
                                     modifier = if (
                                         row.rowKey == firstStremioRowKey &&
                                         index == 0 &&
@@ -1637,18 +1631,32 @@ private fun ContinueWatchingCard(
 }
 
 @Composable
-private fun BoxScope.TitleLogoArtwork(logoUrl: String?) {
-    if (logoUrl.isNullOrBlank()) return
-    AsyncImage(
-        model = logoUrl,
-        contentDescription = null,
-        contentScale = ContentScale.Fit,
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .fillMaxWidth(0.88f)
-            .fillMaxHeight(0.58f)
-            .padding(bottom = 8.dp),
-    )
+private fun LandscapeCardTitle(title: String) {
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(58.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f)),
+                    ),
+                ),
+        )
+        Text(
+            title,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.White,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1656,8 +1664,6 @@ private fun BoxScope.TitleLogoArtwork(logoUrl: String?) {
 private fun MidPoster(
     m: TmdbMovie,
     posterStyle: String = "portrait",
-    titleLogoUrl: String?,
-    onRequestTitleLogo: () -> Unit,
     isWatched: Boolean = false,
     isTv: Boolean = false,
     modifier: Modifier = Modifier,
@@ -1665,9 +1671,6 @@ private fun MidPoster(
     onLongPress: () -> Unit = {},
 ) {
     val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
-    LaunchedEffect(useLandscape, m.id) {
-        if (useLandscape) onRequestTitleLogo()
-    }
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
@@ -1687,7 +1690,7 @@ private fun MidPoster(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
             .width(animatedWidth)
-            .onFocusChanged { isFocused = it.isFocused }
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
             .animateContentSize(animationSpec = tween(durationMillis = 260))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
@@ -1719,10 +1722,11 @@ private fun MidPoster(
                 TmdbTrailerPreview(
                     movie = m,
                     modifier = Modifier.fillMaxSize(),
+                    startDelayMs = 1_000L,
                 )
             }
-            if (useLandscape) {
-                TitleLogoArtwork(titleLogoUrl)
+            if (useLandscape && !isExpanded) {
+                LandscapeCardTitle(m.displayTitle)
             }
             if (isWatched) {
                 WatchedPosterBadge(Modifier.align(Alignment.TopEnd).padding(7.dp))
@@ -1737,16 +1741,14 @@ private fun MidPoster(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (!useLandscape) {
-                    Text(
-                        m.displayTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Text(
+                    m.displayTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1795,35 +1797,69 @@ private fun MidPoster(
 private fun StremioPoster(
     meta: StremioMetaPreview,
     posterStyle: String = "portrait",
-    titleLogoUrl: String?,
-    onRequestTitleLogo: () -> Unit,
+    resolvedTmdbId: Long?,
+    onRequestTmdbId: () -> Unit,
     modifier: Modifier = Modifier,
     onLongPress: () -> Unit = {},
     onClick: () -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val useLandscape = posterStyle == "landscape" ||
         (posterStyle == "auto" &&
             (!meta.background.isNullOrBlank() ||
                 meta.posterShape.equals("landscape", ignoreCase = true)))
-    LaunchedEffect(useLandscape, meta.id, meta.type) {
-        if (useLandscape) onRequestTitleLogo()
-    }
+    var isFocused by remember(meta.type, meta.id) { mutableStateOf(false) }
+    val isExpanded = isTv && isFocused
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
-    val primaryArtwork = if (useLandscape) meta.background else meta.poster
-    val fallbackArtwork = if (useLandscape) meta.poster else null
+    val animatedWidth by animateDpAsState(
+        targetValue = if (isExpanded) 320.dp else width,
+        animationSpec = tween(durationMillis = 260),
+        label = "stremio-card-width",
+    )
+    val animatedImageHeight by animateDpAsState(
+        targetValue = if (isExpanded) 180.dp else width / ratio,
+        animationSpec = tween(durationMillis = 260),
+        label = "stremio-card-image-height",
+    )
+    LaunchedEffect(isTv, isFocused, meta.id, meta.type, resolvedTmdbId) {
+        if (isTv && isFocused && resolvedTmdbId == null) {
+            // Wait for a stable focus before resolving external catalog IDs. Rapid D-pad
+            // movement should not start a TMDB lookup for every card crossed.
+            kotlinx.coroutines.delay(300L)
+            onRequestTmdbId()
+        }
+    }
+    val primaryArtwork = if (useLandscape || isExpanded) {
+        meta.background?.takeIf { it.isNotBlank() } ?: meta.poster
+    } else {
+        meta.poster
+    }
+    val fallbackArtwork = if (useLandscape || isExpanded) meta.poster else null
+    val isSeries = meta.type.equals("series", ignoreCase = true) ||
+        meta.type.equals("tv", ignoreCase = true)
+    val trailerMovie = resolvedTmdbId?.let { tmdbId ->
+        TmdbMovie(
+            id = tmdbId,
+            title = if (isSeries) null else meta.name,
+            name = if (isSeries) meta.name else null,
+        )
+    }
     Column(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
-            .width(width)
+            .width(animatedWidth)
+            // The focus border adds its own focusable child; `hasFocus` keeps this
+            // card expanded when that child, rather than the Column itself, is focused.
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
             .tvFocusBorder(RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
+            .animateContentSize(animationSpec = tween(durationMillis = 260))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(ratio)
+                .height(animatedImageHeight)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surface),
         ) {
@@ -1833,9 +1869,61 @@ private fun StremioPoster(
                 contentDescription = meta.name,
                 modifier = Modifier.fillMaxSize(),
             )
-            if (useLandscape) TitleLogoArtwork(titleLogoUrl)
+            if (isExpanded && trailerMovie != null) {
+                TmdbTrailerPreview(
+                    movie = trailerMovie,
+                    modifier = Modifier.fillMaxSize(),
+                    startDelayMs = 1_000L,
+                )
+            }
+            if (useLandscape && !isExpanded) {
+                LandscapeCardTitle(meta.name)
+            }
+            if (isExpanded) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .border(
+                            2.dp,
+                            MaterialTheme.colorScheme.primary,
+                            RoundedCornerShape(12.dp),
+                        ),
+                )
+            }
         }
-        if (!useLandscape) {
+        if (isExpanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    meta.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!meta.releaseInfo.isNullOrBlank()) {
+                    Text(
+                        meta.releaseInfo,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (!meta.description.isNullOrBlank()) {
+                    Text(
+                        meta.description,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        } else if (!useLandscape) {
             Spacer(Modifier.height(6.dp))
             Text(
                 meta.name,
