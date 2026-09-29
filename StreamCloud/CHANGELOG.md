@@ -1,6 +1,12 @@
 # StreamCloud
 
-## Latest — Add Nuvio-style trailer audio
+## Latest — Watched episodes stay in sync across devices
+
+### Playback sync
+- **Reliable episode completion** — TV completion updates queue a guaranteed Nuvio sync, so frequent playback-position updates cannot replace the watched-state change.
+- **Mobile catches up on return** — Nuvio refreshes when the mobile app returns to the foreground, so TV-watched episodes appear on mobile without switching profiles.
+
+## Previous — Add Nuvio-style trailer audio
 
 ### Trailer previews
 - **Adaptive YouTube trailers can play sound** — StreamCloud now pairs adaptive video and audio tracks when YouTube does not provide a muxed stream, with HLS, muxed MP4, and silent video as fallbacks.
