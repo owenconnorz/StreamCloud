@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.api.TmdbMovie
+import com.streamcloud.app.data.api.TmdbTitleLogo
 import com.streamcloud.app.data.collections.HomeCollection
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.CollectionFolderEntity
@@ -116,6 +117,7 @@ data class MoviesState(
     val installedStremioAddons: List<InstalledStremioAddon> = emptyList(),
     val stremioRows: List<StremioHomeRow> = emptyList(),
     val stremioTmdbIds: Map<String, Long> = emptyMap(),
+    val tmdbTitleLogos: Map<String, String> = emptyMap(),
     val watchlist: List<WatchlistEntity> = emptyList(),
     val csPluginRows: List<CsPluginRow> = emptyList(),
     val pinnedCollections: List<PinnedCollectionRow> = emptyList(),
@@ -178,6 +180,7 @@ class MoviesViewModel(
     /** In-memory cache of all fetched TMDB pages. Cleared when this VM is cleared. */
     private val tmdbCache = HashMap<String, TmdbSearchCacheEntry>()
     private val requestedStremioTmdbIds = mutableSetOf<String>()
+    private val requestedTitleLogoKeys = mutableSetOf<String>()
     private var discoverJob: Job? = null
     private var activeDiscoverConfig: HomeCollectionConfig? = null
     private var lastSuccessfulDiscoverConfig: HomeCollectionConfig? = null
@@ -578,6 +581,36 @@ class MoviesViewModel(
             }.getOrNull()
             if (tmdbId != null) {
                 _state.update { it.copy(stremioTmdbIds = it.stremioTmdbIds + (key to tmdbId)) }
+            }
+        }
+    }
+
+    fun requestTitleLogo(tmdbId: Long, mediaType: String) {
+        val normalizedMediaType = if (mediaType.equals("tv", ignoreCase = true)) "tv" else "movie"
+        val key = "$normalizedMediaType:$tmdbId"
+        if (_state.value.tmdbTitleLogos.containsKey(key) || !requestedTitleLogoKeys.add(key)) return
+
+        viewModelScope.launch {
+            val logoUrl = runCatching {
+                sl.tmdb.images(normalizedMediaType, tmdbId, sl.tmdbApiKey)
+                    .logos
+                    .sortedWith(
+                        compareBy<TmdbTitleLogo> {
+                            when {
+                                it.language?.equals("en", ignoreCase = true) == true -> 0
+                                it.language == null -> 1
+                                else -> 2
+                            }
+                        }.thenByDescending { it.voteAverage }
+                            .thenByDescending { it.width },
+                    )
+                    .firstNotNullOfOrNull { it.imageUrl }
+            }.getOrNull()
+
+            if (logoUrl != null) {
+                _state.update {
+                    it.copy(tmdbTitleLogos = it.tmdbTitleLogos + (key to logoUrl))
+                }
             }
         }
     }

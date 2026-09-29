@@ -1,6 +1,11 @@
 # StreamCloud
 
-## Latest — Faster, more reliable Movies home loading
+## Latest — Title logos on mobile home thumbnails
+
+### Movie and series cards
+- **Titles appear over the artwork** — mobile home thumbnails show TMDB title-logo art when available, with readable text fallback when no logo exists. Android TV card behavior is unchanged.
+
+## Previous — Faster, more reliable Movies home loading
 
 ### Movies home
 - **Cached sections stay visible during refresh** — the home screen keeps showing existing movie rows while updated results load.

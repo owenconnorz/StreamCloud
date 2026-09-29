@@ -563,11 +563,14 @@ fun MoviesScreen(
                                 row.items,
                                 key = { _, movie -> "${row.id}_${movie.id}" },
                             ) { index, m ->
+                                val mediaType = if (m.title != null) "movie" else "tv"
                                 MidPoster(
                                     m = m,
                                     posterStyle = posterStyle,
                                     isWatched = m.id in watchedTmdbIds,
                                     isTv = isTv,
+                                    titleLogoUrl = state.tmdbTitleLogos["$mediaType:${m.id}"],
+                                    onRequestTitleLogo = { vm.requestTitleLogo(m.id, mediaType) },
                                     modifier = if (
                                         row.id == firstCollectionRowId &&
                                         index == 0 &&
@@ -638,11 +641,20 @@ fun MoviesScreen(
                                 key = { _, meta -> "${row.rowKey}_${meta.id}" },
                             ) { index, meta ->
                                 val stremioKey = "stremio:${meta.type}:${meta.id}"
+                                val mediaType = if (
+                                    meta.type.equals("series", ignoreCase = true) ||
+                                    meta.type.equals("tv", ignoreCase = true)
+                                ) "tv" else "movie"
+                                val resolvedTmdbId = state.stremioTmdbIds[stremioKey]
                                 StremioPoster(
                                     meta = meta,
                                     posterStyle = posterStyle,
-                                    resolvedTmdbId = state.stremioTmdbIds[stremioKey],
+                                    resolvedTmdbId = resolvedTmdbId,
                                     onRequestTmdbId = { vm.requestStremioTmdbId(meta) },
+                                    titleLogoUrl = resolvedTmdbId?.let {
+                                        state.tmdbTitleLogos["$mediaType:$it"]
+                                    },
+                                    onRequestTitleLogo = vm::requestTitleLogo,
                                     modifier = if (
                                         row.rowKey == firstStremioRowKey &&
                                         index == 0 &&
@@ -1644,7 +1656,7 @@ private fun ContinueWatchingCard(
 }
 
 @Composable
-private fun LandscapeCardTitle(title: String) {
+private fun LandscapeCardTitle(title: String, logoUrl: String? = null) {
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
@@ -1657,18 +1669,31 @@ private fun LandscapeCardTitle(title: String) {
                     ),
                 ),
         )
-        Text(
-            title,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.titleSmall,
-            color = Color.White,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (!logoUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = logoUrl,
+                contentDescription = "$title logo",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 10.dp, bottom = 7.dp)
+                    .fillMaxWidth(0.78f)
+                    .height(44.dp),
+            )
+        } else {
+            Text(
+                title,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -1679,6 +1704,8 @@ private fun MidPoster(
     posterStyle: String = "portrait",
     isWatched: Boolean = false,
     isTv: Boolean = false,
+    titleLogoUrl: String? = null,
+    onRequestTitleLogo: () -> Unit = {},
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongPress: () -> Unit = {},
@@ -1687,6 +1714,11 @@ private fun MidPoster(
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
+    val mediaType = if (m.title != null) "movie" else "tv"
+    val showTitleOnThumbnail = useLandscape || !isTv
+    LaunchedEffect(m.id, mediaType, isTv, showTitleOnThumbnail, titleLogoUrl) {
+        if (!isTv && showTitleOnThumbnail && titleLogoUrl == null) onRequestTitleLogo()
+    }
     var isFocused by remember(m.id) { mutableStateOf(false) }
     val isExpanded = isTv && isFocused
     val animatedWidth by animateDpAsState(
@@ -1738,8 +1770,8 @@ private fun MidPoster(
                     startDelayMs = 1_000L,
                 )
             }
-            if (useLandscape && !isExpanded) {
-                LandscapeCardTitle(m.displayTitle)
+            if (showTitleOnThumbnail && !isExpanded) {
+                LandscapeCardTitle(m.displayTitle, titleLogoUrl)
             }
             if (isWatched) {
                 WatchedPosterBadge(Modifier.align(Alignment.TopEnd).padding(7.dp))
@@ -1792,7 +1824,7 @@ private fun MidPoster(
                     )
                 }
             }
-        } else if (!useLandscape) {
+        } else if (!useLandscape && isTv) {
             Spacer(Modifier.height(6.dp))
             Text(
                 m.displayTitle,
@@ -1812,6 +1844,8 @@ private fun StremioPoster(
     posterStyle: String = "portrait",
     resolvedTmdbId: Long?,
     onRequestTmdbId: () -> Unit,
+    titleLogoUrl: String? = null,
+    onRequestTitleLogo: (Long, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     onLongPress: () -> Unit = {},
     onClick: () -> Unit,
@@ -1825,6 +1859,10 @@ private fun StremioPoster(
     val isExpanded = isTv && isFocused
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
+    val isSeries = meta.type.equals("series", ignoreCase = true) ||
+        meta.type.equals("tv", ignoreCase = true)
+    val mediaType = if (isSeries) "tv" else "movie"
+    val showTitleOnThumbnail = useLandscape || !isTv
     val animatedWidth by animateDpAsState(
         targetValue = if (isExpanded) 320.dp else width,
         animationSpec = tween(durationMillis = 260),
@@ -1835,8 +1873,22 @@ private fun StremioPoster(
         animationSpec = tween(durationMillis = 260),
         label = "stremio-card-image-height",
     )
-    LaunchedEffect(isTv, isFocused, meta.id, meta.type, resolvedTmdbId) {
-        if (isTv && isFocused && resolvedTmdbId == null) {
+    LaunchedEffect(
+        isTv,
+        isFocused,
+        meta.id,
+        meta.type,
+        resolvedTmdbId,
+        titleLogoUrl,
+        showTitleOnThumbnail,
+    ) {
+        if (!isTv && showTitleOnThumbnail) {
+            if (resolvedTmdbId == null) {
+                onRequestTmdbId()
+            } else if (titleLogoUrl == null) {
+                onRequestTitleLogo(resolvedTmdbId, mediaType)
+            }
+        } else if (isTv && isFocused && resolvedTmdbId == null) {
             // Wait for a stable focus before resolving external catalog IDs. Rapid D-pad
             // movement should not start a TMDB lookup for every card crossed.
             kotlinx.coroutines.delay(300L)
@@ -1849,8 +1901,6 @@ private fun StremioPoster(
         meta.poster
     }
     val fallbackArtwork = if (useLandscape || isExpanded) meta.poster else null
-    val isSeries = meta.type.equals("series", ignoreCase = true) ||
-        meta.type.equals("tv", ignoreCase = true)
     val trailerMovie = resolvedTmdbId?.let { tmdbId ->
         TmdbMovie(
             id = tmdbId,
@@ -1889,8 +1939,8 @@ private fun StremioPoster(
                     startDelayMs = 1_000L,
                 )
             }
-            if (useLandscape && !isExpanded) {
-                LandscapeCardTitle(meta.name)
+            if (showTitleOnThumbnail && !isExpanded) {
+                LandscapeCardTitle(meta.name, titleLogoUrl)
             }
             if (isExpanded) {
                 Box(
@@ -1937,15 +1987,18 @@ private fun StremioPoster(
                 }
             }
         } else if (!useLandscape) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                meta.name,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (isTv) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    meta.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (!meta.releaseInfo.isNullOrBlank()) {
+                if (!isTv) Spacer(Modifier.height(6.dp))
                 Text(
                     meta.releaseInfo,
                     style = MaterialTheme.typography.labelSmall,
