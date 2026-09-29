@@ -1,6 +1,14 @@
 # StreamCloud
 
-## Latest — Android TV poster and loading quick fix
+## Latest — Continue Watching crash and TV error text fix
+
+### Continue Watching
+- **Scrolling no longer crashes on shows with multiple saved episodes** — Each progress card uses the show's, season's, and episode's identity, so separate episode entries keep distinct keys.
+
+### Android TV diagnostics
+- **Crash details are easier to read on TV** — The previous-crash dialog title and report text use white for better contrast; mobile styling is unchanged.
+
+## Previous — Android TV poster and loading quick fix
 
 ### Android TV
 - **Focused movie and series cards expand again** — TMDB and Stremio catalog posters now open their focused details on Android TV.
