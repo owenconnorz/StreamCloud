@@ -1,6 +1,15 @@
 # StreamCloud
 
-## Latest — Watched episodes stay in sync across devices
+## Latest — Android TV poster and loading quick fix
+
+### Android TV
+- **Focused movie and series cards expand again** — TMDB and Stremio catalog posters now open their focused details on Android TV.
+- **Trailer previews return on focused cards** — TMDB-backed previews start for focused posters when a playable trailer is available.
+
+### Home loading
+- **Fewer title lookups at startup** — Landscape card titles render locally instead of requesting remote logos for every composed card; Stremio TMDB matching waits until a card remains focused.
+
+## Previous — Watched episodes stay in sync across devices
 
 ### Playback sync
 - **Reliable episode completion** — TV completion updates queue a guaranteed Nuvio sync, so frequent playback-position updates cannot replace the watched-state change.
