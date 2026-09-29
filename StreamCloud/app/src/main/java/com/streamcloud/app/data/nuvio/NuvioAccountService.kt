@@ -1430,7 +1430,7 @@ class NuvioAccountService(private val context: Context) {
         )
     }
 
-    suspend fun deleteWatchProgressItems(
+    internal suspend fun deleteWatchProgressItems(
         accessToken: String,
         keys: Collection<NuvioWatchProgressDeleteKey>,
         userId: String? = null,
