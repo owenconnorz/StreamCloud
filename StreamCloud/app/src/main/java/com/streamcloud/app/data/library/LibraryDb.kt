@@ -111,6 +111,17 @@ interface WatchProgressDao {
     )
     fun continueWatching(): Flow<List<WatchProgressEntity>>
 
+    @Query(
+        "SELECT * FROM watch_progress " +
+            "WHERE tmdb_id = :tmdbId AND media_type = :mediaType " +
+            "AND season_number > 0 AND episode_number > 0 " +
+            "AND duration_ms > 0 AND position_ms > 5000 " +
+            "AND position_ms < duration_ms " +
+            "AND CAST(position_ms AS REAL) / duration_ms < 0.95 " +
+            "ORDER BY updated_at DESC LIMIT 1",
+    )
+    fun latestInProgressEpisode(tmdbId: Long, mediaType: String): Flow<WatchProgressEntity?>
+
     @Query("DELETE FROM watch_progress WHERE tmdb_id = :tmdbId")
     suspend fun remove(tmdbId: Long)
 

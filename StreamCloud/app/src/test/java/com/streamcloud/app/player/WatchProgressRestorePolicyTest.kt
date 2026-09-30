@@ -25,6 +25,24 @@ class WatchProgressRestorePolicyTest {
     }
 
     @Test
+    fun explicitEpisodeIdentityAllowsDisplayTitleChanges() {
+        val explicitKey = episodeKey.copy(seasonNumber = 2, episodeNumber = 3)
+        assertEquals(
+            40_000L,
+            restorableWatchPosition(
+                explicitKey,
+                progress(title = "Example Show — new episode title", seasonNumber = 2, episodeNumber = 3),
+            ),
+        )
+        assertNull(
+            restorableWatchPosition(
+                explicitKey,
+                progress(title = "Example Show — new episode title", seasonNumber = 2, episodeNumber = 4),
+            ),
+        )
+    }
+
+    @Test
     fun restoreRejectsNearCompleteAndInvalidPositions() {
         assertNull(restorableWatchPosition(episodeKey, progress(positionMs = 95_000L)))
         assertNull(restorableWatchPosition(episodeKey, progress(positionMs = 100_000L)))
@@ -84,6 +102,8 @@ class WatchProgressRestorePolicyTest {
         mediaType: String = episodeKey.mediaType,
         positionMs: Long = 40_000L,
         durationMs: Long = 100_000L,
+        seasonNumber: Int = 0,
+        episodeNumber: Int = 0,
     ) = WatchProgressEntity(
         tmdbId = tmdbId,
         title = title,
@@ -92,5 +112,7 @@ class WatchProgressRestorePolicyTest {
         positionMs = positionMs,
         durationMs = durationMs,
         updatedAt = 0L,
+        seasonNumber = seasonNumber,
+        episodeNumber = episodeNumber,
     )
 }

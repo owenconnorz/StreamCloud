@@ -10,7 +10,13 @@ internal fun restorableWatchPosition(
 ): Long? {
     if (savedProgress == null) return null
     if (savedProgress.tmdbId != key.tmdbId) return null
-    if (savedProgress.title != key.title || savedProgress.mediaType != key.mediaType) return null
+    if (!savedProgress.mediaType.equals(key.mediaType, ignoreCase = true)) return null
+    val sameEpisodeIdentity = key.mediaType.equals("tv", ignoreCase = true) &&
+        key.seasonNumber != null &&
+        key.episodeNumber != null &&
+        savedProgress.seasonNumber == key.seasonNumber &&
+        savedProgress.episodeNumber == key.episodeNumber
+    if (savedProgress.title != key.title && !sameEpisodeIdentity) return null
     return savedProgress.positionMs.takeIf {
         canRestoreWatchPosition(it, savedProgress.durationMs)
     }

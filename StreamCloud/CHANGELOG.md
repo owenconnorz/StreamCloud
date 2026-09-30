@@ -1,6 +1,11 @@
 # StreamCloud
 
-## Latest — Title logos on mobile home thumbnails
+## Latest — Continue series playback from the right episode
+
+### TV playback
+- **Resume or play the next episode** — the main button continues an episode from its saved position or starts the next unwatched episode, and follows the selected season.
+
+## Previous — Title logos on mobile home thumbnails
 
 ### Movie and series cards
 - **Titles appear over the artwork** — mobile home thumbnails show TMDB title-logo art when available, with readable text fallback when no logo exists. Android TV card behavior is unchanged.

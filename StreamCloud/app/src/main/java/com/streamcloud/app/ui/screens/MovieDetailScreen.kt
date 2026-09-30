@@ -169,6 +169,7 @@ fun MovieDetailScreen(
 
     var tvSeasons by remember { mutableStateOf<List<TmdbTvSeasonSummary>>(emptyList()) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
+    var seasonSelectedByUser by remember(movieId, mediaType) { mutableStateOf(false) }
     var tvEpisodes by remember { mutableStateOf<List<TmdbEpisode>>(emptyList()) }
     var loadingEpisodes by remember { mutableStateOf(false) }
 
@@ -278,6 +279,42 @@ fun MovieDetailScreen(
     val watchedEpisodes by watchedEpisodeDao.forShow(movieId).collectAsState(initial = emptyList())
     val watchedEpisodeKeys = remember(watchedEpisodes) {
         watchedEpisodes.map { it.seasonNumber to it.episodeNumber }.toSet()
+    }
+    val watchProgressDao = remember { LibraryDb.get(context.applicationContext).watchProgress() }
+    val inProgressEpisode by watchProgressDao
+        .latestInProgressEpisode(movieId, mediaType)
+        .collectAsState(initial = null)
+    val episodePlaybackTarget = remember(
+        inProgressEpisode,
+        watchedEpisodes,
+        tvSeasons,
+        selectedSeason,
+        seasonSelectedByUser,
+    ) {
+        chooseEpisodePlaybackTarget(
+            inProgressEpisode = inProgressEpisode,
+            watchedEpisodes = watchedEpisodes,
+            seasons = tvSeasons,
+            selectedSeason = selectedSeason,
+            seasonSelectedByUser = seasonSelectedByUser,
+        )
+    }
+
+    LaunchedEffect(
+        movieId,
+        mediaType,
+        episodePlaybackTarget?.seasonNumber,
+        tvSeasons,
+        seasonSelectedByUser,
+    ) {
+        val targetSeason = episodePlaybackTarget?.seasonNumber ?: return@LaunchedEffect
+        if (
+            mediaType == "tv" &&
+            !seasonSelectedByUser &&
+            tvSeasons.any { it.seasonNumber == targetSeason }
+        ) {
+            selectedSeason = targetSeason
+        }
     }
 
     fun playMovie() {
@@ -506,7 +543,6 @@ fun MovieDetailScreen(
         val addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size
         val playEnabled = imdbId != null && addonCount > 0 && !resolving
         if (mediaType == "tv") {
-            val firstSeason = tvSeasons.firstOrNull()
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -514,10 +550,17 @@ fun MovieDetailScreen(
             ) {
                 Button(
                     onClick = {
-                        firstSeason?.let { playEpisode(it.seasonNumber, 1, null) }
-                            ?: run { resolverMessage = "Seasons not loaded yet." }
+                        episodePlaybackTarget?.let { target ->
+                            val episodeTitle = target.episodeTitle ?: tvEpisodes
+                                .firstOrNull {
+                                    it.seasonNumber == target.seasonNumber &&
+                                        it.episodeNumber == target.episodeNumber
+                                }
+                                ?.name
+                            playEpisode(target.seasonNumber, target.episodeNumber, episodeTitle)
+                        } ?: run { resolverMessage = "Episodes are not available yet." }
                     },
-                    enabled = playEnabled && firstSeason != null,
+                    enabled = playEnabled && episodePlaybackTarget != null,
                     modifier = (if (isTv) Modifier else Modifier.weight(1f))
                         .height(if (isTv) 44.dp else 52.dp)
                         .tvFocusBorder(RoundedCornerShape(50))
@@ -533,7 +576,7 @@ fun MovieDetailScreen(
                     Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "Play S${firstSeason?.seasonNumber ?: 1}E1",
+                        episodePlaybackTarget?.buttonLabel ?: "Loading episode…",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     )
                 }
@@ -732,7 +775,10 @@ fun MovieDetailScreen(
                     TvEpisodesSection(
                         seasons = tvSeasons,
                         selectedSeason = selectedSeason,
-                        onSeasonSelected = { selectedSeason = it },
+                        onSeasonSelected = {
+                            seasonSelectedByUser = true
+                            selectedSeason = it
+                        },
                         loadingEpisodes = loadingEpisodes,
                         episodes = tvEpisodes,
                         watchedEpisodeKeys = watchedEpisodeKeys,
