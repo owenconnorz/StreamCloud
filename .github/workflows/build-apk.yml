@@ -119,6 +119,8 @@ jobs:
           --tests 'com.streamcloud.app.ads.AdPolicyTest'
           --tests 'com.streamcloud.app.data.nuvio.NuvioAddonSyncTest'
           --tests 'com.streamcloud.app.data.nuvio.NuvioSyncContractTest'
+          --tests 'com.streamcloud.app.data.StreamProviderPriorityTest'
+          --tests 'com.streamcloud.app.player.MoviePlayerSessionMergeOrderTest'
           --tests 'com.streamcloud.app.player.WatchProgressRestorePolicyTest'
           --no-daemon --stacktrace --no-build-cache
 

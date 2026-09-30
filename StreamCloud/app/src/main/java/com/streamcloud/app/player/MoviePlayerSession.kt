@@ -93,13 +93,9 @@ object MoviePlayerSession {
         val existingIds = existing.mapTo(HashSet()) { it.id }
         val genuinelyNew = additionalSources.filter { it.id !in existingIds }
         if (genuinelyNew.isEmpty()) return
-        fun score(s: PlayerSource): Int {
-            val q = when (s.qualityTag) {
-                "4K" -> 5; "1440p" -> 4; "1080p" -> 3; "720p" -> 2; "480p" -> 1; else -> 0
-            }
-            return q * 10 + if (!s.isMagnet) 1 else 0
-        }
-        _sources.value = (existing + genuinelyNew).sortedByDescending { score(it) }
+        // Existing sources are already ordered by provider priority; quality-sorting the
+        // merged list here would silently undo that order for playback-error fallbacks.
+        _sources.value = existing + genuinelyNew
     }
 
     fun clear() {

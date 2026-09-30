@@ -207,6 +207,7 @@ object SettingsKeys {
     val GESTURE_BRIGHTNESS_ENABLED = booleanPreferencesKey("gesture_brightness_enabled")
     val RESUME_PLAYBACK            = booleanPreferencesKey("resume_playback")
     val AUTOPLAY_BEST_STREAM       = booleanPreferencesKey("autoplay_best_stream")
+    val STREAM_PROVIDER_PRIORITY_ORDER = stringPreferencesKey("stream_provider_priority_order")
 
     // Trakt
     val TRAKT_USERNAME  = stringPreferencesKey("trakt_username")
@@ -962,6 +963,17 @@ class SettingsRepository(private val context: Context) {
     val gestureBrightnessEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.GESTURE_BRIGHTNESS_ENABLED] ?: true }
     val resumePlayback: Flow<Boolean>          = context.dataStore.data.map { it[SettingsKeys.RESUME_PLAYBACK]            ?: true }
     val autoplayBestStream: Flow<Boolean>      = context.dataStore.data.map { it[SettingsKeys.AUTOPLAY_BEST_STREAM]       ?: false }
+    val streamProviderPriorityOrder: Flow<List<String>> = context.dataStore.data.map { preferences ->
+        preferences[SettingsKeys.STREAM_PROVIDER_PRIORITY_ORDER]
+            ?.lineSequence()
+            ?.mapNotNull { encoded ->
+                runCatching { URLDecoder.decode(encoded, "UTF-8") }
+                    .getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+            }
+            ?.toList()
+            .orEmpty()
+    }
 
     suspend fun setSeekIncrementSeconds(s: String)       = context.dataStore.edit { it[SettingsKeys.SEEK_INCREMENT_SECONDS]     = s }
     suspend fun setDefaultPlaybackSpeed(s: String)       = context.dataStore.edit { it[SettingsKeys.DEFAULT_PLAYBACK_SPEED]     = s }
@@ -973,6 +985,10 @@ class SettingsRepository(private val context: Context) {
     suspend fun setGestureBrightnessEnabled(b: Boolean)  = context.dataStore.edit { it[SettingsKeys.GESTURE_BRIGHTNESS_ENABLED] = b }
     suspend fun setResumePlayback(b: Boolean)            = context.dataStore.edit { it[SettingsKeys.RESUME_PLAYBACK]            = b }
     suspend fun setAutoplayBestStream(b: Boolean)        = context.dataStore.edit { it[SettingsKeys.AUTOPLAY_BEST_STREAM]       = b }
+    suspend fun setStreamProviderPriorityOrder(keys: List<String>) = context.dataStore.edit {
+        it[SettingsKeys.STREAM_PROVIDER_PRIORITY_ORDER] = keys.distinct()
+            .joinToString("\n") { key -> URLEncoder.encode(key, "UTF-8") }
+    }
 
     // ── Trakt ───────────────────────────────────────────────────────────────
     val traktUsername: Flow<String> = context.dataStore.data.map { it[SettingsKeys.TRAKT_USERNAME] ?: "" }

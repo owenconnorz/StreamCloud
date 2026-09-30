@@ -151,7 +151,7 @@ private val ColourSystem     = Color(0xFF8E9CBE)
 private val ColourSonos      = Color(0xFF56C8D8)
 
 private enum class SettingsPage {
-    SystemUpdate, Appearance, Playback, PlayerAudio, MovieSettings, MusicSettings, Account,
+    SystemUpdate, Appearance, Playback, PlayerAudio, MovieSettings, MusicSettings, StreamPriority, Account,
     ListenTogether, Content, Privacy,
     Storage, BackupRestore, About, Logs, HomeLayout, AndroidAuto
 }
@@ -406,10 +406,14 @@ fun SettingsHubScreen(
     val discordRpcError  by DiscordRpcService.errorMessage.collectAsState()
 
     var currentPage by remember { mutableStateOf<SettingsPage?>(null) }
+    var streamPriorityReturnPage by remember { mutableStateOf<SettingsPage?>(null) }
     var handledBackRequest by remember { mutableStateOf(backRequest) }
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
 
-    BackHandler(enabled = currentPage != null) { currentPage = null }
+    BackHandler(enabled = currentPage != null) {
+        currentPage = if (currentPage == SettingsPage.StreamPriority) streamPriorityReturnPage else null
+        streamPriorityReturnPage = null
+    }
     LaunchedEffect(currentPage) {
         onSubPageChanged(currentPage != null)
     }
@@ -447,7 +451,10 @@ fun SettingsHubScreen(
 
 
             null -> SettingsHubList(
-                onNavigate          = { currentPage = it },
+                onNavigate          = { page ->
+                    streamPriorityReturnPage = null
+                    currentPage = page
+                },
                 onOpenPlugins       = onOpenPlugins,
                 onOpenCollections   = onOpenCollections,
                 onSwitchProfile     = onSwitchProfile,
@@ -477,12 +484,15 @@ fun SettingsHubScreen(
                         onChange = { autoplay = it; scope.launch { sl.settings.setAutoplayNext(it) } },
                     )
                     SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.Bolt, tint = ColourPlayer,
-                        title = "Auto-play best stream",
-                        subtitle = "Skip the source picker and play the best stream found",
-                        checked = autoplayBestStream,
-                        onChange = { autoplayBestStream = it; scope.launch { sl.settings.setAutoplayBestStream(it) } },
+                    SettingNav(
+                        icon = Icons.Default.Reorder, tint = ColourPlayer,
+                        title = "Stream provider order",
+                        subtitle = "Choose provider priority and automatic playback",
+                        value = if (autoplayBestStream) "Auto-play" else "Picker",
+                        onClick = {
+                            streamPriorityReturnPage = SettingsPage.Playback
+                            currentPage = SettingsPage.StreamPriority
+                        },
                     )
                     SettingDivider()
                     SettingToggle(
@@ -571,6 +581,16 @@ fun SettingsHubScreen(
                         onClick = { showSubtitleLangDialog = true },
                     )
                 }
+            }
+
+            SettingsPage.StreamPriority -> SubPageScaffold(
+                title = "Stream provider order",
+                onBack = {
+                    currentPage = streamPriorityReturnPage
+                    streamPriorityReturnPage = null
+                },
+            ) {
+                ProviderPriorityContent()
             }
 
             SettingsPage.MovieSettings -> SubPageScaffold(
@@ -2878,6 +2898,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         HubSection("MOVIES", listOf(
             HubItem(Icons.Default.Movie,      "Movie settings",  "Movie defaults, subtitles, metadata and appearance", ColourContent, onClick = { onNavigate(SettingsPage.MovieSettings) }),
             HubItem(Icons.Default.Extension,  "Plugins & Addons", "Manage stream sources and addons",        ColourAi,      onClick = onOpenPlugins),
+            HubItem(Icons.Default.Reorder, "Stream provider order", "Choose what tries first and auto-play", ColourAi, onClick = { onNavigate(SettingsPage.StreamPriority) }),
             HubItem(Icons.Default.Dashboard,  "Home Layout",        "Reorder and toggle home screen rows",     ColourContent, onClick = { onNavigate(SettingsPage.HomeLayout) }),
             HubItem(Icons.Default.Layers,     "Collections",       "Manage collections and folders",          ColourSystem,  onClick = onOpenCollections),
             HubItem(Icons.Default.Download,   "Downloads",         "Manage downloaded movies and episodes",   ColourStorage, onClick = onOpenDownloads),

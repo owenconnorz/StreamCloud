@@ -35,6 +35,8 @@ import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.buildStreamProviderPriorityEntries
+import com.streamcloud.app.data.orderStreamProviderEntries
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
@@ -51,6 +53,7 @@ import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -83,6 +86,13 @@ fun StreamPickerOverlay(
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
     val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
+    val savedProviderOrder by produceState<List<String>?>(
+        initialValue = null,
+        sl.settings.streamProviderPriorityOrder,
+    ) {
+        sl.settings.streamProviderPriorityOrder.collect { value = it }
+    }
+    val providerOrderIsLoaded = savedProviderOrder != null
 
     val eligibleCs = remember(installedCsPlugins, mediaType) {
         if (mediaType == "tv") {
@@ -100,15 +110,16 @@ fun StreamPickerOverlay(
         }
     }
 
-    val groupOrder: List<Pair<String, String>> = remember(installedAddons, installedNuvio, eligibleCs) {
-        buildList {
-            installedAddons.forEach { add("stremio:${it.id}" to it.name) }
-            installedNuvio.forEach { add("nuvio:${it.id}" to it.name) }
-            eligibleCs.forEach { add("cs:${it.internalName}" to it.name) }
-        }
+    val providerEntries = remember(installedAddons, installedNuvio, eligibleCs) {
+        buildStreamProviderPriorityEntries(installedAddons, installedNuvio, eligibleCs)
     }
+    val groupOrder: List<Pair<String, String>> = remember(providerEntries, savedProviderOrder) {
+        orderStreamProviderEntries(providerEntries, savedProviderOrder.orEmpty())
+            .map { it.key to it.name }
+    }
+    val providerKeySet = remember(groupOrder) { groupOrder.mapTo(mutableSetOf()) { it.first } }
 
-    var groups by remember {
+    var groups by remember(providerKeySet) {
         mutableStateOf(groupOrder.associate { (key, name) -> key to PickerGroupState(name) })
     }
     var selectedTab by remember { mutableStateOf(0) }
@@ -121,7 +132,8 @@ fun StreamPickerOverlay(
         }
     }
 
-    LaunchedEffect(revision) {
+    LaunchedEffect(revision, providerKeySet, providerOrderIsLoaded) {
+        if (!providerOrderIsLoaded) return@LaunchedEffect
         groups = groupOrder.associate { (key, name) -> key to PickerGroupState(name) }
         selectedTab = 0
 
@@ -206,30 +218,30 @@ fun StreamPickerOverlay(
         if (isTv) runCatching { firstPickerFocus.requestFocus() }
     }
 
-    val allSources = remember(groups) {
-        groupOrder.mapNotNull { (key, _) -> groups[key]?.streams }.flatten()
-    }
-
-    // Auto-play: read from SnapshotStateMap during composition so Compose tracks the read
-    // and recomposes when any group finishes. LaunchedEffect key is a plain Boolean that
-    // transitions false→true exactly once, triggering the coroutine at the right moment.
-    val hasAnyStreamReady = groups.values.any { !it.isLoading && it.streams.isNotEmpty() }
-    var hasAutoPlayed by remember { mutableStateOf(false) }
-    LaunchedEffect(hasAnyStreamReady) {
-        if (!autoPlayBest || hasAutoPlayed || !hasAnyStreamReady) return@LaunchedEffect
-        val liveAll = groups.values.flatMap { it.streams }
-        val best = liveAll
-            .filter { !it.isMagnet }
-            .maxByOrNull { pickerQualityRank(it.qualityTag) }
-            ?: liveAll.firstOrNull { !it.isMagnet }
-            ?: liveAll.firstOrNull()
-        if (best != null) {
-            hasAutoPlayed = true
-            onPlay(best.url, liveAll)
+    val allSources = remember(groups, groupOrder) {
+        groupOrder.flatMap { (key, _) ->
+            groups[key]?.streams.orEmpty().sortedWith(
+                compareBy<PlayerSource> { it.isMagnet }
+                    .thenByDescending { pickerQualityRank(it.qualityTag) },
+            )
         }
     }
 
-    val addonTabs = remember(groups) {
+    // Keep provider priority ahead of stream quality across providers. Wait for resolution
+    // to finish so the player receives lower-priority providers as fallbacks too.
+    var hasAutoPlayed by remember { mutableStateOf(false) }
+    LaunchedEffect(autoPlayBest, isAnyLoading, allSources, providerOrderIsLoaded) {
+        if (!providerOrderIsLoaded || !autoPlayBest || hasAutoPlayed || isAnyLoading) {
+            return@LaunchedEffect
+        }
+        val firstPreferredSource = allSources.firstOrNull()
+        if (firstPreferredSource != null) {
+            hasAutoPlayed = true
+            onPlay(firstPreferredSource.url, allSources)
+        }
+    }
+
+    val addonTabs = remember(groups, groupOrder) {
         groupOrder.mapNotNull { (key, name) ->
             val g = groups[key]
             if (g != null && (g.isLoading || g.streams.isNotEmpty())) name else null
@@ -238,7 +250,7 @@ fun StreamPickerOverlay(
     val tabs = remember(addonTabs) { listOf("All") + addonTabs }
     val safeTab = selectedTab.coerceAtMost(tabs.lastIndex)
 
-    val visibleGroups = remember(groups, safeTab, tabs) {
+    val visibleGroups = remember(groups, safeTab, tabs, groupOrder) {
         if (safeTab == 0) {
             groupOrder.mapNotNull { (key, name) ->
                 val g = groups[key] ?: return@mapNotNull null

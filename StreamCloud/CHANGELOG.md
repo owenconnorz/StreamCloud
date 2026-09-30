@@ -1,6 +1,12 @@
 # StreamCloud
 
-## Latest — Continue series playback from the right episode
+## Latest — Prioritise stream providers and auto-play
+
+### Movie and TV playback
+- **Choose which providers try first** — installed Stremio add-ons, Nuvio providers, and CloudStream plugins can be reordered in Settings.
+- **Skip the source picker when desired** — auto-play starts with the first provider that returns a stream, with remaining provider results kept as playback fallbacks.
+
+## Previous — Continue series playback from the right episode
 
 ### TV playback
 - **Resume or play the next episode** — the main button continues an episode from its saved position or starts the next unwatched episode, and follows the selected season.
