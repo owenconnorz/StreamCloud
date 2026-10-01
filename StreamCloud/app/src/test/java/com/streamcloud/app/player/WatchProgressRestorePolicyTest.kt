@@ -1,6 +1,7 @@
 package com.streamcloud.app.player
 
 import com.streamcloud.app.data.library.WatchProgressEntity
+import com.streamcloud.app.ui.viewmodel.latestContinueWatchingByTitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -96,6 +97,61 @@ class WatchProgressRestorePolicyTest {
         assertEquals(explicitKey, progressKeyForBingeEpisode(episode))
     }
 
+    @Test
+    fun continueWatchingUsesTheLatestEpisodeEvenWhenProgressIsBelowOnePercent() {
+        val olderEpisode = progress(
+            tmdbId = 700L,
+            title = "The Rookie S02E05",
+            positionMs = 60_000L,
+            durationMs = 1_000_000L,
+            seasonNumber = 2,
+            episodeNumber = 5,
+            updatedAt = 100L,
+        )
+        val currentEpisode = progress(
+            tmdbId = 700L,
+            title = "The Rookie S02E09",
+            positionMs = 10_000L,
+            durationMs = 2_400_000L,
+            seasonNumber = 2,
+            episodeNumber = 9,
+            updatedAt = 200L,
+        )
+        val movie = progress(
+            tmdbId = 808L,
+            mediaType = "movie",
+            positionMs = 120_000L,
+            durationMs = 1_000_000L,
+            updatedAt = 150L,
+        )
+
+        assertEquals(
+            listOf(currentEpisode, movie),
+            latestContinueWatchingByTitle(listOf(olderEpisode, currentEpisode, movie)),
+        )
+    }
+
+    @Test
+    fun continueWatchingBreaksEqualTimestampsBySeasonAndEpisode() {
+        val episodeFive = progress(
+            tmdbId = 700L,
+            seasonNumber = 2,
+            episodeNumber = 5,
+            updatedAt = 200L,
+        )
+        val episodeNine = progress(
+            tmdbId = 700L,
+            seasonNumber = 2,
+            episodeNumber = 9,
+            updatedAt = 200L,
+        )
+
+        assertEquals(
+            listOf(episodeNine),
+            latestContinueWatchingByTitle(listOf(episodeFive, episodeNine)),
+        )
+    }
+
     private fun progress(
         tmdbId: Long = episodeKey.tmdbId,
         title: String = episodeKey.title,
@@ -104,6 +160,7 @@ class WatchProgressRestorePolicyTest {
         durationMs: Long = 100_000L,
         seasonNumber: Int = 0,
         episodeNumber: Int = 0,
+        updatedAt: Long = 0L,
     ) = WatchProgressEntity(
         tmdbId = tmdbId,
         title = title,
@@ -111,7 +168,7 @@ class WatchProgressRestorePolicyTest {
         mediaType = mediaType,
         positionMs = positionMs,
         durationMs = durationMs,
-        updatedAt = 0L,
+        updatedAt = updatedAt,
         seasonNumber = seasonNumber,
         episodeNumber = episodeNumber,
     )
