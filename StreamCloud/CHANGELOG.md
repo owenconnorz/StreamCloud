@@ -1,6 +1,11 @@
 # StreamCloud
 
-## Latest — Continue Watching follows the current episode
+## Latest — Fix a music playback thread crash
+
+### Music playback
+- **Liked-song refresh no longer crashes playback** — Media3 player state is read on the main thread, and results are ignored if playback has moved to another track.
+
+## Previous — Continue Watching follows the current episode
 
 ### TV playback
 - **Continue Watching shows the latest in-progress episode for each series** — Home cards use the same progress threshold as episode details, so a short synced position no longer leaves an older episode on the card.
