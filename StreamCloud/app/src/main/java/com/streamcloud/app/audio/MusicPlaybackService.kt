@@ -2560,7 +2560,6 @@ class MusicPlaybackService : MediaLibraryService() {
             AppLogger.w(TAG, "Android Auto search could not complete for \"$query\": ${error.message}")
             androidAutoSearchOutcome(emptyList(), anyProviderSucceeded = false)
         }
-    }
 
     /** Treat a spoken “title artist” match as stronger than either field alone. */
     private fun carSearchScore(item: MediaItem, query: String): Int {
