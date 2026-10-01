@@ -73,6 +73,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
@@ -167,8 +169,10 @@ class MusicPlaybackService : MediaLibraryService() {
      * the same client family.
      */
     private val preferMaintainedExtractorVideoIds = ConcurrentHashMap.newKeySet<String>()
-    private val carSearchResults = ConcurrentHashMap<String, List<MediaItem>>()
+    private val carSearchResults =
+        ConcurrentHashMap<String, CachedCarSearchOutcome>()
     private val localMedia by lazy { LocalMediaRepository(applicationContext) }
+    private var localAudioObserver: android.database.ContentObserver? = null
     @Volatile private var androidAutoQuickAddDestination: String = ""
     @Volatile private var queuePersistenceEnabled: Boolean = true
     private var lastQueueSnapshotAtMs: Long = 0L
@@ -187,6 +191,25 @@ class MusicPlaybackService : MediaLibraryService() {
         val generation: Long = 0L,
     )
 
+    private data class PersistedQueueSnapshot(
+        val items: List<MediaItem>,
+        val currentIndex: Int,
+        val positionMs: Long,
+        val repeatMode: Int,
+        val shuffleModeEnabled: Boolean,
+    )
+
+    private data class AndroidAutoLocalTrackState(
+        val recent: List<TrackEntity>,
+        val liked: List<TrackEntity>,
+        val mostPlayed: List<TrackEntity>,
+        val downloaded: List<TrackEntity>,
+    )
+
+    private data class CachedCarSearchOutcome(
+        val outcome: AndroidAutoSearchOutcome<MediaItem>,
+        val expiresAtMs: Long,
+    )
 
 
 
@@ -381,7 +404,11 @@ class MusicPlaybackService : MediaLibraryService() {
                         prefetchUpcomingStreams()
                     }
                     override fun onRepeatModeChanged(repeatMode: Int) {
+                        if (::exoPlayer.isInitialized) persistQueueSnapshot(exoPlayer, force = true)
                         session?.setCustomLayout(buildCustomLayout())
+                    }
+                    override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                        if (::exoPlayer.isInitialized) persistQueueSnapshot(exoPlayer, force = true)
                     }
                 })
             }
@@ -401,15 +428,58 @@ class MusicPlaybackService : MediaLibraryService() {
         audioFx = AudioFx(applicationContext, player.audioSessionId).also { it.start() }
         exoPlayer = player
         refreshMusicWidget()
+        localAudioObserver = object : android.database.ContentObserver(
+            android.os.Handler(android.os.Looper.getMainLooper()),
+        ) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                notifyAndroidAutoBrowseChanged(setOf(SONGS_ID))
+            }
+        }.also { observer ->
+            contentResolver.registerContentObserver(
+                android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                true,
+                observer,
+            )
+        }
         ioScope.launch {
-            LibraryDb.get(applicationContext).tracks().recent().collectLatest { recent ->
-                widgetRecentArtworkUrls = recent
+            val tracks = LibraryDb.get(applicationContext).tracks()
+            combine(
+                tracks.recent(),
+                tracks.liked(),
+                tracks.mostPlayed(),
+                tracks.downloaded(),
+            ) { recent, liked, mostPlayed, downloaded ->
+                AndroidAutoLocalTrackState(recent, liked, mostPlayed, downloaded)
+            }
+                .distinctUntilChanged()
+                .collectLatest { state ->
+                widgetRecentArtworkUrls = state.recent
                     .mapNotNull { it.thumbnail?.takeIf(String::isNotBlank) }
                     .take(5)
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     refreshMusicWidget()
                 }
+                notifyAndroidAutoBrowseChanged(AndroidAutoBrowsePolicy.localTrackParents)
             }
+        }
+        ioScope.launch {
+            val playlistsDao = LibraryDb.get(applicationContext).localPlaylists()
+            playlistsDao.allPlaylists()
+                .distinctUntilChanged()
+                .collectLatest { playlists ->
+                    val affectedParents = AndroidAutoBrowsePolicy.localPlaylistParents +
+                        playlists.map { "$LOCAL_PLAYLIST_PREFIX${it.id}" }
+                    notifyAndroidAutoBrowseChanged(affectedParents)
+                    val playlistTrackFlows = playlists.map { playlistsDao.tracksForPlaylist(it.id) }
+                    if (playlistTrackFlows.isNotEmpty()) {
+                        combine(playlistTrackFlows) { it.toList() }
+                            .collectLatest {
+                                notifyAndroidAutoBrowseChanged(
+                                    playlists.map { "$LOCAL_PLAYLIST_PREFIX${it.id}" }.toSet(),
+                                )
+                            }
+                    }
+                }
         }
 
         // Keep crossfadeDurationMs in sync with the DataStore setting.
@@ -601,11 +671,13 @@ class MusicPlaybackService : MediaLibraryService() {
                     delay(AUTHENTICATED_LIBRARY_SYNC_DELAY_MS)
                     ytLibrary = YtMusicLibraryRepository.sync(cookie)
                     ytHomeFeed = YtMusicHomeRepository.load(cookie)
-                    notifyAndroidAutoHomeChanged()
+                    notifyAndroidAutoBrowseChanged(AndroidAutoBrowsePolicy.remoteLibraryParents)
+                    refreshLikedState()
                 } else {
                     ytLibrary = YtMusicLibrary()
                     ytHomeFeed = YtMusicHomeFeed()
-                    notifyAndroidAutoHomeChanged()
+                    notifyAndroidAutoBrowseChanged(AndroidAutoBrowsePolicy.remoteLibraryParents)
+                    refreshLikedState()
                 }
             }
         }
@@ -632,6 +704,23 @@ class MusicPlaybackService : MediaLibraryService() {
                 queuePersistenceEnabled = enabled
                 if (!enabled) queuePrefs.edit().remove(QUEUE_STATE_KEY).apply()
             }
+        }
+        ioScope.launch {
+            combine(
+                sl.settings.androidAutoVisibleSections,
+                sl.settings.androidAutoSectionOrder,
+            ) { visible, order -> visible to order }
+                .distinctUntilChanged()
+                .collect {
+                    notifyAndroidAutoBrowseChanged(AndroidAutoBrowsePolicy.sectionSettingsParents)
+                }
+        }
+        ioScope.launch {
+            sl.settings.androidAutoShowYoutubeSuggestions
+                .distinctUntilChanged()
+                .collect {
+                    notifyAndroidAutoBrowseChanged(AndroidAutoBrowsePolicy.suggestionSettingsParents)
+                }
         }
     }
 
@@ -983,6 +1072,8 @@ class MusicPlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         session?.player?.let { persistQueueSnapshot(it, force = true) }
+        localAudioObserver?.let(contentResolver::unregisterContentObserver)
+        localAudioObserver = null
         bufferedPrefetchWriters.values.forEach { it.cancel() }
         bufferedPrefetchJobs.values.forEach { it.cancel() }
         bufferedPrefetchWriters.clear()
@@ -1024,10 +1115,22 @@ class MusicPlaybackService : MediaLibraryService() {
     }
 
     private fun refreshLikedState() {
-        val url = session?.player?.currentMediaItem?.mediaId ?: return
+        val item = session?.player?.currentMediaItem ?: return
+        val url = item.mediaId
+        val videoId = item.mediaMetadata.extras?.getString(YtPlayback.EXTRA_VIDEO_ID)
+            ?.takeIf { it.isNotBlank() }
+            ?: youtubeVideoId(url)
+        val identity = AndroidAutoLikedContent.identity(url, videoId)
         ioScope.launch {
             val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
-            isCurrentLiked = dao.isLiked(url).first() ?: false
+            val locallyLiked = dao.isLiked(url).first() ?: false
+            val remotelyLiked = ytLibrary.likedSongs.any { song ->
+                AndroidAutoLikedContent.identity(
+                    mediaId = "https://music.youtube.com/watch?v=${song.videoId}",
+                    videoId = song.videoId,
+                ) == identity
+            }
+            isCurrentLiked = locallyLiked || remotelyLiked
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 session?.setCustomLayout(buildCustomLayout())
             }
@@ -1197,40 +1300,104 @@ class MusicPlaybackService : MediaLibraryService() {
             .forEach { it.cancel() }
     }
 
-    private suspend fun toggleLike() {
-        val s = session ?: return
-        // Capture player state on the main thread before switching to IO.
-        val (url, meta) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-            val item = s.player.currentMediaItem
-            Pair(item?.mediaId, item?.mediaMetadata)
-        }
-        if (url == null) return
+    private suspend fun toggleLike(): SessionResult {
+        val activeSession = session
+            ?: return likeCommandResult(SessionResult.RESULT_ERROR_UNKNOWN, "Playback is not available.")
+        val item = withContext(Dispatchers.Main) {
+            activeSession.player.currentMediaItem
+        } ?: return likeCommandResult(SessionResult.RESULT_ERROR_BAD_VALUE, "Nothing is playing.")
+        val url = item.mediaId.takeIf { it.isNotBlank() }
+            ?: return likeCommandResult(SessionResult.RESULT_ERROR_BAD_VALUE, "This track cannot be liked.")
+        val metadata = item.mediaMetadata
+        val videoId = metadata.extras?.getString(YtPlayback.EXTRA_VIDEO_ID)
+            ?.takeIf { it.isNotBlank() }
+            ?: youtubeVideoId(url)
         val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
-        val currentlyLiked = dao.isLiked(url).first() ?: false
-        if (currentlyLiked) {
-            dao.setLikedAt(url, null)
-        } else {
-            val existing = dao.byUrl(url)
-            if (existing != null) {
-                dao.setLikedAt(url, System.currentTimeMillis())
+        val locallyLiked = dao.isLiked(url).first() ?: false
+        val remotelyLiked = videoId != null && ytLibrary.likedSongs.any { it.videoId == videoId }
+        val shouldLike = !(locallyLiked || remotelyLiked)
+        val cookie = if (videoId != null) sl.settings.ytMusicCookie.first() else ""
+        if (remotelyLiked && cookie.isBlank()) {
+            return likeCommandResult(
+                SessionResult.RESULT_ERROR_UNKNOWN,
+                "Sign in to YouTube Music to remove this account Like.",
+            )
+        }
+
+        val updateRemote = videoId != null && cookie.isNotBlank() && (shouldLike || remotelyLiked)
+        if (updateRemote) {
+            val stableVideoId = requireNotNull(videoId)
+            val succeeded = if (shouldLike) {
+                YtMusicLibraryRepository.likeSong(cookie, stableVideoId)
             } else {
-                dao.upsert(
-                    TrackEntity(
-                        url = url,
-                        title = meta?.title?.toString() ?: "",
-                        artist = meta?.artist?.toString() ?: "",
-                        durationSec = 0L,
-                        thumbnail = meta?.artworkUri?.toString(),
-                        likedAt = System.currentTimeMillis(),
-                    ),
+                YtMusicLibraryRepository.unlikeSong(cookie, stableVideoId)
+            }
+            if (!succeeded) {
+                return likeCommandResult(
+                    SessionResult.RESULT_ERROR_UNKNOWN,
+                    "YouTube Music couldn't update this Like. Check your connection and retry.",
                 )
             }
+            val updatedSong = YtmSong(
+                videoId = stableVideoId,
+                title = metadata.title?.toString().orEmpty(),
+                artist = metadata.artist?.toString().orEmpty(),
+                album = metadata.albumTitle?.toString(),
+                thumbnail = metadata.artworkUri?.toString(),
+                durationSeconds = null,
+                isVideo = metadata.extras?.getBoolean(YtPlayback.EXTRA_IS_MUSIC_VIDEO, false) ?: false,
+            )
+            ytLibrary = ytLibrary.copy(
+                likedSongs = if (shouldLike) {
+                    listOf(updatedSong) + ytLibrary.likedSongs.filterNot { it.videoId == stableVideoId }
+                } else {
+                    ytLibrary.likedSongs.filterNot { it.videoId == stableVideoId }
+                },
+            )
         }
-        isCurrentLiked = !currentlyLiked
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-            s.setCustomLayout(buildCustomLayout())
+
+        runCatching {
+            if (!shouldLike) {
+                dao.setLikedAt(url, null)
+            } else {
+                val timestamp = System.currentTimeMillis()
+                if (dao.byUrl(url) != null) {
+                    dao.setLikedAt(url, timestamp)
+                } else {
+                    dao.upsert(
+                        TrackEntity(
+                            url = url,
+                            title = metadata.title?.toString().orEmpty(),
+                            artist = metadata.artist?.toString().orEmpty(),
+                            durationSec = 0L,
+                            thumbnail = metadata.artworkUri?.toString(),
+                            likedAt = timestamp,
+                        ),
+                    )
+                }
+            }
+        }.onFailure {
+            AppLogger.w(TAG, "Couldn't mirror Android Auto Like locally: ${it.message}")
         }
+        isCurrentLiked = shouldLike
+        withContext(Dispatchers.Main) {
+            activeSession.setCustomLayout(buildCustomLayout())
+        }
+        notifyAndroidAutoBrowseChanged(AndroidAutoBrowsePolicy.localTrackParents)
+        if (updateRemote) {
+            notifyAndroidAutoBrowseChanged(AndroidAutoBrowsePolicy.remoteLibraryParents)
+        }
+        val message = when {
+            updateRemote && shouldLike -> "Liked on YouTube Music."
+            updateRemote -> "Removed from YouTube Music Liked Songs."
+            shouldLike -> "Added to Liked Songs on this device."
+            else -> "Removed from Liked Songs on this device."
+        }
+        return likeCommandResult(SessionResult.RESULT_SUCCESS, message)
     }
+
+    private fun likeCommandResult(code: Int, message: String): SessionResult =
+        SessionResult(code, Bundle().apply { putString(EXTRA_COMMAND_MESSAGE, message) })
 
     /**
      * Called only from the player's application looper. Serialize a bounded, presentation-only
@@ -1245,44 +1412,75 @@ class MusicPlaybackService : MediaLibraryService() {
         val now = System.currentTimeMillis()
         if (!force && now - lastQueueSnapshotAtMs < QUEUE_SNAPSHOT_INTERVAL_MS) return
         lastQueueSnapshotAtMs = now
-        val snapshot = JSONObject().apply {
-            put("index", player.currentMediaItemIndex.coerceAtLeast(0))
-            put("position", player.currentPosition.coerceAtLeast(0L))
-            put("items", JSONArray().apply {
-                repeat(minOf(player.mediaItemCount, MAX_PERSISTED_QUEUE_ITEMS)) { index ->
-                    val item = player.getMediaItemAt(index)
-                    val metadata = item.mediaMetadata
-                    put(JSONObject().apply {
-                        put("id", item.mediaId)
-                        put("uri", item.localConfiguration?.uri?.toString().orEmpty())
-                        put("title", metadata.title?.toString().orEmpty())
-                        put("artist", metadata.artist?.toString().orEmpty())
-                        put("album", metadata.albumTitle?.toString().orEmpty())
-                        put("artwork", metadata.artworkUri?.toString().orEmpty())
-                        put("videoId", metadata.extras?.getString(YtPlayback.EXTRA_VIDEO_ID).orEmpty())
-                        put("watchUrl", metadata.extras?.getString(YtPlayback.EXTRA_WATCH_URL).orEmpty())
-                        put("musicVideo", metadata.extras?.getBoolean(YtPlayback.EXTRA_IS_MUSIC_VIDEO, false) ?: false)
-                    })
-                }
-            })
-        }.toString()
-        if (snapshot.length <= MAX_QUEUE_SNAPSHOT_BYTES) {
-            // apply() updates the in-memory preference immediately and writes to disk
-            // asynchronously, preserving callback order without blocking the player looper.
-            queuePrefs.edit().putString(QUEUE_STATE_KEY, snapshot).apply()
+        fun createSnapshot(itemLimit: Int): String {
+            val window = androidAutoQueueWindow(
+                itemCount = player.mediaItemCount,
+                currentIndex = player.currentMediaItemIndex,
+                maxItems = itemLimit,
+            ) ?: return ""
+            return JSONObject().apply {
+                put("index", window.currentIndex)
+                put("position", player.currentPosition.coerceAtLeast(0L))
+                put("repeatMode", player.repeatMode)
+                put("shuffleModeEnabled", player.shuffleModeEnabled)
+                put("items", JSONArray().apply {
+                    for (index in window.startIndex until window.endExclusive) {
+                        val item = player.getMediaItemAt(index)
+                        val metadata = item.mediaMetadata
+                        put(JSONObject().apply {
+                            put("id", item.mediaId)
+                            item.localConfiguration?.uri?.toString()
+                                ?.takeIf(::canPersistLocalPlaybackUri)
+                                ?.let { put("uri", it) }
+                            put("title", metadata.title?.toString().orEmpty())
+                            put("artist", metadata.artist?.toString().orEmpty())
+                            put("album", metadata.albumTitle?.toString().orEmpty())
+                            put("artwork", metadata.artworkUri?.toString().orEmpty())
+                            put("videoId", metadata.extras?.getString(YtPlayback.EXTRA_VIDEO_ID).orEmpty())
+                            put("watchUrl", metadata.extras?.getString(YtPlayback.EXTRA_WATCH_URL).orEmpty())
+                            put("musicVideo", metadata.extras?.getBoolean(YtPlayback.EXTRA_IS_MUSIC_VIDEO, false) ?: false)
+                        })
+                    }
+                })
+            }.toString()
         }
+
+        var itemLimit = minOf(player.mediaItemCount, MAX_PERSISTED_QUEUE_ITEMS)
+        while (itemLimit > 0) {
+            val snapshot = createSnapshot(itemLimit)
+            if (snapshot.length <= MAX_QUEUE_SNAPSHOT_BYTES) {
+                // apply() updates the in-memory preference immediately and writes to disk
+                // asynchronously, preserving callback order without blocking the player looper.
+                queuePrefs.edit().putString(QUEUE_STATE_KEY, snapshot).apply()
+                return
+            }
+            if (itemLimit == 1) break
+            itemLimit = maxOf(1, itemLimit / 2)
+        }
+        // Never leave an older, potentially wrong snapshot available when current metadata cannot
+        // fit within the storage limit, even after reducing the saved window to the active item.
+        queuePrefs.edit().remove(QUEUE_STATE_KEY).apply()
     }
 
-    private fun restoredQueueSnapshot(): Triple<List<MediaItem>, Int, Long>? = runCatching {
+    private fun restoredQueueSnapshot(): PersistedQueueSnapshot? = runCatching {
         val raw = queuePrefs.getString(QUEUE_STATE_KEY, null) ?: return null
         require(raw.length <= MAX_QUEUE_SNAPSHOT_BYTES) { "Queue snapshot is too large" }
         val root = JSONObject(raw)
         val stored = root.getJSONArray("items")
+        val storedCount = minOf(stored.length(), MAX_PERSISTED_QUEUE_ITEMS)
+        val savedIndex = root.optInt("index", -1)
+        require(savedIndex in 0 until storedCount) { "Queue snapshot has an invalid active index" }
         val items = buildList {
-            for (index in 0 until minOf(stored.length(), MAX_PERSISTED_QUEUE_ITEMS)) {
+            for (index in 0 until storedCount) {
                 val entry = stored.getJSONObject(index)
-                val id = entry.optString("id").takeIf { it.isNotBlank() } ?: continue
-                val uri = entry.optString("uri").takeIf { it.isNotBlank() } ?: id
+                val id = requireNotNull(entry.optString("id").takeIf { it.isNotBlank() }) {
+                    "Queue snapshot contains an item without an ID"
+                }
+                // Older snapshots stored the resolved HTTP stream URI. Ignore it and re-resolve
+                // from the stable media ID; only local file/content URIs survive process death.
+                val uri = entry.optString("uri")
+                    .takeIf(::canPersistLocalPlaybackUri)
+                    ?: id
                 val extras = Bundle().apply {
                     entry.optString("videoId").takeIf { it.isNotBlank() }?.let {
                         putString(YtPlayback.EXTRA_VIDEO_ID, it)
@@ -1302,7 +1500,13 @@ class MusicPlaybackService : MediaLibraryService() {
             }
         }
         items.takeIf { it.isNotEmpty() }?.let {
-            Triple(it, root.optInt("index").coerceIn(0, it.lastIndex), root.optLong("position").coerceAtLeast(0L))
+            PersistedQueueSnapshot(
+                items = it,
+                currentIndex = savedIndex,
+                positionMs = root.optLong("position").coerceAtLeast(0L),
+                repeatMode = normalizedRepeatMode(root.optInt("repeatMode", Player.REPEAT_MODE_OFF)),
+                shuffleModeEnabled = root.optBoolean("shuffleModeEnabled", false),
+            )
         }
     }.getOrElse {
         queuePrefs.edit().remove(QUEUE_STATE_KEY).apply()
@@ -1359,7 +1563,9 @@ class MusicPlaybackService : MediaLibraryService() {
                         )
                     }
                     parentId == RECENT_ID    -> roomTracks { it.recent().first() }
-                    parentId == ON_REPEAT_ID -> roomTracks { it.mostPlayed().first() }
+                    parentId == ON_REPEAT_ID -> roomTracks {
+                        it.mostPlayed().first().filter { track -> track.playCount > 0 }
+                    }
                     parentId == LIKED_ID     -> likedChildren()
                     parentId == DOWNLOADED_ID -> roomTracks { it.downloaded().first() }
                     parentId == PLAYLISTS_ID  -> playlistsFolderChildren()
@@ -1412,14 +1618,26 @@ class MusicPlaybackService : MediaLibraryService() {
                 )
             val future = SettableFuture.create<MutableList<MediaItem>>()
             ioScope.launch {
-                val matches = searchCarMusic(voiceQuery)
-                if (matches.isEmpty()) {
-                    AppLogger.w(TAG, "Android Auto voice search returned no songs for \"$voiceQuery\"")
-                    future.set(mutableListOf())
-                } else {
-                    AppLogger.i(TAG, "Android Auto voice search matched \"$voiceQuery\" to ${matches.first().mediaMetadata.title}")
-                    prefetchMediaItems(matches)
-                    future.set(mutableListOf(matches.first()))
+                val outcome = searchCarMusicSafely(voiceQuery)
+                when (outcome.state) {
+                    AndroidAutoSearchState.NO_MATCHES -> {
+                        AppLogger.i(TAG, "Android Auto voice search found no songs for \"$voiceQuery\"")
+                        future.set(mutableListOf())
+                    }
+                    AndroidAutoSearchState.PROVIDERS_UNAVAILABLE -> {
+                        val message = androidAutoSearchMessage(outcome.state, voiceQuery)
+                        AppLogger.w(TAG, "Android Auto voice search unavailable for \"$voiceQuery\"")
+                        future.setException(IllegalStateException(message))
+                    }
+                    AndroidAutoSearchState.RESULTS -> {
+                        AppLogger.i(
+                            TAG,
+                            "Android Auto voice search matched \"$voiceQuery\" to " +
+                                outcome.items.first().mediaMetadata.title,
+                        )
+                        prefetchMediaItems(outcome.items)
+                        future.set(mutableListOf(outcome.items.first()))
+                    }
                 }
             }
             return future
@@ -1434,8 +1652,8 @@ class MusicPlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<Void>> {
             val fut = SettableFuture.create<LibraryResult<Void>>()
             ioScope.launch {
-                val items = searchCarMusic(query)
-                session.notifySearchResultChanged(browser, query, items.size, params)
+                val outcome = searchCarMusicSafely(query)
+                session.notifySearchResultChanged(browser, query, outcome.browserResultCount, params)
                 fut.set(LibraryResult.ofVoid())
             }
             return fut
@@ -1451,8 +1669,19 @@ class MusicPlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             val fut = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             ioScope.launch {
-                val allItems = searchCarMusic(query)
-                prefetchMediaItems(allItems)
+                val outcome = searchCarMusicSafely(query)
+                val allItems = when (outcome.state) {
+                    AndroidAutoSearchState.PROVIDERS_UNAVAILABLE -> listOf(
+                        errorItem(
+                            source = "search_${query.hashCode()}",
+                            message = androidAutoSearchMessage(outcome.state, query),
+                            title = "Search unavailable",
+                        ),
+                    )
+                    AndroidAutoSearchState.NO_MATCHES -> emptyList()
+                    AndroidAutoSearchState.RESULTS -> outcome.items
+                }
+                if (outcome.state == AndroidAutoSearchState.RESULTS) prefetchMediaItems(allItems)
                 val items = ImmutableList.copyOf(pageItems(allItems, page, pageSize))
                 fut.set(LibraryResult.ofItemList(items, params))
             }
@@ -1485,8 +1714,18 @@ class MusicPlaybackService : MediaLibraryService() {
                     ))
                 } else {
                     if (sl.settings.persistentQueue.first()) {
-                        restoredQueueSnapshot()?.let { (items, index, position) ->
-                            fut.set(MediaSession.MediaItemsWithStartPosition(items, index, position))
+                        restoredQueueSnapshot()?.let { restored ->
+                            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                mediaSession.player.repeatMode = restored.repeatMode
+                                mediaSession.player.shuffleModeEnabled = restored.shuffleModeEnabled
+                            }
+                            fut.set(
+                                MediaSession.MediaItemsWithStartPosition(
+                                    restored.items,
+                                    restored.currentIndex,
+                                    restored.positionMs,
+                                ),
+                            )
                             return@launch
                         }
                     }
@@ -1520,7 +1759,20 @@ class MusicPlaybackService : MediaLibraryService() {
             args: Bundle,
         ): ListenableFuture<SessionResult> {
             when (customCommand.customAction) {
-                ACTION_LIKE -> ioScope.launch { toggleLike() }
+                ACTION_LIKE -> {
+                    val future = SettableFuture.create<SessionResult>()
+                    ioScope.launch {
+                        val result = runCatching { toggleLike() }.getOrElse { error ->
+                            AppLogger.w(TAG, "Android Auto Like command failed: ${error.message}")
+                            likeCommandResult(
+                                SessionResult.RESULT_ERROR_UNKNOWN,
+                                "Couldn't update Like. Check your connection and retry.",
+                            )
+                        }
+                        future.set(result)
+                    }
+                    return future
+                }
                 ACTION_QUICK_ADD -> {
                     val future = SettableFuture.create<SessionResult>()
                     ioScope.launch {
@@ -1603,19 +1855,67 @@ class MusicPlaybackService : MediaLibraryService() {
         }
 
         val ytLikedArtwork = ytLibrary.likedSongs.firstOrNull()?.thumbnail
+        val repeatedTracks = mostPlayed.filter { it.playCount > 0 }
         children += playlist(RECENT_ID, "Recently Played", AndroidAutoHomeContent.artworkUrl(recent))
-        children += playlist(ON_REPEAT_ID, "On Repeat", AndroidAutoHomeContent.artworkUrl(mostPlayed))
+        children += playlist(ON_REPEAT_ID, "On Repeat", AndroidAutoHomeContent.artworkUrl(repeatedTracks))
         children += playlist(LIKED_ID, "Liked Songs", AndroidAutoHomeContent.artworkUrl(liked) ?: ytLikedArtwork)
         return children.distinctBy(MediaItem::mediaId)
     }
 
-    private suspend fun notifyAndroidAutoHomeChanged() {
-        val childCount = runCatching { homeChildren().size }.getOrElse { error ->
-            AppLogger.w(TAG, "Couldn't count Android Auto Home items: ${error.message}")
-            0
+    private suspend fun androidAutoBrowseChildCount(parentId: String): Int? {
+        val tracks = LibraryDb.get(applicationContext).tracks()
+        return when (parentId) {
+            ROOT_ID -> rootChildren().size
+            HOME_ID -> homeChildren().size
+            HOME_FEED_ID -> homeFeedChildren().size
+            LIBRARY_ID -> libraryChildren().size
+            PLAYLISTS_ID -> playlistsFolderChildren().size
+            ALBUMS_ID -> albumsFolderChildren().size
+            ARTISTS_ID -> artistsFolderChildren().size
+            AndroidAutoHomeContent.SPEED_DIAL_ID -> AndroidAutoHomeContent.speedDialTracks(
+                recent = tracks.recent().first(),
+                liked = tracks.liked().first(),
+                mostPlayed = tracks.mostPlayed().first(),
+            ).size
+            AndroidAutoHomeContent.QUICK_PICKS_ID -> AndroidAutoHomeContent.quickPickTracks(
+                mostPlayed = tracks.mostPlayed().first(),
+                recent = tracks.recent().first(),
+                liked = tracks.liked().first(),
+            ).size
+            RECENT_ID -> tracks.recent().first().size
+            ON_REPEAT_ID -> tracks.mostPlayed().first().count { it.playCount > 0 }
+            LIKED_ID -> likedChildren().size
+            DOWNLOADED_ID -> tracks.downloaded().first().size
+            SONGS_ID -> localMedia.countAudioItems()
+            else -> {
+                val localPlaylistId = parentId.removePrefix(LOCAL_PLAYLIST_PREFIX).toLongOrNull()
+                if (parentId.startsWith(LOCAL_PLAYLIST_PREFIX) && localPlaylistId != null) {
+                    LibraryDb.get(applicationContext).localPlaylists()
+                        .tracksForPlaylist(localPlaylistId).first().size
+                } else {
+                    null
+                }
+            }
         }
-        withContext(Dispatchers.Main) {
-            session?.notifyChildrenChanged(HOME_ID, childCount, null)
+    }
+
+    private fun notifyAndroidAutoBrowseChanged(parentIds: Set<String>) {
+        if (parentIds.isEmpty()) return
+        ioScope.launch {
+            val updates = parentIds.distinct().mapNotNull { parentId ->
+                runCatching { androidAutoBrowseChildCount(parentId) }
+                    .onFailure {
+                        AppLogger.w(TAG, "Couldn't count Android Auto children for $parentId: ${it.message}")
+                    }
+                    .getOrNull()
+                    ?.let { count -> parentId to count }
+            }
+            withContext(Dispatchers.Main) {
+                val activeSession = session ?: return@withContext
+                updates.forEach { (parentId, count) ->
+                    activeSession.notifyChildrenChanged(parentId, count, null)
+                }
+            }
         }
     }
 
@@ -1730,12 +2030,21 @@ class MusicPlaybackService : MediaLibraryService() {
 
 
     private suspend fun likedChildren(): List<MediaItem> {
-        val ytmLiked = ytLibrary.likedSongs
-        if (ytmLiked.isNotEmpty()) return ytmLiked.map(::ytmSongItem)
+        val remoteItems = ytLibrary.likedSongs.map(::ytmSongItem)
         val local = runCatching {
             LibraryDb.get(this@MusicPlaybackService).tracks().liked().first()
         }.getOrElse { emptyList() }
-        return local.map(::trackEntityItem)
+        val localItems = local.map(::trackEntityItem)
+        return AndroidAutoLikedContent.mergePreferFirst(
+            preferred = remoteItems,
+            fallback = localItems,
+            identity = { item ->
+                AndroidAutoLikedContent.identity(
+                    mediaId = item.mediaId,
+                    videoId = item.mediaMetadata.extras?.getString(YtPlayback.EXTRA_VIDEO_ID),
+                )
+            },
+        )
     }
 
 
@@ -1814,11 +2123,15 @@ class MusicPlaybackService : MediaLibraryService() {
         return if (start >= items.size) emptyList() else items.drop(start.toInt()).take(pageSize)
     }
 
-    private fun errorItem(source: String, message: String): MediaItem = MediaItem.Builder()
+    private fun errorItem(
+        source: String,
+        message: String,
+        title: String = "Couldn't load",
+    ): MediaItem = MediaItem.Builder()
         .setMediaId("$ERROR_PREFIX$source")
         .setMediaMetadata(
             MediaMetadata.Builder()
-                .setTitle("Couldn't load")
+                .setTitle(title)
                 .setSubtitle(message)
                 .setIsBrowsable(false)
                 .setIsPlayable(false)
@@ -2155,13 +2468,19 @@ class MusicPlaybackService : MediaLibraryService() {
      * in-process so every route returns the exact same playable media item without duplicate
      * YouTube searches.
      */
-    private suspend fun searchCarMusic(query: String): List<MediaItem> {
+    private suspend fun searchCarMusic(query: String): AndroidAutoSearchOutcome<MediaItem> {
         val normalizedQuery = query.trim()
-        if (normalizedQuery.isBlank()) return emptyList()
+        if (normalizedQuery.isBlank()) {
+            return androidAutoSearchOutcome(emptyList(), anyProviderSucceeded = true)
+        }
         val configuredLimit = sl.settings.androidAutoSongsSearchLimit.first()
         val localLimit = configuredLimit.takeUnless { it == "unlimited" }?.toIntOrNull() ?: Int.MAX_VALUE
         val cacheKey = "$configuredLimit\u0000$normalizedQuery"
-        carSearchResults[cacheKey]?.let { return it }
+        val nowMs = System.currentTimeMillis()
+        carSearchResults[cacheKey]?.let { cached ->
+            if (nowMs < cached.expiresAtMs) return cached.outcome
+            carSearchResults.remove(cacheKey, cached)
+        }
         val databaseMatches = runCatching {
             LibraryDb.get(this).tracks().search(
                 "%$normalizedQuery%",
@@ -2187,10 +2506,12 @@ class MusicPlaybackService : MediaLibraryService() {
         }.onFailure {
             AppLogger.w(TAG, "Android Auto local search failed: ${it.message}")
         }.getOrDefault(emptyList())
-        val nativeTracks = runCatching { YtMusicSearchRepository.songs(normalizedQuery) }
+        var remoteProviderSucceeded = false
+        val nativeTracks = runCatching { YtMusicSearchRepository.songsWithStatus(normalizedQuery) }
             .onFailure { AppLogger.w(TAG, "Android Auto search failed for \"$normalizedQuery\": ${it.message}") }
-            .getOrDefault(emptyList())
-        val youtubeMatches = if (nativeTracks.isNotEmpty()) {
+            .getOrNull()
+        if (nativeTracks != null) remoteProviderSucceeded = true
+        val youtubeMatches = if (!nativeTracks.isNullOrEmpty()) {
             nativeTracks.take(YOUTUBE_SEARCH_RESULT_CAP).map { track ->
                 ytmSong(
                     videoId = track.url.substringAfter("v=").substringBefore("&"),
@@ -2199,9 +2520,10 @@ class MusicPlaybackService : MediaLibraryService() {
                 )
             }
         } else {
-            runCatching { NewPipeRepository.searchSongs(normalizedQuery) }
+            val fallbackResult = runCatching { NewPipeRepository.searchSongs(normalizedQuery) }
                 .onFailure { AppLogger.w(TAG, "Android Auto fallback search failed: ${it.message}") }
-                .getOrDefault(emptyList())
+            if (fallbackResult.isSuccess) remoteProviderSucceeded = true
+            fallbackResult.getOrDefault(emptyList())
                 .take(YOUTUBE_SEARCH_RESULT_CAP)
                 .map { track ->
                     ytmSong(
@@ -2218,9 +2540,26 @@ class MusicPlaybackService : MediaLibraryService() {
         val items = (localAndRoom + youtubeMatches)
             .distinctBy(MediaItem::mediaId)
             .sortedByDescending { carSearchScore(it, normalizedQuery) }
+        val outcome = androidAutoSearchOutcome(items, remoteProviderSucceeded)
         if (carSearchResults.size >= 24) carSearchResults.clear()
-        carSearchResults[cacheKey] = items
-        return items
+        if (outcome.state != AndroidAutoSearchState.PROVIDERS_UNAVAILABLE) {
+            carSearchResults[cacheKey] = CachedCarSearchOutcome(
+                outcome = outcome,
+                expiresAtMs = System.currentTimeMillis() + CAR_SEARCH_RESULT_CACHE_TTL_MS,
+            )
+        }
+        return outcome
+    }
+
+    private suspend fun searchCarMusicSafely(query: String): AndroidAutoSearchOutcome<MediaItem> =
+        try {
+            searchCarMusic(query)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            AppLogger.w(TAG, "Android Auto search could not complete for \"$query\": ${error.message}")
+            androidAutoSearchOutcome(emptyList(), anyProviderSucceeded = false)
+        }
     }
 
     /** Treat a spoken “title artist” match as stronger than either field alone. */
@@ -2285,6 +2624,7 @@ class MusicPlaybackService : MediaLibraryService() {
         const val MAX_PERSISTED_QUEUE_ITEMS = 100
         const val MAX_QUEUE_SNAPSHOT_BYTES = 96 * 1024
         const val YOUTUBE_SEARCH_RESULT_CAP = 100
+        const val CAR_SEARCH_RESULT_CACHE_TTL_MS = 60_000L
         val AUTO_SECTION_IDS = listOf(
             "playlists", "artists", "albums", "liked_songs", "songs",
             "home", "recently_played", "on_repeat", "downloads",

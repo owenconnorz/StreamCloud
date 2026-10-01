@@ -42,6 +42,16 @@ data class LocalMediaPage<T>(
 class LocalMediaRepository(context: Context) {
     private val resolver = context.applicationContext.contentResolver
 
+    suspend fun countAudioItems(): Int = withContext(Dispatchers.IO) {
+        resolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Audio.Media._ID),
+            "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.SIZE} > 0",
+            null,
+            null,
+        )?.use { it.count } ?: 0
+    }
+
     suspend fun loadAudioPage(offset: Int, limit: Int): LocalMediaPage<LocalAudioItem> =
         withContext(Dispatchers.IO) {
             queryPage(

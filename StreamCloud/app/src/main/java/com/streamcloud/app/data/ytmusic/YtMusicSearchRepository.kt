@@ -44,8 +44,14 @@ object YtMusicSearchRepository {
 
     // ── Songs ─────────────────────────────────────────────────────────────────────
 
-    suspend fun songs(query: String): List<YtTrack> = withContext(Dispatchers.IO) {
-        val resp = client.search(query, PARAM_SONGS) ?: return@withContext emptyList()
+    suspend fun songs(query: String): List<YtTrack> = songsWithStatus(query).orEmpty()
+
+    /**
+     * Null means the search request could not be completed; an empty list is a successful search
+     * with no matching songs. Android Auto uses that distinction to show useful failure feedback.
+     */
+    suspend fun songsWithStatus(query: String): List<YtTrack>? = withContext(Dispatchers.IO) {
+        val resp = client.search(query, PARAM_SONGS) ?: return@withContext null
         resp.collectResponsiveListItems().mapNotNull { item ->
             parseSongItem(item, isVideo = false)
         }
