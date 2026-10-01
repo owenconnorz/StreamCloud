@@ -1115,13 +1115,17 @@ class MusicPlaybackService : MediaLibraryService() {
     }
 
     private fun refreshLikedState() {
-        val item = session?.player?.currentMediaItem ?: return
-        val url = item.mediaId
-        val videoId = item.mediaMetadata.extras?.getString(YtPlayback.EXTRA_VIDEO_ID)
-            ?.takeIf { it.isNotBlank() }
-            ?: youtubeVideoId(url)
-        val identity = AndroidAutoLikedContent.identity(url, videoId)
         ioScope.launch {
+            // ExoPlayer is created on the main looper. The settings collector also calls
+            // this method from Dispatchers.IO, so snapshot the current item on the player thread.
+            val item = withContext(Dispatchers.Main.immediate) {
+                session?.player?.currentMediaItem
+            } ?: return@launch
+            val url = item.mediaId
+            val videoId = item.mediaMetadata.extras?.getString(YtPlayback.EXTRA_VIDEO_ID)
+                ?.takeIf { it.isNotBlank() }
+                ?: youtubeVideoId(url)
+            val identity = AndroidAutoLikedContent.identity(url, videoId)
             val dao = LibraryDb.get(this@MusicPlaybackService).tracks()
             val locallyLiked = dao.isLiked(url).first() ?: false
             val remotelyLiked = ytLibrary.likedSongs.any { song ->
@@ -1130,9 +1134,13 @@ class MusicPlaybackService : MediaLibraryService() {
                     videoId = song.videoId,
                 ) == identity
             }
-            isCurrentLiked = locallyLiked || remotelyLiked
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                session?.setCustomLayout(buildCustomLayout())
+            withContext(Dispatchers.Main.immediate) {
+                // A track transition may finish while the local library query is running.
+                // Never apply the old track's liked state to the new session item.
+                if (session?.player?.currentMediaItem?.mediaId == url) {
+                    isCurrentLiked = locallyLiked || remotelyLiked
+                    session?.setCustomLayout(buildCustomLayout())
+                }
             }
         }
     }
