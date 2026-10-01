@@ -70,6 +70,7 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import android.util.Log
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.shouldAutoPlayBestStream
 import com.streamcloud.app.data.api.TmdbCastMember
 import com.streamcloud.app.data.api.TmdbCredits
 import com.streamcloud.app.data.api.TmdbEpisode
@@ -1370,8 +1371,11 @@ fun MovieDetailScreen(
             movie = movie, mediaType = mediaType, tmdbId = movieId, imdbId = imdbId,
             season = pickerSeason, episode = pickerEpisode, episodeTitle = pickerEpTitle,
             installedAddons = installedAddons, installedNuvio = installedNuvio, installedCsPlugins = installedCsPlugins,
-            // Download intent must always wait for an explicit source selection.
-            autoPlayBest = if (pickerForDownload || openInitialSourcePicker) false else autoplayBestStream,
+            // Direct source-page routes honor auto-play too; downloads stay explicit.
+            autoPlayBest = shouldAutoPlayBestStream(
+                autoPlayEnabled = autoplayBestStream,
+                isDownloadRequest = pickerForDownload,
+            ),
             onBack = {
                 showStreamPicker = false
                 pickerForDownload = false

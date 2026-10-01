@@ -39,3 +39,14 @@ fun orderStreamProviderEntries(
         )
         .map { it.value }
 }
+
+fun shouldAutoPlayBestStream(
+    autoPlayEnabled: Boolean,
+    isDownloadRequest: Boolean,
+): Boolean = autoPlayEnabled && !isDownloadRequest
+
+fun shouldShowAutoPlayResolvingState(
+    autoPlayEnabled: Boolean,
+    isLoading: Boolean,
+    hasSources: Boolean,
+): Boolean = autoPlayEnabled && (isLoading || hasSources)

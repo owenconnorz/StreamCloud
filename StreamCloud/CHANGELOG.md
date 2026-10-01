@@ -5,6 +5,7 @@
 ### Movie and TV playback
 - **Choose which providers try first** — installed Stremio add-ons, Nuvio providers, and CloudStream plugins can be reordered in Settings.
 - **Skip the source picker when desired** — auto-play starts with the first provider that returns a stream, with remaining provider results kept as playback fallbacks.
+- **Auto-play works from direct source pages too** — while preferred providers are checked, StreamCloud shows progress instead of the source picker; downloads still require an explicit source.
 
 ## Previous — Continue series playback from the right episode
 

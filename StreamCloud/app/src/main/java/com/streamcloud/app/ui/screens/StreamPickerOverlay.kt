@@ -37,6 +37,7 @@ import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.buildStreamProviderPriorityEntries
 import com.streamcloud.app.data.orderStreamProviderEntries
+import com.streamcloud.app.data.shouldShowAutoPlayResolvingState
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
@@ -214,16 +215,22 @@ fun StreamPickerOverlay(
     val isAnyLoading = groups.values.any { it.isLoading }
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val firstPickerFocus = remember { FocusRequester() }
-    LaunchedEffect(isTv) {
-        if (isTv) runCatching { firstPickerFocus.requestFocus() }
-    }
-
     val allSources = remember(groups, groupOrder) {
         groupOrder.flatMap { (key, _) ->
             groups[key]?.streams.orEmpty().sortedWith(
                 compareBy<PlayerSource> { it.isMagnet }
                     .thenByDescending { pickerQualityRank(it.qualityTag) },
             )
+        }
+    }
+    val showAutoPlayProgress = shouldShowAutoPlayResolvingState(
+        autoPlayEnabled = autoPlayBest,
+        isLoading = isAnyLoading,
+        hasSources = allSources.isNotEmpty(),
+    )
+    LaunchedEffect(isTv, showAutoPlayProgress) {
+        if (isTv && !showAutoPlayProgress) {
+            runCatching { firstPickerFocus.requestFocus() }
         }
     }
 
@@ -267,6 +274,18 @@ fun StreamPickerOverlay(
     }
 
     MoviesThemeWrapper(moviesThemeName) {
+    if (showAutoPlayProgress) {
+        val playbackTitle = buildString {
+            append(movie?.displayTitle ?: "Finding a stream")
+            if (season != null && episode != null) append(" · S${season}E${episode}")
+            episodeTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+        }
+        StreamingLoadingOverlay(
+            title = playbackTitle,
+            backdropUrl = movie?.backdropUrl ?: movie?.posterUrl,
+            onBack = onBack,
+        )
+    } else {
     Box(
         Modifier
             .fillMaxSize()
@@ -500,6 +519,7 @@ fun StreamPickerOverlay(
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
+    }
     }
     } // MoviesThemeWrapper
 }
