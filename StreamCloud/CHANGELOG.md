@@ -1,6 +1,14 @@
 # StreamCloud
 
-## Latest — Prioritise stream providers and auto-play
+## Latest — Android Auto music discovery and playback recovery
+
+### Android Auto
+- **Personalised Home shortcuts** — Speed Dial and Quick Picks surface tracks from recent, liked, and most-played music.
+- **Better voice search** — Android Auto searches local tracks and YouTube Music, plays the best match, and distinguishes no results from an unavailable provider.
+- **More reliable playback resumption** — saved queues preserve the active track, position, repeat, and shuffle settings; remote streams are resolved again after a service restart.
+- **Current browse shelves** — relevant Android Auto sections refresh when the music library changes, and liked tracks are de-duplicated.
+
+## Previous — Prioritise stream providers and auto-play
 
 ### Movie and TV playback
 - **Choose which providers try first** — installed Stremio add-ons, Nuvio providers, and CloudStream plugins can be reordered in Settings.
