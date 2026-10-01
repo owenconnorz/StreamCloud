@@ -1912,17 +1912,17 @@ private fun StremioPoster(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
             .width(animatedWidth)
-            // The focus border adds its own focusable child; `hasFocus` keeps this
-            // card expanded when that child, rather than the Column itself, is focused.
-            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
-            .tvFocusBorder(RoundedCornerShape(12.dp))
             .animateContentSize(animationSpec = tween(durationMillis = 260))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
         Box(
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .height(animatedImageHeight)
+                // Keep the focus target and its purple border on the poster, while the
+                // containing card still expands to show the title and episode details.
+                .onFocusChanged { isFocused = it.isFocused }
+                .tvFocusBorder(RoundedCornerShape(12.dp))
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surface),
         ) {
@@ -1941,17 +1941,6 @@ private fun StremioPoster(
             }
             if (showTitleOnThumbnail && !isExpanded) {
                 LandscapeCardTitle(meta.name, titleLogoUrl)
-            }
-            if (isExpanded) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .border(
-                            2.dp,
-                            MaterialTheme.colorScheme.primary,
-                            RoundedCornerShape(12.dp),
-                        ),
-                )
             }
         }
         if (isExpanded) {
