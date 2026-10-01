@@ -1,6 +1,11 @@
 # StreamCloud
 
-## Latest — Android Auto music discovery and playback recovery
+## Latest — Continue Watching follows the current episode
+
+### TV playback
+- **Continue Watching shows the latest in-progress episode for each series** — Home cards use the same progress threshold as episode details, so a short synced position no longer leaves an older episode on the card.
+
+## Previous — Android Auto music discovery and playback recovery
 
 ### Android Auto
 - **Personalised Home shortcuts** — Speed Dial and Quick Picks surface tracks from recent, liked, and most-played music.

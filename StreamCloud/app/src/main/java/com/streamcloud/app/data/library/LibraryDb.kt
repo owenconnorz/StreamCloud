@@ -106,8 +106,10 @@ interface WatchProgressDao {
     @Query(
         "SELECT * FROM watch_progress " +
             "WHERE duration_ms > 0 " +
-            "AND CAST(position_ms AS REAL) / duration_ms BETWEEN 0.01 AND 0.95 " +
-            "ORDER BY updated_at DESC LIMIT 30",
+            "AND position_ms > 5000 " +
+            "AND position_ms < duration_ms " +
+            "AND CAST(position_ms AS REAL) / duration_ms < 0.95 " +
+            "ORDER BY updated_at DESC, season_number DESC, episode_number DESC LIMIT 30",
     )
     fun continueWatching(): Flow<List<WatchProgressEntity>>
 
@@ -118,7 +120,7 @@ interface WatchProgressDao {
             "AND duration_ms > 0 AND position_ms > 5000 " +
             "AND position_ms < duration_ms " +
             "AND CAST(position_ms AS REAL) / duration_ms < 0.95 " +
-            "ORDER BY updated_at DESC LIMIT 1",
+            "ORDER BY updated_at DESC, season_number DESC, episode_number DESC LIMIT 1",
     )
     fun latestInProgressEpisode(tmdbId: Long, mediaType: String): Flow<WatchProgressEntity?>
 

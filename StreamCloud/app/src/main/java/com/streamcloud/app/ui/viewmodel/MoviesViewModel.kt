@@ -216,7 +216,7 @@ class MoviesViewModel(
         }
         viewModelScope.launch {
             LibraryDb.get(appContext).watchProgress().continueWatching().collect { rows ->
-                _state.update { it.copy(continueWatching = rows) }
+                _state.update { it.copy(continueWatching = latestContinueWatchingByTitle(rows)) }
             }
         }
         viewModelScope.launch {
