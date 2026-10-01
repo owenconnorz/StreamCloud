@@ -77,6 +77,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 
 internal fun resolvedStreamDataLength(
     position: Long,
@@ -600,6 +601,11 @@ class MusicPlaybackService : MediaLibraryService() {
                     delay(AUTHENTICATED_LIBRARY_SYNC_DELAY_MS)
                     ytLibrary = YtMusicLibraryRepository.sync(cookie)
                     ytHomeFeed = YtMusicHomeRepository.load(cookie)
+                    notifyAndroidAutoHomeChanged()
+                } else {
+                    ytLibrary = YtMusicLibrary()
+                    ytHomeFeed = YtMusicHomeFeed()
+                    notifyAndroidAutoHomeChanged()
                 }
             }
         }
@@ -1338,6 +1344,20 @@ class MusicPlaybackService : MediaLibraryService() {
                     parentId == ROOT_ID      -> rootChildren()
                     parentId == HOME_ID      -> homeChildren()
                     parentId == LIBRARY_ID   -> libraryChildren()
+                    parentId == AndroidAutoHomeContent.SPEED_DIAL_ID -> roomTracks {
+                        AndroidAutoHomeContent.speedDialTracks(
+                            recent = it.recent().first(),
+                            liked = it.liked().first(),
+                            mostPlayed = it.mostPlayed().first(),
+                        )
+                    }
+                    parentId == AndroidAutoHomeContent.QUICK_PICKS_ID -> roomTracks {
+                        AndroidAutoHomeContent.quickPickTracks(
+                            mostPlayed = it.mostPlayed().first(),
+                            recent = it.recent().first(),
+                            liked = it.liked().first(),
+                        )
+                    }
                     parentId == RECENT_ID    -> roomTracks { it.recent().first() }
                     parentId == ON_REPEAT_ID -> roomTracks { it.mostPlayed().first() }
                     parentId == LIKED_ID     -> likedChildren()
@@ -1548,11 +1568,56 @@ class MusicPlaybackService : MediaLibraryService() {
             }
     }
 
-    private fun homeChildren(): List<MediaItem> = listOf(
-        playlist(RECENT_ID,    "Recently Played"),
-        playlist(ON_REPEAT_ID, "On Repeat"),
-        playlist(LIKED_ID,     "Liked Songs"),
-    )
+    private suspend fun homeChildren(): List<MediaItem> {
+        val (recent, liked, mostPlayed) = runCatching {
+            val dao = LibraryDb.get(this).tracks()
+            Triple(dao.recent().first(), dao.liked().first(), dao.mostPlayed().first())
+        }.getOrElse { error ->
+            AppLogger.w(TAG, "Couldn't load local Android Auto Home recommendations: ${error.message}")
+            Triple(emptyList(), emptyList(), emptyList())
+        }
+        val feedEnabled = sl.settings.androidAutoShowYoutubeSuggestions.first()
+        val feedShelves = if (feedEnabled) AndroidAutoHomeContent.feedShelves(ytHomeFeed) else emptyList()
+        val children = mutableListOf<MediaItem>()
+
+        val speedDialTracks = AndroidAutoHomeContent.speedDialTracks(recent, liked, mostPlayed)
+        if (speedDialTracks.isNotEmpty()) {
+            children += folder(
+                AndroidAutoHomeContent.SPEED_DIAL_ID,
+                "Speed dial",
+                AndroidAutoHomeContent.artworkUrl(speedDialTracks),
+            )
+        }
+        if (!AndroidAutoHomeContent.hasQuickPicksShelf(feedShelves)) {
+            val quickPicks = AndroidAutoHomeContent.quickPickTracks(mostPlayed, recent, liked)
+            if (quickPicks.isNotEmpty()) {
+                children += folder(
+                    AndroidAutoHomeContent.QUICK_PICKS_ID,
+                    "Quick picks",
+                    AndroidAutoHomeContent.artworkUrl(quickPicks),
+                )
+            }
+        }
+        children += feedShelves.map { shelf ->
+            folder(shelf.mediaId, shelf.title, shelf.artworkUrl)
+        }
+
+        val ytLikedArtwork = ytLibrary.likedSongs.firstOrNull()?.thumbnail
+        children += playlist(RECENT_ID, "Recently Played", AndroidAutoHomeContent.artworkUrl(recent))
+        children += playlist(ON_REPEAT_ID, "On Repeat", AndroidAutoHomeContent.artworkUrl(mostPlayed))
+        children += playlist(LIKED_ID, "Liked Songs", AndroidAutoHomeContent.artworkUrl(liked) ?: ytLikedArtwork)
+        return children.distinctBy(MediaItem::mediaId)
+    }
+
+    private suspend fun notifyAndroidAutoHomeChanged() {
+        val childCount = runCatching { homeChildren().size }.getOrElse { error ->
+            AppLogger.w(TAG, "Couldn't count Android Auto Home items: ${error.message}")
+            0
+        }
+        withContext(Dispatchers.Main) {
+            session?.notifyChildrenChanged(HOME_ID, childCount, null)
+        }
+    }
 
     private fun libraryChildren(): List<MediaItem> {
         val items = mutableListOf(
@@ -1628,14 +1693,8 @@ class MusicPlaybackService : MediaLibraryService() {
         }
 
     private fun homeFeedChildren(): List<MediaItem> =
-        ytHomeFeed.sections.mapIndexedNotNull { idx, section ->
-            val title = when (section) {
-                is HomeSection.PlaylistRail -> section.title
-                is HomeSection.SongRail     -> section.title
-                is HomeSection.MoodChips    -> return@mapIndexedNotNull null
-            }
-            if (title.isBlank()) return@mapIndexedNotNull null
-            folder("$YT_HOME_SECTION_PREFIX$idx", title)
+        AndroidAutoHomeContent.feedShelves(ytHomeFeed).map { shelf ->
+            folder(shelf.mediaId, shelf.title, shelf.artworkUrl)
         }
 
     private fun homeSectionItems(sectionId: String): List<MediaItem> {
@@ -1643,9 +1702,10 @@ class MusicPlaybackService : MediaLibraryService() {
         return when (val section = ytHomeFeed.sections.getOrNull(idx) ?: return emptyList()) {
             is HomeSection.SongRail -> section.items.map(::ytmSongItem)
             is HomeSection.PlaylistRail -> section.items.mapNotNull { pl ->
-                val isVideoId = pl.id.length == 11 && pl.id.matches(Regex("[a-zA-Z0-9_-]+"))
+                val isVideoId = pl.isVideo || (!pl.isTrack && pl.id.length == 11 && pl.id.matches(Regex("[a-zA-Z0-9_-]+"))
                     && !pl.id.startsWith("VL") && !pl.id.startsWith("MPREb_") && !pl.id.startsWith("PL")
-                if (isVideoId) {
+                )
+                if (pl.isTrack || isVideoId) {
                     val url = "https://music.youtube.com/watch?v=${pl.id}"
                     ytmSong(pl.id, pl.title, pl.subtitle ?: "", null, pl.thumbnail, url, pl.isVideo)
                 } else {
@@ -1867,11 +1927,12 @@ class MusicPlaybackService : MediaLibraryService() {
         )
         .build()
 
-    private fun folder(id: String, title: String): MediaItem = MediaItem.Builder()
+    private fun folder(id: String, title: String, artworkUrl: String? = null): MediaItem = MediaItem.Builder()
         .setMediaId(id)
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(title)
+                .setArtworkUri(artworkUrl?.let(Uri::parse))
                 .setIsBrowsable(true)
                 .setIsPlayable(false)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
@@ -1879,11 +1940,12 @@ class MusicPlaybackService : MediaLibraryService() {
         )
         .build()
 
-    private fun playlist(id: String, title: String): MediaItem = MediaItem.Builder()
+    private fun playlist(id: String, title: String, artworkUrl: String? = null): MediaItem = MediaItem.Builder()
         .setMediaId(id)
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(title)
+                .setArtworkUri(artworkUrl?.let(Uri::parse))
                 .setIsBrowsable(true)
                 .setIsPlayable(false)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
@@ -1894,6 +1956,10 @@ class MusicPlaybackService : MediaLibraryService() {
     private fun staticBrowsable(id: String): MediaItem? = when {
         id == ROOT_ID       -> buildRoot()
         id == HOME_ID       -> folder(HOME_ID,       "Home")
+        id == AndroidAutoHomeContent.SPEED_DIAL_ID ->
+            folder(id, "Speed dial")
+        id == AndroidAutoHomeContent.QUICK_PICKS_ID ->
+            folder(id, "Quick picks")
         id == LIBRARY_ID    -> folder(LIBRARY_ID,    "Your Library")
         id == PLAYLISTS_ID  -> folder(PLAYLISTS_ID,  "My Playlists")
         id == ALBUMS_ID     -> folder(ALBUMS_ID,     "Albums")
@@ -1905,14 +1971,9 @@ class MusicPlaybackService : MediaLibraryService() {
         id == LIKED_ID      -> playlist(LIKED_ID,     "Liked Songs")
         id == DOWNLOADED_ID -> playlist(DOWNLOADED_ID,"Downloads")
         id.startsWith(YT_HOME_SECTION_PREFIX) -> {
-            val idx = id.removePrefix(YT_HOME_SECTION_PREFIX).toIntOrNull() ?: return null
-            val section = ytHomeFeed.sections.getOrNull(idx) ?: return null
-            val title = when (section) {
-                is HomeSection.PlaylistRail -> section.title
-                is HomeSection.SongRail     -> section.title
-                is HomeSection.MoodChips    -> return null
-            }
-            folder(id, title)
+            val shelf = AndroidAutoHomeContent.feedShelves(ytHomeFeed)
+                .firstOrNull { it.mediaId == id } ?: return null
+            folder(id, shelf.title, shelf.artworkUrl)
         }
         id.startsWith(YT_PLAYLIST_PREFIX) -> {
             val plId = id.removePrefix(YT_PLAYLIST_PREFIX)
