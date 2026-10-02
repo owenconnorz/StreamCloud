@@ -46,6 +46,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import com.streamcloud.app.ui.theme.LocalTvFocusColor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
@@ -1975,6 +1976,9 @@ private fun StremioPoster(
                 meta.posterShape.equals("landscape", ignoreCase = true)))
     var isFocused by remember(meta.type, meta.id) { mutableStateOf(false) }
     val isExpanded = isTv && isFocused
+    val focusColor = LocalTvFocusColor.current.takeUnless { it == Color.White }
+        ?: MaterialTheme.colorScheme.primary
+    val posterShape = RoundedCornerShape(12.dp)
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     val isSeries = meta.type.equals("series", ignoreCase = true) ||
@@ -2030,19 +2034,20 @@ private fun StremioPoster(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
             .width(animatedWidth)
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
             .animateContentSize(animationSpec = tween(durationMillis = 260))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
         Box(
-            modifier
+            Modifier
                 .fillMaxWidth()
                 .height(animatedImageHeight)
-                // Keep the focus target and its purple border on the poster, while the
-                // containing card still expands to show the title and episode details.
-                .onFocusChanged { isFocused = it.isFocused }
-                .tvFocusBorder(RoundedCornerShape(12.dp))
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surface),
+                .clip(posterShape)
+                .background(MaterialTheme.colorScheme.surface)
+                .then(
+                    if (isExpanded) Modifier.border(2.dp, focusColor, posterShape)
+                    else Modifier,
+                ),
         ) {
             MovieArtwork(
                 primaryUrl = primaryArtwork,
