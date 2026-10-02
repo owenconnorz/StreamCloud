@@ -12,6 +12,7 @@ import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -41,9 +42,11 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -476,6 +479,7 @@ fun NativePlayerScreen(
     var durationMs        by remember { mutableStateOf(0L) }
     var controlsVisible   by remember { mutableStateOf(true) }
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var heldSeekDirection by remember { mutableIntStateOf(0) }
     var resizeMode        by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var playbackSpeed     by remember { mutableStateOf(1f) }
     var playerClockNow    by remember { mutableStateOf(Date()) }
@@ -599,6 +603,26 @@ fun NativePlayerScreen(
 
     fun bumpInteraction() { controlsVisible = true; lastInteractionTs = System.currentTimeMillis() }
 
+    LaunchedEffect(heldSeekDirection, ex, seekIncrementSec) {
+        val direction = heldSeekDirection
+        val p = ex ?: return@LaunchedEffect
+        if (direction == 0 || !p.isCurrentMediaItemSeekable) return@LaunchedEffect
+        val increment = seekIncrementSec.toIntOrNull() ?: 10
+        delay(400)
+        while (true) {
+            p.seekTo(
+                movieSeekTargetPosition(
+                    currentPositionMs = p.currentPosition,
+                    durationMs = p.duration,
+                    seekIncrementSeconds = increment,
+                    direction = direction,
+                ),
+            )
+            bumpInteraction()
+            delay(250)
+        }
+    }
+
     // ── Skip intervals ────────────────────────────────────────────────────
     val activeSource = activeAutoSource ?: sources.firstOrNull { it.id == selectedSourceId }
     val allSkipIntervals = activeSource?.skipIntervals.orEmpty()
@@ -627,6 +651,12 @@ fun NativePlayerScreen(
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val playerFocusRequester = remember { FocusRequester() }
     val primaryPlaybackFocusRequester = remember { FocusRequester() }
+    var progressBarFocused by remember { mutableStateOf(false) }
+    val progressBarScale by animateFloatAsState(
+        targetValue = if (isTv && progressBarFocused) 1.06f else 1f,
+        animationSpec = tween(durationMillis = 180),
+        label = "movieProgressFocusScale",
+    )
     var locked            by remember { mutableStateOf(false) }
     var showSourcesSheet  by remember { mutableStateOf(false) }
     var showSpeedSheet    by remember { mutableStateOf(false) }
@@ -665,21 +695,47 @@ fun NativePlayerScreen(
             .focusRequester(playerFocusRequester).focusable()
             // onPreviewKeyEvent fires before any focused child handles the event, so
             // D-pad input is intercepted even when a button or slider inside the
-            // controls overlay has focus. Directional keys are only consumed when
-            // the overlay is hidden so that visible controls can still be operated.
+            // controls overlay has focus. Directional keys seek when controls are
+            // hidden or the progress slider itself has focus.
             .onPreviewKeyEvent { event ->
+                val seekDirection = when (event.key) {
+                    Key.DirectionLeft -> -1
+                    Key.DirectionRight -> 1
+                    else -> 0
+                }
+                if (event.type == KeyEventType.KeyUp) {
+                    if (seekDirection != 0 && heldSeekDirection == seekDirection) {
+                        heldSeekDirection = 0
+                        return@onPreviewKeyEvent true
+                    }
+                    return@onPreviewKeyEvent false
+                }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 // Any overlay sheet owns D-pad focus — don't intercept.
                 if (showSourcesSheet || showSpeedSheet || showSubsSheet || showAudioSheet || showSubtitleStyle) return@onPreviewKeyEvent false
                 val p = player.value ?: return@onPreviewKeyEvent false
+                if (seekDirection != 0) {
+                    val alreadySeekingInDirection = heldSeekDirection == seekDirection
+                    if (!controlsVisible || progressBarFocused || alreadySeekingInDirection) {
+                        if (!alreadySeekingInDirection) {
+                            heldSeekDirection = seekDirection
+                            p.seekTo(
+                                movieSeekTargetPosition(
+                                    currentPositionMs = p.currentPosition,
+                                    durationMs = p.duration,
+                                    seekIncrementSeconds = seekIncrementSec.toIntOrNull() ?: 10,
+                                    direction = seekDirection,
+                                ),
+                            )
+                            bumpInteraction()
+                        }
+                        return@onPreviewKeyEvent true
+                    }
+                }
                 when (event.key) {
-                    // When controls are hidden: D-pad seeks/plays-pauses and we consume.
-                    // When controls are visible: let the focused button handle the event
-                    // but still call bumpInteraction so the controls don't auto-hide
-                    // mid-interaction.
+                    // Preserve normal focus movement when a non-slider control is focused.
                     Key.DirectionCenter  -> if (!controlsVisible) { if (p.isPlaying) p.pause() else p.play(); bumpInteraction(); true } else { bumpInteraction(); false }
-                    Key.DirectionRight   -> if (!controlsVisible) { p.seekTo((p.currentPosition + 10_000L).coerceAtMost(p.duration.coerceAtLeast(0L))); bumpInteraction(); true } else { bumpInteraction(); false }
-                    Key.DirectionLeft    -> if (!controlsVisible) { p.seekTo((p.currentPosition - 10_000L).coerceAtLeast(0L)); bumpInteraction(); true } else { bumpInteraction(); false }
+                    Key.DirectionRight, Key.DirectionLeft -> { bumpInteraction(); false }
                     Key.DirectionUp, Key.DirectionDown -> { bumpInteraction(); false }
                     Key.MediaPlayPause   -> { if (p.isPlaying) p.pause() else p.play(); bumpInteraction(); true }
                     Key.MediaPlay        -> { p.play(); bumpInteraction(); true }
@@ -942,7 +998,12 @@ fun NativePlayerScreen(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .tvFocusBorder(RoundedCornerShape(8.dp)),
+                                .onFocusChanged { progressBarFocused = it.isFocused }
+                                .then(if (isTv) Modifier.focusable() else Modifier)
+                                .graphicsLayer {
+                                    scaleX = progressBarScale
+                                    scaleY = progressBarScale
+                                },
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             TimestampChip(formatTime(positionMs))
