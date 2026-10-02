@@ -1,6 +1,15 @@
 # StreamCloud
 
-## Latest — Continue Watching and MoviePlayer improvements
+## Latest — Android TV home and streaming improvements
+
+    ### Android TV home
+    - **Focused catalog cards expand reliably** — moving focus to TMDB and Stremio cards opens their details.
+    - **Artwork-matched hero gradient** — the top of the home banner uses the dominant color extracted from its artwork.
+
+    ### Movie and TV playback
+    - **Faster provider-priority auto-play** — playback starts when the first eligible provider in the configured priority order returns a stream, without waiting for all providers.
+
+    ## Previous — Continue Watching and MoviePlayer improvements
 
 ### TV playback
 - **Continue Watching follows the latest in-progress episode** — home cards stay aligned with the episode page, even when synced progress is under 1%.
