@@ -20,7 +20,11 @@ import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.stremio.StremioRepository
+import com.lagradost.cloudstream3.MovieSearchResponse
 import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.TvSeriesSearchResponse
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.isEpisodeBased
 import com.streamcloud.app.data.plugins.PinnedCsSection
 import com.streamcloud.app.data.plugins.PluginRuntime
 import retrofit2.HttpException
@@ -117,6 +121,7 @@ data class MoviesState(
     val installedStremioAddons: List<InstalledStremioAddon> = emptyList(),
     val stremioRows: List<StremioHomeRow> = emptyList(),
     val stremioTmdbIds: Map<String, Long> = emptyMap(),
+    val csHomeTmdbMovies: Map<String, TmdbMovie> = emptyMap(),
     val tmdbTitleLogos: Map<String, String> = emptyMap(),
     val watchlist: List<WatchlistEntity> = emptyList(),
     val csPluginRows: List<CsPluginRow> = emptyList(),
@@ -138,6 +143,52 @@ private data class HomeCollectionConfig(
     val ids: List<String>,
     val hideUnreleased: Boolean,
 )
+
+internal fun bestCloudStreamHomeTmdbMatch(
+    results: List<TmdbMovie>,
+    title: String,
+    year: Int?,
+): TmdbMovie? {
+    val normalizedTitle = normalizeHomeMatchTitle(title)
+    val titleWithoutYear = year
+        ?.let { normalizedTitle.removeSuffix(it.toString()).trim() }
+        ?.takeIf { it.isNotBlank() }
+        ?: normalizedTitle
+    if (normalizedTitle.isBlank()) return null
+
+    var bestMatch: TmdbMovie? = null
+    var bestScore = Int.MIN_VALUE
+    results.forEach { candidate ->
+        val candidateTitle = normalizeHomeMatchTitle(candidate.displayTitle)
+        val titleScore = when {
+            candidateTitle == normalizedTitle || candidateTitle == titleWithoutYear -> 100
+            candidateTitle.contains(normalizedTitle) ||
+                normalizedTitle.contains(candidateTitle) -> 55
+            candidateTitle.contains(titleWithoutYear) ||
+                titleWithoutYear.contains(candidateTitle) -> 45
+            else -> 0
+        }
+        if (titleScore == 0) return@forEach
+
+        val candidateYear = (candidate.releaseDate ?: candidate.firstAirDate)
+            ?.substringBefore('-')
+            ?.toIntOrNull()
+        val yearScore = when {
+            year == null || candidateYear == null -> 0
+            candidateYear == year -> 35
+            else -> -35
+        }
+        val score = titleScore + yearScore
+        if (score > bestScore) {
+            bestScore = score
+            bestMatch = candidate
+        }
+    }
+    return bestMatch
+}
+
+private fun normalizeHomeMatchTitle(value: String): String =
+    value.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
 
 private fun normalizeStremioRows(rows: Any?): List<StremioHomeRow> =
     (rows as? List<*>)
@@ -180,6 +231,7 @@ class MoviesViewModel(
     /** In-memory cache of all fetched TMDB pages. Cleared when this VM is cleared. */
     private val tmdbCache = HashMap<String, TmdbSearchCacheEntry>()
     private val requestedStremioTmdbIds = mutableSetOf<String>()
+    private val requestedCsHomeTmdbMovies = mutableSetOf<String>()
     private val requestedTitleLogoKeys = mutableSetOf<String>()
     private var discoverJob: Job? = null
     private var activeDiscoverConfig: HomeCollectionConfig? = null
@@ -581,6 +633,36 @@ class MoviesViewModel(
             }.getOrNull()
             if (tmdbId != null) {
                 _state.update { it.copy(stremioTmdbIds = it.stremioTmdbIds + (key to tmdbId)) }
+            }
+        }
+    }
+
+    fun requestCsHomeTmdbMovie(key: String, item: SearchResponse) {
+        if (key.isBlank()) return
+        val mediaType = when {
+            item.type.isEpisodeBased() -> "tv"
+            item.type == TvType.Movie ||
+                item.type == TvType.AnimeMovie ||
+                item.type == TvType.Documentary -> "movie"
+            else -> return
+        }
+        if (!requestedCsHomeTmdbMovies.add(key)) return
+
+        viewModelScope.launch {
+            val match = runCatching {
+                val results = if (mediaType == "tv") {
+                    sl.tmdb.searchTv(sl.tmdbApiKey, item.name).results
+                } else {
+                    sl.tmdb.search(sl.tmdbApiKey, item.name).results
+                }
+                val year = (item as? MovieSearchResponse)?.year
+                    ?: (item as? TvSeriesSearchResponse)?.year
+                bestCloudStreamHomeTmdbMatch(results, item.name, year)
+            }.getOrNull()
+            if (match != null) {
+                _state.update {
+                    it.copy(csHomeTmdbMovies = it.csHomeTmdbMovies + (key to match))
+                }
             }
         }
     }

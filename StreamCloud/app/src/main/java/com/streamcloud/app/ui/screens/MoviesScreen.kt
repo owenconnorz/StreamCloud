@@ -68,6 +68,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
+import com.lagradost.cloudstream3.SearchResponse
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.LibraryDb
@@ -94,6 +95,12 @@ private data class PosterSheetItem(
 )
 
 private fun TmdbMovie.watchedMediaType(): String = if (title != null) "movie" else "tv"
+
+internal fun csHomeTmdbKey(
+    pluginInternalName: String,
+    sectionName: String,
+    itemUrl: String,
+): String = "cs:$pluginInternalName:$sectionName:$itemUrl"
 
 @Composable
 private fun Modifier.tvOkPress(
@@ -756,7 +763,6 @@ fun MoviesScreen(
                     item(key = "cshome_${row.pluginInternalName}_${row.sectionName}") {
                         val csLandscape = posterStyle == "landscape"
                         val csCardWidth = if (csLandscape) 200.dp else 120.dp
-                        val csAspect    = if (csLandscape) 16f / 9f else 2f / 3f
                         LazyRow(
                             modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
@@ -766,34 +772,28 @@ fun MoviesScreen(
                                 row.items,
                                 key = { "${row.pluginInternalName}_${row.sectionName}_${it.url}" },
                             ) { sr ->
-                                Column(
-                                    Modifier
-                                        .width(csCardWidth)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .tvFocusBorder(RoundedCornerShape(12.dp))
-                                        .clickable {
-                                            onOpenCsItem(row.pluginInternalName, sr.url, sr.name, sr.posterUrl)
-                                        },
-                                ) {
-                                    AsyncImage(
-                                        model = sr.posterUrl,
-                                        contentDescription = sr.name,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(csAspect)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(MaterialTheme.colorScheme.surface),
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        sr.name,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
+                                val tmdbKey = csHomeTmdbKey(
+                                    row.pluginInternalName,
+                                    row.sectionName,
+                                    sr.url,
+                                )
+                                CsHomePosterCard(
+                                    item = sr,
+                                    defaultWidth = csCardWidth,
+                                    isTv = isTv,
+                                    tmdbMovie = state.csHomeTmdbMovies[tmdbKey],
+                                    onRequestTmdbMovie = {
+                                        vm.requestCsHomeTmdbMovie(tmdbKey, sr)
+                                    },
+                                    onClick = {
+                                        onOpenCsItem(
+                                            row.pluginInternalName,
+                                            sr.url,
+                                            sr.name,
+                                            sr.posterUrl,
+                                        )
+                                    },
+                                )
                             }
                             if (isTv) {
                                 item(key = "${row.pluginInternalName}_${row.sectionName}_viewall") {
@@ -1690,6 +1690,123 @@ private fun LandscapeCardTitle(title: String, logoUrl: String? = null) {
                 style = MaterialTheme.typography.titleSmall,
                 color = Color.White,
                 fontWeight = FontWeight.ExtraBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CsHomePosterCard(
+    item: SearchResponse,
+    defaultWidth: Dp,
+    isTv: Boolean,
+    tmdbMovie: TmdbMovie?,
+    onRequestTmdbMovie: () -> Unit,
+    onClick: () -> Unit,
+) {
+    var isFocused by remember(item.url) { mutableStateOf(false) }
+    val isExpanded = isTv && isFocused
+    val imageRatio = if (defaultWidth >= 180.dp) 16f / 9f else 2f / 3f
+    val animatedWidth by animateDpAsState(
+        targetValue = if (isExpanded) 320.dp else defaultWidth,
+        animationSpec = tween(durationMillis = 260),
+        label = "cloudstream-home-card-width",
+    )
+    val animatedImageHeight by animateDpAsState(
+        targetValue = if (isExpanded) 180.dp else defaultWidth / imageRatio,
+        animationSpec = tween(durationMillis = 260),
+        label = "cloudstream-home-card-image-height",
+    )
+
+    LaunchedEffect(isTv, isFocused, item.url, tmdbMovie?.id) {
+        if (!isTv || !isFocused || tmdbMovie != null) return@LaunchedEffect
+        kotlinx.coroutines.delay(350L)
+        onRequestTmdbMovie()
+    }
+
+    val posterShape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = Modifier
+            .width(animatedWidth)
+            .tvOkPress(onClick, onLongPress = {})
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+            .animateContentSize(animationSpec = tween(durationMillis = 260))
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(animatedImageHeight)
+                .clip(posterShape)
+                .background(MaterialTheme.colorScheme.surface),
+        ) {
+            AsyncImage(
+                model = if (isExpanded) {
+                    tmdbMovie?.backdropUrl ?: item.posterUrl
+                } else {
+                    item.posterUrl
+                },
+                contentDescription = item.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (isExpanded && tmdbMovie != null) {
+                TmdbTrailerPreview(
+                    movie = tmdbMovie,
+                    modifier = Modifier.fillMaxSize(),
+                    startDelayMs = 1_000L,
+                )
+            }
+            if (isExpanded) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .border(2.dp, MaterialTheme.colorScheme.primary, posterShape),
+                )
+            }
+        }
+
+        if (isExpanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    tmdbMovie?.displayTitle ?: item.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                tmdbMovie?.displayReleaseInfo()?.let { releaseInfo ->
+                    Text(
+                        releaseInfo,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.72f),
+                    )
+                }
+                tmdbMovie?.overview?.trim()?.takeIf { it.isNotBlank() }?.let { overview ->
+                    Text(
+                        overview,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.82f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        } else {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                item.name,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
