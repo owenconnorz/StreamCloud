@@ -1,6 +1,12 @@
 # StreamCloud
 
-## Latest — Android TV home and streaming improvements
+## Latest — Player navigation and TV up next
+
+### Movie and TV playback
+- **Back returns to details after playback** — Returning from movie or show playback no longer reopens the source picker or starts playback again.
+- **Nuvio-style TV up next** — A compact chip appears during the final minute for TMDB-backed episodes. When playback ends, a dialog offers the next episode and a 10-second countdown when Autoplay next is enabled.
+
+## Previous — Android TV home and streaming improvements
 
     ### Android TV home
     - **Focused catalog cards expand reliably** — moving focus to TMDB and Stremio cards opens their details.
