@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.streamcloud.app.BuildConfig
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.api.TmdbMovie
+import com.streamcloud.app.player.BingeEpisode
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.WatchProgressKey
 import kotlinx.coroutines.flow.first
@@ -32,7 +33,14 @@ fun StremioUnifiedDetailScreen(
     initialTitle: String,
     initialPoster: String?,
     onBack: () -> Unit,
-    onPlay: (String, String, List<PlayerSource>, WatchProgressKey) -> Unit,
+    onPlay: (
+        String,
+        String,
+        List<PlayerSource>,
+        WatchProgressKey,
+        List<BingeEpisode>,
+        Int,
+    ) -> Unit,
     onDirectStremioPlay: (String, String) -> Unit,
 ) {
     val context = LocalContext.current

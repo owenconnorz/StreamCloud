@@ -16,6 +16,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
@@ -62,6 +64,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -477,6 +481,7 @@ fun NativePlayerScreen(
     var isPlaying         by remember { mutableStateOf(true) }
     var positionMs        by remember { mutableStateOf(0L) }
     var durationMs        by remember { mutableStateOf(0L) }
+    var playbackEnded     by remember(streamUrl, restartKey) { mutableStateOf(false) }
     var controlsVisible   by remember { mutableStateOf(true) }
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
     var heldSeekDirection by remember { mutableIntStateOf(0) }
@@ -498,6 +503,7 @@ fun NativePlayerScreen(
             override fun onIsPlayingChanged(p: Boolean) { isPlaying = p }
             override fun onPlaybackStateChanged(state: Int) {
                 durationMs = ex.duration.coerceAtLeast(0L)
+                playbackEnded = state == Player.STATE_ENDED
                 if (state == Player.STATE_ENDED) markCompletedPlayback(completionTarget)
             }
             override fun onPlayerError(error: PlaybackException) {
@@ -631,20 +637,38 @@ fun NativePlayerScreen(
         allSkipIntervals.firstOrNull { it.startMs <= positionMs && positionMs < it.endMs && it.endMs != dismissedIntervalEnd }
     }
 
-    // ── Next episode countdown ────────────────────────────────────────────
+    // ── Next episode prompt and end-of-episode autoplay ────────────────────
     val nextBingeEpisode = if (currentBingeIndex in 0 until (bingeEpisodes.size - 1))
         bingeEpisodes[currentBingeIndex + 1] else null
-    var nextEpisodeDismissed by remember { mutableStateOf(false) }
-    var nextEpisodeCountdown by remember { mutableStateOf(10) }
-    val showNextEpisodeCard  = nextBingeEpisode != null &&
-        durationMs > 0L && (durationMs - positionMs) in 1L..30_000L &&
-        !nextEpisodeDismissed && isPlaying
+    val autoplayNextEnabled by sl.settings.autoplayNext.collectAsState(initial = true)
+    var nextEpisodeDismissed by remember(streamUrl, restartKey) { mutableStateOf(false) }
+    var nextEpisodeCountdown by remember(streamUrl, restartKey) { mutableIntStateOf(10) }
+    val remainingPlaybackMs = (durationMs - positionMs).coerceAtLeast(0L)
+    val showNextEpisodePill = nextBingeEpisode != null &&
+        remainingPlaybackMs in 10_001L..60_000L &&
+        !playbackEnded && !nextEpisodeDismissed && isPlaying
+    val showNextEpisodeDialog = playbackEnded &&
+        nextBingeEpisode != null &&
+        onPlayBingeEpisode != null &&
+        !nextEpisodeDismissed
 
-    LaunchedEffect(showNextEpisodeCard) {
-        if (!showNextEpisodeCard) return@LaunchedEffect
+    fun playNextBingeEpisode() {
+        val episode = nextBingeEpisode ?: return
+        val play = onPlayBingeEpisode ?: return
+        nextEpisodeDismissed = true
+        play(episode)
+    }
+
+    LaunchedEffect(showNextEpisodeDialog, autoplayNextEnabled, nextBingeEpisode) {
+        if (!showNextEpisodeDialog || !autoplayNextEnabled) return@LaunchedEffect
         nextEpisodeCountdown = 10
-        repeat(10) { delay(1_000); nextEpisodeCountdown-- }
-        if (!nextEpisodeDismissed && nextBingeEpisode != null) onPlayBingeEpisode?.invoke(nextBingeEpisode)
+        var secondsRemaining = 10
+        while (secondsRemaining > 0) {
+            delay(1_000)
+            secondsRemaining--
+            nextEpisodeCountdown = secondsRemaining
+        }
+        playNextBingeEpisode()
     }
 
     // ── UI state ──────────────────────────────────────────────────────────
@@ -1052,18 +1076,27 @@ fun NativePlayerScreen(
             )
         }
 
-        // ── Next episode card ─────────────────────────────────────────────
-        AnimatedVisibility(visible = showNextEpisodeCard && nextBingeEpisode != null,
-            enter = fadeIn(), exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 110.dp)) {
-            if (nextBingeEpisode != null) {
-                NextEpisodeCard(
-                    episode    = nextBingeEpisode,
-                    countdown  = nextEpisodeCountdown,
-                    onPlayNext = { onPlayBingeEpisode?.invoke(nextBingeEpisode); nextEpisodeDismissed = true },
-                    onDismiss  = { nextEpisodeDismissed = true },
-                )
+        // Nuvio-style "Up next" chip during the last minute; playback only
+        // advances automatically after the current episode has actually ended.
+        AnimatedVisibility(
+            visible = showNextEpisodePill && !locked && nextBingeEpisode != null,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 110.dp),
+        ) {
+            nextBingeEpisode?.let { episode ->
+                NextEpisodePill(episode = episode, onClick = { playNextBingeEpisode() })
             }
+        }
+
+        if (showNextEpisodeDialog && nextBingeEpisode != null) {
+            NextEpisodeDialog(
+                episode = nextBingeEpisode,
+                countdownSeconds = if (autoplayNextEnabled) nextEpisodeCountdown else null,
+                isTv = isTv,
+                onPlayNext = { playNextBingeEpisode() },
+                onDismiss = { nextEpisodeDismissed = true },
+            )
         }
 
         // ── Side panel ────────────────────────────────────────────────────
@@ -1360,36 +1393,160 @@ private fun SkipIntroPill(type: String, onClick: () -> Unit, onDismiss: () -> Un
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Next episode card
+// Next episode prompt
 // ────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun NextEpisodeCard(episode: BingeEpisode, countdown: Int, onPlayNext: () -> Unit, onDismiss: () -> Unit) {
-    val epLabel = "S${episode.seasonNumber} E${episode.episodeNumber}" + (episode.episodeTitle?.let { " · $it" } ?: "")
-    Box(Modifier.width(280.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.85f)).padding(16.dp)) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Up Next", color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f))
-                Box(Modifier.size(24.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f))
-                    .clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Close, "Dismiss", tint = Color.White, modifier = Modifier.size(14.dp))
+private fun NextEpisodePill(
+    episode: BingeEpisode,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val episodeLabel = "S${episode.seasonNumber}E${episode.episodeNumber} · " +
+        (episode.episodeTitle?.takeIf { it.isNotBlank() } ?: "Episode ${episode.episodeNumber}")
+
+    Surface(
+        modifier = modifier
+            .widthIn(max = 380.dp)
+            .tvFocusBorder(shape)
+            .clickable(onClick = onClick),
+        shape = shape,
+        color = Color.White.copy(alpha = 0.96f),
+        shadowElevation = 10.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.SkipNext,
+                contentDescription = "Play next episode",
+                tint = Color(0xFF17171A),
+                modifier = Modifier.size(22.dp),
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Up next",
+                    color = Color(0xFF55555B),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    episodeLabel,
+                    color = Color(0xFF17171A),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextEpisodeDialog(
+    episode: BingeEpisode,
+    countdownSeconds: Int?,
+    isTv: Boolean,
+    onPlayNext: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val playFocusRequester = remember { FocusRequester() }
+    val episodeLabel = "S${episode.seasonNumber}E${episode.episodeNumber} · " +
+        (episode.episodeTitle?.takeIf { it.isNotBlank() } ?: "Episode ${episode.episodeNumber}")
+
+    LaunchedEffect(isTv) {
+        if (isTv) {
+            delay(120)
+            runCatching { playFocusRequester.requestFocus() }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(0.92f).widthIn(max = 560.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xF21B1B1F),
+            shadowElevation = 24.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                NextEpisodePill(
+                    episode = episode,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onPlayNext,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (!episode.posterUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = episode.posterUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.width(100.dp).height(145.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Text(
+                            "Episode finished",
+                            color = Color.White.copy(alpha = 0.65f),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Text(
+                            episode.title,
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            episodeLabel,
+                            color = Color.White.copy(alpha = 0.78f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            countdownSeconds?.let { "Next episode starts in ${it}s" }
+                                ?: "Autoplay is off. Choose when to play next.",
+                            color = Color.White.copy(alpha = 0.65f),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
-            }
-            Spacer(Modifier.height(8.dp))
-            if (!episode.posterUrl.isNullOrBlank()) {
-                AsyncImage(model = episode.posterUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().height(100.dp).clip(RoundedCornerShape(8.dp)))
-                Spacer(Modifier.height(8.dp))
-            }
-            Text(episode.title, color = Color.White, style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(epLabel, color = Color.White.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
-            Spacer(Modifier.height(12.dp))
-            Button(onClick = onPlayNext, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)) {
-                Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp)); Text("Play in ${countdown}s")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Not now") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = onPlayNext,
+                        modifier = Modifier.focusRequester(playFocusRequester)
+                            .tvFocusBorder(RoundedCornerShape(12.dp)),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Play next")
+                    }
+                }
             }
         }
     }

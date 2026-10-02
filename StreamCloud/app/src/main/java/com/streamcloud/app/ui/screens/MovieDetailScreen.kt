@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.animateFloatAsState
@@ -90,6 +91,8 @@ import com.streamcloud.app.ui.components.TmdbTrailerPreview
 import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
+import com.streamcloud.app.player.BingeEpisode
+import com.streamcloud.app.player.buildBingeEpisodeQueue
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.StreamCacheRepository
 import com.streamcloud.app.player.WatchProgressKey
@@ -118,7 +121,14 @@ fun MovieDetailScreen(
     movieId: Long,
     mediaType: String = "movie",
     onBack: () -> Unit,
-    onPlay: (initialUrl: String, title: String, sources: List<PlayerSource>, progressKey: WatchProgressKey) -> Unit,
+    onPlay: (
+        initialUrl: String,
+        title: String,
+        sources: List<PlayerSource>,
+        progressKey: WatchProgressKey,
+        bingeEpisodes: List<BingeEpisode>,
+        currentBingeIndex: Int,
+    ) -> Unit,
     onOpenCsPluginForMovie: (internalName: String, title: String) -> Unit = { _, _ -> },
     onMovieClick: (Long) -> Unit = {},
     onTvClick: (Long) -> Unit = {},
@@ -160,7 +170,7 @@ fun MovieDetailScreen(
 
     var showStreamPicker by remember { mutableStateOf(false) }
     var pickerForDownload by remember { mutableStateOf(false) }
-    var openInitialSourcePicker by remember(movieId, mediaType) {
+    var openInitialSourcePicker by rememberSaveable(movieId, mediaType, openSourcePickerOnStart) {
         mutableStateOf(openSourcePickerOnStart)
     }
     var showDownloadEpisodePicker by remember { mutableStateOf(false) }
@@ -246,7 +256,9 @@ fun MovieDetailScreen(
                 val seasons = tmdbMovie.seasons.filter { it.seasonNumber > 0 }
                 tvSeasons = seasons
                 if (seasons.isNotEmpty() && selectedSeason == null) {
-                    selectedSeason = seasons.first().seasonNumber
+                    selectedSeason = initialPickerSeason
+                        ?.takeIf { requested -> seasons.any { it.seasonNumber == requested } }
+                        ?: seasons.first().seasonNumber
                 }
             }
         } catch (e: Exception) {
@@ -266,6 +278,9 @@ fun MovieDetailScreen(
 
     LaunchedEffect(movie, openInitialSourcePicker) {
         if (movie != null && openInitialSourcePicker) {
+            // Consume this route argument before opening the picker. Returning from
+            // playback should restore details, not re-run the same auto-play request.
+            openInitialSourcePicker = false
             pickerSeason = initialPickerSeason
             pickerEpisode = initialPickerEpisode
             pickerEpTitle = null
@@ -307,10 +322,12 @@ fun MovieDetailScreen(
         episodePlaybackTarget?.seasonNumber,
         tvSeasons,
         seasonSelectedByUser,
+        initialPickerSeason,
     ) {
         val targetSeason = episodePlaybackTarget?.seasonNumber ?: return@LaunchedEffect
         if (
             mediaType == "tv" &&
+            initialPickerSeason == null &&
             !seasonSelectedByUser &&
             tvSeasons.any { it.seasonNumber == targetSeason }
         ) {
@@ -339,6 +356,17 @@ fun MovieDetailScreen(
         pickerSeason = seasonNum; pickerEpisode = episodeNum; pickerEpTitle = episodeTitle
         showStreamPicker = true
     }
+
+    fun bingePlaybackSelection(progressKey: WatchProgressKey) =
+        buildBingeEpisodeQueue(
+            tmdbId = movieId,
+            showTitle = movie?.displayTitle.orEmpty(),
+            fallbackPosterUrl = movie?.posterUrl ?: movie?.backdropUrl,
+            currentSeason = progressKey.seasonNumber,
+            currentEpisode = progressKey.episodeNumber,
+            seasonSummaries = tvSeasons,
+            episodeDetails = tvEpisodes,
+        )
 
     fun toggleWatched() {
         val m = movie ?: return
@@ -1275,7 +1303,15 @@ fun MovieDetailScreen(
                                         ?: if (selIdx >= 0 && selIdx < ps.size) ps[selIdx] else ps.firstOrNull() ?: return@Button
                                     val reordered = listOf(selPs) + ps.filter { it.url != selPs.url }
                                     csPickerPlugin = null
-                                    onPlay(selPs.url, displayTitle, reordered, progressKey)
+                                    val bingeSelection = bingePlaybackSelection(progressKey)
+                                    onPlay(
+                                        selPs.url,
+                                        displayTitle,
+                                        reordered,
+                                        progressKey,
+                                        bingeSelection.episodes,
+                                        bingeSelection.currentIndex,
+                                    )
                                 },
                                 enabled = csPickerSelSource != null,
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -1409,7 +1445,15 @@ fun MovieDetailScreen(
                         episodeNumber = pickerEpisode,
                         showTitle = m?.displayTitle,
                         episodeTitle = pickerEpTitle)
-                    onPlay(url, displayTitle, sources, progressKey)
+                    val bingeSelection = bingePlaybackSelection(progressKey)
+                    onPlay(
+                        url,
+                        displayTitle,
+                        sources,
+                        progressKey,
+                        bingeSelection.episodes,
+                        bingeSelection.currentIndex,
+                    )
                 }
             },
             onDownload = { source -> downloadSource(source) },

@@ -917,11 +917,13 @@ fun StreamCloudApp() {
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
-                        onPlay = { initialUrl, title, sources, progressKey ->
+                        onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources, progressKey,
                                 tmdbId = progressKey.tmdbId,
                                 mediaType = progressKey.mediaType,
+                                bingeEpisodes = bingeEpisodes,
+                                currentBingeIndex = currentBingeIndex,
                             )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
@@ -959,11 +961,13 @@ fun StreamCloudApp() {
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
-                        onPlay = { initialUrl, title, sources, progressKey ->
+                        onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources, progressKey,
                                 tmdbId = progressKey.tmdbId,
                                 mediaType = progressKey.mediaType,
+                                bingeEpisodes = bingeEpisodes,
+                                currentBingeIndex = currentBingeIndex,
                             )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
@@ -1000,12 +1004,14 @@ fun StreamCloudApp() {
                         initialTitle = tt,
                         initialPoster = pp.takeIf { it.isNotBlank() },
                         onBack = { nav.popBackStack() },
-                        onPlay = { initialUrl, title, sources, progressKey ->
+                        onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources,
                                 progressKey,
                                 tmdbId = progressKey.tmdbId,
                                 mediaType = progressKey.mediaType,
+                                bingeEpisodes = bingeEpisodes,
+                                currentBingeIndex = currentBingeIndex,
                             )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val tArg = URLEncoder.encode(title, "UTF-8")
@@ -1547,20 +1553,15 @@ fun StreamCloudApp() {
                         bingeEpisodes     = bingeEpisodes,
                         currentBingeIndex = com.streamcloud.app.player.MoviePlayerSession.currentBingeIndex,
                         onPlayBingeEpisode = { ep ->
-                            val pk = com.streamcloud.app.player.progressKeyForBingeEpisode(ep)
-                            val newIdx = bingeEpisodes.indexOf(ep)
-                            com.streamcloud.app.player.MoviePlayerSession.set(
-                                newSources        = emptyList(),
-                                progressKey       = pk,
-                                tmdbId            = ep.tmdbId,
-                                mediaType         = "tv",
-                                seasonNumber      = ep.seasonNumber,
-                                episodeNumber     = ep.episodeNumber,
-                                episodeTitle      = ep.episodeTitle,
-                                bingeEpisodes     = bingeEpisodes,
-                                currentBingeIndex = newIdx,
-                            )
-                            nav.navigate("player/${URLEncoder.encode("about:blank", "UTF-8")}/${URLEncoder.encode(ep.title, "UTF-8")}")
+                            val route =
+                                "tv/${ep.tmdbId}?openSources=true" +
+                                    "&season=${ep.seasonNumber}&episode=${ep.episodeNumber}"
+                            val currentPlayerDestinationId = nav.currentDestination?.id
+                            nav.navigate(route) {
+                                currentPlayerDestinationId?.let { destinationId ->
+                                    popUpTo(destinationId) { inclusive = true }
+                                }
+                            }
                         },
                         // ── Addon subtitles ───────────────────────────────────
                         addonSubtitles = addonSubtitles,
