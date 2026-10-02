@@ -1237,10 +1237,11 @@ private fun HeroBannerSlide(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0f to Color.Black.copy(alpha = 0.38f),
-                            0.18f to Color.Black.copy(alpha = 0.04f),
-                            0.48f to Color.Transparent,
-                            0.74f to bannerColor.copy(alpha = 0.38f),
+                            0f to bannerColor.copy(alpha = 0.52f),
+                            0.16f to bannerColor.copy(alpha = 0.20f),
+                            0.34f to Color.Transparent,
+                            0.62f to Color.Transparent,
+                            0.76f to bannerColor.copy(alpha = 0.26f),
                             0.88f to Color.Black.copy(alpha = 0.68f),
                             1f to Color.Black.copy(alpha = 0.97f),
                         ),

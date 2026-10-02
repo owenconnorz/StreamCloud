@@ -40,8 +40,20 @@ fun orderStreamProviderEntries(
         .map { it.value }
 }
 
-fun shouldAutoPlayBestStream(
-    autoPlayEnabled: Boolean,
+fun <T> firstReadyProviderItem(
+      providerOrder: List<String>,
+      itemsByProvider: Map<String, List<T>>,
+      loadingProviders: Set<String>,
+    ): T? {
+      for (providerKey in providerOrder) {
+          itemsByProvider[providerKey]?.firstOrNull()?.let { return it }
+          if (providerKey in loadingProviders) return null
+      }
+      return null
+    }
+
+    fun shouldAutoPlayBestStream(
+        autoPlayEnabled: Boolean,
     isDownloadRequest: Boolean,
 ): Boolean = autoPlayEnabled && !isDownloadRequest
 

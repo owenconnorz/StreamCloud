@@ -37,6 +37,37 @@ class StreamProviderPriorityTest {
     }
 
     @Test
+      fun autoPlayWaitsForEarlierProvidersBeforeUsingAvailableStreams() {
+          assertEquals(
+              null,
+              firstReadyProviderItem(
+                  providerOrder = listOf("first", "second"),
+                  itemsByProvider = mapOf("second" to listOf("lower-priority")),
+                  loadingProviders = setOf("first"),
+              ),
+          )
+          assertEquals(
+              "second-choice",
+              firstReadyProviderItem(
+                  providerOrder = listOf("first", "second", "third"),
+                  itemsByProvider = mapOf("second" to listOf("second-choice")),
+                  loadingProviders = setOf("third"),
+              ),
+          )
+          assertEquals(
+              "first-choice",
+              firstReadyProviderItem(
+                  providerOrder = listOf("first", "second"),
+                  itemsByProvider = mapOf(
+                      "first" to listOf("first-choice"),
+                      "second" to listOf("second-choice"),
+                  ),
+                  loadingProviders = setOf("second"),
+              ),
+          )
+      }
+
+        @Test
     fun autoPlayAppliesToSourceRoutesButDownloadsStayManual() {
         assertTrue(shouldAutoPlayBestStream(autoPlayEnabled = true, isDownloadRequest = false))
         assertFalse(shouldAutoPlayBestStream(autoPlayEnabled = true, isDownloadRequest = true))

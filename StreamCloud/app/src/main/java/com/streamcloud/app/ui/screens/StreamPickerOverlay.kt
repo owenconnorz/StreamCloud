@@ -36,6 +36,7 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.buildStreamProviderPriorityEntries
+import com.streamcloud.app.data.firstReadyProviderItem
 import com.streamcloud.app.data.orderStreamProviderEntries
 import com.streamcloud.app.data.shouldShowAutoPlayResolvingState
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
@@ -215,15 +216,27 @@ fun StreamPickerOverlay(
     val isAnyLoading = groups.values.any { it.isLoading }
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val firstPickerFocus = remember { FocusRequester() }
-    val allSources = remember(groups, groupOrder) {
-        groupOrder.flatMap { (key, _) ->
-            groups[key]?.streams.orEmpty().sortedWith(
-                compareBy<PlayerSource> { it.isMagnet }
-                    .thenByDescending { pickerQualityRank(it.qualityTag) },
-            )
-        }
-    }
-    val showAutoPlayProgress = shouldShowAutoPlayResolvingState(
+    val sourcesByProvider = remember(groups) {
+          groups.mapValues { (_, group) ->
+              group.streams.sortedWith(
+                  compareBy<PlayerSource> { it.isMagnet }
+                      .thenByDescending { pickerQualityRank(it.qualityTag) },
+              )
+          }
+      }
+      val allSources = remember(sourcesByProvider, groupOrder) {
+          groupOrder.flatMap { (key, _) ->
+              sourcesByProvider[key].orEmpty()
+          }
+      }
+      val firstReadyPreferredSource = remember(groups, groupOrder, sourcesByProvider) {
+          firstReadyProviderItem(
+              providerOrder = groupOrder.map { it.first },
+              itemsByProvider = sourcesByProvider,
+              loadingProviders = groups.filterValues { it.isLoading }.keys,
+          )
+      }
+        val showAutoPlayProgress = shouldShowAutoPlayResolvingState(
         autoPlayEnabled = autoPlayBest,
         isLoading = isAnyLoading,
         hasSources = allSources.isNotEmpty(),
@@ -234,21 +247,21 @@ fun StreamPickerOverlay(
         }
     }
 
-    // Keep provider priority ahead of stream quality across providers. Wait for resolution
-    // to finish so the player receives lower-priority providers as fallbacks too.
-    var hasAutoPlayed by remember { mutableStateOf(false) }
-    LaunchedEffect(autoPlayBest, isAnyLoading, allSources, providerOrderIsLoaded) {
-        if (!providerOrderIsLoaded || !autoPlayBest || hasAutoPlayed || isAnyLoading) {
-            return@LaunchedEffect
-        }
-        val firstPreferredSource = allSources.firstOrNull()
-        if (firstPreferredSource != null) {
-            hasAutoPlayed = true
-            onPlay(firstPreferredSource.url, allSources)
-        }
-    }
+    // Start from the first provider in priority order that returns a stream. A slower,
+      // higher-priority provider must finish empty before a lower-priority result can win.
+      var hasAutoPlayed by remember { mutableStateOf(false) }
+      LaunchedEffect(autoPlayBest, firstReadyPreferredSource, allSources, providerOrderIsLoaded) {
+          if (!providerOrderIsLoaded || !autoPlayBest || hasAutoPlayed) {
+              return@LaunchedEffect
+          }
+          val firstPreferredSource = firstReadyPreferredSource
+          if (firstPreferredSource != null) {
+              hasAutoPlayed = true
+              onPlay(firstPreferredSource.url, allSources)
+          }
+      }
 
-    val addonTabs = remember(groups, groupOrder) {
+        val addonTabs = remember(groups, groupOrder) {
         groupOrder.mapNotNull { (key, name) ->
             val g = groups[key]
             if (g != null && (g.isLoading || g.streams.isNotEmpty())) name else null
