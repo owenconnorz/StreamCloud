@@ -763,6 +763,7 @@ fun MoviesScreen(
                     item(key = "cshome_${row.pluginInternalName}_${row.sectionName}") {
                         val csLandscape = posterStyle == "landscape"
                         val csCardWidth = if (csLandscape) 200.dp else 120.dp
+                        val csAspect = if (csLandscape) 16f / 9f else 2f / 3f
                         LazyRow(
                             modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
