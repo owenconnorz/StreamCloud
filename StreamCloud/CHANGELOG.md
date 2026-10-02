@@ -1,6 +1,15 @@
 # StreamCloud
 
-## Latest — Fix a music playback thread crash
+## Latest — Continue Watching and MoviePlayer improvements
+
+### TV playback
+- **Continue Watching follows the latest in-progress episode** — home cards stay aligned with the episode page, even when synced progress is under 1%.
+
+### MoviePlayer
+- **Clearer progress-bar focus** — the bar briefly scales up instead of showing the purple border.
+- **Hold Left or Right to seek repeatedly** — rewind or skip forward while controls are hidden or the progress bar is focused.
+
+## Previous — Fix a music playback thread crash
 
 ### Music playback
 - **Liked-song refresh no longer crashes playback** — Media3 player state is read on the main thread, and results are ignored if playback has moved to another track.
