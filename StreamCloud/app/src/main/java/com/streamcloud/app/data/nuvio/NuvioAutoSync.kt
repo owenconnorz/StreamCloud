@@ -481,7 +481,7 @@ object NuvioAutoSync {
             email = session.user?.email ?: settings.nuvioEmail.first(),
             userId = refreshedUserId ?: userId,
         )
-        attempt(session.access_token)
+        return attempt(session.access_token)
     }
 
     private data class PendingDelete(
