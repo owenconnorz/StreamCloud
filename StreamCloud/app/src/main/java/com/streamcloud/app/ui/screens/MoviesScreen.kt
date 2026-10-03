@@ -779,14 +779,20 @@ fun MoviesScreen(
                                     row.sectionName,
                                     sr.url,
                                 )
+                                val csTmdbMovie = state.csHomeTmdbMovies[tmdbKey]
+                                val csMediaType = if (csTmdbMovie?.title != null) "movie" else "tv"
                                 CsHomePosterCard(
                                     item = sr,
                                     defaultWidth = csCardWidth,
                                     isTv = isTv,
-                                    tmdbMovie = state.csHomeTmdbMovies[tmdbKey],
+                                    tmdbMovie = csTmdbMovie,
                                     onRequestTmdbMovie = {
                                         vm.requestCsHomeTmdbMovie(tmdbKey, sr)
                                     },
+                                    titleLogoUrl = csTmdbMovie?.let {
+                                        state.tmdbTitleLogos["$csMediaType:${it.id}"]
+                                    },
+                                    onRequestTitleLogo = vm::requestTitleLogo,
                                     onClick = {
                                         onOpenCsItem(
                                             row.pluginInternalName,
@@ -1708,6 +1714,8 @@ private fun CsHomePosterCard(
     isTv: Boolean,
     tmdbMovie: TmdbMovie?,
     onRequestTmdbMovie: () -> Unit,
+    titleLogoUrl: String?,
+    onRequestTitleLogo: (Long, String) -> Unit,
     onClick: () -> Unit,
 ) {
     var isFocused by remember(item.url) { mutableStateOf(false) }
@@ -1728,6 +1736,11 @@ private fun CsHomePosterCard(
         if (!isTv || !isFocused || tmdbMovie != null) return@LaunchedEffect
         kotlinx.coroutines.delay(350L)
         onRequestTmdbMovie()
+    }
+
+    LaunchedEffect(isTv, isFocused, tmdbMovie?.id, titleLogoUrl) {
+        if (!isTv || !isFocused || tmdbMovie == null || titleLogoUrl != null) return@LaunchedEffect
+        onRequestTitleLogo(tmdbMovie.id, if (tmdbMovie.title != null) "movie" else "tv")
     }
 
     val posterShape = RoundedCornerShape(12.dp)
@@ -1756,12 +1769,8 @@ private fun CsHomePosterCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            if (isExpanded && tmdbMovie != null) {
-                TmdbTrailerPreview(
-                    movie = tmdbMovie,
-                    modifier = Modifier.fillMaxSize(),
-                    startDelayMs = 1_000L,
-                )
+            if (isExpanded) {
+                LandscapeCardTitle(tmdbMovie?.displayTitle ?: item.name, titleLogoUrl)
             }
             if (isExpanded) {
                 Box(
@@ -1773,35 +1782,31 @@ private fun CsHomePosterCard(
         }
 
         if (isExpanded) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    tmdbMovie?.displayTitle ?: item.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                tmdbMovie?.displayReleaseInfo()?.let { releaseInfo ->
-                    Text(
-                        releaseInfo,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.72f),
-                    )
-                }
-                tmdbMovie?.overview?.trim()?.takeIf { it.isNotBlank() }?.let { overview ->
-                    Text(
-                        overview,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.82f),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+            val releaseInfo = tmdbMovie?.displayReleaseInfo()
+            val overview = tmdbMovie?.overview?.trim().orEmpty()
+            if (releaseInfo != null || overview.isNotBlank()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    releaseInfo?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.72f),
+                        )
+                    }
+                    overview.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.82f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         } else {
@@ -1836,11 +1841,11 @@ private fun MidPoster(
     val width = if (useLandscape) 220.dp else 140.dp
     val mediaType = if (m.title != null) "movie" else "tv"
     val showTitleOnThumbnail = useLandscape || !isTv
-    LaunchedEffect(m.id, mediaType, isTv, showTitleOnThumbnail, titleLogoUrl) {
-        if (!isTv && showTitleOnThumbnail && titleLogoUrl == null) onRequestTitleLogo()
-    }
     var isFocused by remember(m.id) { mutableStateOf(false) }
     val isExpanded = isTv && isFocused
+    LaunchedEffect(m.id, mediaType, isTv, isFocused, titleLogoUrl) {
+        if (titleLogoUrl == null && (!isTv || isFocused)) onRequestTitleLogo()
+    }
     val animatedWidth by animateDpAsState(
         targetValue = if (isExpanded) 320.dp else width,
         animationSpec = tween(durationMillis = 260),
@@ -1883,14 +1888,7 @@ private fun MidPoster(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            if (isExpanded) {
-                TmdbTrailerPreview(
-                    movie = m,
-                    modifier = Modifier.fillMaxSize(),
-                    startDelayMs = 1_000L,
-                )
-            }
-            if (showTitleOnThumbnail && !isExpanded) {
+            if (isExpanded || showTitleOnThumbnail) {
                 LandscapeCardTitle(m.displayTitle, titleLogoUrl)
             }
             if (isWatched) {
@@ -1906,14 +1904,6 @@ private fun MidPoster(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    m.displayTitle,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2005,18 +1995,14 @@ private fun StremioPoster(
         titleLogoUrl,
         showTitleOnThumbnail,
     ) {
-        if (!isTv && showTitleOnThumbnail) {
-            if (resolvedTmdbId == null) {
-                onRequestTmdbId()
-            } else if (titleLogoUrl == null) {
-                onRequestTitleLogo(resolvedTmdbId, mediaType)
-            }
-        } else if (isTv && isFocused && resolvedTmdbId == null) {
-            // Wait for a stable focus before resolving external catalog IDs. Rapid D-pad
-            // movement should not start a TMDB lookup for every card crossed.
+        val shouldResolveTitle = (!isTv && showTitleOnThumbnail) || (isTv && isFocused)
+        if (!shouldResolveTitle) return@LaunchedEffect
+        if (isTv) {
+            // Wait for a stable focus before resolving external catalog IDs and logos.
             kotlinx.coroutines.delay(300L)
-            onRequestTmdbId()
         }
+        if (resolvedTmdbId == null) onRequestTmdbId()
+        else if (titleLogoUrl == null) onRequestTitleLogo(resolvedTmdbId, mediaType)
     }
     val primaryArtwork = if (useLandscape || isExpanded) {
         meta.background?.takeIf { it.isNotBlank() } ?: meta.poster
@@ -2024,13 +2010,6 @@ private fun StremioPoster(
         meta.poster
     }
     val fallbackArtwork = if (useLandscape || isExpanded) meta.poster else null
-    val trailerMovie = resolvedTmdbId?.let { tmdbId ->
-        TmdbMovie(
-            id = tmdbId,
-            title = if (isSeries) null else meta.name,
-            name = if (isSeries) meta.name else null,
-        )
-    }
     Column(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
@@ -2056,32 +2035,20 @@ private fun StremioPoster(
                 contentDescription = meta.name,
                 modifier = Modifier.fillMaxSize(),
             )
-            if (isExpanded && trailerMovie != null) {
-                TmdbTrailerPreview(
-                    movie = trailerMovie,
-                    modifier = Modifier.fillMaxSize(),
-                    startDelayMs = 1_000L,
-                )
-            }
-            if (showTitleOnThumbnail && !isExpanded) {
+            if (isExpanded || showTitleOnThumbnail) {
                 LandscapeCardTitle(meta.name, titleLogoUrl)
             }
         }
-        if (isExpanded) {
+        if (
+            isExpanded &&
+            (!meta.releaseInfo.isNullOrBlank() || !meta.description.isNullOrBlank())
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    meta.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
                 if (!meta.releaseInfo.isNullOrBlank()) {
                     Text(
                         meta.releaseInfo,
