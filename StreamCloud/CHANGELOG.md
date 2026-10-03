@@ -1,3 +1,13 @@
+## Latest — Nuvio progress sync and movie-detail trailers
+
+### Nuvio sync
+- **Watch progress stays accurate across devices** — imported Nuvio progress preserves its original remote IDs, converts seconds and epoch-second timestamps to milliseconds, repairs older imports, and does not overwrite newer local playback.
+- **Progress deletion syncs against the right Nuvio record** — account- and profile-scoped tombstones retain the original remote keys, serialize with other syncs, and remain queued until a linked profile confirms the delete. The app reports when the profile needs linking or the account needs reconnecting.
+
+### Movie and TV details
+- **Trailer playback is optional on detail pages** — TMDB title logos appear over the artwork hero, with a toggle to switch between the trailer and static artwork.
+- **Trailer resolution uses available visual streams** — muxed or suitable adaptive YouTube video is selected, while the artwork remains available when no preview can be resolved.
+
 ## Latest — Movie home cards, profiles, and Continue Watching
 
     ### Movie home
