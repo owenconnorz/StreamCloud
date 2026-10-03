@@ -174,7 +174,7 @@ fun MovieDetailScreen(
     }
     // Detail content fills the screen and can sit behind system or TV navigation
     // chrome. Start the hero below that chrome rather than at the window edge.
-    val artworkHeroTopClearance = if (isTv) 120.dp else 32.dp
+    val artworkHeroTopClearance = if (isTv) 240.dp else 32.dp
     val playBtnFocus = remember { FocusRequester() }
     LaunchedEffect(movie != null, openSourcePickerOnStart) {
         if (isTv && movie != null && !openSourcePickerOnStart) {
