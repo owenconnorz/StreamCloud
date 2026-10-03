@@ -1,6 +1,18 @@
+## Latest — Movie home cards, profiles, and Continue Watching
+
+    ### Movie home
+    - **Expanded cards keep static artwork and titles** — TMDB, Stremio, and CloudStream home cards retain their artwork and title/logo treatment instead of playing trailer previews. Detail-page previews and the home hero preview are unchanged.
+
+    ### Profiles and launch
+    - **42 Nuvio catalog avatars** — The profile chooser adds the Nuvio avatar collection while keeping older saved avatar selections compatible.
+    - **Choose a profile at launch** — The profile chooser opens before the home screen, and the splash-screen logo is removed.
+
+    ### Continue Watching
+    - **Watched episodes stay out of Continue Watching** — Episodes already marked watched no longer reappear as in-progress cards.
+
 # StreamCloud
 
-## Latest — Player navigation and TV up next
+## Previous — Player navigation and TV up next
 
 ### Movie and TV playback
 - **Back returns to details after playback** — Returning from movie or show playback no longer reopens the source picker or starts playback again.
