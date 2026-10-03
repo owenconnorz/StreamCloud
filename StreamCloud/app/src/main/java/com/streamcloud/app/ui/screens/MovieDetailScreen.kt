@@ -53,6 +53,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -163,6 +164,12 @@ fun MovieDetailScreen(
     var resolutionJob by remember { mutableStateOf<Job?>(null) }
 
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val viewportHeight = LocalConfiguration.current.screenHeightDp.dp
+    val artworkHeroHeight = if (isTv) {
+        (viewportHeight * 0.62f).coerceIn(380.dp, 520.dp)
+    } else {
+        (viewportHeight * 0.5f).coerceIn(320.dp, 410.dp)
+    }
     val playBtnFocus = remember { FocusRequester() }
     LaunchedEffect(movie != null, openSourcePickerOnStart) {
         if (isTv && movie != null && !openSourcePickerOnStart) {
@@ -759,13 +766,13 @@ fun MovieDetailScreen(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(if (isTv) 520.dp else 410.dp),
+                    .height(artworkHeroHeight),
             ) {
                 MovieArtwork(
                     primaryUrl = movie?.backdropUrl,
                     fallbackUrl = movie?.posterUrl,
                     contentDescription = movie?.displayTitle ?: "Movie artwork",
-                    contentScale = ContentScale.Crop,
+                    contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.surface),

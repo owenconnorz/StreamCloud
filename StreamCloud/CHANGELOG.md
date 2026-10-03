@@ -9,8 +9,8 @@
 - TV Play and More Info actions use pill-shaped buttons.
 
 ### Details and TV navigation
-- Movie and series detail pages use taller, full-width artwork, with TMDB logos retained over the hero.
-- TV navigation hands focus to page content directly, then uses spatial focus as a fallback.
+- Detail hero artwork height adapts to the screen and preserves the complete image instead of cropping the backdrop.
+- Android TV Down enters page content when the direct focus request succeeds, then uses spatial focus if it fails.
 
 ## Latest — Nuvio progress sync and movie-detail trailers
 

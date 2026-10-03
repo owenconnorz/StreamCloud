@@ -1898,7 +1898,7 @@ private fun TvNetflixTopNav(
                                 // spatial navigation and do not consume a failed move.
                                 runCatching {
                                     contentFocusRequester.requestFocus()
-                                }.isSuccess ||
+                                }.getOrDefault(false) ||
                                     focusManager.moveFocus(FocusDirection.Down)
                             }
                             // Nothing focusable above the nav bar — consume Up.
