@@ -1,3 +1,8 @@
+## Latest — Movie detail banner top clearance
+
+### Movie and TV details
+- Detail banners now start lower on mobile and Android TV to keep the artwork clear of the top edge.
+
 ## Latest — Home, artwork, and Continue Watching fixes
 
 ### Continue Watching
