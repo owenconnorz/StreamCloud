@@ -759,7 +759,7 @@ fun MovieDetailScreen(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(if (isTv) 360.dp else 300.dp),
+                    .height(if (isTv) 520.dp else 410.dp),
             ) {
                 MovieArtwork(
                     primaryUrl = movie?.backdropUrl,

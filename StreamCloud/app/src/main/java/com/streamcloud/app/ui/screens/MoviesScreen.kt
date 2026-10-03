@@ -311,7 +311,22 @@ fun MoviesScreen(
         }
     }
 
+    var activeHeroBanner by remember { mutableStateOf<HeroBannerItem?>(null) }
+    LaunchedEffect(state.heroBanner) {
+        if (activeHeroBanner !in state.heroBanner) {
+            activeHeroBanner = state.heroBanner.firstOrNull()
+        }
+    }
     MoviesThemeWrapper(moviesThemeName) {
+    val heroForAmbientColor = activeHeroBanner?.takeIf { it in state.heroBanner }
+        ?: state.heroBanner.firstOrNull()
+    val bannerPalette = rememberBannerPalette(
+        imageUrl = heroForAmbientColor?.imageUrl?.takeIf { state.showHeroSection },
+        fallbackAccent = MaterialTheme.colorScheme.primary,
+        fallbackOnAccent = MaterialTheme.colorScheme.onPrimary,
+        fallbackBackground = MaterialTheme.colorScheme.background,
+        fallbackSurface = MaterialTheme.colorScheme.surface,
+    )
     Box(
         Modifier
             .fillMaxSize()
@@ -358,6 +373,38 @@ fun MoviesScreen(
                     item(key = "hero_pager") {
                         HeroPager(
                             items = state.heroBanner,
+                            bannerTintColor = bannerPalette.artworkColor,
+                            titleLogoUrlFor = { item ->
+                                val resolvedId = item.tmdbId ?: item.stremioMeta?.let { meta ->
+                                    state.stremioTmdbIds["stremio:${meta.type}:${meta.id}"]
+                                }
+                                val mediaType = if (
+                                    item.mediaType.equals("tv", ignoreCase = true) ||
+                                    item.stremioMeta?.type.equals("series", ignoreCase = true)
+                                ) "tv" else "movie"
+                                resolvedId?.let { state.tmdbTitleLogos["$mediaType:$it"] }
+                            },
+                            titleLogoRequestKeyFor = { item ->
+                                item.tmdbId?.toString() ?: item.stremioMeta?.let { meta ->
+                                    state.stremioTmdbIds["stremio:${meta.type}:${meta.id}"]
+                                        ?.toString()
+                                }
+                            },
+                            onRequestTitleLogoFor = { item ->
+                                val resolvedId = item.tmdbId ?: item.stremioMeta?.let { meta ->
+                                    state.stremioTmdbIds["stremio:${meta.type}:${meta.id}"]
+                                }
+                                if (resolvedId != null) {
+                                    val mediaType = if (
+                                        item.mediaType.equals("tv", ignoreCase = true) ||
+                                        item.stremioMeta?.type.equals("series", ignoreCase = true)
+                                    ) "tv" else "movie"
+                                    vm.requestTitleLogo(resolvedId, mediaType)
+                                } else {
+                                    item.stremioMeta?.let(vm::requestStremioTmdbId)
+                                }
+                            },
+                            onCurrentItemChanged = { activeHeroBanner = it },
                             initialFocusRequester = if (startupFocusTarget == "hero") {
                                 initialFocusRequester
                             } else {
@@ -990,9 +1037,14 @@ private fun MoviesHeader(
 @Composable
 private fun HeroPager(
     items: List<HeroBannerItem>,
+    bannerTintColor: Color,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
     onInitialItemFocusChanged: (Boolean) -> Unit = {},
+    titleLogoUrlFor: (HeroBannerItem) -> String? = { null },
+    titleLogoRequestKeyFor: (HeroBannerItem) -> String? = { null },
+    onRequestTitleLogoFor: (HeroBannerItem) -> Unit = {},
+    onCurrentItemChanged: (HeroBannerItem) -> Unit = {},
     onClick: (HeroBannerItem) -> Unit,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
@@ -1009,6 +1061,9 @@ private fun HeroPager(
         // "View Details" button is focusable, so left/right/up/down all move freely.
         var currentPage by remember { mutableStateOf(0) }
         var buttonHasFocus by remember { mutableStateOf(false) }
+        LaunchedEffect(currentPage, items) {
+            items.getOrNull(currentPage)?.let(onCurrentItemChanged)
+        }
         LaunchedEffect(items.size, buttonHasFocus) {
             if (items.size <= 1 || buttonHasFocus) return@LaunchedEffect
             while (true) {
@@ -1032,6 +1087,11 @@ private fun HeroPager(
                 HeroBannerSlide(
                     item = item,
                     onClick = { onClick(item) },
+                    bannerTintColor = bannerTintColor,
+                    titleLogoUrl = titleLogoUrlFor(item),
+                    titleLogoRequestKey = titleLogoRequestKeyFor(item),
+                    onRequestTitleLogo = { onRequestTitleLogoFor(item) },
+                    isCurrentPage = page == currentPage,
                     // Only page 0 carries the startup focus requester. Crossfade composes
                     // both old and new content during the transition, so attaching the same
                     // requester to every page would cause a duplicate-requester error.
@@ -1069,6 +1129,9 @@ private fun HeroPager(
         // Mobile / tablet: keep the swipeable horizontal pager.
         val pagerState = rememberPagerState(pageCount = { items.size })
         var pagerHasFocus by remember { mutableStateOf(false) }
+        LaunchedEffect(pagerState.currentPage, items) {
+            items.getOrNull(pagerState.currentPage)?.let(onCurrentItemChanged)
+        }
         LaunchedEffect(items.size, pagerHasFocus) {
             if (items.size <= 1 || pagerHasFocus) return@LaunchedEffect
             while (true) {
@@ -1087,6 +1150,11 @@ private fun HeroPager(
                 HeroBannerSlide(
                     item = item,
                     onClick = { onClick(item) },
+                    bannerTintColor = bannerTintColor,
+                    titleLogoUrl = titleLogoUrlFor(item),
+                    titleLogoRequestKey = titleLogoRequestKeyFor(item),
+                    onRequestTitleLogo = { onRequestTitleLogoFor(item) },
+                    isCurrentPage = page == pagerState.currentPage,
                     onFocusChange = { pagerHasFocus = it },
                 )
             }
@@ -1165,6 +1233,11 @@ private fun HeroBannerSlide(
     item: HeroBannerItem,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    bannerTintColor: Color? = null,
+    titleLogoUrl: String? = null,
+    titleLogoRequestKey: String? = null,
+    onRequestTitleLogo: () -> Unit = {},
+    isCurrentPage: Boolean = false,
     onFocusChange: (Boolean) -> Unit = {},
     // TV only: startup focus requester (conditional on startupFocusTarget == "hero").
     buttonFocusRequester: FocusRequester? = null,
@@ -1174,16 +1247,16 @@ private fun HeroBannerSlide(
     onButtonFocusChanged: (Boolean) -> Unit = {},
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val bannerColor = if (isTv) {
-        rememberBannerPalette(
-            imageUrl = item.imageUrl,
-            fallbackAccent = MaterialTheme.colorScheme.primary,
-            fallbackOnAccent = MaterialTheme.colorScheme.onPrimary,
-            fallbackBackground = MaterialTheme.colorScheme.background,
-            fallbackSurface = MaterialTheme.colorScheme.surface,
-        ).artworkColor
-    } else {
-        Color.Black
+    LaunchedEffect(
+        item.tmdbId,
+        item.stremioMeta?.id,
+        titleLogoRequestKey,
+        isCurrentPage,
+        titleLogoUrl,
+    ) {
+        if (isCurrentPage && titleLogoUrl.isNullOrBlank()) {
+            onRequestTitleLogo()
+        }
     }
     Box(
         modifier
@@ -1202,6 +1275,21 @@ private fun HeroBannerSlide(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
+        if (bannerTintColor != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0f to bannerTintColor.copy(alpha = 0.22f),
+                                0.48f to bannerTintColor.copy(alpha = 0.13f),
+                                1f to bannerTintColor.copy(alpha = 0.04f),
+                            ),
+                        ),
+                    ),
+            )
+        }
         if (isTv && showTrailerPreview) {
             val previewMovie = remember(item.tmdbId, item.mediaType, item.title) {
                 item.tmdbId?.let { id ->
@@ -1243,11 +1331,11 @@ private fun HeroBannerSlide(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0f to bannerColor.copy(alpha = 0.52f),
-                            0.16f to bannerColor.copy(alpha = 0.20f),
+                            0f to Color.Black.copy(alpha = 0.38f),
+                            0.16f to Color.Black.copy(alpha = 0.10f),
                             0.34f to Color.Transparent,
                             0.62f to Color.Transparent,
-                            0.76f to bannerColor.copy(alpha = 0.26f),
+                            0.76f to Color.Black.copy(alpha = 0.16f),
                             0.88f to Color.Black.copy(alpha = 0.68f),
                             1f to Color.Black.copy(alpha = 0.97f),
                         ),
@@ -1260,16 +1348,10 @@ private fun HeroBannerSlide(
                     .padding(start = 48.dp, bottom = 52.dp, end = 260.dp),
                 horizontalAlignment = Alignment.Start,
             ) {
-                Text(
-                    item.title,
-                    style = MaterialTheme.typography.displayLarge.copy(
-                        fontWeight = FontWeight.Black,
-                        fontSize = 44.sp,
-                        lineHeight = 48.sp,
-                    ),
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                HeroBannerTitle(
+                    title = item.title,
+                    logoUrl = titleLogoUrl,
+                    isTv = true,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -1290,8 +1372,8 @@ private fun HeroBannerSlide(
                         else Modifier)
                             .let { if (navFocusRequester != null) it.focusRequester(navFocusRequester) else it }
                             .onFocusChanged { onButtonFocusChanged(it.isFocused) }
-                            .tvFocusBorder(RoundedCornerShape(6.dp))
-                            .clip(RoundedCornerShape(6.dp))
+                            .tvFocusBorder(RoundedCornerShape(50))
+                            .clip(RoundedCornerShape(50))
                             .background(Color.White)
                             .clickable(onClick = onClick)
                             .padding(horizontal = 28.dp, vertical = 13.dp),
@@ -1313,10 +1395,10 @@ private fun HeroBannerSlide(
                     // More Info — semi-transparent, secondary action
                     Row(
                         Modifier
-                            .tvFocusBorder(RoundedCornerShape(6.dp))
-                            .clip(RoundedCornerShape(6.dp))
+                            .tvFocusBorder(RoundedCornerShape(50))
+                            .clip(RoundedCornerShape(50))
                             .background(Color.White.copy(alpha = 0.22f))
-                            .border(1.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(50))
                             .clickable(onClick = onClick)
                             .padding(horizontal = 28.dp, vertical = 13.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1357,16 +1439,10 @@ private fun HeroBannerSlide(
                     .padding(horizontal = 24.dp, vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
-                    item.title,
-                    style = MaterialTheme.typography.displayLarge.copy(
-                        fontWeight = FontWeight.Black,
-                        fontSize = 36.sp,
-                        lineHeight = 40.sp,
-                    ),
-                    color = Color.White,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                HeroBannerTitle(
+                    title = item.title,
+                    logoUrl = titleLogoUrl,
+                    isTv = false,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -1390,6 +1466,41 @@ private fun HeroBannerSlide(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HeroBannerTitle(
+    title: String,
+    logoUrl: String?,
+    isTv: Boolean,
+) {
+    if (!logoUrl.isNullOrBlank()) {
+        AsyncImage(
+            model = logoUrl,
+            contentDescription = "$title logo",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxWidth(if (isTv) 0.56f else 0.72f)
+                .height(if (isTv) 100.dp else 76.dp),
+        )
+    } else {
+        Text(
+            title,
+            style = MaterialTheme.typography.displayLarge.copy(
+                fontWeight = FontWeight.Black,
+                fontSize = if (isTv) 44.sp else 36.sp,
+                lineHeight = if (isTv) 48.sp else 40.sp,
+            ),
+            color = Color.White,
+            textAlign = if (isTv) {
+                androidx.compose.ui.text.style.TextAlign.Start
+            } else {
+                androidx.compose.ui.text.style.TextAlign.Center
+            },
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1840,11 +1951,11 @@ private fun MidPoster(
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     val mediaType = if (m.title != null) "movie" else "tv"
-    val showTitleOnThumbnail = useLandscape || !isTv
+    val showTitleOnThumbnail = true
     var isFocused by remember(m.id) { mutableStateOf(false) }
     val isExpanded = isTv && isFocused
-    LaunchedEffect(m.id, mediaType, isTv, isFocused, titleLogoUrl) {
-        if (titleLogoUrl == null && (!isTv || isFocused)) onRequestTitleLogo()
+    LaunchedEffect(m.id, mediaType, titleLogoUrl) {
+        if (titleLogoUrl == null) onRequestTitleLogo()
     }
     val animatedWidth by animateDpAsState(
         targetValue = if (isExpanded) 320.dp else width,
@@ -1975,7 +2086,7 @@ private fun StremioPoster(
     val isSeries = meta.type.equals("series", ignoreCase = true) ||
         meta.type.equals("tv", ignoreCase = true)
     val mediaType = if (isSeries) "tv" else "movie"
-    val showTitleOnThumbnail = useLandscape || !isTv
+    val showTitleOnThumbnail = true
     val animatedWidth by animateDpAsState(
         targetValue = if (isExpanded) 320.dp else width,
         animationSpec = tween(durationMillis = 260),
@@ -1995,7 +2106,7 @@ private fun StremioPoster(
         titleLogoUrl,
         showTitleOnThumbnail,
     ) {
-        val shouldResolveTitle = (!isTv && showTitleOnThumbnail) || (isTv && isFocused)
+        val shouldResolveTitle = showTitleOnThumbnail
         if (!shouldResolveTitle) return@LaunchedEffect
         if (isTv) {
             // Wait for a stable focus before resolving external catalog IDs and logos.

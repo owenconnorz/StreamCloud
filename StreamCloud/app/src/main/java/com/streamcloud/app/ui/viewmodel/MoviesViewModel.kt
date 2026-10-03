@@ -30,6 +30,8 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import retrofit2.HttpException
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -46,8 +48,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 const val SOURCE_BUILTIN = "builtin"
 private const val HOME_COLLECTION_TIMEOUT_MS = 30_000L
@@ -144,6 +152,21 @@ private data class HomeCollectionConfig(
     val hideUnreleased: Boolean,
 )
 
+private fun watchProgressIdentity(
+    tmdbId: Long,
+    mediaType: String,
+    seasonNumber: Int,
+    episodeNumber: Int,
+): String = "$tmdbId:$mediaType:$seasonNumber:$episodeNumber"
+
+private fun watchProgressIdentity(entry: WatchProgressEntity): String =
+    watchProgressIdentity(
+        entry.tmdbId,
+        entry.mediaType,
+        entry.seasonNumber,
+        entry.episodeNumber,
+    )
+
 internal fun bestCloudStreamHomeTmdbMatch(
     results: List<TmdbMovie>,
     title: String,
@@ -209,6 +232,7 @@ class MoviesViewModel(
 ) : ViewModel() {
     private val _state = MutableStateFlow(MoviesState())
     val state: StateFlow<MoviesState> = _state.asStateFlow()
+    private val hiddenWatchProgressKeys = MutableStateFlow<Set<String>>(emptySet())
 
     private var searchJob: Job? = null
     private var moviePageJob: Job? = null
@@ -238,8 +262,25 @@ class MoviesViewModel(
     private var lastSuccessfulDiscoverConfig: HomeCollectionConfig? = null
     private var lastSuccessfulDiscoverAt: Long? = null
     private val homeCollectionRowsCache = mutableMapOf<String, CollectionRow>()
+    private val homeCollectionCacheJson = Json { ignoreUnknownKeys = true }
+    private val homeCollectionCacheReady = CompletableDeferred<Unit>()
+    private val homeCollectionFetchSemaphore = Semaphore(4)
+    private val titleLogoSemaphore = Semaphore(3)
+
+    private fun homeCollectionCachePreferences() =
+        appContext.getSharedPreferences("tmdb_home_collection_cache_v1", Context.MODE_PRIVATE)
 
     init {
+        viewModelScope.launch {
+            try {
+                val cachedRows = withContext(Dispatchers.IO) {
+                    loadPersistedHomeCollectionRows()
+                }
+                homeCollectionRowsCache.putAll(cachedRows)
+            } finally {
+                homeCollectionCacheReady.complete(Unit)
+            }
+        }
         viewModelScope.launch {
             sl.settings.movieSearchHistory.collect { history ->
                 _state.update { it.copy(searchHistory = history) }
@@ -264,11 +305,21 @@ class MoviesViewModel(
                 homeCollectionConfig(csv, hideUnreleased)
             }
                 .distinctUntilChanged()
-                .collect { config -> startDiscoverLoad(config) }
+                .collect { config ->
+                    homeCollectionCacheReady.await()
+                    startDiscoverLoad(config)
+                }
         }
         viewModelScope.launch {
-            LibraryDb.get(appContext).watchProgress().continueWatching().collect { rows ->
-                _state.update { it.copy(continueWatching = latestContinueWatchingByTitle(rows)) }
+            combine(
+                LibraryDb.get(appContext).watchProgress().continueWatching(),
+                hiddenWatchProgressKeys,
+            ) { rows, hidden ->
+                latestContinueWatchingByTitle(
+                    rows.filterNot { watchProgressIdentity(it) in hidden },
+                )
+            }.collect { rows ->
+                _state.update { it.copy(continueWatching = rows) }
             }
         }
         viewModelScope.launch {
@@ -351,6 +402,7 @@ class MoviesViewModel(
             ) { csv, hideUnreleased ->
                 homeCollectionConfig(csv, hideUnreleased)
             }.first()
+            homeCollectionCacheReady.await()
             startDiscoverLoad(config, force = true)
         }
     }
@@ -363,6 +415,7 @@ class MoviesViewModel(
             ) { csv, hideUnreleased ->
                 homeCollectionConfig(csv, hideUnreleased)
             }.first()
+            homeCollectionCacheReady.await()
             startDiscoverLoad(config)
         }
     }
@@ -412,7 +465,9 @@ class MoviesViewModel(
                         async {
                             val result = try {
                                 val fetchedItems = withTimeoutOrNull(HOME_COLLECTION_TIMEOUT_MS) {
-                                    def.fetch(sl.tmdb, sl.tmdbApiKey)
+                                    homeCollectionFetchSemaphore.withPermit {
+                                        def.fetch(sl.tmdb, sl.tmdbApiKey)
+                                    }
                                 }
                                 if (fetchedItems == null) {
                                     HomeCollectionFetchResult(
@@ -440,6 +495,7 @@ class MoviesViewModel(
                                 )
                             }
 
+                            result.row?.let { persistHomeCollectionRow(it) }
                             publishMutex.withLock {
                                 result.row?.let { rawRow ->
                                     homeCollectionRowsCache[def.id] = rawRow
@@ -505,6 +561,32 @@ class MoviesViewModel(
         if (lastSuccessfulDiscoverConfig != config) return false
         val lastSuccessAt = lastSuccessfulDiscoverAt ?: return false
         return SystemClock.elapsedRealtime() - lastSuccessAt < HOME_COLLECTION_STALE_AFTER_MS
+    }
+
+    private fun loadPersistedHomeCollectionRows(): Map<String, CollectionRow> =
+        HomeCollections.ALL.mapNotNull { collection ->
+            val serialized = homeCollectionCachePreferences().getString(
+                "collection:${collection.id}",
+                null,
+            ) ?: return@mapNotNull null
+            val items = runCatching {
+                homeCollectionCacheJson.decodeFromString<List<TmdbMovie>>(serialized)
+            }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            collection.id to CollectionRow(
+                id = collection.id,
+                title = collection.title,
+                emoji = collection.emoji,
+                items = items,
+            )
+        }.toMap()
+
+    private suspend fun persistHomeCollectionRow(row: CollectionRow) {
+        withContext(Dispatchers.IO) {
+            val serialized = homeCollectionCacheJson.encodeToString(row.items)
+            homeCollectionCachePreferences().edit()
+                .putString("collection:${row.id}", serialized)
+                .apply()
+        }
     }
 
     private fun applyCollectionRows(rows: List<CollectionRow>, loading: Boolean) {
@@ -674,19 +756,21 @@ class MoviesViewModel(
 
         viewModelScope.launch {
             val logoUrl = runCatching {
-                sl.tmdb.images(normalizedMediaType, tmdbId, sl.tmdbApiKey)
-                    .logos
-                    .sortedWith(
-                        compareBy<TmdbTitleLogo> {
-                            when {
-                                it.language?.equals("en", ignoreCase = true) == true -> 0
-                                it.language == null -> 1
-                                else -> 2
-                            }
-                        }.thenByDescending { it.voteAverage }
-                            .thenByDescending { it.width },
-                    )
-                    .firstNotNullOfOrNull { it.imageUrl }
+                titleLogoSemaphore.withPermit {
+                    sl.tmdb.images(normalizedMediaType, tmdbId, sl.tmdbApiKey)
+                        .logos
+                        .sortedWith(
+                            compareBy<TmdbTitleLogo> {
+                                when {
+                                    it.language?.equals("en", ignoreCase = true) == true -> 0
+                                    it.language == null -> 1
+                                    else -> 2
+                                }
+                            }.thenByDescending { it.voteAverage }
+                                .thenByDescending { it.width },
+                        )
+                        .firstNotNullOfOrNull { it.imageUrl }
+                }
             }.getOrNull()
 
             if (logoUrl != null) {
@@ -1076,47 +1160,71 @@ class MoviesViewModel(
         seasonNumber: Int,
         episodeNumber: Int,
     ) {
-        viewModelScope.launch {
-            LibraryDb.get(appContext).watchProgress().removeKey(
-                tmdbId,
-                mediaType,
-                seasonNumber,
-                episodeNumber,
+        val identity = watchProgressIdentity(
+            tmdbId,
+            mediaType,
+            seasonNumber,
+            episodeNumber,
+        )
+        hiddenWatchProgressKeys.update { it + identity }
+        _state.update {
+            it.copy(
+                continueWatching = it.continueWatching.filterNot {
+                    watchProgressIdentity(it) == identity
+                },
             )
-            val result = com.streamcloud.app.data.nuvio.NuvioAutoSync
-                .deleteWatchProgressAndSyncNow(
-                    appContext,
+        }
+        viewModelScope.launch {
+            val dao = LibraryDb.get(appContext).watchProgress()
+            try {
+                dao.removeKey(
                     tmdbId,
                     mediaType,
                     seasonNumber,
                     episodeNumber,
                 )
-            if (result.isFailure) {
-                val hasAccessToken = sl.settings.nuvioAccessToken.first().isNotBlank()
-                val hasAccountId = sl.settings.nuvioUserId.first().isNotBlank()
-                val profileNeedsLink = result.exceptionOrNull()?.message
-                    ?.contains("not linked", ignoreCase = true) == true
-                when {
-                    hasAccessToken && !profileNeedsLink -> {
-                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
-                        _state.update {
-                            it.copy(
-                                notice = "Removed locally; Nuvio sync is queued and will retry when available.",
-                            )
+                val result = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                    .deleteWatchProgressAndSyncNow(
+                        appContext,
+                        tmdbId,
+                        mediaType,
+                        seasonNumber,
+                        episodeNumber,
+                    )
+                if (result.isFailure) {
+                    val hasAccessToken = sl.settings.nuvioAccessToken.first().isNotBlank()
+                    val hasAccountId = sl.settings.nuvioUserId.first().isNotBlank()
+                    val profileNeedsLink = result.exceptionOrNull()?.message
+                        ?.contains("not linked", ignoreCase = true) == true
+                    when {
+                        hasAccessToken && !profileNeedsLink -> {
+                            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
+                            _state.update {
+                                it.copy(
+                                    notice = "Removed locally; Nuvio sync is queued and will retry when available.",
+                                )
+                            }
                         }
-                    }
-                    hasAccountId -> {
-                        _state.update {
-                            it.copy(
-                                notice = if (profileNeedsLink) {
-                                    "Removed locally. Link this StreamCloud profile to Nuvio to sync the deletion."
-                                } else {
-                                    "Removed locally. Reconnect to Nuvio to sync the deletion."
-                                },
-                            )
+                        hasAccountId -> {
+                            _state.update {
+                                it.copy(
+                                    notice = if (profileNeedsLink) {
+                                        "Removed locally. Link this StreamCloud profile to Nuvio to sync the deletion."
+                                    } else {
+                                        "Removed locally. Reconnect to Nuvio to sync the deletion."
+                                    },
+                                )
+                            }
                         }
                     }
                 }
+            } finally {
+                withTimeoutOrNull(2_000L) {
+                    dao.continueWatching().first { rows ->
+                        rows.none { watchProgressIdentity(it) == identity }
+                    }
+                }
+                hiddenWatchProgressKeys.update { it - identity }
             }
         }
     }

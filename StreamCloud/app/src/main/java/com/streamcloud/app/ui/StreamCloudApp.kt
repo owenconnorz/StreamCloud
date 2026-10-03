@@ -1889,8 +1889,8 @@ private fun TvNetflixTopNav(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .onKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (event.key) {
                             Key.DirectionDown -> {
                                 // Cross the NavHost focus boundary directly when possible.
@@ -1898,8 +1898,8 @@ private fun TvNetflixTopNav(
                                 // spatial navigation and do not consume a failed move.
                                 runCatching {
                                     contentFocusRequester.requestFocus()
-                                    true
-                                }.getOrDefault(false) || focusManager.moveFocus(FocusDirection.Down)
+                                }.getOrDefault(false) ||
+                                    focusManager.moveFocus(FocusDirection.Down)
                             }
                             // Nothing focusable above the nav bar — consume Up.
                             Key.DirectionUp -> true

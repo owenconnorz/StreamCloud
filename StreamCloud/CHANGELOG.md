@@ -1,3 +1,17 @@
+## Latest — Home, artwork, and Continue Watching fixes
+
+### Continue Watching
+- Deleted items disappear immediately and stay hidden while sync completes; Nuvio tombstones remain queued until deletion is confirmed.
+
+### Movies home
+- TMDB home rows load from a persisted cache before refresh, with bounded collection and title-logo requests.
+- Banner tint is sampled from the active artwork and drawn over the image; TMDB title logos appear on hero and poster surfaces.
+- TV Play and More Info actions use pill-shaped buttons.
+
+### Details and TV navigation
+- Movie and series detail pages use taller, full-width artwork, with TMDB logos retained over the hero.
+- TV navigation hands focus to page content directly, then uses spatial focus as a fallback.
+
 ## Latest — Nuvio progress sync and movie-detail trailers
 
 ### Nuvio sync

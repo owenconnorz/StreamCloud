@@ -20,6 +20,8 @@ import com.streamcloud.app.data.nuvio.stableKey
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
@@ -307,13 +309,30 @@ object NuvioAutoSync {
         val pending = pendingWatchProgressDeletes(appContext, targetUserId, targetProfileId)
         if (pending.isEmpty()) return
 
-        NuvioAccountService.get(appContext).deleteWatchProgressItems(
-            accessToken = accessToken,
-            keys = pending.map { it.key },
-            userId = targetUserId,
-            localProfileId = targetProfileId,
-        )
-        clearWatchProgressDeletes(appContext, targetUserId, targetProfileId, pending)
+        try {
+            NuvioAccountService.get(appContext).deleteWatchProgressItems(
+                accessToken = accessToken,
+                keys = pending.map { it.key },
+                userId = targetUserId,
+                localProfileId = targetProfileId,
+            )
+            clearWatchProgressDeletes(appContext, targetUserId, targetProfileId, pending)
+        } finally {
+            // Keep deleted rows out of the local library even when the remote
+            // tombstone fails and must be retried.
+            withContext(NonCancellable) {
+                val dao = LibraryDb.get(appContext).watchProgress()
+                pending.forEach { delete ->
+                    val key = delete.key
+                    dao.removeKey(
+                        key.tmdbId,
+                        key.mediaType,
+                        key.seasonNumber,
+                        key.episodeNumber,
+                    )
+                }
+            }
+        }
     }
 
     suspend fun pushPendingLibraryDeletes(
@@ -397,6 +416,17 @@ object NuvioAutoSync {
                 throw cancelled
             } catch (failure: Exception) {
                 Result.failure(failure)
+            } finally {
+                // A pull/merge can restore the row during the sync. Remove it
+                // again before releasing the sync lock.
+                withContext(NonCancellable) {
+                    LibraryDb.get(appContext).watchProgress().removeKey(
+                        tmdbId,
+                        mediaType,
+                        seasonNumber,
+                        episodeNumber,
+                    )
+                }
             }
         }
     }
