@@ -10,9 +10,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyRowItems
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
@@ -40,7 +41,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
@@ -53,6 +53,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -71,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -86,11 +88,19 @@ import coil.compose.AsyncImage
 import com.streamcloud.app.data.profiles.BUILT_IN_AVATAR_SEEDS
 import com.streamcloud.app.data.profiles.ProfileRepository
 import com.streamcloud.app.data.profiles.UserProfile
-import com.streamcloud.app.data.profiles.builtInAvatarUrl
+import com.streamcloud.app.data.profiles.resolveBuiltInAvatarSeed
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import java.security.MessageDigest
+
+private val PROFILE_PICKER_BACKGROUND = Brush.verticalGradient(
+    colorStops = arrayOf(
+        0f to Color(0xFF0B2233),
+        0.46f to Color(0xFF07111A),
+        1f to Color.Black,
+    ),
+)
 
 private fun hashPin(pin: String): String {
     val bytes = MessageDigest.getInstance("SHA-256").digest(pin.toByteArray())
@@ -119,17 +129,22 @@ fun ProfilePickerScreen(
     var view        by remember { mutableStateOf<PickerView>(PickerView.Grid) }
     var editProfile by remember { mutableStateOf<UserProfile?>(null) }
     var editIsNew   by remember { mutableStateOf(false) }
+    var isManagingProfiles by rememberSaveable { mutableStateOf(false) }
 
     var pinTarget   by remember { mutableStateOf<UserProfile?>(null) }
 
-    BackHandler(view !is PickerView.Grid) {
-        view = PickerView.Grid
+    BackHandler(view !is PickerView.Grid || isManagingProfiles) {
+        if (view !is PickerView.Grid) {
+            view = PickerView.Grid
+        } else {
+            isManagingProfiles = false
+        }
     }
 
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0A0A)),
+            .background(PROFILE_PICKER_BACKGROUND),
     ) {
         AnimatedContent(
             targetState = view,
@@ -147,6 +162,7 @@ fun ProfilePickerScreen(
                     ProfileGridView(
                         profiles  = profiles,
                         activeId  = activeId,
+                        isManagingProfiles = isManagingProfiles,
                         onSelect  = { p ->
                             if (p.pinHash.isNotEmpty() && p.id != activeId) {
                                 pinTarget = p
@@ -166,7 +182,7 @@ fun ProfilePickerScreen(
                             editIsNew   = true
                             view = PickerView.Edit(newP, true)
                         },
-                        onDone    = onDone,
+                        onManageToggle = { isManagingProfiles = !isManagingProfiles },
                     )
                 }
                 currentView is PickerView.Edit && editProfile != null -> {
@@ -213,10 +229,11 @@ fun ProfilePickerScreen(
 private fun ProfileGridView(
     profiles: List<UserProfile>,
     activeId: String?,
+    isManagingProfiles: Boolean,
     onSelect: (UserProfile) -> Unit,
     onEdit: (UserProfile) -> Unit,
     onAddNew: () -> Unit,
-    onDone: () -> Unit,
+    onManageToggle: () -> Unit,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val initialFocusRequester = remember { FocusRequester() }
@@ -260,6 +277,7 @@ private fun ProfileGridView(
                     ProfileGridItem(
                         profile = profile,
                         isActive = profile.id == activeId,
+                        isManaging = isManagingProfiles,
                         onSelect = { onSelect(profile) },
                         onEdit = { onEdit(profile) },
                         initialFocusRequester = if (profile.id == initialFocusId) {
@@ -267,13 +285,17 @@ private fun ProfileGridView(
                         } else null,
                     )
                 }
-                item {
+                if (isManagingProfiles) item {
                     AddProfileItem(
                         onClick = onAddNew,
                         initialFocusRequester = if (profiles.isEmpty()) initialFocusRequester else null,
                     )
                 }
             }
+            ProfileManagementButton(
+                isManaging = isManagingProfiles,
+                onClick = onManageToggle,
+            )
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
@@ -288,33 +310,54 @@ private fun ProfileGridView(
                     ProfileGridItem(
                         profile = profile,
                         isActive = profile.id == activeId,
+                        isManaging = isManagingProfiles,
                         onSelect = { onSelect(profile) },
                         onEdit = { onEdit(profile) },
                     )
                 }
-                item {
+                if (isManagingProfiles) item {
                     AddProfileItem(onClick = onAddNew)
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 24.dp, bottom = 24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ProfileManagementButton(
+                            isManaging = isManagingProfiles,
+                            onClick = onManageToggle,
+                        )
+                    }
                 }
             }
         }
 
-        if (!isTv) {
-            Spacer(Modifier.height(24.dp))
-            Button(
-                onClick = onDone,
-                shape   = RoundedCornerShape(50),
-                colors  = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E4EA8)),
-                modifier = Modifier
-                    .padding(horizontal = 80.dp)
-                    .fillMaxWidth()
-                    .height(52.dp),
-            ) {
-                Text("Done", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-            }
-            Spacer(Modifier.height(24.dp))
-        } else {
-            Spacer(Modifier.height(24.dp))
-        }
+    }
+}
+
+@Composable
+private fun ProfileManagementButton(
+    isManaging: Boolean,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = Color(0xFFB4B4BA),
+        ),
+        modifier = Modifier
+            .width(if (isManaging) 104.dp else 190.dp)
+            .height(48.dp),
+    ) {
+        Text(
+            text = if (isManaging) "Done" else "Manage Profiles",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -323,16 +366,18 @@ private fun ProfileGridView(
 private fun ProfileGridItem(
     profile: UserProfile,
     isActive: Boolean,
+    isManaging: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit,
     initialFocusRequester: FocusRequester? = null,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val activate = { if (isManaging) onEdit() else onSelect() }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         // On TV the avatar Box handles clicks; Column stays non-clickable to
         // avoid a second focusable node fighting for D-pad input.
-        modifier = if (isTv) Modifier else Modifier.clickable(onClick = onSelect),
+        modifier = if (isTv) Modifier else Modifier.clickable(onClick = activate),
     ) {
         Box(contentAlignment = Alignment.BottomEnd) {
             Box(
@@ -352,11 +397,14 @@ private fun ProfileGridItem(
                     .then(
                         if (isTv)
                             // tvFocusBorder makes the circle focusable and shows a white
-                            // border when focused. combinedClickable routes single press to
-                            // onSelect and a held centre button to onEdit.
+                            // border when focused. Selection and editing follow the same
+                            // Manage Profiles mode as the mobile layout.
                             Modifier
                                 .tvFocusBorder(CircleShape)
-                                .combinedClickable(onClick = onSelect, onLongClick = onEdit)
+                                .combinedClickable(
+                                    onClick = activate,
+                                    onLongClick = if (isManaging) onEdit else null,
+                                )
                         else Modifier
                     ),
             ) {
@@ -365,20 +413,19 @@ private fun ProfileGridItem(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            // Edit pencil is replaced by hold-to-edit on TV.
-            if (!isTv) {
+            if (isManaging && !isTv) {
                 Box(
                     Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF1E4EA8))
+                        .background(Color.White)
                         .clickable(onClick = onEdit),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Default.Edit,
                         contentDescription = "Edit",
-                        tint = Color.White,
+                        tint = Color(0xFF101114),
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -416,7 +463,8 @@ private fun AddProfileItem(
                     } else Modifier
                 )
                 .clip(CircleShape)
-                .background(Color(0xFF2A2A2E))
+                .background(Color(0xFF111315))
+                .border(2.dp, Color.White.copy(alpha = 0.1f), CircleShape)
                 .then(
                     if (isTv) {
                         Modifier.tvFocusBorder(CircleShape).clickable(onClick = onClick)
@@ -443,23 +491,16 @@ private fun AddProfileItem(
 
 @Composable
 private fun AvatarImage(profile: UserProfile, modifier: Modifier = Modifier) {
-    val url = when {
+    val model: Any = when {
         profile.avatarUrl.isNotBlank() -> profile.avatarUrl
-        profile.avatarSeed.isNotBlank() -> builtInAvatarUrl(profile.avatarSeed)
-        else -> builtInAvatarUrl(profile.name)
+        else -> profileAvatarDrawable(profile.avatarSeed.ifBlank { profile.name })
     }
-    if (url.isNotBlank()) {
-        AsyncImage(
-            model = url,
-            contentDescription = profile.name,
-            contentScale = ContentScale.Crop,
-            modifier = modifier,
-        )
-    } else {
-        Box(modifier.background(Color(0xFF2A2A2E)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Person, null, tint = Color(0xFF8E8E93), modifier = Modifier.size(40.dp))
-        }
-    }
+    AsyncImage(
+        model = model,
+        contentDescription = profile.name,
+        contentScale = ContentScale.Crop,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -472,7 +513,10 @@ private fun EditProfileView(
 ) {
     var name         by rememberSaveable { mutableStateOf(profile.name) }
     var customUrl    by rememberSaveable { mutableStateOf(profile.avatarUrl) }
-    var avatarSeed   by rememberSaveable { mutableStateOf(profile.avatarSeed.ifBlank { profile.name }) }
+    var avatarSeed   by rememberSaveable(profile.id) {
+        mutableStateOf(profile.avatarSeed.ifBlank { profile.name })
+    }
+    val selectedAvatarSeed = resolveBuiltInAvatarSeed(avatarSeed)
     var pinHash      by rememberSaveable { mutableStateOf(profile.pinHash) }
 
     var showPinDialog  by remember { mutableStateOf(false) }
@@ -487,6 +531,7 @@ private fun EditProfileView(
     Column(
         Modifier
             .fillMaxSize()
+            .background(Color(0xFF0A0A0A))
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
@@ -620,23 +665,26 @@ private fun EditProfileView(
                         fontSize = 13.sp,
                     )
                     Spacer(Modifier.height(12.dp))
+                    val avatarRowCount = (BUILT_IN_AVATAR_SEEDS.size + 4) / 5
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(5),
-                        modifier = Modifier.height(((BUILT_IN_AVATAR_SEEDS.size / 5 + 1) * 72).dp),
+                        modifier = Modifier.height(
+                            (avatarRowCount * 56 + (avatarRowCount - 1) * 8).dp,
+                        ),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         userScrollEnabled = false,
                     ) {
                         gridItems(BUILT_IN_AVATAR_SEEDS) { seed ->
-                            val selected = avatarSeed == seed && customUrl.isBlank()
+                            val selected = selectedAvatarSeed == seed && customUrl.isBlank()
                             Box(
                                 Modifier
                                     .size(56.dp)
                                     .clip(CircleShape)
-                                    .then(
-                                        if (selected)
-                                            Modifier.border(2.dp, Color(0xFF1E4EA8), CircleShape)
-                                        else Modifier
+                                    .border(
+                                        width = if (selected) 3.dp else 1.dp,
+                                        color = Color.White.copy(alpha = if (selected) 1f else 0.8f),
+                                        shape = CircleShape,
                                     )
                                     .clickable {
                                         avatarSeed = seed
@@ -644,26 +692,11 @@ private fun EditProfileView(
                                     },
                             ) {
                                 AsyncImage(
-                                    model = builtInAvatarUrl(seed),
+                                    model = profileAvatarDrawable(seed),
                                     contentDescription = seed,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize(),
                                 )
-                                if (selected) {
-                                    Box(
-                                        Modifier
-                                            .fillMaxSize()
-                                            .background(Color(0x661E4EA8)),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
