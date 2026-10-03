@@ -543,7 +543,6 @@ private fun CloudStreamPluginsPage(
                 }
             }
 
-
             items(state.repos, key = { it.id }) { repo ->
                 RepoCard(
                     repo             = repo,

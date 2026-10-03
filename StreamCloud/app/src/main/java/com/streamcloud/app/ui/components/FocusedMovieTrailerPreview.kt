@@ -38,12 +38,11 @@ private data class ResolvedTrailer(
     val url: String,
     val userAgent: String?,
     val hasAudioTrack: Boolean,
-    val audioUrl: String? = null,
 )
 
 /**
- * Resolves a looping TMDB trailer preview, preferring audio-backed streams while keeping
- * video-only adaptive playback available when YouTube exposes no muxed audio/video stream.
+ * Resolves a looping TMDB trailer preview. Muxed streams include audio; if YouTube
+ * only exposes adaptive video, the preview remains visible but silent.
  */
 @Composable
 internal fun TmdbTrailerPreview(
@@ -112,8 +111,6 @@ internal fun TmdbTrailerPreview(
                     val stream = YtPlayerUtils.resolveVideoStream(
                         video.key,
                         requireAudioTrack = false,
-                        // After a playback failure, try HLS or muxed fallback instead of repeating the pair.
-                        allowSeparateAudio = retryAttempt == 0,
                     )
                     val url = stream.url?.takeIf { stream.isMusicVideo && it.isNotBlank() }
                     if (url != null) {
@@ -121,7 +118,6 @@ internal fun TmdbTrailerPreview(
                             url = url,
                             userAgent = stream.userAgent,
                             hasAudioTrack = stream.hasAudioTrack,
-                            audioUrl = stream.audioUrl,
                         )
                         return@LaunchedEffect
                     }
@@ -172,12 +168,11 @@ private fun TrailerPlayer(
     onPlaybackError: (PlaybackException) -> Unit,
 ) {
     val context = LocalContext.current
-    val mediaSourceFactory = remember(trailer.userAgent) {
-        DefaultMediaSourceFactory(YtPlayerUtils.createTrailerDataSourceFactory(trailer.userAgent))
-    }
-    val player = remember(trailer.url, trailer.audioUrl, trailer.userAgent) {
+    val player = remember(trailer.url, trailer.userAgent) {
+        val dataSourceFactory = YtPlayerUtils.createTrailerDataSourceFactory(trailer.userAgent)
+
         ExoPlayer.Builder(context)
-            .setMediaSourceFactory(mediaSourceFactory)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .build()
             .apply {
                 setAudioAttributes(
@@ -254,16 +249,7 @@ private fun TrailerPlayer(
 
     LaunchedEffect(player, trailer.url, surfaceRef.value) {
         if (surfaceRef.value == null) return@LaunchedEffect
-        val audioUrl = trailer.audioUrl
-        if (!audioUrl.isNullOrBlank()) {
-            val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(trailer.url))
-            val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(audioUrl))
-            player.setMediaSource(
-                androidx.media3.exoplayer.source.MergingMediaSource(videoSource, audioSource),
-            )
-        } else {
-            player.setMediaItem(MediaItem.fromUri(trailer.url))
-        }
+        player.setMediaItem(MediaItem.fromUri(trailer.url))
         player.prepare()
         player.play()
     }

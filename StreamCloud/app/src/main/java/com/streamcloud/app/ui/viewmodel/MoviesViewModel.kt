@@ -1077,20 +1077,47 @@ class MoviesViewModel(
         episodeNumber: Int,
     ) {
         viewModelScope.launch {
-            com.streamcloud.app.data.nuvio.NuvioAutoSync.recordWatchProgressDelete(
-                appContext,
-                tmdbId,
-                mediaType,
-                seasonNumber,
-                episodeNumber,
-            )
             LibraryDb.get(appContext).watchProgress().removeKey(
                 tmdbId,
                 mediaType,
                 seasonNumber,
                 episodeNumber,
             )
-            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
+            val result = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                .deleteWatchProgressAndSyncNow(
+                    appContext,
+                    tmdbId,
+                    mediaType,
+                    seasonNumber,
+                    episodeNumber,
+                )
+            if (result.isFailure) {
+                val hasAccessToken = sl.settings.nuvioAccessToken.first().isNotBlank()
+                val hasAccountId = sl.settings.nuvioUserId.first().isNotBlank()
+                val profileNeedsLink = result.exceptionOrNull()?.message
+                    ?.contains("not linked", ignoreCase = true) == true
+                when {
+                    hasAccessToken && !profileNeedsLink -> {
+                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
+                        _state.update {
+                            it.copy(
+                                notice = "Removed locally; Nuvio sync is queued and will retry when available.",
+                            )
+                        }
+                    }
+                    hasAccountId -> {
+                        _state.update {
+                            it.copy(
+                                notice = if (profileNeedsLink) {
+                                    "Removed locally. Link this StreamCloud profile to Nuvio to sync the deletion."
+                                } else {
+                                    "Removed locally. Reconnect to Nuvio to sync the deletion."
+                                },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -35,6 +35,7 @@ object NuvioAutoSync {
     private const val PENDING_LIBRARY_DELETES = "pending_library_deletes"
     private const val PENDING_ADDON_DELETES = "pending_addon_deletes"
     private const val PENDING_WATCH_PROGRESS_DELETES = "pending_watch_progress_deletes"
+    private const val WATCH_PROGRESS_REMOTE_IDENTITIES = "watch_progress_remote_identities"
     private val syncMutex = Mutex()
 
     fun installPeriodic(context: Context) {
@@ -230,9 +231,9 @@ object NuvioAutoSync {
         NuvioAccountScopeStore.setCurrentUserId(appContext, userId)
         val profiles = services.profiles
         val localProfileId = profiles.currentActiveId()
-            ?: profiles.currentProfiles().firstOrNull()?.id
-            ?: return
-        if (profiles.nuvioProfileIndex(userId, localProfileId) == null) return
+            ?.takeIf { it.isNotBlank() }
+            ?: profiles.currentProfiles().firstOrNull()?.id?.takeIf { it.isNotBlank() }
+            ?: "default"
 
         val normalizedMediaType = if (mediaType == "series") "tv" else mediaType
         val serialized = listOf(
@@ -245,8 +246,46 @@ object NuvioAutoSync {
         val key = watchProgressDeletePreferenceKey(userId, localProfileId)
         val pending = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
         pending += serialized
+        val progressIdentity = NuvioWatchProgressDeleteKey(
+            tmdbId = tmdbId,
+            mediaType = normalizedMediaType,
+            seasonNumber = seasonNumber.coerceAtLeast(0),
+            episodeNumber = episodeNumber.coerceAtLeast(0),
+        )
+        val identityKey = watchProgressRemoteIdentityPreferenceKey(
+            userId,
+            localProfileId,
+            progressIdentity,
+        )
+        prefs.getStringSet(identityKey, emptySet()).orEmpty()
+            .mapNotNull(NuvioWatchProgressDeleteKey::deserialize)
+            .forEach { pending += it.serialize() }
         check(prefs.edit().putStringSet(key, pending).commit()) {
             "Could not persist the Nuvio watch progress deletion request"
+        }
+    }
+
+    internal fun recordWatchProgressRemoteIdentities(
+        context: Context,
+        userId: String,
+        localProfileId: String,
+        identities: Collection<NuvioWatchProgressDeleteKey>,
+    ) {
+        if (identities.isEmpty()) return
+        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val grouped = identities
+            .filter { !it.remoteContentId.isNullOrBlank() }
+            .groupBy {
+                watchProgressRemoteIdentityPreferenceKey(userId, localProfileId, it)
+            }
+        if (grouped.isEmpty()) return
+        val editor = prefs.edit()
+        grouped.forEach { (key, records) ->
+            val existing = prefs.getStringSet(key, emptySet()).orEmpty()
+            editor.putStringSet(key, existing + records.map(NuvioWatchProgressDeleteKey::serialize))
+        }
+        check(editor.commit()) {
+            "Could not persist Nuvio watch progress remote identities"
         }
     }
 
@@ -322,17 +361,57 @@ object NuvioAutoSync {
         val push: NuvioSyncResult,
     )
 
-    suspend fun syncNowDetailed(context: Context): Result<SyncOutcome> = syncMutex.withLock {
+    suspend fun syncNowDetailed(context: Context): Result<SyncOutcome> =
+        syncMutex.withLock { syncNowDetailedLocked(context.applicationContext) }
+
+    /**
+     * Serialize the tombstone, local removal, and cloud sync with every other
+     * sync. The caller may optimistically hide the item first; removing it again
+     * under this lock prevents an in-flight pull from resurrecting it.
+     */
+    suspend fun deleteWatchProgressAndSyncNow(
+        context: Context,
+        tmdbId: Long,
+        mediaType: String,
+        seasonNumber: Int,
+        episodeNumber: Int,
+    ): Result<SyncOutcome> {
+        val appContext = context.applicationContext
+        return syncMutex.withLock {
+            try {
+                recordWatchProgressDelete(
+                    appContext,
+                    tmdbId,
+                    mediaType,
+                    seasonNumber,
+                    episodeNumber,
+                )
+                LibraryDb.get(appContext).watchProgress().removeKey(
+                    tmdbId,
+                    mediaType,
+                    seasonNumber,
+                    episodeNumber,
+                )
+                syncNowDetailedLocked(appContext)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Result.failure(failure)
+            }
+        }
+    }
+
+    private suspend fun syncNowDetailedLocked(context: Context): Result<SyncOutcome> {
         val appContext = context.applicationContext
         val settings = ServiceLocator.get(appContext).settings
         val services = ServiceLocator.get(appContext)
         val accessToken = settings.nuvioAccessToken.first().trim()
         val userId = settings.nuvioUserId.first().trim()
         if (accessToken.isBlank()) {
-            return@withLock Result.failure(IllegalStateException("No Nuvio session is active"))
+            return Result.failure(IllegalStateException("No Nuvio session is active"))
         }
         if (userId.isBlank()) {
-            return@withLock Result.failure(IllegalStateException("The Nuvio session has no account ID"))
+            return Result.failure(IllegalStateException("The Nuvio session has no account ID"))
         }
         val localProfileId = services.profiles.currentActiveId()
             ?.takeIf { it.isNotBlank() }
@@ -365,17 +444,17 @@ object NuvioAutoSync {
         }
 
         val firstAttempt = attempt(accessToken)
-        if (firstAttempt.isSuccess) return@withLock firstAttempt
+        if (firstAttempt.isSuccess) return firstAttempt
 
         val firstFailure = firstAttempt.exceptionOrNull()
             ?: IllegalStateException("Nuvio sync failed")
         val refreshToken = settings.nuvioRefreshToken.first().trim()
-        if (refreshToken.isBlank()) return@withLock Result.failure(firstFailure)
+        if (refreshToken.isBlank()) return Result.failure(firstFailure)
 
         val refreshed = service.refreshToken(refreshToken)
         if (refreshed.isFailure) {
             val refreshFailure = refreshed.exceptionOrNull()
-            return@withLock Result.failure(
+            return Result.failure(
                 IllegalStateException(
                     "Nuvio sync failed: ${firstFailure.message ?: "unknown error"}; " +
                         "token refresh failed: ${refreshFailure?.message ?: "unknown error"}",
@@ -385,14 +464,14 @@ object NuvioAutoSync {
         }
 
         if (settings.nuvioUserId.first().trim() != userId) {
-            return@withLock Result.failure(
+            return Result.failure(
                 IllegalStateException("The Nuvio account changed while sync was running"),
             )
         }
         val session = refreshed.getOrThrow()
         val refreshedUserId = session.user?.id?.takeIf { it.isNotBlank() }
         if (refreshedUserId != null && refreshedUserId != userId) {
-            return@withLock Result.failure(
+            return Result.failure(
                 IllegalStateException("Token refresh returned a different Nuvio account"),
             )
         }
@@ -422,6 +501,14 @@ object NuvioAutoSync {
     private fun watchProgressDeletePreferenceKey(userId: String, localProfileId: String): String =
         "${PENDING_WATCH_PROGRESS_DELETES}_${stableKey("$userId:$localProfileId").take(16)}"
 
+    private fun watchProgressRemoteIdentityPreferenceKey(
+        userId: String,
+        localProfileId: String,
+        key: NuvioWatchProgressDeleteKey,
+    ): String = "${WATCH_PROGRESS_REMOTE_IDENTITIES}_${stableKey(
+        "$userId:$localProfileId:${key.tmdbId}:${key.mediaType}:${key.seasonNumber}:${key.episodeNumber}",
+    ).take(24)}"
+
     private fun pendingWatchProgressDeletes(
         context: Context,
         userId: String,
@@ -430,20 +517,11 @@ object NuvioAutoSync {
         val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
         val key = watchProgressDeletePreferenceKey(userId, localProfileId)
         return prefs.getStringSet(key, emptySet()).orEmpty().mapNotNull { serialized ->
-            val parts = serialized.split('|')
-            if (parts.size != 4) return@mapNotNull null
-            val tmdbId = parts[0].toLongOrNull()?.takeIf { it > 0L } ?: return@mapNotNull null
-            val mediaType = parts[1].takeIf { it == "movie" || it == "tv" } ?: return@mapNotNull null
-            val seasonNumber = parts[2].toIntOrNull()?.takeIf { it >= 0 } ?: return@mapNotNull null
-            val episodeNumber = parts[3].toIntOrNull()?.takeIf { it >= 0 } ?: return@mapNotNull null
+            val deleteKey = NuvioWatchProgressDeleteKey.deserialize(serialized)
+                ?: return@mapNotNull null
             PendingWatchProgressDelete(
                 serialized = serialized,
-                key = NuvioWatchProgressDeleteKey(
-                    tmdbId = tmdbId,
-                    mediaType = mediaType,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                ),
+                key = deleteKey,
             )
         }
     }

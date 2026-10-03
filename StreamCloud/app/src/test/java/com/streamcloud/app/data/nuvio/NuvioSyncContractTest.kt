@@ -57,6 +57,96 @@ class NuvioSyncContractTest {
     }
 
     @Test
+    fun deleteKeyPreservesOriginalNuvioRecordIdentity() {
+        val key = NuvioWatchProgressDeleteKey(
+            tmdbId = 123L,
+            mediaType = "tv",
+            seasonNumber = 2,
+            episodeNumber = 5,
+            remoteContentId = "imdb:tt1234567",
+            remoteContentType = "series",
+            remoteVideoId = "tt1234567:2:5",
+            remoteProgressKey = "imdb:tt1234567:2:5",
+        )
+
+        val restored = NuvioWatchProgressDeleteKey.deserialize(key.serialize())
+
+        assertEquals("imdb:tt1234567", restored?.contentId)
+        assertEquals("series", restored?.contentType)
+        assertEquals("tt1234567:2:5", restored?.remoteVideoId)
+        assertEquals("imdb:tt1234567:2:5", restored?.remoteProgressKey)
+        assertEquals(123L, restored?.tmdbId)
+        assertEquals(2, restored?.seasonNumber)
+        assertEquals(5, restored?.episodeNumber)
+    }
+
+    @Test
+    fun readsLegacyProgressDeleteTombstones() {
+        val restored = NuvioWatchProgressDeleteKey.deserialize("123|tv|2|5")
+
+        assertEquals("tmdb:123", restored?.contentId)
+        assertEquals("tmdb:123:2:5", restored?.remoteKey)
+    }
+
+    @Test
+    fun normalizesSecondBasedNuvioProgressToMilliseconds() {
+        assertEquals(
+            NuvioProgressTimes(
+                positionMs = 300_000L,
+                durationMs = 3_600_000L,
+                updatedAtMs = 1_700_000_000_000L,
+            ),
+            normalizeNuvioProgressTimes(
+                position = 300L,
+                duration = 3_600L,
+                lastWatched = 1_700_000_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun leavesMillisecondNuvioProgressUnchanged() {
+        assertEquals(
+            NuvioProgressTimes(
+                positionMs = 300_000L,
+                durationMs = 3_600_000L,
+                updatedAtMs = 1_700_000_000_000L,
+            ),
+            normalizeNuvioProgressTimes(
+                position = 300_000L,
+                duration = 3_600_000L,
+                lastWatched = 1_700_000_000_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun correctsPreviouslyImportedSecondBasedDurationEvenWhenTimestampMatches() {
+        assertTrue(
+            shouldUseNuvioProgress(
+                existingUpdatedAt = 1_700_000_000_000L,
+                existingDurationMs = 3_600L,
+                incomingUpdatedAtMs = 1_700_000_000_000L,
+                incomingRawDuration = 3_600L,
+                incomingDurationMs = 3_600_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun doesNotReplaceNewerLocalPlaybackWithOlderNuvioProgress() {
+        assertFalse(
+            shouldUseNuvioProgress(
+                existingUpdatedAt = 1_700_000_100_000L,
+                existingDurationMs = 3_600_000L,
+                incomingUpdatedAtMs = 1_700_000_000_000L,
+                incomingRawDuration = 3_600L,
+                incomingDurationMs = 3_600_000L,
+            ),
+        )
+    }
+
+    @Test
     fun playbackProgressSyncCoalescesButExplicitSyncIsAppended() {
         assertEquals(ExistingWorkPolicy.KEEP, syncRequestWorkPolicy(progressOnly = true))
         assertEquals(

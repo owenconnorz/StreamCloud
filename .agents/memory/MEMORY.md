@@ -1,7 +1,7 @@
 - [Extractor toolchain compatibility](youtube-extractor-compatibility.md) — Keep maintained extractors within the Android SDK and Kotlin metadata baseline used by the app.
 - [Android KAPT source isolation](android-kapt-source-isolation.md) — Isolate new provider resolver models when KAPT duplicates existing model classes during CI.
 - [GitHub Android source path](github-android-source-path.md) — The Actions build and path filter use the repository’s nested `StreamCloud/` tree.
-- [GitHub push path](github-push-path.md) — When this checkout lacks a usable GitHub origin, publish verified commits through the installed GitHub connection API.
+- [GitHub push path](github-push-path.md) — Publish commits via GitHub API when needed; use Git trees to inspect workflow files if Contents API blocks them.
 - [Android Auto voice playback](android-auto-voice-playback.md) — Resolve Media3 voice search metadata to a real playable item before returning it to the car.
 - [DJ narration behavior](dj-narration-behavior.md) — DJ narration is mandatory for intros and automatic transitions; voice style remains configurable.
 - [YouTube stream URL persistence](yt-stream-url-persistence.md) — Persist signed URLs only until expiry and evict them on every CDN rejection.
@@ -9,13 +9,18 @@
 - [Sonos proxy preflight](sonos-proxy-preflight.md) — Verify audio bytes and exact HTTP metadata before assigning a signed stream to Sonos.
 - [Remote cast transition ownership](remote-cast-transition-ownership.md) — Serialize Cast/DLNA handoffs and clean up the exact callback-owned Cast session, never a generic current session.
 - [YouTube Music video surfaces](yt-music-video-surfaces.md) — Preserve explicit video intent and accept adaptive visual streams for Now Playing.
+- [Nuvio trailer resolution](nuvio-trailer-resolution.md) — Trailer IDs come from TMDB; pair adaptive YouTube audio/video only in players that merge both tracks.
 - [Personalized DJ privacy](personalized-dj-privacy.md) — Keep listener preference signals on-device; external music searches are discovery-only and disclosed.
 - [Music prefetch priority](music-prefetch-priority.md) — Foreground playback and the active queue must outrank speculative visible-list stream warm-up.
 - [Fire TV focus handoff](tv-focus-handoff.md) — Persistent overlay navigation needs an explicit, retryable focus handoff into asynchronous page content.
 - [Android build validation](android-build-validation.md) — This Repl lacks a local Android SDK; use the nested StreamCloud GitHub Actions build for compile validation.
 - [StreamCloud release scope](streamcloud-release-scope.md) — Publish and mirror APK updates only within StreamCloud; AioWeb is not part of this project.
 - [Android Auto queue resumption](android-auto-queue-resumption.md) — Resume from durable logical media identities and position, never in-memory timelines or signed CDN URLs.
-- [Nuvio sync contract](nuvio-sync-contract.md) — Keep Nuvio RPC datasets separate, mutate the shared profile repository, and resolve provider IDs before local writes.
+- [Nuvio sync contract](nuvio-sync-contract.md) — Preserve separate datasets, remote identities, and serialized deletion tombstones across account/profile-scoped sync.
+- [Nuvio avatar ID compatibility](nuvio-avatar-id-compatibility.md) — Keep selected profile avatar IDs in sync with Nuvio's public catalog so cloud profiles can resolve the artwork.
 - [Playback sync priority](nuvio-playback-sync-priority.md) — Coalesce replaceable playback-position updates, but always queue watched-state completion and refresh cloud state on foreground return.
 - [GitHub APK release publishing](github-apk-release-publishing.md) — Verify release assets through authenticated GitHub CLI after Actions publishing; rebuild the release if indexing is inconsistent.
 - [GitHub Actions log access](github-actions-log-access.md) — If the connector blocks job-log downloads, use readable run/job/annotation data and report the limit.
+- [Pornhub WebView login](pornhub-webview-login.md) — Restrict top-level login destinations, but allow secure third-party CAPTCHA and identity frames.
+- [Nuvio up-next UI](nuvio-up-next-ui.md) — Use a compact final-minute chip; start the autoplay countdown only after playback ends.
+- [Expanded movie-home cards](expanded-movie-home-cards.md) — Focused cards use static artwork and title logos; keep trailer previews on detail screens.

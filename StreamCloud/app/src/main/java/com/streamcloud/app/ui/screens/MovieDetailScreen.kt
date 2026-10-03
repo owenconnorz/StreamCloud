@@ -54,7 +54,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -76,6 +75,7 @@ import com.streamcloud.app.data.api.TmdbCastMember
 import com.streamcloud.app.data.api.TmdbCredits
 import com.streamcloud.app.data.api.TmdbEpisode
 import com.streamcloud.app.data.api.TmdbMovie
+import com.streamcloud.app.data.api.TmdbTitleLogo
 import com.streamcloud.app.data.api.TmdbTvSeasonSummary
 import com.streamcloud.app.data.api.TmdbVideo
 import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
@@ -152,6 +152,8 @@ fun MovieDetailScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var overviewExpanded by remember { mutableStateOf(false) }
     var trailerTypeFilter by remember { mutableStateOf("Trailer") }
+    var titleLogoUrl by remember(movieId, mediaType) { mutableStateOf<String?>(null) }
+    var showTrailerBanner by rememberSaveable(movieId, mediaType) { mutableStateOf(false) }
 
     val installedAddons by sl.stremio.addons.collectAsState(initial = emptyList())
     val installedNuvio by sl.nuvio.installed.collectAsState(initial = emptyList())
@@ -264,6 +266,25 @@ fun MovieDetailScreen(
         } catch (e: Exception) {
             error = "Failed to load: ${e.message}"
         }
+    }
+
+    LaunchedEffect(movieId, mediaType) {
+        titleLogoUrl = runCatching {
+            sl.tmdb.images(
+                if (mediaType == "tv") "tv" else "movie",
+                movieId,
+                sl.tmdbApiKey,
+            ).logos.sortedWith(
+                compareBy<TmdbTitleLogo> {
+                    when {
+                        it.language?.equals("en", ignoreCase = true) == true -> 0
+                        it.language == null -> 1
+                        else -> 2
+                    }
+                }.thenByDescending { it.voteAverage }
+                    .thenByDescending { it.width },
+            ).firstNotNullOfOrNull { it.imageUrl }
+        }.getOrNull()
     }
 
     LaunchedEffect(movieId, mediaType, selectedSeason) {
@@ -540,28 +561,40 @@ fun MovieDetailScreen(
         if (!isTv) try { focusRequester.requestFocus() } catch (_: Exception) {}
     }
     val detailHeader: @Composable () -> Unit = {
-        Text(
-            movie?.displayTitle ?: "Loading…",
-            style = if (isTv) {
-                MaterialTheme.typography.headlineLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 40.sp,
-                    lineHeight = 44.sp,
-                )
-            } else {
-                MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Bold)
-            },
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = if (isTv) 2 else Int.MAX_VALUE,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (!titleLogoUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = titleLogoUrl,
+                contentDescription = movie?.displayTitle,
+                contentScale = ContentScale.Fit,
+                onError = { titleLogoUrl = null },
+                modifier = Modifier
+                    .fillMaxWidth(0.72f)
+                    .height(if (isTv) 96.dp else 72.dp),
+            )
+        } else {
+            Text(
+                movie?.displayTitle ?: "Loading…",
+                style = if (isTv) {
+                    MaterialTheme.typography.headlineLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 40.sp,
+                        lineHeight = 44.sp,
+                    )
+                } else {
+                    MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Bold)
+                },
+                color = Color.White,
+                maxLines = if (isTv) 2 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
         movie?.genres?.takeIf { it.isNotEmpty() && mediaType == "tv" }?.let { genres ->
             Spacer(Modifier.height(4.dp))
             Text(
                 genres.joinToString(" • ") { it.name },
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White.copy(alpha = 0.86f),
                 maxLines = if (isTv) 2 else Int.MAX_VALUE,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -609,6 +642,12 @@ fun MovieDetailScreen(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     )
                 }
+                TrailerBannerToggle(
+                    active = showTrailerBanner,
+                    enabled = movie != null,
+                    isTv = isTv,
+                    onClick = { showTrailerBanner = !showTrailerBanner },
+                )
                 if (isTv) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         MovieActionCircle(
@@ -655,6 +694,12 @@ fun MovieDetailScreen(
                         modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
                     )
                 }
+                TrailerBannerToggle(
+                    active = showTrailerBanner,
+                    enabled = movie != null,
+                    isTv = isTv,
+                    onClick = { showTrailerBanner = !showTrailerBanner },
+                )
                 if (isTv) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         MovieActionCircle(
@@ -711,65 +756,21 @@ fun MovieDetailScreen(
             )
     ) {
         Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
-
-            if (isTv) {
-                val previewWidth = (LocalConfiguration.current.screenWidthDp.dp * 0.44f)
-                    .coerceIn(260.dp, 560.dp)
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 40.dp, vertical = 20.dp)
-                        .height(previewWidth * (9f / 16f)),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(
-                        Modifier.weight(1f).fillMaxHeight(),
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        detailHeader()
-                    }
-                    Spacer(Modifier.width(24.dp))
-                    Box(
-                        Modifier
-                            .width(previewWidth)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(Color.Black),
-                    ) {
-                        MovieArtwork(
-                            primaryUrl = movie?.backdropUrl,
-                            fallbackUrl = movie?.posterUrl,
-                            contentDescription = movie?.displayTitle ?: "Movie artwork",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        movie?.let { loadedMovie ->
-                            TmdbTrailerPreview(
-                                movie = loadedMovie,
-                                modifier = Modifier.fillMaxSize(),
-                                videos = videos,
-                                startDelayMs = 0L,
-                            )
-                        }
-                        Box(
-                            Modifier.fillMaxSize().background(
-                                Brush.verticalGradient(
-                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.18f)),
-                                ),
-                            ),
-                        )
-                    }
-                }
-            } else {
-                // Mobile keeps the full-width artwork above its stacked details.
-                Box(Modifier.fillMaxWidth().height(300.dp)) {
-                    MovieArtwork(
-                        primaryUrl = movie?.backdropUrl,
-                        fallbackUrl = movie?.posterUrl,
-                        contentDescription = movie?.displayTitle ?: "Movie artwork",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
-                    )
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(if (isTv) 360.dp else 300.dp),
+            ) {
+                MovieArtwork(
+                    primaryUrl = movie?.backdropUrl,
+                    fallbackUrl = movie?.posterUrl,
+                    contentDescription = movie?.displayTitle ?: "Movie artwork",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface),
+                )
+                if (showTrailerBanner) {
                     movie?.let { loadedMovie ->
                         TmdbTrailerPreview(
                             movie = loadedMovie,
@@ -778,24 +779,41 @@ fun MovieDetailScreen(
                             startDelayMs = 0L,
                         )
                     }
-                    Box(
-                        Modifier.fillMaxSize().background(
-                            Brush.verticalGradient(
-                                listOf(Color.Black.copy(alpha = 0.3f), Color.Transparent, Color.Transparent,
-                                    MaterialTheme.colorScheme.background)
-                            )
+                }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent),
+                            ),
                         )
-                    )
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Black.copy(alpha = 0.12f),
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.background.copy(alpha = 0.92f),
+                                ),
+                            ),
+                        ),
+                )
+                Column(
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(horizontal = if (isTv) 40.dp else 20.dp, vertical = 18.dp),
+                ) {
+                    detailHeader()
                 }
             }
+
             // ── Main content ──────────────────────────────────────────────────
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = if (isTv) 40.dp else 20.dp)
-                    .then(if (isTv) Modifier else Modifier.offset(y = (-50).dp)),
+                    .padding(horizontal = if (isTv) 40.dp else 20.dp),
             ) {
-                if (!isTv) detailHeader()
                 Spacer(Modifier.height(16.dp))
 
                 // Put series episodes directly after the hero actions, before
@@ -1512,6 +1530,38 @@ fun MovieDetailScreen(
 // ─────────────────────────────────────────────────────────────────────────────
 // Small UI components
 // ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun TrailerBannerToggle(
+    active: Boolean,
+    enabled: Boolean,
+    isTv: Boolean,
+    onClick: () -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .height(if (isTv) 44.dp else 52.dp)
+            .tvFocusBorder(RoundedCornerShape(50)),
+        shape = RoundedCornerShape(50),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Black.copy(alpha = 0.52f),
+            contentColor = Color.White,
+            disabledContainerColor = Color.Black.copy(alpha = 0.35f),
+            disabledContentColor = Color.White.copy(alpha = 0.62f),
+        ),
+        contentPadding = PaddingValues(horizontal = 14.dp),
+    ) {
+        Icon(
+            imageVector = if (active) Icons.Default.Close else Icons.Default.PlayArrow,
+            contentDescription = null,
+            modifier = Modifier.size(19.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(if (active) "Artwork" else "Trailer", maxLines = 1)
+    }
+}
 
 @Composable
 private fun MovieActionCircle(

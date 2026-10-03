@@ -21,8 +21,26 @@ Workspace edits may also appear as separate local commits authored by Replit Age
 
 **How to apply:** Before publishing, inspect every unpublished commit. Fold agent-authored workspace commits into the intended Owen-authored commit, verify the parent and changed files, and push only after the identity is correct.
 
-GitHub Git Database commit responses expose raw author and committer fields; account attribution is available from the standard repository commits endpoint.
+Git Database commit responses expose raw author and committer metadata; in repository commit responses, linked accounts are top-level `author` and `committer`, while raw metadata stays under `commit`.
 
 **Why:** Checking a Git Database response for `author.login` or `committer.login` can incorrectly reject a commit with the right author metadata.
 
 **How to apply:** Before updating a branch ref, fetch `/repos/{owner}/{repo}/commits/{sha}` and verify both linked logins match the expected account. Update refs with `force: false`.
+
+A GitHub Contents API read for a workflow file has returned a Cloudflare 403 even when Git tree access worked. That response alone is not evidence that GitHub permissions are missing.
+
+**Why:** A workflow-path read can be blocked by an intermediary before GitHub returns its API response.
+
+**How to apply:** For blocked reads, locate the workflow file in the verified commit tree and fetch its blob by SHA. For writes under `.github/workflows`, still confirm the provider-declared `workflow` scope is available.
+
+GitHub GraphQL `createCommitOnBranch` may link the author to the authenticated account while assigning the committer to `web-flow`. That is GitHub's service identity, not the account's linked committer identity.
+
+**Why:** An API commit can therefore have the correct author login but fail a repository policy that requires both author and committer to match the owner.
+
+**How to apply:** Check both logins through the standard repository commits endpoint before moving a branch ref. Do not assume GraphQL preserves the owner's committer identity; when both must match, use a Git Database commit only with an email GitHub verifies as belonging to that account, and keep the ref update non-forced.
+
+The CodeExecution shell callback can normalize line endings and truncate large combined outputs, especially base64 asset listings. Do not use its text verbatim as a Git blob or merge base.
+
+**Why:** A line-ending transformation can create false merge conflicts, and an incomplete encoded listing can omit assets from a commit.
+
+**How to apply:** Read text from the workspace directly and compare it with the remote blob. Encode binary files in small batches, check the truncation flag, and verify every expected path and count before creating Git blobs.

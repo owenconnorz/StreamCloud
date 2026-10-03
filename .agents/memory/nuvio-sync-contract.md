@@ -21,17 +21,35 @@ Per-episode watched state is separate from the parent-level watched movie/series
 
 **How to apply:** Read and write episode records through the active profile's `LibraryDb`, preserve parent watched-title sync, and request account sync after local episode completion.
 
-Continue-Watching progress also needs an episode identity: keep the show TMDB ID and distinguish rows by media type, season, and episode. Send the same episode key in `video_id` and `progress_key`; persist delete tombstones and apply them before pulling remote progress.
+Continue-Watching progress also needs an episode identity: keep the show TMDB ID and distinguish rows by media type, season, and episode. Send the same episode key in `video_id` and `progress_key`; persist delete tombstones and apply them before pulling remote progress. Serialize the tombstone, local removal, and immediate sync against every other account sync.
 
-**Why:** A show-only progress key overwrites one episode with another, and pulling before a pending delete recreates items the user removed.
+**Why:** A show-only progress key overwrites one episode with another. An already-running pull/push can race a queued deletion and re-import stale progress; an unlinked profile must not discard its pending tombstone.
 
-**How to apply:** Use the composite local identity and `sync_delete_watch_progress` before account pulls. Keep the movie key at the show/movie TMDB ID when no episode numbers are present.
+**How to apply:** Use the composite local identity and `sync_delete_watch_progress` before account pulls. Keep the movie key at the show/movie TMDB ID when no episode numbers are present. Retain account/profile-scoped tombstones until a mapped sync confirms the remote delete.
+
+Continue-Watching and resume queries must exclude progress for episodes already marked watched. A remote progress row can remain after its episode enters the separate watched-items dataset, so watched state takes precedence for visibility and resume selection.
+
+**Why:** Independent Nuvio datasets can leave stale progress beside completed episode history; showing both makes Home disagree with the title page's next-episode selection.
+
+**How to apply:** Match progress to watched episodes by show TMDB ID, season, and episode in both home and title-page lookups. Do not delete remote progress solely to fix display unless the account-sync deletion behavior is handled too.
+
+When importing Nuvio progress, use the resolved TMDB ID only for the local row. Persist the original Nuvio `content_id`, `content_type`, `video_id`, and `progress_key` by account/profile and local progress identity; explicit deletion tombstones should include those original keys as well as the canonical TMDB key. Normalize second-based progress durations and epoch-second timestamps to milliseconds before updating local rows, while leaving millisecond values unchanged. Repair previously imported second-scale durations without replacing newer local playback.
+
+**Why:** Resolving an external Nuvio ID to TMDB loses the exact remote key needed by the delete RPC, and second-based positions can fail the millisecond-based Continue Watching filters or compare as older than local timestamps.
+
+**How to apply:** Record the remote identity while pulling progress, retrieve it when creating a scoped delete tombstone, and normalize incoming times before timestamp conflict checks and Room writes.
 
 Home-layout preferences use the dedicated home-catalog-settings RPCs on a separate `streamcloud` platform row, with StreamCloud preferences inside a `streamcloud` JSON namespace. Do not reuse the native `android` platform row.
 
 **Why:** Platform rows are isolated, and overwriting the Android row risks replacing Nuvio's own layout. The public schema accepts JSON settings but does not establish whether Nuvio's official app reads StreamCloud-specific keys.
 
 **How to apply:** Pull and push only the StreamCloud namespace under the `streamcloud` platform. Do not claim official Nuvio-app compatibility without validating it against an authorized account.
+
+Home-layout preferences are stored locally in one shared settings store, but sync conflict metadata is scoped by Nuvio account and StreamCloud profile. Write each local setting and its dirty marker atomically. Apply a cloud pull only when there are no pending local edits and the current snapshot still matches the last acknowledged snapshot. After a successful push, acknowledge exactly the sent snapshot; if local settings changed while the RPC was in flight, keep them pending. On first upgrade without a baseline, preserve explicit local home settings rather than replacing them with the initial pull.
+
+**Why:** The startup pull could restore a stale cloud snapshot over a user's latest Edit Home changes. A push response can also arrive after a newer local edit.
+
+**How to apply:** Preserve clean-device cloud pulls while protecting newer local changes. Record the successful home-settings push acknowledgement immediately after that RPC, independent of later sync datasets.
 
 Nuvio-derived local state is isolated by Nuvio account and StreamCloud profile, including providers, repositories, addons, collections, watch history, and the Room library. Preserve old unscoped data by assigning it only to the first authenticated account/profile that claims it; never copy it into later accounts.
 

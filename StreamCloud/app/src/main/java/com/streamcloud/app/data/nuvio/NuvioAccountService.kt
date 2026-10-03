@@ -47,22 +47,6 @@ private val JSON_MT = "application/json; charset=utf-8".toMediaType()
 private const val NUVIO_CLOUD_SOURCE = "__nuvio__"
 private const val STREAMCLOUD_HOME_PLATFORM = "streamcloud"
 
-internal data class NuvioWatchProgressDeleteKey(
-    val tmdbId: Long,
-    val mediaType: String,
-    val seasonNumber: Int,
-    val episodeNumber: Int,
-) {
-    val contentId: String get() = "tmdb:$tmdbId"
-    val contentType: String get() = if (mediaType == "tv" || mediaType == "series") "series" else "movie"
-    val remoteKey: String
-        get() = if (seasonNumber > 0 && episodeNumber > 0) {
-            "$contentId:$seasonNumber:$episodeNumber"
-        } else {
-            contentId
-        }
-}
-
 internal fun extractStreamCloudHomeSettings(response: String): JsonObject? {
     val parser = Json { ignoreUnknownKeys = true; isLenient = true }
     val root = runCatching { parser.parseToJsonElement(response) }.getOrNull() ?: return null
@@ -849,6 +833,7 @@ class NuvioAccountService(private val context: Context) {
             ).getOrThrow()
             val entries = json.decodeFromString(ListSerializer(PullWatchProgress.serializer()), text)
             val progressDao = db.watchProgress()
+            val remoteIdentities = mutableListOf<NuvioWatchProgressDeleteKey>()
             entries.forEach { e ->
                 val season = e.season ?: e.season_number
                 val episode = e.episode ?: e.episode_number
@@ -867,9 +852,26 @@ class NuvioAccountService(private val context: Context) {
                     normalizedContentId,
                     if (isSeries) "series" else e.content_type,
                 ) ?: return@forEach
+                remoteIdentities += NuvioWatchProgressDeleteKey(
+                    tmdbId = tmdbId,
+                    mediaType = mediaType,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                    remoteContentId = e.content_id,
+                    remoteContentType = e.content_type,
+                    remoteVideoId = e.video_id,
+                    remoteProgressKey = e.progress_key,
+                )
                 val existing = progressDao.byKey(tmdbId, mediaType, seasonNumber, episodeNumber)
-                val updatedAt = e.last_watched.takeIf { it > 0 } ?: System.currentTimeMillis()
-                val shouldUseProgress = existing == null || existing.updatedAt < updatedAt
+                val times = normalizeNuvioProgressTimes(e.position, e.duration, e.last_watched)
+                val updatedAt = times.updatedAtMs ?: System.currentTimeMillis()
+                val shouldUseProgress = shouldUseNuvioProgress(
+                    existingUpdatedAt = existing?.updatedAt,
+                    existingDurationMs = existing?.durationMs,
+                    incomingUpdatedAtMs = updatedAt,
+                    incomingRawDuration = e.duration,
+                    incomingDurationMs = times.durationMs,
+                )
                 val needsMetadata = existing == null ||
                     existing.title.isBlank() ||
                     existing.title == "Movie" ||
@@ -893,8 +895,8 @@ class NuvioAccountService(private val context: Context) {
                                 ?: existing?.posterUrl
                                 ?: metadata?.posterUrl,
                             mediaType = mediaType,
-                            positionMs = if (shouldUseProgress) e.position else existing!!.positionMs,
-                            durationMs = if (shouldUseProgress) e.duration else existing!!.durationMs,
+                            positionMs = if (shouldUseProgress) times.positionMs else existing!!.positionMs,
+                            durationMs = if (shouldUseProgress) times.durationMs else existing!!.durationMs,
                             updatedAt = if (shouldUseProgress) updatedAt else existing!!.updatedAt,
                             sourceRoute = existing?.sourceRoute?.takeIf { it.isNotBlank() }
                                 ?: if (seasonNumber > 0 && episodeNumber > 0) {
@@ -912,6 +914,12 @@ class NuvioAccountService(private val context: Context) {
                     }
                 }
             }
+            NuvioAutoSync.recordWatchProgressRemoteIdentities(
+                context = context,
+                userId = syncUserId,
+                localProfileId = syncLocalProfileId,
+                identities = remoteIdentities,
+            )
         }.onFailure {
             errors += "watch progress pull: ${it.message ?: "unknown error"}"
             Log.w(TAG, "pull watch progress: ${it.message}")
@@ -1477,12 +1485,17 @@ class NuvioAccountService(private val context: Context) {
         val profileIndex = activeCloudProfileIndex(syncUserId, syncLocalProfileId)
             ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
         val payload = buildJsonArray {
-            keys.distinctBy { "${it.contentId}|${it.remoteKey}|${it.contentType}" }.forEach { key ->
+            keys.distinctBy {
+                "${it.contentId}|${it.remoteVideoId}|${it.remoteProgressKey}|${it.contentType}"
+            }.forEach { key ->
                 addJsonObject {
                     put("content_id", key.contentId)
                     put("content_type", key.contentType)
-                    put("video_id", key.remoteKey)
-                    put("progress_key", key.remoteKey)
+                    put("video_id", key.remoteVideoId?.takeIf { it.isNotBlank() } ?: key.remoteKey)
+                    put(
+                        "progress_key",
+                        key.remoteProgressKey?.takeIf { it.isNotBlank() } ?: key.remoteKey,
+                    )
                     key.seasonNumber.takeIf { it > 0 }?.let { put("season", it) }
                     key.episodeNumber.takeIf { it > 0 }?.let { put("episode", it) }
                 }
