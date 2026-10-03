@@ -842,7 +842,12 @@ fun MovieDetailScreen(
                     movie?.let { loadedMovie ->
                         TmdbTrailerPreview(
                             movie = loadedMovie,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    horizontal = if (isTv) 36.dp else 12.dp,
+                                    vertical = if (isTv) 16.dp else 6.dp,
+                                ),
                             videos = videos,
                             startDelayMs = 0L,
                         )
@@ -1208,7 +1213,12 @@ fun MovieDetailScreen(
                                         fallbackUrl = sm.posterUrl,
                                         contentDescription = sm.displayTitle,
                                         contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            horizontal = if (isTv) 36.dp else 12.dp,
+                            vertical = if (isTv) 16.dp else 6.dp,
+                        ),
                                     )
                                     Box(
                                         Modifier.fillMaxWidth().align(Alignment.BottomStart)
