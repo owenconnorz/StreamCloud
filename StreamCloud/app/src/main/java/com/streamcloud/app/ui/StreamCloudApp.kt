@@ -389,11 +389,8 @@ fun StreamCloudApp() {
         miniNowPlayingId != null &&
         miniNowPlayingId != dismissedMiniPlayerId
 
-    // Profile picker — show on launch when profiles exist; also triggered from Settings
-    var showProfilePicker by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        if (sl.profiles.currentProfiles().isNotEmpty()) showProfilePicker = true
-    }
+    // Open the profile chooser as the first app screen, before showing the home page.
+    var showProfilePicker by remember { mutableStateOf(true) }
 
     val isAppRoot = currentRoute != null &&
         tabs.any { it.route == currentRoute } &&

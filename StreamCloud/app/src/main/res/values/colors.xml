@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="bg_primary">#0a0a0a</color>
+    <color name="splash_background">#0B2233</color>
     <color name="bg_secondary">#141414</color>
     <color name="accent_violet">#7c3aed</color>
     <color name="accent_cyan">#06b6d4</color>
