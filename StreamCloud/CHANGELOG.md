@@ -9,8 +9,8 @@
 - TV Play and More Info actions use pill-shaped buttons.
 
 ### Details and TV navigation
-- Detail hero artwork height adapts to the screen and preserves the complete image instead of cropping the backdrop.
-- Android TV Down enters page content when the direct focus request succeeds, then uses spatial focus if it fails.
+- Detail artwork preserves the full banner, scales to mobile width, and carries its extracted color around the image and down both sides before fading to black.
+- Android TV remote focus handoffs now honor request results and fall back or retry when a target is not ready.
 
 ## Latest — Nuvio progress sync and movie-detail trailers
 

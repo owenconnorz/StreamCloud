@@ -468,7 +468,6 @@ fun StreamCloudApp() {
                 kotlinx.coroutines.delay(120L)
                 val focused = runCatching {
                     tvNavHeroFocus.requestFocus()
-                    true
                 }.getOrDefault(false)
                 if (focused) return@LaunchedEffect
             }
@@ -486,7 +485,6 @@ fun StreamCloudApp() {
                             event.key == Key.Menu -> {
                                 val moved = runCatching {
                                     firstTvNavFocus.requestFocus()
-                                    true
                                 }.getOrDefault(false)
                                 if (moved) navScrollToTopVersion++
                                 moved
@@ -494,7 +492,6 @@ fun StreamCloudApp() {
                             event.key == Key.DirectionUp && firstMovieFocused -> {
                                 val moved = runCatching {
                                     firstTvNavFocus.requestFocus()
-                                    true
                                 }.getOrDefault(false)
                                 if (moved) navScrollToTopVersion++
                                 moved

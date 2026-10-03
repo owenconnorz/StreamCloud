@@ -164,11 +164,13 @@ fun MovieDetailScreen(
     var resolutionJob by remember { mutableStateOf<Job?>(null) }
 
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val viewportHeight = LocalConfiguration.current.screenHeightDp.dp
+    val configuration = LocalConfiguration.current
+    val viewportHeight = configuration.screenHeightDp.dp
+    val viewportWidth = configuration.screenWidthDp.dp
     val artworkHeroHeight = if (isTv) {
         (viewportHeight * 0.62f).coerceIn(380.dp, 520.dp)
     } else {
-        (viewportHeight * 0.5f).coerceIn(320.dp, 410.dp)
+        (viewportWidth * (9f / 16f)).coerceIn(220.dp, 320.dp)
     }
     val playBtnFocus = remember { FocusRequester() }
     LaunchedEffect(movie != null, openSourcePickerOnStart) {
@@ -556,7 +558,7 @@ fun MovieDetailScreen(
             onSecondary = bannerPalette.onAccent,
             primaryContainer = bannerPalette.accentContainer,
             onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-            background = bannerPalette.backgroundTint,
+            background = Color.Black,
             surface = bannerPalette.surfaceTint,
             surfaceVariant = bannerPalette.surfaceTint,
         ),
@@ -744,7 +746,7 @@ fun MovieDetailScreen(
         }
     }
     Box(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+        Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(focusRequester)
             .then(
                 if (!isTv) {
@@ -762,20 +764,79 @@ fun MovieDetailScreen(
                 } else Modifier
             )
     ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to bannerPalette.artworkColor.copy(alpha = 0.30f),
+                            0.34f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                            0.62f to bannerPalette.artworkColor.copy(alpha = 0.08f),
+                            0.88f to Color.Black.copy(alpha = 0.72f),
+                            1f to Color.Black,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                            0.14f to bannerPalette.artworkColor.copy(alpha = 0.09f),
+                            0.30f to Color.Transparent,
+                            0.70f to Color.Transparent,
+                            0.86f to bannerPalette.artworkColor.copy(alpha = 0.09f),
+                            1f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            0.66f to Color.Transparent,
+                            0.84f to Color.Black.copy(alpha = 0.48f),
+                            1f to Color.Black,
+                        ),
+                    ),
+                ),
+        )
         Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
             Box(
                 Modifier
                     .fillMaxWidth()
                     .height(artworkHeroHeight),
             ) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.horizontalGradient(
+                                colorStops = arrayOf(
+                                    0f to bannerPalette.artworkColor.copy(alpha = 0.36f),
+                                    0.18f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                                    0.34f to Color.Transparent,
+                                    0.66f to Color.Transparent,
+                                    0.82f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                                    1f to bannerPalette.artworkColor.copy(alpha = 0.36f),
+                                ),
+                            ),
+                        ),
+                )
                 MovieArtwork(
                     primaryUrl = movie?.backdropUrl,
                     fallbackUrl = movie?.posterUrl,
                     contentDescription = movie?.displayTitle ?: "Movie artwork",
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxSize(),
                 )
                 if (showTrailerBanner) {
                     movie?.let { loadedMovie ->
@@ -800,7 +861,7 @@ fun MovieDetailScreen(
                                 listOf(
                                     Color.Black.copy(alpha = 0.12f),
                                     Color.Transparent,
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.92f),
+                                    Color.Black.copy(alpha = 0.97f),
                                 ),
                             ),
                         ),
