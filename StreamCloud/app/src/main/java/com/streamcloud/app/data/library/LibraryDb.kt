@@ -109,6 +109,12 @@ interface WatchProgressDao {
             "AND position_ms > 5000 " +
             "AND position_ms < duration_ms " +
             "AND CAST(position_ms AS REAL) / duration_ms < 0.95 " +
+            "AND NOT EXISTS (" +
+            "SELECT 1 FROM watched_episodes AS watched " +
+            "WHERE watched.tmdb_show_id = watch_progress.tmdb_id " +
+            "AND watched.season_number = watch_progress.season_number " +
+            "AND watched.episode_number = watch_progress.episode_number" +
+            ") " +
             "ORDER BY updated_at DESC, season_number DESC, episode_number DESC LIMIT 30",
     )
     fun continueWatching(): Flow<List<WatchProgressEntity>>
@@ -120,6 +126,12 @@ interface WatchProgressDao {
             "AND duration_ms > 0 AND position_ms > 5000 " +
             "AND position_ms < duration_ms " +
             "AND CAST(position_ms AS REAL) / duration_ms < 0.95 " +
+            "AND NOT EXISTS (" +
+            "SELECT 1 FROM watched_episodes AS watched " +
+            "WHERE watched.tmdb_show_id = watch_progress.tmdb_id " +
+            "AND watched.season_number = watch_progress.season_number " +
+            "AND watched.episode_number = watch_progress.episode_number" +
+            ") " +
             "ORDER BY updated_at DESC, season_number DESC, episode_number DESC LIMIT 1",
     )
     fun latestInProgressEpisode(tmdbId: Long, mediaType: String): Flow<WatchProgressEntity?>
