@@ -1,3 +1,8 @@
+## Latest — TV detail banners fill the top inset
+
+### Movie and TV details
+- TV detail artwork now continues from the display top through the hero, while titles and playback controls remain below the top chrome.
+
 ## Latest — Android TV detail artwork width
 
 ### Movie and TV details

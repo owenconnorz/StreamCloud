@@ -172,9 +172,10 @@ fun MovieDetailScreen(
     } else {
         (viewportWidth * (9f / 16f)).coerceIn(220.dp, 320.dp)
     }
-    // Detail content fills the screen and can sit behind system or TV navigation
-    // chrome. Start the hero below that chrome rather than at the window edge.
+    // Keep TV titles and actions below the top chrome while letting the backdrop
+    // continue behind the cleared area.
     val artworkHeroTopClearance = if (isTv) 240.dp else 32.dp
+    val showTvBackdropBehindClearance = isTv && !movie?.backdropUrl.isNullOrBlank()
     val playBtnFocus = remember { FocusRequester() }
     LaunchedEffect(movie != null, openSourcePickerOnStart) {
         if (isTv && movie != null && !openSourcePickerOnStart) {
@@ -767,6 +768,17 @@ fun MovieDetailScreen(
                 } else Modifier
             )
     ) {
+        if (showTvBackdropBehindClearance) {
+            MovieArtwork(
+                primaryUrl = movie?.backdropUrl,
+                contentDescription = movie?.displayTitle ?: "Movie artwork",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(artworkHeroTopClearance + artworkHeroHeight)
+                    .align(Alignment.TopCenter),
+            )
+        }
         Box(
             Modifier
                 .fillMaxSize()
@@ -842,17 +854,15 @@ fun MovieDetailScreen(
                             ),
                         ),
                 )
-                MovieArtwork(
-                    primaryUrl = movie?.backdropUrl,
-                    fallbackUrl = movie?.posterUrl,
-                    contentDescription = movie?.displayTitle ?: "Movie artwork",
-                    contentScale = if (isTv && !movie?.backdropUrl.isNullOrBlank()) {
-                        ContentScale.Crop
-                    } else {
-                        ContentScale.Fit
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
+                if (!showTvBackdropBehindClearance) {
+                    MovieArtwork(
+                        primaryUrl = movie?.backdropUrl,
+                        fallbackUrl = movie?.posterUrl,
+                        contentDescription = movie?.displayTitle ?: "Movie artwork",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 if (showTrailerBanner) {
                     movie?.let { loadedMovie ->
                         TmdbTrailerPreview(
