@@ -337,7 +337,7 @@ object NuvioAutoSync {
         }
     }
 
-    suspend fun pushPendingWatchProgressDeletes(
+    internal suspend fun pushPendingWatchProgressDeletes(
         context: Context,
         accessToken: String,
         userId: String? = null,
@@ -355,7 +355,7 @@ object NuvioAutoSync {
         val pending = pendingWatchProgressDeletes(appContext, targetUserId, targetProfileId)
         if (pending.isEmpty()) return emptyList()
 
-        try {
+        return try {
             NuvioAccountService.get(appContext).deleteWatchProgressItems(
                 accessToken = accessToken,
                 keys = pending,
@@ -600,6 +600,20 @@ object NuvioAutoSync {
         val contentType: String,
         val contentId: String,
     )
+
+    private fun libraryDeletePreferenceKey(userId: String, localProfileId: String): String =
+        "${PENDING_LIBRARY_DELETES}_${stableKey("$userId:$localProfileId").take(16)}"
+
+    private fun watchProgressDeletePreferenceKey(userId: String, localProfileId: String): String =
+        "${PENDING_WATCH_PROGRESS_DELETES}_${stableKey("$userId:$localProfileId").take(16)}"
+
+    private fun watchProgressRemoteIdentityPreferenceKey(
+        userId: String,
+        localProfileId: String,
+        key: NuvioWatchProgressDeleteKey,
+    ): String = "${WATCH_PROGRESS_REMOTE_IDENTITIES}_${stableKey(
+        "$userId:$localProfileId:${key.tmdbId}:${key.mediaType}:${key.seasonNumber}:${key.episodeNumber}",
+    ).take(24)}"
 
     private fun pendingWatchProgressDeletes(
         context: Context,
