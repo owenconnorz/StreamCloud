@@ -1,3 +1,10 @@
+## Latest — Full-screen trailers and larger title logos
+
+### Movie and TV details
+- The Trailer button now opens a dedicated full-screen player, with loading and unavailable states, a close control, and Android TV Back support.
+- Full-screen trailers do not loop.
+- TMDB title logos are larger and left-aligned on Android TV detail pages.
+
 ## Latest — TV detail banners fill the top inset
 
 ### Movie and TV details
