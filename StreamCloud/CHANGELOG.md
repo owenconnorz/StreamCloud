@@ -1,3 +1,12 @@
+## V2067 — Android TV focused cards and detail logo fix
+
+### Android TV Movies home
+- Focused portrait cards now transition to a landscape layout and prefer backdrop artwork; the selected Poster style remains in effect when cards are unfocused.
+- TMDB and Stremio rows show the available title/logo treatment on focused landscape cards.
+
+### Movie and TV details
+- The TV detail hero reserves only a modest top-navigation clearance and uses the remaining viewport to keep the title logo and Play controls visible when focused.
+
 ## V2064 — Android TV poster and detail logo fix
 
 ### Android TV Movies home
