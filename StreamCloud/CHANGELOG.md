@@ -1,3 +1,12 @@
+## V2064 — Android TV poster and detail logo fix
+
+### Android TV Movies home
+- Portrait, Landscape, and Auto card styles now remain consistent while a card is focused.
+- Portrait cards keep their poster thumbnails with title/logo art instead of being forced into landscape.
+
+### Movie and TV details
+- The detail hero now fits the available TV viewport, keeping the title logo visible when Play receives focus.
+
 ## Latest — Android TV detail, artwork, and focus fixes
 
 ### Movie and TV details
