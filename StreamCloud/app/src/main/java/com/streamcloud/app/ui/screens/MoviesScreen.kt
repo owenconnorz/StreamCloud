@@ -817,10 +817,12 @@ fun MoviesScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(
+                            itemsIndexed(
                                 row.items,
-                                key = { "${row.pluginInternalName}_${row.sectionName}_${it.url}" },
-                            ) { sr ->
+                                key = { _, item ->
+                                    "${row.pluginInternalName}_${row.sectionName}_${item.url}"
+                                },
+                            ) { index, sr ->
                                 val tmdbKey = csHomeTmdbKey(
                                     row.pluginInternalName,
                                     row.sectionName,
@@ -832,6 +834,7 @@ fun MoviesScreen(
                                     item = sr,
                                     defaultWidth = csCardWidth,
                                     isTv = isTv,
+                                    tmdbPrefetchDelayMillis = index * 120L,
                                     tmdbMovie = csTmdbMovie,
                                     onRequestTmdbMovie = {
                                         vm.requestCsHomeTmdbMovie(tmdbKey, sr)
@@ -1823,6 +1826,7 @@ private fun CsHomePosterCard(
     item: SearchResponse,
     defaultWidth: Dp,
     isTv: Boolean,
+    tmdbPrefetchDelayMillis: Long,
     tmdbMovie: TmdbMovie?,
     onRequestTmdbMovie: () -> Unit,
     titleLogoUrl: String?,
@@ -1843,14 +1847,16 @@ private fun CsHomePosterCard(
         label = "cloudstream-home-card-image-height",
     )
 
-    LaunchedEffect(isTv, isFocused, item.url, tmdbMovie?.id) {
-        if (!isTv || !isFocused || tmdbMovie != null) return@LaunchedEffect
-        kotlinx.coroutines.delay(350L)
+    LaunchedEffect(isTv, isFocused, item.url, tmdbMovie?.id, tmdbPrefetchDelayMillis) {
+        if (!isTv || tmdbMovie != null) return@LaunchedEffect
+        val delayMillis = if (isFocused) 0L else tmdbPrefetchDelayMillis
+        if (delayMillis > 0L) kotlinx.coroutines.delay(delayMillis)
         onRequestTmdbMovie()
     }
 
     LaunchedEffect(isTv, isFocused, tmdbMovie?.id, titleLogoUrl) {
-        if (!isTv || !isFocused || tmdbMovie == null || titleLogoUrl != null) return@LaunchedEffect
+        if (!isTv || tmdbMovie == null || titleLogoUrl != null) return@LaunchedEffect
+        if (!isFocused) kotlinx.coroutines.delay(250L)
         onRequestTitleLogo(tmdbMovie.id, if (tmdbMovie.title != null) "movie" else "tv")
     }
 
