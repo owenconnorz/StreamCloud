@@ -846,7 +846,11 @@ fun MovieDetailScreen(
                     primaryUrl = movie?.backdropUrl,
                     fallbackUrl = movie?.posterUrl,
                     contentDescription = movie?.displayTitle ?: "Movie artwork",
-                    contentScale = ContentScale.Fit,
+                    contentScale = if (isTv && !movie?.backdropUrl.isNullOrBlank()) {
+                        ContentScale.Crop
+                    } else {
+                        ContentScale.Fit
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (showTrailerBanner) {
