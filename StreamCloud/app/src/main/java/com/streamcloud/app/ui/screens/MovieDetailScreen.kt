@@ -812,8 +812,15 @@ fun MovieDetailScreen(
                     ),
                 ),
         )
-        Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
-            Spacer(Modifier.height(artworkHeroTopClearance))
+        Column(
+            Modifier
+                .fillMaxSize()
+                // Keep the hero clearance outside the scroll viewport. On TV,
+                // requesting focus on Play can scroll the content and otherwise
+                // consume a spacer placed as the first child.
+                .padding(top = artworkHeroTopClearance)
+                .verticalScroll(scrollState),
+        ) {
             Box(
                 Modifier
                     .fillMaxWidth()
