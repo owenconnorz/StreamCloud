@@ -1875,22 +1875,18 @@ private fun TvNetflixTopNav(
               kotlinx.coroutines.delay(120L)
               if (!navHasFocus || !pendingDownFocusHandoff) return@LaunchedEffect
 
-              val movedToContent = runCatching {
-                  contentFocusRequester.requestFocus()
-                  true
-              }.getOrDefault(false)
-              if (movedToContent) {
-                  pendingDownFocusHandoff = false
-                  return@LaunchedEffect
-              }
-
               val movedSpatially = runCatching {
                   focusManager.moveFocus(FocusDirection.Down)
               }.getOrDefault(false)
               if (movedSpatially) {
-                  pendingDownFocusHandoff = false
-                  return@LaunchedEffect
+                  kotlinx.coroutines.delay(60L)
+                  if (!navHasFocus) {
+                      pendingDownFocusHandoff = false
+                      return@LaunchedEffect
+                  }
               }
+
+              runCatching { contentFocusRequester.requestFocus() }
           }
           pendingDownFocusHandoff = false
       }
@@ -1920,25 +1916,12 @@ private fun TvNetflixTopNav(
 
                   when (event.key) {
                       Key.DirectionDown -> {
-                          val movedToContent = runCatching {
-                              contentFocusRequester.requestFocus()
-                              true
-                          }.getOrDefault(false)
-                          if (movedToContent) {
-                              pendingDownFocusHandoff = false
-                              true
-                          } else {
-                              val movedSpatially = runCatching {
-                                  focusManager.moveFocus(FocusDirection.Down)
-                              }.getOrDefault(false)
-                              if (movedSpatially) {
-                                  pendingDownFocusHandoff = false
-                              } else if (!pendingDownFocusHandoff) {
-                                  pendingDownFocusHandoff = true
-                                  downFocusAttempt++
-                              }
-                              true
+                          if (!pendingDownFocusHandoff) {
+                              pendingDownFocusHandoff = true
+                              downFocusAttempt++
                           }
+                          runCatching { contentFocusRequester.requestFocus() }
+                          true
                       }
                       // Nothing focusable above the nav bar — consume Up.
                       Key.DirectionUp -> true
