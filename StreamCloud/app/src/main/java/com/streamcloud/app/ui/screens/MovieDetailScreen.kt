@@ -54,7 +54,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -167,23 +166,6 @@ fun MovieDetailScreen(
     var resolutionJob by remember { mutableStateOf<Job?>(null) }
 
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val configuration = LocalConfiguration.current
-    val viewportHeight = configuration.screenHeightDp.dp
-    val viewportWidth = configuration.screenWidthDp.dp
-    // The TV backdrop starts at the display edge, while the hero content starts
-    // below the top-navigation clearance. Size the hero from the space that
-    // actually remains so focus scrolling cannot clip the title logo at that seam.
-    val artworkHeroTopClearance = if (isTv) 240.dp else 32.dp
-    val artworkHeroHeight = if (isTv) {
-        val availableHeroHeight = (viewportHeight - artworkHeroTopClearance).coerceAtLeast(200.dp)
-        val minimumHeroHeight = if (mediaType == "tv") 280.dp else 260.dp
-        (availableHeroHeight * 0.82f).coerceIn(minimumHeroHeight, 460.dp)
-    } else {
-        (viewportWidth * (9f / 16f)).coerceIn(220.dp, 320.dp)
-    }
-    // Keep TV titles and actions below the top chrome while letting the backdrop
-    // continue behind the cleared area.
-    val showTvBackdropBehindClearance = isTv && !movie?.backdropUrl.isNullOrBlank()
     val playBtnFocus = remember { FocusRequester() }
     val trailerCloseFocusRequester = remember { FocusRequester() }
     BackHandler(enabled = showTrailerFullscreen) {
@@ -760,7 +742,7 @@ fun MovieDetailScreen(
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
     }
-    Box(
+    BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(focusRequester)
             .then(
@@ -779,6 +761,34 @@ fun MovieDetailScreen(
                 } else Modifier
             )
     ) {
+        val viewportHeight = maxHeight
+        val viewportWidth = maxWidth
+        val minimumHeroHeight = if (mediaType == "tv") 280.dp else 260.dp
+        val topClearanceFloor = minOf(80.dp, viewportHeight * 0.20f)
+        // Keep the hero and focused Play control inside the real scroll viewport.
+        // Shorter TV windows need less top clearance; otherwise focusing Play
+        // scrolls the column and clips the title logo at the top.
+        val artworkHeroTopClearance = if (isTv) {
+            minOf(
+                240.dp,
+                (viewportHeight - minimumHeroHeight - 24.dp).coerceAtLeast(topClearanceFloor),
+            )
+        } else {
+            32.dp
+        }
+        val availableHeroHeight =
+            (viewportHeight - artworkHeroTopClearance).coerceAtLeast(1.dp)
+        val maximumHeroHeight = availableHeroHeight.coerceAtMost(460.dp)
+        val minimumHeroHeightThatFits = minimumHeroHeight.coerceAtMost(maximumHeroHeight)
+        val artworkHeroHeight = if (isTv) {
+            (availableHeroHeight * 0.82f)
+                .coerceIn(minimumHeroHeightThatFits, maximumHeroHeight)
+        } else {
+            (viewportWidth * (9f / 16f)).coerceIn(220.dp, 320.dp)
+        }
+        // Keep TV titles and actions below the top chrome while letting the backdrop
+        // continue behind the cleared area.
+        val showTvBackdropBehindClearance = isTv && !movie?.backdropUrl.isNullOrBlank()
         if (showTvBackdropBehindClearance) {
             MovieArtwork(
                 primaryUrl = movie?.backdropUrl,

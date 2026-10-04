@@ -809,8 +809,7 @@ fun MoviesScreen(
                         }
                     }
                     item(key = "cshome_${row.pluginInternalName}_${row.sectionName}") {
-                        val csLandscape = isTv || posterStyle == "landscape"
-                        val csCardWidth = if (csLandscape) 200.dp else 120.dp
+                        val csLandscape = posterStyle == "landscape"
                         val csAspect = if (csLandscape) 16f / 9f else 2f / 3f
                         LazyRow(
                             modifier = Modifier.tvFocusGroup(),
@@ -830,6 +829,10 @@ fun MoviesScreen(
                                 )
                                 val csTmdbMovie = state.csHomeTmdbMovies[tmdbKey]
                                 val csMediaType = if (csTmdbMovie?.title != null) "movie" else "tv"
+                                val csCardLandscape = posterStyle == "landscape" ||
+                                    (posterStyle == "auto" &&
+                                        !csTmdbMovie?.backdropUrl.isNullOrBlank())
+                                val csCardWidth = if (csCardLandscape) 200.dp else 120.dp
                                 CsHomePosterCard(
                                     item = sr,
                                     defaultWidth = csCardWidth,
@@ -1835,14 +1838,16 @@ private fun CsHomePosterCard(
 ) {
     var isFocused by remember(item.url) { mutableStateOf(false) }
     val isExpanded = isTv && isFocused
-    val imageRatio = if (defaultWidth >= 180.dp) 16f / 9f else 2f / 3f
+    val useLandscape = defaultWidth >= 180.dp
+    val imageRatio = if (useLandscape) 16f / 9f else 2f / 3f
+    val expandedWidth = if (useLandscape) 320.dp else 160.dp
     val animatedWidth by animateDpAsState(
-        targetValue = if (isExpanded) 320.dp else defaultWidth,
+        targetValue = if (isExpanded) expandedWidth else defaultWidth,
         animationSpec = tween(durationMillis = 260),
         label = "cloudstream-home-card-width",
     )
     val animatedImageHeight by animateDpAsState(
-        targetValue = if (isExpanded) 180.dp else defaultWidth / imageRatio,
+        targetValue = if (isExpanded) expandedWidth / imageRatio else defaultWidth / imageRatio,
         animationSpec = tween(durationMillis = 260),
         label = "cloudstream-home-card-image-height",
     )
@@ -1877,7 +1882,7 @@ private fun CsHomePosterCard(
                 .background(MaterialTheme.colorScheme.surface),
         ) {
             AsyncImage(
-                model = if (isExpanded || (isTv && defaultWidth >= 180.dp)) {
+                model = if (isTv && useLandscape) {
                     tmdbMovie?.backdropUrl?.takeIf { it.isNotBlank() } ?: item.posterUrl
                 } else {
                     item.posterUrl
@@ -1952,8 +1957,7 @@ private fun MidPoster(
     onClick: () -> Unit,
     onLongPress: () -> Unit = {},
 ) {
-    val useLandscape = isTv ||
-        posterStyle == "landscape" ||
+    val useLandscape = posterStyle == "landscape" ||
         (posterStyle == "auto" && m.backdropUrl != null)
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
@@ -1966,12 +1970,20 @@ private fun MidPoster(
         if (titleLogoUrl == null) onRequestTitleLogo()
     }
     val animatedWidth by animateDpAsState(
-        targetValue = if (isExpanded) 320.dp else width,
+        targetValue = if (isExpanded) {
+            if (useLandscape) 320.dp else 160.dp
+        } else {
+            width
+        },
         animationSpec = tween(durationMillis = 260),
         label = "movie-card-width",
     )
     val animatedImageHeight by animateDpAsState(
-        targetValue = if (isExpanded) 180.dp else width / ratio,
+        targetValue = if (isExpanded) {
+            (if (useLandscape) 320.dp else 160.dp) / ratio
+        } else {
+            width / ratio
+        },
         animationSpec = tween(durationMillis = 260),
         label = "movie-card-image-height",
     )
@@ -2002,7 +2014,7 @@ private fun MidPoster(
                 ),
         ) {
             AsyncImage(
-                model = if (isExpanded) m.backdropUrl ?: imageUrl else imageUrl,
+                model = if (isExpanded && useLandscape) m.backdropUrl ?: imageUrl else imageUrl,
                 contentDescription = m.displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -2080,8 +2092,7 @@ private fun StremioPoster(
     onClick: () -> Unit,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val useLandscape = isTv ||
-        posterStyle == "landscape" ||
+    val useLandscape = posterStyle == "landscape" ||
         (posterStyle == "auto" &&
             (!meta.background.isNullOrBlank() ||
                 meta.posterShape.equals("landscape", ignoreCase = true)))
@@ -2092,17 +2103,18 @@ private fun StremioPoster(
     val posterShape = RoundedCornerShape(12.dp)
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
+    val expandedWidth = if (useLandscape) 320.dp else 160.dp
     val isSeries = meta.type.equals("series", ignoreCase = true) ||
         meta.type.equals("tv", ignoreCase = true)
     val mediaType = if (isSeries) "tv" else "movie"
     val showTitleOnThumbnail = true
     val animatedWidth by animateDpAsState(
-        targetValue = if (isExpanded) 320.dp else width,
+        targetValue = if (isExpanded) expandedWidth else width,
         animationSpec = tween(durationMillis = 260),
         label = "stremio-card-width",
     )
     val animatedImageHeight by animateDpAsState(
-        targetValue = if (isExpanded) 180.dp else width / ratio,
+        targetValue = if (isExpanded) expandedWidth / ratio else width / ratio,
         animationSpec = tween(durationMillis = 260),
         label = "stremio-card-image-height",
     )
@@ -2124,12 +2136,12 @@ private fun StremioPoster(
         if (resolvedTmdbId == null) onRequestTmdbId()
         else if (titleLogoUrl == null) onRequestTitleLogo(resolvedTmdbId, mediaType)
     }
-    val primaryArtwork = if (useLandscape || isExpanded) {
+    val primaryArtwork = if (useLandscape) {
         meta.background?.takeIf { it.isNotBlank() } ?: meta.poster
     } else {
         meta.poster
     }
-    val fallbackArtwork = if (useLandscape || isExpanded) meta.poster else null
+    val fallbackArtwork = if (useLandscape) meta.poster else null
     Column(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
