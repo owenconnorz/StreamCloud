@@ -678,7 +678,7 @@ class NuvioAccountService(private val context: Context) {
             userId = syncUserId,
             localProfileId = syncLocalProfileId,
         )
-        NuvioAutoSync.pushPendingWatchProgressDeletes(
+        val pendingWatchProgressDeletes = NuvioAutoSync.pushPendingWatchProgressDeletes(
             context = context,
             accessToken = accessToken,
             userId = syncUserId,
@@ -834,6 +834,7 @@ class NuvioAccountService(private val context: Context) {
             val entries = json.decodeFromString(ListSerializer(PullWatchProgress.serializer()), text)
             val progressDao = db.watchProgress()
             val remoteIdentities = mutableListOf<NuvioWatchProgressDeleteKey>()
+            val stillPresentDeletes = mutableSetOf<NuvioWatchProgressDeleteKey>()
             entries.forEach { e ->
                 val season = e.season ?: e.season_number
                 val episode = e.episode ?: e.episode_number
@@ -851,17 +852,36 @@ class NuvioAccountService(private val context: Context) {
                 val tmdbId = resolveTmdbId(
                     normalizedContentId,
                     if (isSeries) "series" else e.content_type,
-                ) ?: return@forEach
-                remoteIdentities += NuvioWatchProgressDeleteKey(
-                    tmdbId = tmdbId,
-                    mediaType = mediaType,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                    remoteContentId = e.content_id,
-                    remoteContentType = e.content_type,
-                    remoteVideoId = e.video_id,
-                    remoteProgressKey = e.progress_key,
                 )
+                val remoteIdentity = tmdbId?.let {
+                    NuvioWatchProgressDeleteKey(
+                        tmdbId = it,
+                        mediaType = mediaType,
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                        remoteContentId = e.content_id,
+                        remoteContentType = e.content_type,
+                        remoteVideoId = e.video_id,
+                        remoteProgressKey = e.progress_key,
+                    )
+                }
+                if (remoteIdentity != null) remoteIdentities += remoteIdentity
+                val matchingDeletes = pendingWatchProgressDeletes.filter { delete ->
+                    delete.matchesRemoteProgress(
+                        tmdbId = tmdbId,
+                        mediaType = mediaType,
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                        remoteContentId = e.content_id,
+                    )
+                }
+                if (matchingDeletes.isNotEmpty()) {
+                    // A successful delete RPC can still be followed by a stale pull.
+                    // Do not restore or re-upload that row; retry its tombstone later.
+                    stillPresentDeletes += matchingDeletes
+                    return@forEach
+                }
+                if (tmdbId == null) return@forEach
                 val existing = progressDao.byKey(tmdbId, mediaType, seasonNumber, episodeNumber)
                 val times = normalizeNuvioProgressTimes(e.position, e.duration, e.last_watched)
                 val updatedAt = times.updatedAtMs ?: System.currentTimeMillis()
@@ -914,6 +934,12 @@ class NuvioAccountService(private val context: Context) {
                     }
                 }
             }
+            NuvioAutoSync.clearConfirmedWatchProgressDeletes(
+                context = context,
+                userId = syncUserId,
+                localProfileId = syncLocalProfileId,
+                deletes = pendingWatchProgressDeletes.filterNot { it in stillPresentDeletes },
+            )
             NuvioAutoSync.recordWatchProgressRemoteIdentities(
                 context = context,
                 userId = syncUserId,
@@ -1304,8 +1330,23 @@ class NuvioAccountService(private val context: Context) {
         }
 
         runCatching {
+            val pendingWatchProgressDeletes = NuvioAutoSync.pendingWatchProgressDeleteKeys(
+                context = context,
+                userId = syncUserId,
+                localProfileId = syncLocalProfileId,
+            )
             val entries = db.watchProgress().getAllEntries()
                 .filter { it.mediaType == "movie" || it.mediaType == "tv" }
+                .filterNot { entry ->
+                    pendingWatchProgressDeletes.any { deletion ->
+                        deletion.matchesLocalProgress(
+                            entry.tmdbId,
+                            entry.mediaType,
+                            entry.seasonNumber,
+                            entry.episodeNumber,
+                        )
+                    }
+                }
             val arr = buildJsonArray {
                 entries.forEach { e ->
                     val cid = "tmdb:${e.tmdbId}"

@@ -12,6 +12,7 @@ import com.streamcloud.app.data.collections.HomeCollection
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.nuvio.matchesLocalProgress
 import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.plugins.InstalledPlugin
@@ -1177,12 +1178,8 @@ class MoviesViewModel(
         viewModelScope.launch {
             val dao = LibraryDb.get(appContext).watchProgress()
             try {
-                dao.removeKey(
-                    tmdbId,
-                    mediaType,
-                    seasonNumber,
-                    episodeNumber,
-                )
+                // Let NuvioAutoSync serialize row removal with its account-scoped
+                // tombstone and any active account sync.
                 val result = com.streamcloud.app.data.nuvio.NuvioAutoSync
                     .deleteWatchProgressAndSyncNow(
                         appContext,
@@ -1193,11 +1190,39 @@ class MoviesViewModel(
                     )
                 if (result.isFailure) {
                     val hasAccessToken = sl.settings.nuvioAccessToken.first().isNotBlank()
-                    val hasAccountId = sl.settings.nuvioUserId.first().isNotBlank()
+                    val userId = sl.settings.nuvioUserId.first().trim()
+                    val hasAccountId = userId.isNotBlank()
                     val profileNeedsLink = result.exceptionOrNull()?.message
                         ?.contains("not linked", ignoreCase = true) == true
+                    val localProfileId = sl.profiles.currentActiveId()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: sl.profiles.currentProfiles().firstOrNull()?.id
+                            ?.takeIf { it.isNotBlank() }
+                        ?: "default"
+                    val deleteIntentIsPending = hasAccountId &&
+                        com.streamcloud.app.data.nuvio.NuvioAutoSync
+                            .pendingWatchProgressDeleteKeys(
+                                appContext,
+                                userId,
+                                localProfileId,
+                            )
+                            .any {
+                                it.matchesLocalProgress(
+                                    tmdbId,
+                                    mediaType,
+                                    seasonNumber,
+                                    episodeNumber,
+                                )
+                            }
                     when {
-                        hasAccessToken && !profileNeedsLink -> {
+                        profileNeedsLink && hasAccountId -> {
+                            _state.update {
+                                it.copy(
+                                    notice = "Removed locally. Link this StreamCloud profile to Nuvio to sync the deletion.",
+                                )
+                            }
+                        }
+                        hasAccessToken && hasAccountId && deleteIntentIsPending -> {
                             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
                             _state.update {
                                 it.copy(
@@ -1205,14 +1230,17 @@ class MoviesViewModel(
                                 )
                             }
                         }
+                        hasAccountId && deleteIntentIsPending -> {
+                            _state.update {
+                                it.copy(
+                                    notice = "Removed locally. Reconnect to Nuvio to sync the deletion.",
+                                )
+                            }
+                        }
                         hasAccountId -> {
                             _state.update {
                                 it.copy(
-                                    notice = if (profileNeedsLink) {
-                                        "Removed locally. Link this StreamCloud profile to Nuvio to sync the deletion."
-                                    } else {
-                                        "Removed locally. Reconnect to Nuvio to sync the deletion."
-                                    },
+                                    notice = "Nuvio could not save this deletion request. The item may return; please try again.",
                                 )
                             }
                         }

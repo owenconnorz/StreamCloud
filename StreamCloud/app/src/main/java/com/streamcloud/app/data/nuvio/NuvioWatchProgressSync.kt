@@ -82,6 +82,41 @@ internal data class NuvioWatchProgressDeleteKey(
     }
 }
 
+internal fun NuvioWatchProgressDeleteKey.matchesLocalProgress(
+    tmdbId: Long,
+    mediaType: String,
+    seasonNumber: Int,
+    episodeNumber: Int,
+): Boolean =
+    this.tmdbId == tmdbId &&
+        normalizedProgressMediaType(this.mediaType) == normalizedProgressMediaType(mediaType) &&
+        this.seasonNumber == seasonNumber.coerceAtLeast(0) &&
+        this.episodeNumber == episodeNumber.coerceAtLeast(0)
+
+internal fun NuvioWatchProgressDeleteKey.matchesRemoteProgress(
+    tmdbId: Long?,
+    mediaType: String,
+    seasonNumber: Int,
+    episodeNumber: Int,
+    remoteContentId: String,
+): Boolean =
+    (tmdbId != null && matchesLocalProgress(tmdbId, mediaType, seasonNumber, episodeNumber)) ||
+        (
+            !this.remoteContentId.isNullOrBlank() &&
+                this.remoteContentId == remoteContentId &&
+                normalizedProgressMediaType(this.mediaType) ==
+                    normalizedProgressMediaType(mediaType) &&
+                this.seasonNumber == seasonNumber.coerceAtLeast(0) &&
+                this.episodeNumber == episodeNumber.coerceAtLeast(0)
+            )
+
+private fun normalizedProgressMediaType(mediaType: String): String =
+    when (mediaType.trim().lowercase()) {
+        "tv", "series", "episode" -> "tv"
+        "movie" -> "movie"
+        else -> mediaType.trim().lowercase()
+    }
+
 private fun encodeDeleteKeyPart(value: String?): String =
     java.net.URLEncoder.encode(value.orEmpty(), "UTF-8")
 

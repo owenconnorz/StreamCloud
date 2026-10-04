@@ -81,6 +81,39 @@ class NuvioSyncContractTest {
     }
 
     @Test
+    fun deleteTombstoneMatchesTheSameEpisodeButNotItsNeighbor() {
+        val key = NuvioWatchProgressDeleteKey(
+            tmdbId = 123L,
+            mediaType = "tv",
+            seasonNumber = 2,
+            episodeNumber = 5,
+            remoteContentId = "imdb:tt1234567",
+            remoteContentType = "series",
+        )
+
+        assertTrue(key.matchesLocalProgress(123L, "series", 2, 5))
+        assertFalse(key.matchesLocalProgress(123L, "tv", 2, 6))
+        assertTrue(
+            key.matchesRemoteProgress(
+                tmdbId = null,
+                mediaType = "series",
+                seasonNumber = 2,
+                episodeNumber = 5,
+                remoteContentId = "imdb:tt1234567",
+            ),
+        )
+        assertFalse(
+            key.matchesRemoteProgress(
+                tmdbId = null,
+                mediaType = "series",
+                seasonNumber = 2,
+                episodeNumber = 6,
+                remoteContentId = "imdb:tt1234567",
+            ),
+        )
+    }
+
+    @Test
     fun readsLegacyProgressDeleteTombstones() {
         val restored = NuvioWatchProgressDeleteKey.deserialize("123|tv|2|5")
 

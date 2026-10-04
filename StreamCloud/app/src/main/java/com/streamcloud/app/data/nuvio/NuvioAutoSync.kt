@@ -281,13 +281,59 @@ object NuvioAutoSync {
                 watchProgressRemoteIdentityPreferenceKey(userId, localProfileId, it)
             }
         if (grouped.isEmpty()) return
+        val pendingPreferenceKey = watchProgressDeletePreferenceKey(userId, localProfileId)
+        val previousPending = prefs.getStringSet(pendingPreferenceKey, emptySet()).orEmpty().toSet()
+        val pending = previousPending.toMutableSet()
+        val pendingKeys = previousPending.mapNotNull(NuvioWatchProgressDeleteKey::deserialize)
+        identities.forEach { identity ->
+            if (pendingKeys.any {
+                    it.matchesLocalProgress(
+                        identity.tmdbId,
+                        identity.mediaType,
+                        identity.seasonNumber,
+                        identity.episodeNumber,
+                    )
+                }
+            ) {
+                // Keep the original Nuvio identifiers on the pending delete so retries
+                // target the exact remote row, not only its resolved TMDB identity.
+                pending += identity.serialize()
+            }
+        }
         val editor = prefs.edit()
         grouped.forEach { (key, records) ->
             val existing = prefs.getStringSet(key, emptySet()).orEmpty()
             editor.putStringSet(key, existing + records.map(NuvioWatchProgressDeleteKey::serialize))
         }
+        if (pending != previousPending) {
+            editor.putStringSet(pendingPreferenceKey, pending)
+        }
         check(editor.commit()) {
-            "Could not persist Nuvio watch progress remote identities"
+            "Could not persist Nuvio watch progress remote identities or pending deletes"
+        }
+    }
+
+    internal fun pendingWatchProgressDeleteKeys(
+        context: Context,
+        userId: String,
+        localProfileId: String,
+    ): List<NuvioWatchProgressDeleteKey> =
+        pendingWatchProgressDeletes(context.applicationContext, userId, localProfileId)
+
+    internal fun clearConfirmedWatchProgressDeletes(
+        context: Context,
+        userId: String,
+        localProfileId: String,
+        deletes: Collection<NuvioWatchProgressDeleteKey>,
+    ) {
+        if (deletes.isEmpty()) return
+        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val key = watchProgressDeletePreferenceKey(userId, localProfileId)
+        val pending = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
+        if (pending.removeAll(deletes.map(NuvioWatchProgressDeleteKey::serialize).toSet())) {
+            check(prefs.edit().putStringSet(key, pending).commit()) {
+                "Could not clear confirmed Nuvio watch progress deletions"
+            }
         }
     }
 
@@ -296,7 +342,7 @@ object NuvioAutoSync {
         accessToken: String,
         userId: String? = null,
         localProfileId: String? = null,
-    ) {
+    ): List<NuvioWatchProgressDeleteKey> {
         val appContext = context.applicationContext
         val services = ServiceLocator.get(appContext)
         val targetUserId = userId?.trim()?.takeIf { it.isNotBlank() }
@@ -304,31 +350,36 @@ object NuvioAutoSync {
         val targetProfileId = localProfileId?.takeIf { it.isNotBlank() }
             ?: services.profiles.currentActiveId()
                 ?: services.profiles.currentProfiles().firstOrNull()?.id
-                ?: return
-        if (targetUserId.isBlank()) return
+                ?: return emptyList()
+        if (targetUserId.isBlank()) return emptyList()
         val pending = pendingWatchProgressDeletes(appContext, targetUserId, targetProfileId)
-        if (pending.isEmpty()) return
+        if (pending.isEmpty()) return emptyList()
 
         try {
             NuvioAccountService.get(appContext).deleteWatchProgressItems(
                 accessToken = accessToken,
-                keys = pending.map { it.key },
+                keys = pending,
                 userId = targetUserId,
                 localProfileId = targetProfileId,
             )
-            clearWatchProgressDeletes(appContext, targetUserId, targetProfileId, pending)
+            // Keep tombstones until the following progress pull confirms the rows
+            // are absent. A successful delete RPC can still be followed by a stale pull.
+            pending
         } finally {
             // Keep deleted rows out of the local library even when the remote
             // tombstone fails and must be retried.
             withContext(NonCancellable) {
-                val dao = LibraryDb.get(appContext).watchProgress()
+                val dao = LibraryDb.getForProfile(
+                    appContext,
+                    targetProfileId,
+                    targetUserId,
+                ).watchProgress()
                 pending.forEach { delete ->
-                    val key = delete.key
                     dao.removeKey(
-                        key.tmdbId,
-                        key.mediaType,
-                        key.seasonNumber,
-                        key.episodeNumber,
+                        delete.tmdbId,
+                        delete.mediaType,
+                        delete.seasonNumber,
+                        delete.episodeNumber,
                     )
                 }
             }
@@ -396,7 +447,9 @@ object NuvioAutoSync {
         episodeNumber: Int,
     ): Result<SyncOutcome> {
         val appContext = context.applicationContext
+        val progressDao = LibraryDb.get(appContext).watchProgress()
         return syncMutex.withLock {
+            var deleteIntentRecorded = false
             try {
                 recordWatchProgressDelete(
                     appContext,
@@ -405,27 +458,55 @@ object NuvioAutoSync {
                     seasonNumber,
                     episodeNumber,
                 )
-                LibraryDb.get(appContext).watchProgress().removeKey(
+                deleteIntentRecorded = true
+                progressDao.removeKey(
                     tmdbId,
                     mediaType,
                     seasonNumber,
                     episodeNumber,
                 )
-                syncNowDetailedLocked(appContext)
+                val result = syncNowDetailedLocked(appContext)
+                if (result.isSuccess) {
+                    val services = ServiceLocator.get(appContext)
+                    val userId = services.settings.nuvioUserId.first().trim()
+                    val localProfileId = services.profiles.currentActiveId()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: services.profiles.currentProfiles().firstOrNull()?.id
+                            ?.takeIf { it.isNotBlank() }
+                        ?: "default"
+                    val deleteStillPending = userId.isNotBlank() &&
+                        pendingWatchProgressDeleteKeys(
+                            appContext,
+                            userId,
+                            localProfileId,
+                        ).any {
+                            it.matchesLocalProgress(
+                                tmdbId,
+                                mediaType,
+                                seasonNumber,
+                                episodeNumber,
+                            )
+                        }
+                    if (deleteStillPending) request(appContext)
+                }
+                result
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
                 Result.failure(failure)
             } finally {
-                // A pull/merge can restore the row during the sync. Remove it
-                // again before releasing the sync lock.
-                withContext(NonCancellable) {
-                    LibraryDb.get(appContext).watchProgress().removeKey(
-                        tmdbId,
-                        mediaType,
-                        seasonNumber,
-                        episodeNumber,
-                    )
+                if (deleteIntentRecorded) {
+                    // A pull/merge can restore the row during the sync. Remove it
+                    // again before releasing the sync lock, but only after its
+                    // durable delete intent was recorded.
+                    withContext(NonCancellable) {
+                        progressDao.removeKey(
+                            tmdbId,
+                            mediaType,
+                            seasonNumber,
+                            episodeNumber,
+                        )
+                    }
                 }
             }
         }
@@ -520,56 +601,15 @@ object NuvioAutoSync {
         val contentId: String,
     )
 
-    private data class PendingWatchProgressDelete(
-        val serialized: String,
-        val key: NuvioWatchProgressDeleteKey,
-    )
-
-    private fun libraryDeletePreferenceKey(userId: String, localProfileId: String): String =
-        "${PENDING_LIBRARY_DELETES}_${stableKey("$userId:$localProfileId").take(16)}"
-
-    private fun watchProgressDeletePreferenceKey(userId: String, localProfileId: String): String =
-        "${PENDING_WATCH_PROGRESS_DELETES}_${stableKey("$userId:$localProfileId").take(16)}"
-
-    private fun watchProgressRemoteIdentityPreferenceKey(
-        userId: String,
-        localProfileId: String,
-        key: NuvioWatchProgressDeleteKey,
-    ): String = "${WATCH_PROGRESS_REMOTE_IDENTITIES}_${stableKey(
-        "$userId:$localProfileId:${key.tmdbId}:${key.mediaType}:${key.seasonNumber}:${key.episodeNumber}",
-    ).take(24)}"
-
     private fun pendingWatchProgressDeletes(
         context: Context,
         userId: String,
         localProfileId: String,
-    ): List<PendingWatchProgressDelete> {
+    ): List<NuvioWatchProgressDeleteKey> {
         val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
         val key = watchProgressDeletePreferenceKey(userId, localProfileId)
-        return prefs.getStringSet(key, emptySet()).orEmpty().mapNotNull { serialized ->
-            val deleteKey = NuvioWatchProgressDeleteKey.deserialize(serialized)
-                ?: return@mapNotNull null
-            PendingWatchProgressDelete(
-                serialized = serialized,
-                key = deleteKey,
-            )
-        }
-    }
-
-    private fun clearWatchProgressDeletes(
-        context: Context,
-        userId: String,
-        localProfileId: String,
-        deletes: Collection<PendingWatchProgressDelete>,
-    ) {
-        if (deletes.isEmpty()) return
-        val prefs = context.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        val key = watchProgressDeletePreferenceKey(userId, localProfileId)
-        val pending = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
-        deletes.forEach { pending.remove(it.serialized) }
-        check(prefs.edit().putStringSet(key, pending).commit()) {
-            "Could not clear confirmed Nuvio watch progress deletions"
-        }
+        return prefs.getStringSet(key, emptySet()).orEmpty()
+            .mapNotNull(NuvioWatchProgressDeleteKey::deserialize)
     }
 
     private fun pendingLibraryDeletes(
