@@ -40,7 +40,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -128,6 +127,7 @@ fun NativePlayerScreen(
 
     progressKey: WatchProgressKey? = null,
     artworkUrl: String? = null,
+    pauseOverlayMetadata: PlayerPauseOverlayMetadata? = null,
 
     onRefresh: (() -> Unit)? = null,
     nuvioScanning: Boolean = false,
@@ -713,6 +713,14 @@ fun NativePlayerScreen(
         !episodeTitle.isNullOrBlank() -> episodeTitle
         else -> subtitle
     }
+    val pauseEpisodeLabel = when {
+        seasonNumber != null && episodeNumber != null -> episodeLabel
+        progressKey?.seasonNumber != null && progressKey.episodeNumber != null -> buildString {
+            append("S${progressKey.seasonNumber} E${progressKey.episodeNumber}")
+            progressKey.episodeTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+        }
+        else -> null
+    }
 
     Box(
         Modifier.fillMaxSize().background(Color.Black)
@@ -946,8 +954,17 @@ fun NativePlayerScreen(
             visible = !isPlaying && !controlsVisible && !needsWebView && !anyDeviceCasting,
             enter = fadeIn(tween(400)), exit = fadeOut(tween(300)),
         ) {
-            PauseArtworkOverlay(artworkUrl = artworkUrl, title = title,
-                episodeLabel = episodeLabel, modifier = Modifier.fillMaxSize())
+            PauseArtworkOverlay(
+                artworkUrl = artworkUrl,
+                title = pauseOverlayMetadata?.displayTitle
+                    ?.takeIf { it.isNotBlank() }
+                    ?: progressKey?.showTitle?.takeIf { it.isNotBlank() }
+                    ?: title,
+                episodeLabel = pauseEpisodeLabel,
+                metadata = pauseOverlayMetadata,
+                isTv = isTv,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // ── Player controls overlay ───────────────────────────────────────
@@ -1342,28 +1359,124 @@ private fun PlayerClock(
 // ────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PauseArtworkOverlay(artworkUrl: String?, title: String, episodeLabel: String?, modifier: Modifier = Modifier) {
-    Box(modifier) {
-        if (!artworkUrl.isNullOrBlank()) {
-            AsyncImage(model = artworkUrl, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().blur(16.dp))
+private fun PauseArtworkOverlay(
+    artworkUrl: String?,
+    title: String,
+    episodeLabel: String?,
+    metadata: PlayerPauseOverlayMetadata?,
+    isTv: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val backgroundUrl = metadata?.episodeStillUrl?.takeIf { it.isNotBlank() }
+        ?: metadata?.backdropUrl?.takeIf { it.isNotBlank() }
+        ?: artworkUrl?.takeIf { it.isNotBlank() }
+    val overview = metadata?.overview?.takeIf { it.isNotBlank() }
+    val logoUrl = metadata?.titleLogoUrl?.takeIf { it.isNotBlank() }
+    var logoLoadFailed by remember(logoUrl) { mutableStateOf(false) }
+
+    Box(modifier.background(Color.Black)) {
+        if (backgroundUrl != null) {
+            AsyncImage(
+                model = backgroundUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (artworkUrl.isNullOrBlank()) 0.85f else 0.60f)))
-        Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (!artworkUrl.isNullOrBlank()) {
-                AsyncImage(model = artworkUrl, contentDescription = null, contentScale = ContentScale.Fit,
-                    modifier = Modifier.height(140.dp).padding(bottom = 20.dp))
-            }
-            Text(title, color = Color.White, style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2)
-            if (!episodeLabel.isNullOrBlank()) {
-                Spacer(Modifier.height(6.dp))
-                Text(episodeLabel, color = Color.White.copy(alpha = 0.75f),
-                    style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, maxLines = 2)
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.horizontalGradient(
+                    colorStops = arrayOf(
+                        0f to Color.Black.copy(alpha = 0.94f),
+                        0.55f to Color.Black.copy(alpha = 0.70f),
+                        1f to Color.Transparent,
+                    ),
+                ),
+            ),
+        )
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.Black.copy(alpha = 0.30f),
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.28f),
+                    ),
+                ),
+            ),
+        )
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxWidth()
+                .padding(horizontal = if (isTv) 76.dp else 28.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .width(if (isTv) 3.dp else 2.dp)
+                    .height(if (isTv) 270.dp else 180.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.86f)),
+            )
+            Spacer(Modifier.width(if (isTv) 24.dp else 16.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.86f)
+                    .widthIn(max = if (isTv) 720.dp else 520.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isTv) 14.dp else 10.dp),
+            ) {
+                Text(
+                    text = "YOU'RE WATCHING",
+                    color = Color.White.copy(alpha = 0.76f),
+                    style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                )
+                if (logoUrl != null && !logoLoadFailed) {
+                    AsyncImage(
+                        model = logoUrl,
+                        contentDescription = title,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth(0.88f)
+                            .widthIn(max = if (isTv) 520.dp else 360.dp)
+                            .height(if (isTv) 104.dp else 72.dp),
+                        onError = { logoLoadFailed = true },
+                    )
+                } else {
+                    Text(
+                        text = title,
+                        color = Color.White,
+                        style = if (isTv) MaterialTheme.typography.displaySmall
+                            else MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (!episodeLabel.isNullOrBlank()) {
+                    Text(
+                        text = episodeLabel,
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = if (isTv) MaterialTheme.typography.titleLarge
+                            else MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (overview != null) {
+                    Text(
+                        text = overview,
+                        color = Color.White.copy(alpha = 0.78f),
+                        style = if (isTv) MaterialTheme.typography.bodyLarge
+                            else MaterialTheme.typography.bodyMedium,
+                        maxLines = if (isTv) 5 else 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
-        Icon(Icons.Default.Pause, "Paused", tint = Color.White.copy(alpha = 0.30f),
-            modifier = Modifier.align(Alignment.BottomEnd).size(60.dp).padding(16.dp))
     }
 }
 

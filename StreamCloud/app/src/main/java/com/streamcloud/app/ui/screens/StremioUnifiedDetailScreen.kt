@@ -16,6 +16,7 @@ import com.streamcloud.app.BuildConfig
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.player.BingeEpisode
+import com.streamcloud.app.player.PlayerPauseOverlayMetadata
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.WatchProgressKey
 import kotlinx.coroutines.flow.first
@@ -40,6 +41,7 @@ fun StremioUnifiedDetailScreen(
         WatchProgressKey,
         List<BingeEpisode>,
         Int,
+        PlayerPauseOverlayMetadata,
     ) -> Unit,
     onDirectStremioPlay: (String, String) -> Unit,
 ) {

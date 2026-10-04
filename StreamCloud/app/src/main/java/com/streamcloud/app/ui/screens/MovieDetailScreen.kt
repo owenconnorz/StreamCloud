@@ -95,6 +95,7 @@ import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.BingeEpisode
+import com.streamcloud.app.player.PlayerPauseOverlayMetadata
 import com.streamcloud.app.player.buildBingeEpisodeQueue
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.StreamCacheRepository
@@ -131,6 +132,7 @@ fun MovieDetailScreen(
         progressKey: WatchProgressKey,
         bingeEpisodes: List<BingeEpisode>,
         currentBingeIndex: Int,
+        pauseOverlayMetadata: PlayerPauseOverlayMetadata,
     ) -> Unit,
     onOpenCsPluginForMovie: (internalName: String, title: String) -> Unit = { _, _ -> },
     onMovieClick: (Long) -> Unit = {},
@@ -395,6 +397,28 @@ fun MovieDetailScreen(
             seasonSummaries = tvSeasons,
             episodeDetails = tvEpisodes,
         )
+
+    fun pauseOverlayMetadataFor(progressKey: WatchProgressKey): PlayerPauseOverlayMetadata {
+        val loadedMovie = movie
+        val episode = if (mediaType == "tv") {
+            tvEpisodes.firstOrNull {
+                it.seasonNumber == progressKey.seasonNumber &&
+                    it.episodeNumber == progressKey.episodeNumber
+            }
+        } else {
+            null
+        }
+        return PlayerPauseOverlayMetadata(
+            displayTitle = loadedMovie?.displayTitle
+                ?: progressKey.showTitle
+                ?: progressKey.title,
+            overview = episode?.overview?.takeIf { it.isNotBlank() }
+                ?: loadedMovie?.overview?.takeIf { it.isNotBlank() },
+            backdropUrl = loadedMovie?.backdropUrl ?: loadedMovie?.posterUrl,
+            titleLogoUrl = titleLogoUrl,
+            episodeStillUrl = episode?.stillUrl,
+        )
+    }
 
     fun toggleWatched() {
         val m = movie ?: return
@@ -1489,6 +1513,7 @@ fun MovieDetailScreen(
                                         progressKey,
                                         bingeSelection.episodes,
                                         bingeSelection.currentIndex,
+                                        pauseOverlayMetadataFor(progressKey),
                                     )
                                 },
                                 enabled = csPickerSelSource != null,
@@ -1631,6 +1656,7 @@ fun MovieDetailScreen(
                         progressKey,
                         bingeSelection.episodes,
                         bingeSelection.currentIndex,
+                        pauseOverlayMetadataFor(progressKey),
                     )
                 }
             },

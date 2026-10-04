@@ -734,7 +734,8 @@ fun MusicScreen(
                     onTrendingClick = { onSearchWithQuery("Top hits 2026") },
                     djLoading = djQuickMixLoading || djStarting,
                     isTv = isTv,
-                    tvNavFocusRequester = tvNavFocusRequester,
+                    tvNavFocusRequester =
+                        if (isTv && query.isNotBlank()) tvNavFocusRequester else null,
                     onSearchClick = onSearchClick,
                     onDjClick = {
                         if (!djQuickMixLoading && !djStarting) {
@@ -800,6 +801,8 @@ fun MusicScreen(
                     SuggestionsRow(
                         quickChips = quickChips,
                         onPick = { query = it; vm.search(it) },
+                        focusRequester =
+                            if (isTv) tvNavFocusRequester else null,
                     )
                 }
 
@@ -1121,7 +1124,6 @@ fun MusicScreen(
                                 isRefreshing = true
                                 vm.reloadHome()
                             },
-                            focusRequester = if (isTv) tvNavFocusRequester else null,
                         )
                     }
                 }
@@ -1366,7 +1368,6 @@ private fun MusicHomeRecoveryState(
     loading: Boolean,
     failureSummary: String?,
     onReload: () -> Unit,
-    focusRequester: FocusRequester? = null,
 ) {
     val visibleFailure = failureSummary.takeUnless { loading }
     Column(
@@ -1420,11 +1421,7 @@ private fun MusicHomeRecoveryState(
         Spacer(Modifier.height(20.dp))
         Button(
             onClick = onReload,
-            modifier = Modifier
-                .let { base ->
-                    if (focusRequester != null) base.focusRequester(focusRequester) else base
-                }
-                .tvFocusBorder(RoundedCornerShape(24.dp)),
+            modifier = Modifier.tvFocusBorder(RoundedCornerShape(24.dp)),
         ) {
             Text("Reload music")
         }
@@ -1796,6 +1793,7 @@ private fun SuggestionListRow(text: String, onClick: () -> Unit) {
 private fun SuggestionsRow(
     quickChips: List<MoodChip>,
     onPick: (String) -> Unit,
+    focusRequester: FocusRequester? = null,
 ) {
     Column {
         SectionTitle("Trending searches")
@@ -1803,18 +1801,29 @@ private fun SuggestionsRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(buildCombinedMusicSuggestions(quickChips)) { s ->
-                SuggestionChip(label = s, onClick = { onPick(s) })
+            itemsIndexed(buildCombinedMusicSuggestions(quickChips)) { index, s ->
+                SuggestionChip(
+                    label = s,
+                    onClick = { onPick(s) },
+                    focusRequester = if (index == 0) focusRequester else null,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SuggestionChip(label: String, onClick: () -> Unit) {
+private fun SuggestionChip(
+    label: String,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
     Box(
         Modifier
             .clip(RoundedCornerShape(50))
+            .let { base ->
+                if (focusRequester != null) base.focusRequester(focusRequester) else base
+            }
             .tvFocusBorder(RoundedCornerShape(50))
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)

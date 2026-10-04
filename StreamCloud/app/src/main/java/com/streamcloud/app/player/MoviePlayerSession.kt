@@ -39,6 +39,9 @@ object MoviePlayerSession {
     var episodeTitle: String? = null
         private set
 
+    var pauseOverlayMetadata: PlayerPauseOverlayMetadata? = null
+        private set
+
     private val _bingeEpisodes = MutableStateFlow<List<BingeEpisode>>(emptyList())
     val bingeEpisodesFlow: StateFlow<List<BingeEpisode>> = _bingeEpisodes.asStateFlow()
     val bingeEpisodes: List<BingeEpisode> get() = _bingeEpisodes.value
@@ -56,6 +59,7 @@ object MoviePlayerSession {
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
         episodeTitle: String? = null,
+        pauseOverlayMetadata: PlayerPauseOverlayMetadata? = null,
         bingeEpisodes: List<BingeEpisode> = emptyList(),
         currentBingeIndex: Int = -1,
     ) {
@@ -66,6 +70,7 @@ object MoviePlayerSession {
         this.seasonNumber = seasonNumber
         this.episodeNumber = episodeNumber
         this.episodeTitle = episodeTitle
+        this.pauseOverlayMetadata = pauseOverlayMetadata
         _bingeEpisodes.value = bingeEpisodes
         this.currentBingeIndex = currentBingeIndex
         _nuvioScanning.value = false
@@ -109,6 +114,7 @@ object MoviePlayerSession {
         seasonNumber = null
         episodeNumber = null
         episodeTitle = null
+        pauseOverlayMetadata = null
         _bingeEpisodes.value = emptyList()
         currentBingeIndex = -1
     }
@@ -146,6 +152,14 @@ data class BingeEpisode(
     val posterUrl: String? = null,
     val episodeTitle: String? = null,
     val progressKey: WatchProgressKey? = null,
+)
+
+data class PlayerPauseOverlayMetadata(
+    val displayTitle: String? = null,
+    val overview: String? = null,
+    val backdropUrl: String? = null,
+    val titleLogoUrl: String? = null,
+    val episodeStillUrl: String? = null,
 )
 
 data class AddonSubtitle(

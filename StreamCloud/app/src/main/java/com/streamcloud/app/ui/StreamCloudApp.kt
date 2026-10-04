@@ -949,13 +949,14 @@ fun StreamCloudApp() {
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
-                        onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex ->
+                        onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex, pauseOverlayMetadata ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources, progressKey,
                                 tmdbId = progressKey.tmdbId,
                                 mediaType = progressKey.mediaType,
                                 bingeEpisodes = bingeEpisodes,
                                 currentBingeIndex = currentBingeIndex,
+                                pauseOverlayMetadata = pauseOverlayMetadata,
                             )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
@@ -993,13 +994,14 @@ fun StreamCloudApp() {
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
-                        onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex ->
+                        onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex, pauseOverlayMetadata ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources, progressKey,
                                 tmdbId = progressKey.tmdbId,
                                 mediaType = progressKey.mediaType,
                                 bingeEpisodes = bingeEpisodes,
                                 currentBingeIndex = currentBingeIndex,
+                                pauseOverlayMetadata = pauseOverlayMetadata,
                             )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
@@ -1036,7 +1038,7 @@ fun StreamCloudApp() {
                         initialTitle = tt,
                         initialPoster = pp.takeIf { it.isNotBlank() },
                         onBack = { nav.popBackStack() },
-                        onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex ->
+                        onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex, pauseOverlayMetadata ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources,
                                 progressKey,
@@ -1044,6 +1046,7 @@ fun StreamCloudApp() {
                                 mediaType = progressKey.mediaType,
                                 bingeEpisodes = bingeEpisodes,
                                 currentBingeIndex = currentBingeIndex,
+                                pauseOverlayMetadata = pauseOverlayMetadata,
                             )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val tArg = URLEncoder.encode(title, "UTF-8")
@@ -1571,6 +1574,7 @@ fun StreamCloudApp() {
                         nuvioScanning = nuvioScanning,
                         forceDirectPlay = true,
                         artworkUrl = com.streamcloud.app.player.MoviePlayerSession.progressKey?.posterUrl,
+                        pauseOverlayMetadata = com.streamcloud.app.player.MoviePlayerSession.pauseOverlayMetadata,
                         onSwitchSource = { src ->
                             currentUrl = src.url
                             currentId = src.id
