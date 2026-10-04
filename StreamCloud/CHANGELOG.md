@@ -1,3 +1,14 @@
+## Latest — Android TV detail, artwork, and focus fixes
+
+### Movie and TV details
+- TV detail title logos fit within the hero without clipping.
+
+### Movies home
+- Android TV cards prefer landscape or backdrop artwork and show title/logo overlays; visible CloudStream cards request matching artwork before focus and display text while logos load.
+
+### Navigation
+- Pressing Back restores focus to screen content instead of the navigation bar across Android TV screens.
+
 ## Latest — TV detail title logo and backdrop seam fix
 
 ### Movie and TV details
