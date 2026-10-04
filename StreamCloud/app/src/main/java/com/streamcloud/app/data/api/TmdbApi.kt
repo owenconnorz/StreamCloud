@@ -156,7 +156,7 @@ data class TmdbMovie(
 ) {
     val displayTitle: String get() = title ?: name ?: "Untitled"
     val posterUrl: String? get() = posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-    val backdropUrl: String? get() = backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }
+    val backdropUrl: String? get() = backdropPath?.let { "https://image.tmdb.org/t/p/w1280$it" }
 
     /** Formatted runtime string, e.g. "2h 26m" or "45m". */
     fun displayRuntime(): String? {

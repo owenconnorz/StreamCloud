@@ -576,8 +576,8 @@ fun MovieDetailScreen(
                 contentScale = ContentScale.Fit,
                 onError = { titleLogoUrl = null },
                 modifier = Modifier
-                    .fillMaxWidth(if (isTv) 0.92f else 0.72f)
-                    .height(if (isTv) 108.dp else 72.dp),
+                    .fillMaxWidth(if (isTv) 0.82f else 0.72f)
+                    .height(if (isTv) 84.dp else 72.dp),
             )
         } else {
             Text(
