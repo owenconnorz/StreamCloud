@@ -170,14 +170,19 @@ fun MovieDetailScreen(
     val configuration = LocalConfiguration.current
     val viewportHeight = configuration.screenHeightDp.dp
     val viewportWidth = configuration.screenWidthDp.dp
+    // The TV backdrop starts at the display edge, while the hero content starts
+    // below the top-navigation clearance. Size the hero from the space that
+    // actually remains so focus scrolling cannot clip the title logo at that seam.
+    val artworkHeroTopClearance = if (isTv) 240.dp else 32.dp
     val artworkHeroHeight = if (isTv) {
-        (viewportHeight * 0.62f).coerceIn(380.dp, 520.dp)
+        val availableHeroHeight = (viewportHeight - artworkHeroTopClearance).coerceAtLeast(200.dp)
+        val minimumHeroHeight = if (mediaType == "tv") 232.dp else 200.dp
+        (availableHeroHeight * 0.78f).coerceIn(minimumHeroHeight, 460.dp)
     } else {
         (viewportWidth * (9f / 16f)).coerceIn(220.dp, 320.dp)
     }
     // Keep TV titles and actions below the top chrome while letting the backdrop
     // continue behind the cleared area.
-    val artworkHeroTopClearance = if (isTv) 240.dp else 32.dp
     val showTvBackdropBehindClearance = isTv && !movie?.backdropUrl.isNullOrBlank()
     val playBtnFocus = remember { FocusRequester() }
     val trailerCloseFocusRequester = remember { FocusRequester() }
@@ -844,23 +849,23 @@ fun MovieDetailScreen(
                     .fillMaxWidth()
                     .height(artworkHeroHeight),
             ) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                colorStops = arrayOf(
-                                    0f to bannerPalette.artworkColor.copy(alpha = 0.36f),
-                                    0.18f to bannerPalette.artworkColor.copy(alpha = 0.20f),
-                                    0.34f to Color.Transparent,
-                                    0.66f to Color.Transparent,
-                                    0.82f to bannerPalette.artworkColor.copy(alpha = 0.20f),
-                                    1f to bannerPalette.artworkColor.copy(alpha = 0.36f),
+                if (!showTvBackdropBehindClearance) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.horizontalGradient(
+                                    colorStops = arrayOf(
+                                        0f to bannerPalette.artworkColor.copy(alpha = 0.36f),
+                                        0.18f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                                        0.34f to Color.Transparent,
+                                        0.66f to Color.Transparent,
+                                        0.82f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                                        1f to bannerPalette.artworkColor.copy(alpha = 0.36f),
+                                    ),
                                 ),
                             ),
-                        ),
-                )
-                if (!showTvBackdropBehindClearance) {
+                    )
                     MovieArtwork(
                         primaryUrl = movie?.backdropUrl,
                         fallbackUrl = movie?.posterUrl,
@@ -868,25 +873,25 @@ fun MovieDetailScreen(
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize(),
                     )
-                }
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent),
-                            ),
-                        )
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = 0.12f),
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.97f),
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent),
+                                ),
+                            )
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Black.copy(alpha = 0.12f),
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.97f),
+                                    ),
                                 ),
                             ),
-                        ),
-                )
+                    )
+                }
                 Column(
                     Modifier
                         .align(Alignment.BottomStart)
