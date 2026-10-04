@@ -1,3 +1,9 @@
+## Latest — TV detail title logo and backdrop seam fix
+
+### Movie and TV details
+- TV hero height now fits the available space below the top inset, keeping the title logo visible when Play receives focus.
+- TV uses one continuous backdrop treatment so no hard horizontal edge crosses the title; mobile layout is unchanged.
+
 ## Latest — Full-screen trailers and larger title logos
 
 ### Movie and TV details
