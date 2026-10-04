@@ -809,7 +809,7 @@ fun MoviesScreen(
                         }
                     }
                     item(key = "cshome_${row.pluginInternalName}_${row.sectionName}") {
-                        val csLandscape = posterStyle == "landscape"
+                        val csLandscape = isTv || posterStyle == "landscape"
                         val csCardWidth = if (csLandscape) 200.dp else 120.dp
                         val csAspect = if (csLandscape) 16f / 9f else 2f / 3f
                         LazyRow(
@@ -1871,8 +1871,8 @@ private fun CsHomePosterCard(
                 .background(MaterialTheme.colorScheme.surface),
         ) {
             AsyncImage(
-                model = if (isExpanded) {
-                    tmdbMovie?.backdropUrl ?: item.posterUrl
+                model = if (isExpanded || (isTv && defaultWidth >= 180.dp)) {
+                    tmdbMovie?.backdropUrl?.takeIf { it.isNotBlank() } ?: item.posterUrl
                 } else {
                     item.posterUrl
                 },
@@ -1946,7 +1946,9 @@ private fun MidPoster(
     onClick: () -> Unit,
     onLongPress: () -> Unit = {},
 ) {
-    val useLandscape = posterStyle == "landscape" || (posterStyle == "auto" && m.backdropUrl != null)
+    val useLandscape = isTv ||
+        posterStyle == "landscape" ||
+        (posterStyle == "auto" && m.backdropUrl != null)
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
@@ -2072,7 +2074,8 @@ private fun StremioPoster(
     onClick: () -> Unit,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val useLandscape = posterStyle == "landscape" ||
+    val useLandscape = isTv ||
+        posterStyle == "landscape" ||
         (posterStyle == "auto" &&
             (!meta.background.isNullOrBlank() ||
                 meta.posterShape.equals("landscape", ignoreCase = true)))

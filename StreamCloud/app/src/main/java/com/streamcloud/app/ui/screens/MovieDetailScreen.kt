@@ -176,8 +176,8 @@ fun MovieDetailScreen(
     val artworkHeroTopClearance = if (isTv) 240.dp else 32.dp
     val artworkHeroHeight = if (isTv) {
         val availableHeroHeight = (viewportHeight - artworkHeroTopClearance).coerceAtLeast(200.dp)
-        val minimumHeroHeight = if (mediaType == "tv") 232.dp else 200.dp
-        (availableHeroHeight * 0.78f).coerceIn(minimumHeroHeight, 460.dp)
+        val minimumHeroHeight = if (mediaType == "tv") 280.dp else 260.dp
+        (availableHeroHeight * 0.82f).coerceIn(minimumHeroHeight, 460.dp)
     } else {
         (viewportWidth * (9f / 16f)).coerceIn(220.dp, 320.dp)
     }
@@ -594,8 +594,8 @@ fun MovieDetailScreen(
                 contentScale = ContentScale.Fit,
                 onError = { titleLogoUrl = null },
                 modifier = Modifier
-                    .fillMaxWidth(if (isTv) 0.82f else 0.72f)
-                    .height(if (isTv) 96.dp else 72.dp),
+                    .fillMaxWidth(if (isTv) 0.92f else 0.72f)
+                    .height(if (isTv) 108.dp else 72.dp),
             )
         } else {
             Text(
