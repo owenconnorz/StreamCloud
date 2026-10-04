@@ -763,26 +763,15 @@ fun MovieDetailScreen(
     ) {
         val viewportHeight = maxHeight
         val viewportWidth = maxWidth
-        val minimumHeroHeight = if (mediaType == "tv") 280.dp else 260.dp
-        val topClearanceFloor = minOf(80.dp, viewportHeight * 0.20f)
-        // Keep the hero and focused Play control inside the real scroll viewport.
-        // Shorter TV windows need less top clearance; otherwise focusing Play
-        // scrolls the column and clips the title logo at the top.
-        val artworkHeroTopClearance = if (isTv) {
-            minOf(
-                240.dp,
-                (viewportHeight - minimumHeroHeight - 24.dp).coerceAtLeast(topClearanceFloor),
-            )
-        } else {
-            32.dp
-        }
+        // Reserve only the navigation-safe strip above the hero. The previous
+        // large clearance shrank the scroll viewport and clipped the title when
+        // Play received initial focus on short TV windows.
+        val artworkHeroTopClearance =
+            if (isTv) minOf(80.dp, viewportHeight * 0.20f) else 32.dp
         val availableHeroHeight =
             (viewportHeight - artworkHeroTopClearance).coerceAtLeast(1.dp)
-        val maximumHeroHeight = availableHeroHeight.coerceAtMost(460.dp)
-        val minimumHeroHeightThatFits = minimumHeroHeight.coerceAtMost(maximumHeroHeight)
         val artworkHeroHeight = if (isTv) {
-            (availableHeroHeight * 0.82f)
-                .coerceIn(minimumHeroHeightThatFits, maximumHeroHeight)
+            availableHeroHeight.coerceAtMost(460.dp)
         } else {
             (viewportWidth * (9f / 16f)).coerceIn(220.dp, 320.dp)
         }

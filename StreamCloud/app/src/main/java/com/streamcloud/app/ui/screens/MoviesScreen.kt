@@ -1970,20 +1970,12 @@ private fun MidPoster(
         if (titleLogoUrl == null) onRequestTitleLogo()
     }
     val animatedWidth by animateDpAsState(
-        targetValue = if (isExpanded) {
-            if (useLandscape) 320.dp else 160.dp
-        } else {
-            width
-        },
+        targetValue = if (isExpanded) 320.dp else width,
         animationSpec = tween(durationMillis = 260),
         label = "movie-card-width",
     )
     val animatedImageHeight by animateDpAsState(
-        targetValue = if (isExpanded) {
-            (if (useLandscape) 320.dp else 160.dp) / ratio
-        } else {
-            width / ratio
-        },
+        targetValue = if (isExpanded) 180.dp else width / ratio,
         animationSpec = tween(durationMillis = 260),
         label = "movie-card-image-height",
     )
@@ -2014,7 +2006,7 @@ private fun MidPoster(
                 ),
         ) {
             AsyncImage(
-                model = if (isExpanded && useLandscape) m.backdropUrl ?: imageUrl else imageUrl,
+                model = if (isExpanded) m.backdropUrl ?: imageUrl else imageUrl,
                 contentDescription = m.displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -2103,7 +2095,7 @@ private fun StremioPoster(
     val posterShape = RoundedCornerShape(12.dp)
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
-    val expandedWidth = if (useLandscape) 320.dp else 160.dp
+    val expandedWidth = 320.dp
     val isSeries = meta.type.equals("series", ignoreCase = true) ||
         meta.type.equals("tv", ignoreCase = true)
     val mediaType = if (isSeries) "tv" else "movie"
@@ -2114,7 +2106,7 @@ private fun StremioPoster(
         label = "stremio-card-width",
     )
     val animatedImageHeight by animateDpAsState(
-        targetValue = if (isExpanded) expandedWidth / ratio else width / ratio,
+        targetValue = if (isExpanded) 180.dp else width / ratio,
         animationSpec = tween(durationMillis = 260),
         label = "stremio-card-image-height",
     )
@@ -2136,12 +2128,12 @@ private fun StremioPoster(
         if (resolvedTmdbId == null) onRequestTmdbId()
         else if (titleLogoUrl == null) onRequestTitleLogo(resolvedTmdbId, mediaType)
     }
-    val primaryArtwork = if (useLandscape) {
+    val primaryArtwork = if (useLandscape || isExpanded) {
         meta.background?.takeIf { it.isNotBlank() } ?: meta.poster
     } else {
         meta.poster
     }
-    val fallbackArtwork = if (useLandscape) meta.poster else null
+    val fallbackArtwork = if (useLandscape || isExpanded) meta.poster else null
     Column(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
