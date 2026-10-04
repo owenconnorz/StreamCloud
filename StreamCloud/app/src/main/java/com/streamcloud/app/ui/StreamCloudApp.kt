@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -139,6 +140,7 @@ import com.streamcloud.app.data.util.GoogleAccountHelper
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -440,11 +442,28 @@ fun StreamCloudApp() {
         val firstRailFocus = remember { FocusRequester() }
         val firstTvNavFocus = remember { FocusRequester() }
         val firstMovieCardFocus = remember { FocusRequester() }
+        val navHostFocusRestoreRequester = remember { FocusRequester() }
+        val seenNavDestinationIds = remember { mutableSetOf<String>() }
+        var navHostHasTvFocus by remember { mutableStateOf(false) }
         // Dedicated requester always attached to the current hero Play button so
         // D-pad Down from the top nav bar reliably lands there regardless of
         // which startupFocusTarget the content decides to use.
         val tvNavHeroFocus = remember { FocusRequester() }
         val focusManager = LocalFocusManager.current
+        LaunchedEffect(isTv, backStack?.id) {
+            val destinationId = backStack?.id ?: return@LaunchedEffect
+            val isReturningToSavedDestination = !seenNavDestinationIds.add(destinationId)
+            if (!isTv || !isReturningToSavedDestination) return@LaunchedEffect
+
+            // When Back restores a destination, the nav overlay may otherwise
+            // reclaim TV focus. Re-enter the content focus group so it restores
+            // the caller's last focused card/control across every screen.
+            repeat(10) {
+                kotlinx.coroutines.delay(100L)
+                runCatching { navHostFocusRestoreRequester.requestFocus() }
+                if (navHostHasTvFocus) return@LaunchedEffect
+            }
+        }
         LaunchedEffect(showRail) {
             // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
             // On TV, focus starts on the persistent navigation launcher.
@@ -593,7 +612,22 @@ fun StreamCloudApp() {
                     }
             ) {
                 Column(Modifier.fillMaxSize()) {
-                    Box(Modifier.weight(1f).fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxSize()
+                            .then(
+                                if (isTv) {
+                                    Modifier
+                                        .focusRequester(navHostFocusRestoreRequester)
+                                        .onFocusChanged { navHostHasTvFocus = it.hasFocus }
+                                        .focusRestorer()
+                                        .focusGroup()
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                    ) {
                         val startRoute = resolvedStartRoute
                          if (startRoute != null && libraryScopeReady) {
                          key(
