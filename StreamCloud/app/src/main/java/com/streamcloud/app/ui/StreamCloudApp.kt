@@ -1865,7 +1865,34 @@ private fun TvNetflixTopNav(
     modifier: Modifier = Modifier,
 ) {
     var navHasFocus by remember { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
+      var pendingDownFocusHandoff by remember { mutableStateOf(false) }
+      var downFocusAttempt by remember { mutableStateOf(0) }
+      val focusManager = LocalFocusManager.current
+      LaunchedEffect(downFocusAttempt, pendingDownFocusHandoff, navHasFocus) {
+          if (!pendingDownFocusHandoff || !navHasFocus) return@LaunchedEffect
+
+          repeat(10) {
+              kotlinx.coroutines.delay(120L)
+              if (!navHasFocus || !pendingDownFocusHandoff) return@LaunchedEffect
+
+              val movedToContent = runCatching {
+                  contentFocusRequester.requestFocus()
+              }.getOrDefault(false)
+              if (movedToContent) {
+                  pendingDownFocusHandoff = false
+                  return@LaunchedEffect
+              }
+
+              val movedSpatially = runCatching {
+                  focusManager.moveFocus(FocusDirection.Down)
+              }.getOrDefault(false)
+              if (movedSpatially) {
+                  pendingDownFocusHandoff = false
+                  return@LaunchedEffect
+              }
+          }
+          pendingDownFocusHandoff = false
+      }
     val gradStartAlpha by animateFloatAsState(
         targetValue = if (navHasFocus) 0.97f else 0.72f,
         animationSpec = tween(250),
@@ -1877,7 +1904,46 @@ private fun TvNetflixTopNav(
         label = "tvNavGradMid",
     )
 
-    Box(modifier = modifier.onFocusChanged { navHasFocus = it.hasFocus }) {
+    Box(
+          modifier = modifier
+              .onFocusChanged {
+                  navHasFocus = it.hasFocus
+                  if (!it.hasFocus) pendingDownFocusHandoff = false
+              }
+              .onPreviewKeyEvent { event ->
+                  if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+
+                  if (event.key != Key.DirectionDown) {
+                      pendingDownFocusHandoff = false
+                  }
+
+                  when (event.key) {
+                      Key.DirectionDown -> {
+                          val movedToContent = runCatching {
+                              contentFocusRequester.requestFocus()
+                          }.getOrDefault(false)
+                          if (movedToContent) {
+                              pendingDownFocusHandoff = false
+                              true
+                          } else {
+                              val movedSpatially = runCatching {
+                                  focusManager.moveFocus(FocusDirection.Down)
+                              }.getOrDefault(false)
+                              if (movedSpatially) {
+                                  pendingDownFocusHandoff = false
+                              } else if (!pendingDownFocusHandoff) {
+                                  pendingDownFocusHandoff = true
+                                  downFocusAttempt++
+                              }
+                              true
+                          }
+                      }
+                      // Nothing focusable above the nav bar — consume Up.
+                      Key.DirectionUp -> true
+                      else -> false
+                  }
+              },
+      ) {
         // Gradient scrim — readable at all times, heavier when nav has focus
         Box(
             Modifier
@@ -1923,25 +1989,7 @@ private fun TvNetflixTopNav(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .onPreviewKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (event.key) {
-                            Key.DirectionDown -> {
-                                // Cross the NavHost focus boundary directly when possible.
-                                // When a screen has no hero/primary control yet, fall back to
-                                // spatial navigation and do not consume a failed move.
-                                runCatching {
-                                    contentFocusRequester.requestFocus()
-                                    true
-                                }.getOrDefault(false) ||
-                                    focusManager.moveFocus(FocusDirection.Down)
-                            }
-                            // Nothing focusable above the nav bar — consume Up.
-                            Key.DirectionUp -> true
-                            else -> false
-                        }
-                    },
+                    .align(Alignment.Center),
             ) {
                 // Search icon item (first focusable — gets firstTabFocus)
                 Box(
