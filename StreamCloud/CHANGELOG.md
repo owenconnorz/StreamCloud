@@ -1,3 +1,9 @@
+## V2070 — TV detail title and artwork improvements
+
+### Movie and TV details
+- **More balanced TV title logos** — Logo artwork is sized more comfortably within the detail hero.
+- **Sharper detail backdrops** — Movie and TV pages use higher-resolution TMDB artwork.
+
 ## V2067 — Android TV focused cards and detail logo fix
 
 ### Android TV Movies home
