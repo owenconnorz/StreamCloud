@@ -1,3 +1,14 @@
+## V2078 — Continue Watching, Music, and TV navigation fixes
+
+### Android TV navigation
+- Focus returns to screen content after navigation, with a fallback when the destination is not ready.
+
+### Music
+- Paused-player controls are clearer, and Music navigation works more reliably with a remote.
+
+### Continue Watching
+- Deleted items stay removed after Nuvio sync; deletion markers remain queued until the remote record is confirmed gone.
+
 ## V2070 — TV detail title and artwork improvements
 
 ### Movie and TV details
