@@ -1,3 +1,8 @@
+## Latest — TV detail banner focus fix
+
+### Movie and TV details
+- TV detail artwork now stays below the top edge when the Play button receives focus; phone spacing is unchanged.
+
 ## Latest — Movie detail banner top clearance
 
 ### Movie and TV details
