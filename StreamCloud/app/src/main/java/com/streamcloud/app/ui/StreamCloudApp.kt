@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -172,7 +173,7 @@ private sealed class Tab(val route: String, val label: String, val icon: ImageVe
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings)
 }
 
-@OptIn(UnstableApi::class)
+@OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
 @Composable
 fun StreamCloudApp() {
     val nav = rememberNavController()
