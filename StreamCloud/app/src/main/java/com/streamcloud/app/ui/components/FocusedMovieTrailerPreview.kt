@@ -6,6 +6,13 @@ import android.graphics.SurfaceTexture
 import android.util.Log
 import android.view.Surface
 import android.view.TextureView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -14,8 +21,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -50,6 +60,8 @@ internal fun TmdbTrailerPreview(
     modifier: Modifier = Modifier,
     videos: List<TmdbVideo>? = null,
     startDelayMs: Long = 6_000L,
+    loop: Boolean = true,
+    showStatus: Boolean = false,
 ) {
     val context = LocalContext.current.applicationContext
     val services = remember(context) { ServiceLocator.get(context) }
@@ -59,6 +71,7 @@ internal fun TmdbTrailerPreview(
     }
     var trailer by remember(movie.id, movie.title == null) { mutableStateOf<ResolvedTrailer?>(null) }
     var playbackFailed by remember(movie.id, movie.title == null) { mutableStateOf(false) }
+    var trailerUnavailable by remember(movie.id, movie.title == null) { mutableStateOf(false) }
     var retryAttempt by remember(movie.id, movie.title == null) { mutableStateOf(0) }
 
     DisposableEffect(lifecycleOwner) {
@@ -76,6 +89,7 @@ internal fun TmdbTrailerPreview(
     LaunchedEffect(movie.id, movie.title == null, isResumed, videos, startDelayMs, retryAttempt) {
         trailer = null
         playbackFailed = false
+        trailerUnavailable = false
         if (!isResumed) {
             retryAttempt = 0
             return@LaunchedEffect
@@ -135,6 +149,7 @@ internal fun TmdbTrailerPreview(
         } else {
             Log.w(TAG, "No playable trailer stream found for TMDB item ${movie.id}")
         }
+        trailerUnavailable = trailer == null
     }
 
     val resolvedTrailer = trailer
@@ -142,6 +157,7 @@ internal fun TmdbTrailerPreview(
         TrailerPlayer(
             trailer = resolvedTrailer,
             modifier = modifier,
+            loop = loop,
             onPlaybackError = { error ->
                 Log.w(
                     TAG,
@@ -159,16 +175,49 @@ internal fun TmdbTrailerPreview(
             },
         )
     }
+
+    if (showStatus && isResumed && (resolvedTrailer == null || playbackFailed)) {
+        Box(
+            modifier = modifier.background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (playbackFailed || trailerUnavailable) {
+                    Text(
+                        "Trailer unavailable",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                    )
+                    Text(
+                        "Press Back to return",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.72f),
+                    )
+                } else {
+                    CircularProgressIndicator(color = Color.White)
+                    Text(
+                        "Loading trailer…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.82f),
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
 private fun TrailerPlayer(
     trailer: ResolvedTrailer,
     modifier: Modifier,
+    loop: Boolean,
     onPlaybackError: (PlaybackException) -> Unit,
 ) {
     val context = LocalContext.current
-    val player = remember(trailer.url, trailer.userAgent) {
+    val player = remember(trailer.url, trailer.userAgent, loop) {
         val dataSourceFactory = YtPlayerUtils.createTrailerDataSourceFactory(trailer.userAgent)
 
         ExoPlayer.Builder(context)
@@ -183,7 +232,7 @@ private fun TrailerPlayer(
                     true,
                 )
                 volume = if (trailer.hasAudioTrack) 1f else 0f
-                repeatMode = Player.REPEAT_MODE_ONE
+                repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
             }
     }
     val currentOnPlaybackError by rememberUpdatedState(onPlaybackError)

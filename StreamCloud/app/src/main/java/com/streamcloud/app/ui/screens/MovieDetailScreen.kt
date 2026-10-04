@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -61,6 +62,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.ExtractorLink
@@ -154,7 +157,7 @@ fun MovieDetailScreen(
     var overviewExpanded by remember { mutableStateOf(false) }
     var trailerTypeFilter by remember { mutableStateOf("Trailer") }
     var titleLogoUrl by remember(movieId, mediaType) { mutableStateOf<String?>(null) }
-    var showTrailerBanner by rememberSaveable(movieId, mediaType) { mutableStateOf(false) }
+    var showTrailerFullscreen by rememberSaveable(movieId, mediaType) { mutableStateOf(false) }
 
     val installedAddons by sl.stremio.addons.collectAsState(initial = emptyList())
     val installedNuvio by sl.nuvio.installed.collectAsState(initial = emptyList())
@@ -177,6 +180,10 @@ fun MovieDetailScreen(
     val artworkHeroTopClearance = if (isTv) 240.dp else 32.dp
     val showTvBackdropBehindClearance = isTv && !movie?.backdropUrl.isNullOrBlank()
     val playBtnFocus = remember { FocusRequester() }
+    val trailerCloseFocusRequester = remember { FocusRequester() }
+    BackHandler(enabled = showTrailerFullscreen) {
+        showTrailerFullscreen = false
+    }
     LaunchedEffect(movie != null, openSourcePickerOnStart) {
         if (isTv && movie != null && !openSourcePickerOnStart) {
             try { playBtnFocus.requestFocus() } catch (_: Exception) {}
@@ -578,10 +585,11 @@ fun MovieDetailScreen(
             AsyncImage(
                 model = titleLogoUrl,
                 contentDescription = movie?.displayTitle,
+                alignment = Alignment.CenterStart,
                 contentScale = ContentScale.Fit,
                 onError = { titleLogoUrl = null },
                 modifier = Modifier
-                    .fillMaxWidth(0.72f)
+                    .fillMaxWidth(if (isTv) 0.82f else 0.72f)
                     .height(if (isTv) 96.dp else 72.dp),
             )
         } else {
@@ -656,10 +664,9 @@ fun MovieDetailScreen(
                     )
                 }
                 TrailerBannerToggle(
-                    active = showTrailerBanner,
                     enabled = movie != null,
                     isTv = isTv,
-                    onClick = { showTrailerBanner = !showTrailerBanner },
+                    onClick = { showTrailerFullscreen = true },
                 )
                 if (isTv) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -708,10 +715,9 @@ fun MovieDetailScreen(
                     )
                 }
                 TrailerBannerToggle(
-                    active = showTrailerBanner,
                     enabled = movie != null,
                     isTv = isTv,
-                    onClick = { showTrailerBanner = !showTrailerBanner },
+                    onClick = { showTrailerFullscreen = true },
                 )
                 if (isTv) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -862,21 +868,6 @@ fun MovieDetailScreen(
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize(),
                     )
-                }
-                if (showTrailerBanner) {
-                    movie?.let { loadedMovie ->
-                        TmdbTrailerPreview(
-                            movie = loadedMovie,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(
-                                    horizontal = if (isTv) 36.dp else 12.dp,
-                                    vertical = if (isTv) 16.dp else 6.dp,
-                                ),
-                            videos = videos,
-                            startDelayMs = 0L,
-                        )
-                    }
                 }
                 Box(
                     Modifier
@@ -1284,6 +1275,68 @@ fun MovieDetailScreen(
         }
     }
 
+    if (showTrailerFullscreen) {
+        movie?.let { trailerMovie ->
+            Dialog(
+                onDismissRequest = { showTrailerFullscreen = false },
+                properties = DialogProperties(
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = false,
+                    usePlatformDefaultWidth = false,
+                ),
+            ) {
+                LaunchedEffect(isTv) {
+                    if (isTv) {
+                        delay(100L)
+                        runCatching { trailerCloseFocusRequester.requestFocus() }
+                    }
+                }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                ) {
+                    TmdbTrailerPreview(
+                        movie = trailerMovie,
+                        modifier = Modifier.fillMaxSize(),
+                        videos = videos,
+                        startDelayMs = 0L,
+                        loop = false,
+                        showStatus = true,
+                    )
+                    Row(
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .padding(if (isTv) 24.dp else 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(
+                            onClick = { showTrailerFullscreen = false },
+                            modifier = Modifier
+                                .focusRequester(trailerCloseFocusRequester)
+                                .tvFocusBorder(CircleShape),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close trailer",
+                                tint = Color.White,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            trailerMovie.displayTitle,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Color.White,
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.58f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     // ── CS source picker sheet ────────────────────────────────────────────────
     val csSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pickerPlugin = csPickerPlugin
@@ -1636,7 +1689,6 @@ fun MovieDetailScreen(
 
 @Composable
 private fun TrailerBannerToggle(
-    active: Boolean,
     enabled: Boolean,
     isTv: Boolean,
     onClick: () -> Unit,
@@ -1657,12 +1709,12 @@ private fun TrailerBannerToggle(
         contentPadding = PaddingValues(horizontal = 14.dp),
     ) {
         Icon(
-            imageVector = if (active) Icons.Default.Close else Icons.Default.PlayArrow,
+            imageVector = Icons.Default.PlayArrow,
             contentDescription = null,
             modifier = Modifier.size(19.dp),
         )
         Spacer(Modifier.width(6.dp))
-        Text(if (active) "Artwork" else "Trailer", maxLines = 1)
+        Text("Trailer", maxLines = 1)
     }
 }
 
