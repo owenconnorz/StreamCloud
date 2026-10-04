@@ -1880,7 +1880,7 @@ private fun CsHomePosterCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            if (isExpanded) {
+            if (isExpanded || isTv) {
                 LandscapeCardTitle(tmdbMovie?.displayTitle ?: item.name, titleLogoUrl)
             }
             if (isExpanded) {
