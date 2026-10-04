@@ -1,3 +1,8 @@
+## Latest — Android TV detail artwork width
+
+### Movie and TV details
+- TV detail backdrops now fill the hero area instead of appearing narrow and centered; mobile artwork and poster-only detail pages retain fit-to-area scaling.
+
 ## Latest — TV detail banner focus fix
 
 ### Movie and TV details
