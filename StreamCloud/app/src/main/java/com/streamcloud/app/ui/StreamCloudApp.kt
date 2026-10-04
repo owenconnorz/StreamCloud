@@ -1877,6 +1877,7 @@ private fun TvNetflixTopNav(
 
               val movedToContent = runCatching {
                   contentFocusRequester.requestFocus()
+                  true
               }.getOrDefault(false)
               if (movedToContent) {
                   pendingDownFocusHandoff = false
@@ -1921,6 +1922,7 @@ private fun TvNetflixTopNav(
                       Key.DirectionDown -> {
                           val movedToContent = runCatching {
                               contentFocusRequester.requestFocus()
+                              true
                           }.getOrDefault(false)
                           if (movedToContent) {
                               pendingDownFocusHandoff = false
