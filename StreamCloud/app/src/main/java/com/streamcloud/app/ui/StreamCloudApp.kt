@@ -1706,6 +1706,7 @@ fun StreamCloudApp() {
                         currentRoute          = currentRoute,
                         firstTabFocus         = firstTvNavFocus,
                         contentFocusRequester = tvNavHeroFocus,
+                        contentFocusReceived = firstMovieFocused,
                         onNavFocusGained = {
                             if (currentRoute == Tab.Movies.route) {
                                 navScrollToTopVersion++
@@ -1866,6 +1867,7 @@ private fun TvNetflixTopNav(
     currentRoute: String?,
     firstTabFocus: FocusRequester,
     contentFocusRequester: FocusRequester,
+    contentFocusReceived: Boolean,
     onNavFocusGained: () -> Unit = {},
     onDownFocusHandoffRequested: () -> Unit = {},
     onTabSelected: (String) -> Unit,
@@ -1879,18 +1881,32 @@ private fun TvNetflixTopNav(
       var pendingDownFocusHandoff by remember { mutableStateOf(false) }
       var downFocusAttempt by remember { mutableStateOf(0) }
       val focusManager = LocalFocusManager.current
-      LaunchedEffect(downFocusAttempt, pendingDownFocusHandoff, navHasFocus, currentRoute) {
-          if (!pendingDownFocusHandoff || !navHasFocus) return@LaunchedEffect
+      LaunchedEffect(
+          downFocusAttempt,
+          pendingDownFocusHandoff,
+          navHasFocus,
+          currentRoute,
+          contentFocusReceived,
+      ) {
+          if (!pendingDownFocusHandoff) return@LaunchedEffect
+          if (currentRoute == Tab.Movies.route && contentFocusReceived) {
+              pendingDownFocusHandoff = false
+              return@LaunchedEffect
+          }
       
           repeat(16) {
               kotlinx.coroutines.delay(100L)
-              if (!navHasFocus || !pendingDownFocusHandoff) return@LaunchedEffect
+              if (!pendingDownFocusHandoff) return@LaunchedEffect
       
               // The destination requester is exact. Try it before spatial search,
               // which can otherwise focus a stale row while Movies is returning to top.
               runCatching { contentFocusRequester.requestFocus() }
               kotlinx.coroutines.delay(60L)
-              if (!navHasFocus) {
+              if (currentRoute == Tab.Movies.route && contentFocusReceived) {
+                  pendingDownFocusHandoff = false
+                  return@LaunchedEffect
+              }
+              if (currentRoute != Tab.Movies.route && !navHasFocus) {
                   pendingDownFocusHandoff = false
                   return@LaunchedEffect
               }
@@ -1904,7 +1920,7 @@ private fun TvNetflixTopNav(
                   }.getOrDefault(false)
                   if (movedSpatially) {
                       kotlinx.coroutines.delay(60L)
-                      if (!navHasFocus) {
+                      if (currentRoute != Tab.Movies.route && !navHasFocus) {
                           pendingDownFocusHandoff = false
                           return@LaunchedEffect
                       }
@@ -1913,7 +1929,7 @@ private fun TvNetflixTopNav(
           }
           // A Movies hero may be disabled or unavailable. Preserve navigation to
           // other visible content, but only after the exact target had time to attach.
-          if (navHasFocus && pendingDownFocusHandoff) {
+          if (pendingDownFocusHandoff) {
               runCatching { focusManager.moveFocus(FocusDirection.Down) }
               kotlinx.coroutines.delay(60L)
           }
@@ -1938,6 +1954,7 @@ private fun TvNetflixTopNav(
                   if (gainedFocus) onNavFocusGained()
                   if (!it.hasFocus) pendingDownFocusHandoff = false
               }
+              .tvFocusGroup()
               .onPreviewKeyEvent { event ->
                   if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 

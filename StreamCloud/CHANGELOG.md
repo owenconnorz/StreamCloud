@@ -1,3 +1,8 @@
+## V2086 — Android TV Movies D-pad handoff
+
+### Android TV
+- **Down from Movies navigation works reliably** — the top bar now participates in focus tracking, and its Down handoff retries until page content receives focus before using spatial fallback.
+
 ## V2084 — Android TV Movies focus return
 
 ### Android TV
