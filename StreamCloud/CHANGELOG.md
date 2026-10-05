@@ -1,3 +1,8 @@
+## V2081 — Android TV Movies navigation fix
+
+### Android TV
+- **Movies banner focus returns reliably** — D-pad Down from the top navigation scrolls to the banner and focuses Play; D-pad Up returns focus to the navigation bar.
+
 ## V2078 — Continue Watching, Music, and TV navigation fixes
 
 ### Android TV navigation
