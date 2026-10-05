@@ -1969,7 +1969,9 @@ private fun TvNetflixTopNav(
                               downFocusAttempt++
                               onDownFocusHandoffRequested()
                           }
-                          true
+                          // Movies nav items declare a direct Down focus target above.
+                          // Let Compose execute that mapping instead of consuming the key.
+                          currentRoute != Tab.Movies.route
                       }
                       // Nothing focusable above the nav bar — consume Up.
                       Key.DirectionUp -> true
@@ -2032,6 +2034,7 @@ private fun TvNetflixTopNav(
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .focusRequester(firstTabFocus)
+                        .focusProperties { if (currentRoute == Tab.Movies.route) down = contentFocusRequester }
                         .tvFocusBorder(CircleShape)
                         .clickable { onSearchClick() },
                 ) {
@@ -2058,6 +2061,7 @@ private fun TvNetflixTopNav(
                                     else -> Color.Transparent
                                 }
                             )
+                            .focusProperties { if (currentRoute == Tab.Movies.route) down = contentFocusRequester }
                             .tvFocusBorder(RoundedCornerShape(50))
                             .onFocusChanged { itemFocused = it.isFocused }
                             .clickable { onTabSelected(tab.route) }

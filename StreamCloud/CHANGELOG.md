@@ -1,3 +1,8 @@
+## V2087 — Android TV Movies focus traversal
+
+### Android TV
+- **Down from Movies navigation uses an explicit focus path** — navigation controls now direct focus to page content and leave the D-pad event available to Compose; the existing bounded retry remains a fallback.
+
 ## V2086 — Android TV Movies D-pad handoff
 
 ### Android TV
