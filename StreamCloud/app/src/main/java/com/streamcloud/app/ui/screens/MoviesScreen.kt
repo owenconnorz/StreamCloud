@@ -166,8 +166,8 @@ fun MoviesScreen(
     // Always attached to the current hero Play button so the TV nav D-pad Down
     // can jump here even when initialFocusRequester targets something else.
     tvNavHeroFocus: FocusRequester? = null,
-    // Incremented by StreamCloudApp whenever the nav bar regains focus; triggers
-    // an animated scroll back to the top so the hero is fully visible again.
+    // Incremented when the TV nav gains focus; immediately reveals the hero
+    // before a later Down handoff requests its Play button.
     navScrollToTopVersion: Int = 0,
     // Scroll Movies to the banner before retrying a TV-nav focus request.
     tvNavDownFocusHandoffVersion: Int = 0,
@@ -254,13 +254,10 @@ fun MoviesScreen(
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val moviesListState = rememberLazyListState()
     // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.
+    // When TV focus returns to the nav bar, jump to the top immediately. An
+    // animated scroll can still be running when the next Down handoff starts.
     LaunchedEffect(navScrollToTopVersion) {
-        if (navScrollToTopVersion > 0) moviesListState.animateScrollToItem(0)
-    }
-    LaunchedEffect(isTv, tvNavDownFocusHandoffVersion) {
-        if (isTv && tvNavDownFocusHandoffVersion > 0) {
-            moviesListState.scrollToItem(0)
-        }
+        if (navScrollToTopVersion > 0) moviesListState.scrollToItem(0)
     }
     val firstCollectionRowId = state.collections
         .firstOrNull { it.items.isNotEmpty() }

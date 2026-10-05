@@ -493,7 +493,8 @@ fun StreamCloudApp() {
                 if (focused) return@LaunchedEffect
             }
         }
-        // Incremented whenever the nav bar regains focus so MoviesScreen can scroll back to top.
+        // Incremented when the TV nav actually receives focus so MoviesScreen
+        // can reveal the hero before the next Down handoff.
         var navScrollToTopVersion by remember { mutableStateOf(0) }
         var moviesNavDownFocusHandoffVersion by remember { mutableStateOf(0) }
         Row(
@@ -505,20 +506,12 @@ fun StreamCloudApp() {
                     if (isTv && showRail && event.type == KeyEventType.KeyDown) {
                         when {
                             event.key == Key.Menu -> {
-                                val moved = runCatching {
-                                    firstTvNavFocus.requestFocus()
-                                    true
-                                }.getOrDefault(false)
-                                if (moved) navScrollToTopVersion++
-                                moved
+                                runCatching { firstTvNavFocus.requestFocus() }
+                                true
                             }
                             event.key == Key.DirectionUp && firstMovieFocused -> {
-                                val moved = runCatching {
-                                    firstTvNavFocus.requestFocus()
-                                    true
-                                }.getOrDefault(false)
-                                if (moved) navScrollToTopVersion++
-                                moved
+                                runCatching { firstTvNavFocus.requestFocus() }
+                                true
                             }
                             else -> false
                         }
@@ -1713,6 +1706,11 @@ fun StreamCloudApp() {
                         currentRoute          = currentRoute,
                         firstTabFocus         = firstTvNavFocus,
                         contentFocusRequester = tvNavHeroFocus,
+                        onNavFocusGained = {
+                            if (currentRoute == Tab.Movies.route) {
+                                navScrollToTopVersion++
+                            }
+                        },
                         onDownFocusHandoffRequested = {
                             if (currentRoute == Tab.Movies.route) {
                                 moviesNavDownFocusHandoffVersion++
@@ -1868,6 +1866,7 @@ private fun TvNetflixTopNav(
     currentRoute: String?,
     firstTabFocus: FocusRequester,
     contentFocusRequester: FocusRequester,
+    onNavFocusGained: () -> Unit = {},
     onDownFocusHandoffRequested: () -> Unit = {},
     onTabSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
@@ -1880,25 +1879,43 @@ private fun TvNetflixTopNav(
       var pendingDownFocusHandoff by remember { mutableStateOf(false) }
       var downFocusAttempt by remember { mutableStateOf(0) }
       val focusManager = LocalFocusManager.current
-      LaunchedEffect(downFocusAttempt, pendingDownFocusHandoff, navHasFocus) {
+      LaunchedEffect(downFocusAttempt, pendingDownFocusHandoff, navHasFocus, currentRoute) {
           if (!pendingDownFocusHandoff || !navHasFocus) return@LaunchedEffect
-
-          repeat(10) {
-              kotlinx.coroutines.delay(120L)
+      
+          repeat(16) {
+              kotlinx.coroutines.delay(100L)
               if (!navHasFocus || !pendingDownFocusHandoff) return@LaunchedEffect
-
-              val movedSpatially = runCatching {
-                  focusManager.moveFocus(FocusDirection.Down)
-              }.getOrDefault(false)
-              if (movedSpatially) {
-                  kotlinx.coroutines.delay(60L)
-                  if (!navHasFocus) {
-                      pendingDownFocusHandoff = false
-                      return@LaunchedEffect
+      
+              // The destination requester is exact. Try it before spatial search,
+              // which can otherwise focus a stale row while Movies is returning to top.
+              runCatching { contentFocusRequester.requestFocus() }
+              kotlinx.coroutines.delay(60L)
+              if (!navHasFocus) {
+                  pendingDownFocusHandoff = false
+                  return@LaunchedEffect
+              }
+      
+              // Movies must land on its hero, not whichever card happens to be
+              // nearest while the lazy list is being reset. Other screens can use
+              // spatial search as a fallback when their direct target is unavailable.
+              if (currentRoute != Tab.Movies.route) {
+                  val movedSpatially = runCatching {
+                      focusManager.moveFocus(FocusDirection.Down)
+                  }.getOrDefault(false)
+                  if (movedSpatially) {
+                      kotlinx.coroutines.delay(60L)
+                      if (!navHasFocus) {
+                          pendingDownFocusHandoff = false
+                          return@LaunchedEffect
+                      }
                   }
               }
-
-              runCatching { contentFocusRequester.requestFocus() }
+          }
+          // A Movies hero may be disabled or unavailable. Preserve navigation to
+          // other visible content, but only after the exact target had time to attach.
+          if (navHasFocus && pendingDownFocusHandoff) {
+              runCatching { focusManager.moveFocus(FocusDirection.Down) }
+              kotlinx.coroutines.delay(60L)
           }
           pendingDownFocusHandoff = false
       }
@@ -1916,7 +1933,9 @@ private fun TvNetflixTopNav(
     Box(
           modifier = modifier
               .onFocusChanged {
+                  val gainedFocus = it.hasFocus && !navHasFocus
                   navHasFocus = it.hasFocus
+                  if (gainedFocus) onNavFocusGained()
                   if (!it.hasFocus) pendingDownFocusHandoff = false
               }
               .onPreviewKeyEvent { event ->
@@ -1933,7 +1952,6 @@ private fun TvNetflixTopNav(
                               downFocusAttempt++
                               onDownFocusHandoffRequested()
                           }
-                          runCatching { contentFocusRequester.requestFocus() }
                           true
                       }
                       // Nothing focusable above the nav bar — consume Up.
