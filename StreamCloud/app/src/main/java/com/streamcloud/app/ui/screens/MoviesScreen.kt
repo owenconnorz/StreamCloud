@@ -169,6 +169,8 @@ fun MoviesScreen(
     // Incremented by StreamCloudApp whenever the nav bar regains focus; triggers
     // an animated scroll back to the top so the hero is fully visible again.
     navScrollToTopVersion: Int = 0,
+    // Scroll Movies to the banner before retrying a TV-nav focus request.
+    tvNavDownFocusHandoffVersion: Int = 0,
     onFirstMovieFocusedChanged: (Boolean) -> Unit = {},
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit = {},
@@ -254,6 +256,11 @@ fun MoviesScreen(
     // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.
     LaunchedEffect(navScrollToTopVersion) {
         if (navScrollToTopVersion > 0) moviesListState.animateScrollToItem(0)
+    }
+    LaunchedEffect(isTv, tvNavDownFocusHandoffVersion) {
+        if (isTv && tvNavDownFocusHandoffVersion > 0) {
+            moviesListState.scrollToItem(0)
+        }
     }
     val firstCollectionRowId = state.collections
         .firstOrNull { it.items.isNotEmpty() }

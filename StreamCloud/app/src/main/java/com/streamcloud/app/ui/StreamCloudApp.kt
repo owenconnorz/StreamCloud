@@ -495,6 +495,7 @@ fun StreamCloudApp() {
         }
         // Incremented whenever the nav bar regains focus so MoviesScreen can scroll back to top.
         var navScrollToTopVersion by remember { mutableStateOf(0) }
+        var moviesNavDownFocusHandoffVersion by remember { mutableStateOf(0) }
         Row(
             Modifier
                 .fillMaxSize()
@@ -645,6 +646,7 @@ fun StreamCloudApp() {
                         initialFocusEnabled = !showProfilePicker,
                         tvNavHeroFocus = tvNavHeroFocus,
                         navScrollToTopVersion = navScrollToTopVersion,
+                        tvNavDownFocusHandoffVersion = moviesNavDownFocusHandoffVersion,
                         onFirstMovieFocusedChanged = { firstMovieFocused = it },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
@@ -1711,6 +1713,11 @@ fun StreamCloudApp() {
                         currentRoute          = currentRoute,
                         firstTabFocus         = firstTvNavFocus,
                         contentFocusRequester = tvNavHeroFocus,
+                        onDownFocusHandoffRequested = {
+                            if (currentRoute == Tab.Movies.route) {
+                                moviesNavDownFocusHandoffVersion++
+                            }
+                        },
                         onTabSelected         = { route -> navigateToTab(nav, route) },
                         onSearchClick         = {
                             if (currentRoute == Tab.Music.route) {
@@ -1861,6 +1868,7 @@ private fun TvNetflixTopNav(
     currentRoute: String?,
     firstTabFocus: FocusRequester,
     contentFocusRequester: FocusRequester,
+    onDownFocusHandoffRequested: () -> Unit = {},
     onTabSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
     showBranding: Boolean = true,
@@ -1923,6 +1931,7 @@ private fun TvNetflixTopNav(
                           if (!pendingDownFocusHandoff) {
                               pendingDownFocusHandoff = true
                               downFocusAttempt++
+                              onDownFocusHandoffRequested()
                           }
                           runCatching { contentFocusRequester.requestFocus() }
                           true
