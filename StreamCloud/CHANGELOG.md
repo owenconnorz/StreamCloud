@@ -1,3 +1,8 @@
+## V2084 — Android TV Movies focus return
+
+### Android TV
+- **Reliable Movies hero return** — the top navigation immediately restores the Movies banner, and Down targets Play before falling back to nearby content.
+
 ## V2081 — Android TV Movies navigation fix
 
 ### Android TV
