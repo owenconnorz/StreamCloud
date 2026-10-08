@@ -105,10 +105,9 @@ interface WatchProgressDao {
 
     @Query(
         "SELECT * FROM watch_progress " +
-            "WHERE duration_ms > 0 " +
-            "AND position_ms > 5000 " +
-            "AND position_ms < duration_ms " +
-            "AND CAST(position_ms AS REAL) / duration_ms < 0.95 " +
+            "WHERE position_ms > 5000 " +
+            "AND (duration_ms <= 0 OR (position_ms < duration_ms " +
+            "AND CAST(position_ms AS REAL) / duration_ms < 0.95)) " +
             "AND NOT EXISTS (" +
             "SELECT 1 FROM watched_episodes AS watched " +
             "WHERE watched.tmdb_show_id = watch_progress.tmdb_id " +
@@ -123,9 +122,9 @@ interface WatchProgressDao {
         "SELECT * FROM watch_progress " +
             "WHERE tmdb_id = :tmdbId AND media_type = :mediaType " +
             "AND season_number > 0 AND episode_number > 0 " +
-            "AND duration_ms > 0 AND position_ms > 5000 " +
-            "AND position_ms < duration_ms " +
-            "AND CAST(position_ms AS REAL) / duration_ms < 0.95 " +
+            "AND position_ms > 5000 " +
+            "AND (duration_ms <= 0 OR (position_ms < duration_ms " +
+            "AND CAST(position_ms AS REAL) / duration_ms < 0.95)) " +
             "AND NOT EXISTS (" +
             "SELECT 1 FROM watched_episodes AS watched " +
             "WHERE watched.tmdb_show_id = watch_progress.tmdb_id " +

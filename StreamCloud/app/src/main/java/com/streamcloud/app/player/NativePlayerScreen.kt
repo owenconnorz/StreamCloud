@@ -556,7 +556,7 @@ fun NativePlayerScreen(
                 if (playbackReachedWatchCompletion(pos, dur, ended)) {
                     markCompletedPlayback(completionTarget)
                 }
-                if (dur > 0L && pos > 0L && !ended && !completionHandled.get()) {
+                if (shouldPersistWatchProgress(pos, dur, ended, completionHandled.get())) {
                     runCatching {
                         com.streamcloud.app.data.library.LibraryDb.get(appContext)
                             .watchProgress().upsert(
@@ -570,6 +570,8 @@ fun NativePlayerScreen(
                                 )
                             )
                         com.streamcloud.app.data.nuvio.NuvioAutoSync.requestProgress(appContext)
+                    }.onFailure { error ->
+                        Log.e("NativePlayerScreen", "Failed to save in-progress watch progress", error)
                     }
                 }
             }
@@ -580,10 +582,12 @@ fun NativePlayerScreen(
                 if (cur != null) {
                     val pos = cur.currentPosition.coerceAtLeast(0L)
                     val dur = cur.duration.coerceAtLeast(0L)
-                    if (dur > 0L && pos > 0L &&
-                        cur.playbackState != Player.STATE_ENDED &&
-                        !completionHandled.get()
-                    ) {
+                    if (shouldPersistWatchProgress(
+                            pos,
+                            dur,
+                            cur.playbackState == Player.STATE_ENDED,
+                            completionHandled.get(),
+                        )) {
                         Thread {
                             runCatching {
                                 com.streamcloud.app.data.library.LibraryDb.get(appContext).watchProgress().let { dao ->
@@ -599,6 +603,8 @@ fun NativePlayerScreen(
                                         com.streamcloud.app.data.nuvio.NuvioAutoSync.requestProgress(appContext)
                                     }
                                 }
+                            }.onFailure { error ->
+                                Log.e("NativePlayerScreen", "Failed to save in-progress watch progress", error)
                             }
                         }.start()
                     }

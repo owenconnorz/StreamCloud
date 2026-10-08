@@ -18,7 +18,10 @@ internal fun restorableWatchPosition(
         savedProgress.episodeNumber == key.episodeNumber
     if (savedProgress.title != key.title && !sameEpisodeIdentity) return null
     return savedProgress.positionMs.takeIf {
-        canRestoreWatchPosition(it, savedProgress.durationMs)
+        it > 5_000L && (
+            savedProgress.durationMs <= 0L ||
+                canRestoreWatchPosition(it, savedProgress.durationMs)
+            )
     }
 }
 
@@ -90,6 +93,19 @@ internal fun playbackReachedWatchCompletion(
     (durationMs > 0L &&
         positionMs >= 0L &&
         positionMs.toDouble() / durationMs.toDouble() >= WATCH_COMPLETION_THRESHOLD)
+
+internal fun shouldPersistWatchProgress(
+    positionMs: Long,
+    durationMs: Long,
+    playbackEnded: Boolean,
+    completionHandled: Boolean,
+): Boolean =
+    !playbackEnded &&
+        !completionHandled &&
+        positionMs > 5_000L &&
+        (durationMs <= 0L ||
+            (positionMs < durationMs &&
+                positionMs.toDouble() / durationMs.toDouble() < WATCH_COMPLETION_THRESHOLD))
 
 internal fun progressKeyForBingeEpisode(episode: BingeEpisode): WatchProgressKey {
     episode.progressKey?.let { return it }

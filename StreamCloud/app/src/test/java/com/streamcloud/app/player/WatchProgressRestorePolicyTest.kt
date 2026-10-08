@@ -56,6 +56,18 @@ class WatchProgressRestorePolicyTest {
     }
 
     @Test
+    fun unknownDurationStreamsStillPersistShowAndRestoreAValidPosition() {
+        val key = episodeKey.copy(seasonNumber = 2, episodeNumber = 3)
+        val saved = progress(durationMs = 0L, positionMs = 40_000L, seasonNumber = 2, episodeNumber = 3)
+
+        assertTrue(shouldPersistWatchProgress(40_000L, 0L, playbackEnded = false, completionHandled = false))
+        assertEquals(40_000L, restorableWatchPosition(key, saved))
+        assertFalse(shouldPersistWatchProgress(5_000L, 0L, playbackEnded = false, completionHandled = false))
+        assertFalse(shouldPersistWatchProgress(40_000L, 0L, playbackEnded = true, completionHandled = false))
+        assertFalse(shouldPersistWatchProgress(95_000L, 100_000L, playbackEnded = false, completionHandled = false))
+    }
+
+    @Test
     fun currentDurationMustContainAValidResumePoint() {
         assertTrue(canRestoreWatchPosition(40_000L, 100_000L))
         assertFalse(canRestoreWatchPosition(40_000L, 30_000L))
