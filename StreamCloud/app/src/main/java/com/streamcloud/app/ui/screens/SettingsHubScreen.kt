@@ -557,8 +557,8 @@ fun SettingsHubScreen(
                         SettingDivider()
                         SettingToggle(
                             icon = Icons.Default.Brightness6, tint = ColourPlayer,
-                            title = "Brightness gesture",
-                            subtitle = "Swipe up or down on the right side of the player",
+                            title = "System brightness gesture",
+                            subtitle = "Swipe on the player's right side to change Android brightness across apps",
                             checked = gestureBrightness,
                             onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
                         )
@@ -1270,8 +1270,8 @@ fun SettingsHubScreen(
                     SettingDivider()
                     SettingToggle(
                         icon = Icons.Default.Brightness6, tint = ColourPlayer,
-                        title = "Brightness gesture",
-                        subtitle = "Swipe up/down on the right side of the player",
+                        title = "System brightness gesture",
+                        subtitle = "Swipe on the player's right side to change Android brightness across apps",
                         checked = gestureBrightness,
                         onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
                     )

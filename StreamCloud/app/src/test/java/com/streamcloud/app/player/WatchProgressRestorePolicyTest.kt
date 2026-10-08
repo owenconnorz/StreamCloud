@@ -184,4 +184,26 @@ class WatchProgressRestorePolicyTest {
         seasonNumber = seasonNumber,
         episodeNumber = episodeNumber,
     )
+
+
+    @Test
+    fun systemBrightnessGestureStartsFromTheCurrentDeviceValue() {
+        assertEquals(128, adjustedSystemBrightness(128, 0f))
+        assertEquals(192, adjustedSystemBrightness(128, 64f / 255f))
+        assertEquals(64, adjustedSystemBrightness(128, -64f / 255f))
+    }
+
+    @Test
+    fun systemBrightnessGestureClampsToVisibleLevels() {
+        assertEquals(1, adjustedSystemBrightness(128, -2f))
+        assertEquals(255, adjustedSystemBrightness(128, 2f))
+        assertEquals(1, adjustedSystemBrightness(0, 0f))
+    }
+
+    @Test
+    fun systemBrightnessOverlayUsesDeviceLevel() {
+        assertEquals(128f / 255f, systemBrightnessFraction(128), 0.0001f)
+        assertEquals(1f / 255f, systemBrightnessFraction(0), 0.0001f)
+        assertEquals(1f, systemBrightnessFraction(300), 0f)
+    }
 }

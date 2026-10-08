@@ -3,14 +3,19 @@ package com.streamcloud.app.player
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
+import android.provider.Settings as AndroidSettings
+import android.widget.Toast
 import android.util.Log
 import android.util.TypedValue
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -352,8 +357,19 @@ fun NativePlayerScreen(
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var volumeOverlay    by remember { mutableStateOf<Float?>(null) }
     var brightnessOverlay by remember { mutableStateOf<Float?>(null) }
+    var showSystemBrightnessPermissionDialog by remember { mutableStateOf(false) }
+    val systemBrightnessPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        showSystemBrightnessPermissionDialog = !AndroidSettings.System.canWrite(context)
+    }
 
     DisposableEffect(Unit) {
+        window?.let { playerWindow ->
+            val params = playerWindow.attributes
+            params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            playerWindow.attributes = params
+        }
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         @Suppress("DEPRECATION")
         window?.decorView?.systemUiVisibility = (
@@ -365,6 +381,11 @@ fun NativePlayerScreen(
         activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window?.let { playerWindow ->
+                val params = playerWindow.attributes
+                params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                playerWindow.attributes = params
+            }
             @Suppress("DEPRECATION")
             window?.decorView?.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             activity?.requestedOrientation =
@@ -829,6 +850,9 @@ fun NativePlayerScreen(
                     val startX = down.position.x; val startY = down.position.y
                     val startTime = System.currentTimeMillis()
                     var dragging = false; var dragSide = startX
+                    var brightnessAtGestureStart = DEFAULT_SYSTEM_BRIGHTNESS
+                    var lastWrittenSystemBrightness = DEFAULT_SYSTEM_BRIGHTNESS
+                    var brightnessGestureDelta = 0f
                     while (true) {
                         val event  = awaitPointerEvent()
                         val change = event.changes.firstOrNull() ?: break
@@ -851,8 +875,21 @@ fun NativePlayerScreen(
                         val dx = change.position.x - startX; val dy = change.position.y - startY
                         val dist = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
                         if (!dragging && dist > slop) {
-                            if (kotlin.math.abs(dy) >= kotlin.math.abs(dx)) { dragging = true; dragSide = startX }
-                            else break
+                            if (kotlin.math.abs(dy) >= kotlin.math.abs(dx)) {
+                                dragging = true
+                                dragSide = startX
+                                if (dragSide >= widthPx / 2f && gestureBrightnessOn) {
+                                    brightnessAtGestureStart = runCatching {
+                                        AndroidSettings.System.getInt(
+                                            context.contentResolver,
+                                            AndroidSettings.System.SCREEN_BRIGHTNESS,
+                                            DEFAULT_SYSTEM_BRIGHTNESS,
+                                        )
+                                    }.getOrDefault(DEFAULT_SYSTEM_BRIGHTNESS).coerceIn(1, 255)
+                                    lastWrittenSystemBrightness = brightnessAtGestureStart
+                                    brightnessGestureDelta = 0f
+                                }
+                            } else break
                         }
                         if (dragging) {
                             change.consume()
@@ -863,10 +900,36 @@ fun NativePlayerScreen(
                                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (cur + (delta * maxVol).toInt()).coerceIn(0, maxVol), 0)
                                 volumeOverlay = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVol
                             } else if (dragSide >= widthPx / 2f && gestureBrightnessOn) {
-                                val lp = window?.attributes ?: break
-                                val cur = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
-                                lp.screenBrightness = (cur + delta).coerceIn(0.01f, 1f)
-                                window?.attributes = lp; brightnessOverlay = lp.screenBrightness
+                                if (!AndroidSettings.System.canWrite(context)) {
+                                    showSystemBrightnessPermissionDialog = true
+                                    break
+                                }
+                                brightnessGestureDelta += delta
+                                val nextBrightness = adjustedSystemBrightness(
+                                    brightnessAtGestureStart,
+                                    brightnessGestureDelta,
+                                )
+                                if (nextBrightness == lastWrittenSystemBrightness) {
+                                    brightnessOverlay = systemBrightnessFraction(nextBrightness)
+                                } else {
+                                    val saved = runCatching {
+                                        AndroidSettings.System.putInt(
+                                            context.contentResolver,
+                                            AndroidSettings.System.SCREEN_BRIGHTNESS,
+                                            nextBrightness,
+                                        )
+                                    }.getOrElse { error ->
+                                        Log.e("NativePlayerScreen", "Could not update Android system brightness", error)
+                                        false
+                                    }
+                                    if (saved) {
+                                        lastWrittenSystemBrightness = nextBrightness
+                                        brightnessOverlay = systemBrightnessFraction(nextBrightness)
+                                    } else {
+                                        showSystemBrightnessPermissionDialog = true
+                                        break
+                                    }
+                                }
                             }
                         }
                     }
@@ -894,8 +957,39 @@ fun NativePlayerScreen(
         }
         brightnessOverlay?.let { b ->
             Box(Modifier.align(Alignment.CenterEnd).padding(end = 28.dp)) {
-                SwipeIndicatorPill(Icons.Default.Brightness6, "Brightness", b)
+                SwipeIndicatorPill(Icons.Default.Brightness6, "System brightness", b)
             }
+        }
+        if (showSystemBrightnessPermissionDialog) {
+            AlertDialog(
+                onDismissRequest = { showSystemBrightnessPermissionDialog = false },
+                title = { Text("Allow system brightness changes?") },
+                text = {
+                    Text("StreamCloud needs permission to change Android's saved screen brightness. Changes will also affect other apps and remain after you leave the player.")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val permissionIntent = Intent(
+                            AndroidSettings.ACTION_MANAGE_WRITE_SETTINGS,
+                            Uri.parse("package:${context.packageName}"),
+                        )
+                        try {
+                            systemBrightnessPermissionLauncher.launch(permissionIntent)
+                        } catch (error: ActivityNotFoundException) {
+                            showSystemBrightnessPermissionDialog = false
+                            Log.w("NativePlayerScreen", "System brightness settings are unavailable", error)
+                            Toast.makeText(
+                                context,
+                                "This device does not offer system brightness access.",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }) { Text("Open settings") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSystemBrightnessPermissionDialog = false }) { Text("Not now") }
+                },
+            )
         }
 
         // Auto-switch banner

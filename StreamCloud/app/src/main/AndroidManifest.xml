@@ -22,6 +22,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Equalizer / Bass-boost (Metrolist parity) -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Lets the video-player gesture update Android's saved screen brightness. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <!-- Read device Google accounts to display profile photo in nav bar (Metrolist parity) -->
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
     <!-- Sonos discovery: SSDP multicast requires a WifiManager multicast lock -->

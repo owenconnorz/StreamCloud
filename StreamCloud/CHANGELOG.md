@@ -1,3 +1,8 @@
+## V2093 — Change Android system brightness from the player
+
+### Video player
+- **Brightness gestures now change device brightness** — writes Android's saved screen brightness across apps after the user grants system-settings access; the player restores its window to follow the device setting when it closes.
+
 ## V2089 — Continue Watching for streams without a reported duration
 
 ### Movies and TV
