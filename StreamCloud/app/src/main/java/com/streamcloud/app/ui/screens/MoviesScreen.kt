@@ -1760,27 +1760,35 @@ private fun ContinueWatchingCard(
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(14.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)),
-            ) {
+            if (entry.durationMs > 0L) {
                 Box(
                     Modifier
-                        .fillMaxWidth(pct.coerceAtLeast(0.02f))
-                        .fillMaxHeight()
+                        .fillMaxWidth()
+                        .height(4.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.primary),
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(pct.coerceAtLeast(0.02f))
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "${(pct * 100).toInt()}% watched",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                Text(
+                    "Resume playback",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "${(pct * 100).toInt()}% watched",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
     }
 }

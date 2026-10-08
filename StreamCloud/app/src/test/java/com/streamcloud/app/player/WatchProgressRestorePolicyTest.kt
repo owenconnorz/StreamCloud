@@ -48,7 +48,7 @@ class WatchProgressRestorePolicyTest {
         assertNull(restorableWatchPosition(episodeKey, progress(positionMs = 95_000L)))
         assertNull(restorableWatchPosition(episodeKey, progress(positionMs = 100_000L)))
         assertNull(restorableWatchPosition(episodeKey, progress(positionMs = 5_000L)))
-        assertNull(restorableWatchPosition(episodeKey, progress(durationMs = 0L)))
+        assertEquals(40_000L, restorableWatchPosition(episodeKey, progress(durationMs = 0L, positionMs = 40_000L)))
         assertEquals(94_999L, restorableWatchPosition(
             episodeKey,
             progress(positionMs = 94_999L),

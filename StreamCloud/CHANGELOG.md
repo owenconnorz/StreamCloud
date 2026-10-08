@@ -1,7 +1,7 @@
 ## V2089 — Continue Watching for streams without a reported duration
 
 ### Movies and TV
-- **Partial playback stays available to resume across providers** — in-progress playback now saves and appears even when a stream does not report its total duration; known-duration completion handling is unchanged.
+- **Partial playback stays available to resume across providers** — saves, shows, and restores progress even without a reported stream duration; the card uses a resume label rather than showing a false percentage. Known-duration completion handling is unchanged.
 
 ## V2087 — Android TV Movies focus traversal
 
