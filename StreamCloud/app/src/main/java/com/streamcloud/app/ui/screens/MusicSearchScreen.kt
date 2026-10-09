@@ -330,7 +330,15 @@ fun MusicSearchScreen(
                             }
                         }
                         Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { searchBarVisible = true }) {
+                        IconButton(
+                            onClick = { searchBarVisible = true },
+                            modifier = if (formFactor == UiFormFactor.Tv) {
+                                // Up from the first results still targets this requester while the field is collapsed.
+                                Modifier.focusRequester(focusRequester)
+                            } else {
+                                Modifier
+                            },
+                        ) {
                             Icon(
                                 Icons.Default.Search,
                                 contentDescription = "Search",
