@@ -80,12 +80,19 @@ internal object AndroidAutoHomeContent {
                 .distinct()
             val subtitle = (listOfNotNull(section.takeIf { it.isNotBlank() }) + details)
                 .joinToString(" · ")
+            val contextualMetadata = MediaMetadata.Builder()
+                .setTitle(metadata.title)
+                .setArtist(metadata.artist)
+                .setAlbumTitle(metadata.albumTitle)
+                .setArtworkUri(metadata.artworkUri)
+                .setSubtitle(subtitle)
+                .setExtras(metadata.extras)
+                .setIsBrowsable(metadata.isBrowsable)
+                .setIsPlayable(metadata.isPlayable)
+                .setMediaType(metadata.mediaType)
+                .build()
             return buildUpon()
-                .setMediaMetadata(
-                    MediaMetadata.Builder(metadata)
-                        .setSubtitle(subtitle)
-                        .build(),
-                )
+                .setMediaMetadata(contextualMetadata)
                 .build()
         }
 
