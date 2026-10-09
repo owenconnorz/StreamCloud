@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 
 class AudioFx(
     private val context: Context,
-    initialAudioSessionId: Int,
+    private val initialAudioSessionId: Int,
 ) {
     private var audioSessionId = 0
     private var eq: Equalizer? = null
