@@ -788,7 +788,13 @@ fun SettingsHubScreen(
                         title = "Use system equalizer",
                         subtitle = if (eqEnabled) "On · controlled by your device" else "Off",
                         checked = eqEnabled,
-                        onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
+                        onChange = { enabled ->
+                            eqEnabled = enabled
+                            scope.launch {
+                                sl.settings.setEqEnabled(enabled)
+                                if (enabled) openSystemEqualizer()
+                            }
+                        },
                     )
                     if (eqEnabled) {
                         SettingDivider()
@@ -1183,7 +1189,13 @@ fun SettingsHubScreen(
                         title = "Use system equalizer",
                         subtitle = if (eqEnabled) "On · controlled by your device" else "Off",
                         checked = eqEnabled,
-                        onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
+                        onChange = { enabled ->
+                            eqEnabled = enabled
+                            scope.launch {
+                                sl.settings.setEqEnabled(enabled)
+                                if (enabled) openSystemEqualizer()
+                            }
+                        },
                     )
                     if (eqEnabled) {
                         SettingDivider()
