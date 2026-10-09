@@ -116,11 +116,11 @@ class AndroidAutoHomeContentTest {
             assertEquals("Song", flattened[0].mediaMetadata.title.toString())
             assertEquals("Artist", flattened[0].mediaMetadata.artist.toString())
             assertEquals("Speed dial · Artist", flattened[0].mediaMetadata.subtitle.toString())
-            assertTrue(flattened[0].mediaMetadata.isPlayable)
-            assertFalse(flattened[0].mediaMetadata.isBrowsable)
+            assertTrue(requireNotNull(flattened[0].mediaMetadata.isPlayable))
+            assertFalse(requireNotNull(flattened[0].mediaMetadata.isBrowsable))
             assertEquals("Listen again · Curated", flattened[1].mediaMetadata.subtitle.toString())
-            assertTrue(flattened[1].mediaMetadata.isBrowsable)
-            assertFalse(flattened[1].mediaMetadata.isPlayable)
+            assertTrue(requireNotNull(flattened[1].mediaMetadata.isBrowsable))
+            assertFalse(requireNotNull(flattened[1].mediaMetadata.isPlayable))
         }
 
         private fun track(url: String, playCount: Int = 0) = TrackEntity(
