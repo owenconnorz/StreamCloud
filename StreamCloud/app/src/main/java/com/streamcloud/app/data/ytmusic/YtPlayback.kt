@@ -315,15 +315,15 @@ object YtPlayback {
     fun removeDownload(context: Context, song: YtmSong) {
         val appContext = context.applicationContext
         backgroundScope.launch {
-            runCatching {
+            try {
                 PlaylistMusicDownloadManager.removeManualDownload(appContext, song.videoId)
-            }.onFailure {
+            } catch (_: Throwable) {
                 removeDownloadFiles(appContext, song.videoId)
             }
         }
     }
 
-    internal fun removeDownloadFiles(context: Context, videoId: String) {
+    internal suspend fun removeDownloadFiles(context: Context, videoId: String) {
         val appContext = context.applicationContext
         val watchUrl = watchUrl(videoId)
         DownloadService.sendRemoveDownload(
@@ -339,9 +339,8 @@ object YtPlayback {
             watchUrl,
             false,
         )
-        backgroundScope.launch {
-            runCatching { com.streamcloud.app.data.downloads.MusicDownloader.delete(appContext, watchUrl) }
-        }
+        // Await the legacy file deletion so playlist rows refresh only after it is gone.
+        com.streamcloud.app.data.downloads.MusicDownloader.delete(appContext, watchUrl)
     }
 
 

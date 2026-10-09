@@ -83,6 +83,7 @@ fun YtPlaylistScreen(
         PlaylistMusicDownloadManager.observeEnabled(context, playlistDownloadOwner)
     }.collectAsState(initial = false)
     var playlistDownloadBusy by remember(playlistId) { mutableStateOf(false) }
+    var downloadStatusRevision by remember(playlistId) { mutableStateOf(0) }
     var freshTracksLoaded by remember(playlistId) { mutableStateOf(false) }
 
     var showPlaylistMenu by remember { mutableStateOf(false) }
@@ -410,6 +411,7 @@ fun YtPlaylistScreen(
                                             enabled = enabled,
                                             songs = list,
                                         )
+                                        downloadStatusRevision++
                                         val message = when {
                                             !enabled -> "Removed playlist downloads"
                                             list.isEmpty() -> "This playlist has no songs to download"
@@ -456,6 +458,7 @@ fun YtPlaylistScreen(
                     PlaylistTrackRow(
                         song = song,
                         downloadFraction = downloadProgress[song.videoId],
+                        downloadStatusRevision = downloadStatusRevision,
                         onClick = { playSongHandoff(list, indexedSong.index) },
                         onRemoveFromPlaylist = {
                             val originalIndex = indexedSong.index
@@ -820,6 +823,7 @@ private fun PlaylistActionRow(
 private fun PlaylistTrackRow(
     song: YtmSong,
     downloadFraction: Float?,
+    downloadStatusRevision: Int,
     onClick: () -> Unit,
     onRemoveFromPlaylist: () -> Unit,
 ) {
@@ -845,8 +849,8 @@ private fun PlaylistTrackRow(
     }
 
 
-    LaunchedEffect(song.videoId, downloadFraction) {
-        if (downloadFraction == null) downloaded = YtPlayback.isDownloaded(context, song)
+    LaunchedEffect(song.videoId, downloadFraction, downloadStatusRevision) {
+        downloaded = YtPlayback.isDownloaded(context, song)
     }
 
     val nowPlayingId by com.streamcloud.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState()
