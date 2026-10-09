@@ -34,7 +34,6 @@ fun PornhubShortiesScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
                 runCatching { it.stopLoading() }
                 runCatching { it.onPause() }
                 runCatching { it.webChromeClient = null }
-                runCatching { it.webViewClient = null }
                 runCatching { it.removeAllViews() }
                 runCatching { it.destroy() }
             }
