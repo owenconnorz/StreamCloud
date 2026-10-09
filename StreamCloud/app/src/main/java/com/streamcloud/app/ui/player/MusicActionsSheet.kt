@@ -288,8 +288,7 @@ fun MusicActionsSheet(
             ) {
                 if (!openSystemEqualizer(context, controller)) {
                     onDismiss()
-                    onOpenSettings()
-                    toast(context, "Open Settings → Audio FX → Equalizer")
+                    toast(context, "This device does not provide a system equalizer panel.")
                 }
             }
             ActionRow(
