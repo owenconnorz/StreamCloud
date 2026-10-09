@@ -678,6 +678,12 @@ private fun PlaylistHero(
                 Spacer(Modifier.width(6.dp))
                 Text("Shuffle")
             }
+            PlaylistDownloadToggle(
+                checked = downloadEnabled,
+                busy = downloadBusy,
+                modifier = Modifier.size(48.dp),
+                onCheckedChange = onDownloadChange,
+            )
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -694,13 +700,7 @@ private fun PlaylistHero(
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
-        PlaylistDownloadToggle(
-            checked = downloadEnabled,
-            busy = downloadBusy,
-            modifier = Modifier.fillMaxWidth(),
-            onCheckedChange = onDownloadChange,
-        )
+
     }
 }
 
