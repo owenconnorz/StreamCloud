@@ -280,9 +280,8 @@ object YtPlayback {
         val appContext = context.applicationContext
         val watchUrl = watchUrl(song.videoId)
         val downloadId = YtMusicDownloadUtil.downloadId(song.videoId)
-        // Resolve immediately while Android starts the foreground download service. The download
-        // data source consumes this same shared job/cache instead of starting from a cold resolver.
-        YtMusicStreamResolver.primeForPlayback(song.videoId)
+        // Resolve only when a DownloadManager worker slot opens. Priming every queued playlist
+        // song here bypasses the bounded transfer queue and can flood stream lookups.
         backgroundScope.launch {
             val dao = LibraryDb.get(appContext).tracks()
             val existing = runCatching { dao.byUrl(watchUrl) }.getOrNull()

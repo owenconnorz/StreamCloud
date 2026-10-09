@@ -234,7 +234,8 @@ object YtMusicDownloadUtil {
             // runBlocking URL-resolution holds pool threads — matching Metrolist.
             Executor(Runnable::run),
         ).apply {
-            maxParallelDownloads = 3
+            // Five concurrent transfers improve playlist throughput without flooding the CDN.
+            maxParallelDownloads = 5
             minRetryCount = 5
             addListener(object : DownloadManager.Listener {
                 override fun onDownloadChanged(
