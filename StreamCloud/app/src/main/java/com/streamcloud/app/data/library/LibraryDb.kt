@@ -78,6 +78,61 @@ interface TrackDao {
     suspend fun clearRecent()
 }
 
+@Entity(tableName = "music_playlist_download_states")
+data class MusicPlaylistDownloadStateEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "playlist_key") val playlistKey: String,
+    val enabled: Boolean,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Dao
+interface MusicPlaylistDownloadStateDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun set(state: MusicPlaylistDownloadStateEntity)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM music_playlist_download_states WHERE playlist_key = :playlistKey AND enabled = 1)")
+    fun isEnabled(playlistKey: String): Flow<Boolean>
+
+    @Query("SELECT enabled FROM music_playlist_download_states WHERE playlist_key = :playlistKey LIMIT 1")
+    suspend fun enabled(playlistKey: String): Boolean?
+
+    @Query("DELETE FROM music_playlist_download_states WHERE playlist_key = :playlistKey")
+    suspend fun remove(playlistKey: String)
+}
+
+@Entity(
+    tableName = "music_download_owners",
+    primaryKeys = ["owner_key", "video_id"],
+    indices = [Index(value = ["video_id"])],
+)
+data class MusicDownloadOwnerEntity(
+    @ColumnInfo(name = "owner_key") val ownerKey: String,
+    @ColumnInfo(name = "video_id") val videoId: String,
+) {
+    companion object {
+        const val MANUAL_OWNER_KEY = "manual"
+    }
+}
+
+@Dao
+interface MusicDownloadOwnerDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun add(owner: MusicDownloadOwnerEntity)
+
+    @Query("SELECT owner_key FROM music_download_owners WHERE video_id = :videoId")
+    suspend fun ownersForVideo(videoId: String): List<String>
+
+    @Query("SELECT video_id FROM music_download_owners WHERE owner_key = :ownerKey")
+    suspend fun videoIdsForOwner(ownerKey: String): List<String>
+
+    @Query("DELETE FROM music_download_owners WHERE owner_key = :ownerKey AND video_id = :videoId")
+    suspend fun remove(ownerKey: String, videoId: String)
+
+    @Query("DELETE FROM music_download_owners WHERE video_id = :videoId")
+    suspend fun removeAllForVideo(videoId: String)
+}
+
 @Entity(
     tableName = "watch_progress",
     primaryKeys = ["tmdb_id", "media_type", "season_number", "episode_number"],
@@ -634,6 +689,8 @@ interface FollowedArtistDao {
 @Database(
     entities = [
         TrackEntity::class,
+        MusicPlaylistDownloadStateEntity::class,
+        MusicDownloadOwnerEntity::class,
         WatchProgressEntity::class,
         WatchlistEntity::class,
         MovieWatchlistEntity::class,
@@ -649,11 +706,13 @@ interface FollowedArtistDao {
         WatchedEpisodeEntity::class,
         MovieDownloadEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = false,
 )
 abstract class LibraryDb : RoomDatabase() {
     abstract fun tracks(): TrackDao
+    abstract fun musicPlaylistDownloadStates(): MusicPlaylistDownloadStateDao
+    abstract fun musicDownloadOwners(): MusicDownloadOwnerDao
     abstract fun watchProgress(): WatchProgressDao
     abstract fun watchlist(): WatchlistDao
     abstract fun movieWatchlists(): MovieWatchlistDao
@@ -1012,11 +1071,40 @@ abstract class LibraryDb : RoomDatabase() {
                         MIGRATION_16_17,
                         MIGRATION_17_18,
                         MIGRATION_18_19,
+                        MIGRATION_19_20,
                     )
                         .fallbackToDestructiveMigration()
                         .build()
                         .also { INSTANCES[databaseName] = it }
                 }
+            }
+        }
+
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS music_playlist_download_states (
+                        playlist_key TEXT NOT NULL,
+                        enabled INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(playlist_key)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS music_download_owners (
+                        owner_key TEXT NOT NULL,
+                        video_id TEXT NOT NULL,
+                        PRIMARY KEY(owner_key, video_id)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_music_download_owners_video_id " +
+                        "ON music_download_owners(video_id)",
+                )
             }
         }
 

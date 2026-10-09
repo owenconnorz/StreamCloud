@@ -11,6 +11,7 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.data.downloads.MusicExoDownloadService
+import com.streamcloud.app.data.downloads.PlaylistMusicDownloadManager
 import com.streamcloud.app.data.downloads.YtMusicDownloadUtil
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.TrackEntity
@@ -265,13 +266,25 @@ object YtPlayback {
 
 
     fun downloadSong(context: Context, song: YtmSong) {
+        val appContext = context.applicationContext
+        backgroundScope.launch {
+            runCatching {
+                PlaylistMusicDownloadManager.addManualDownload(appContext, song)
+            }.onFailure {
+                enqueueDownload(appContext, song)
+            }
+        }
+    }
+
+    internal fun enqueueDownload(context: Context, song: YtmSong) {
+        val appContext = context.applicationContext
         val watchUrl = watchUrl(song.videoId)
         val downloadId = YtMusicDownloadUtil.downloadId(song.videoId)
         // Resolve immediately while Android starts the foreground download service. The download
         // data source consumes this same shared job/cache instead of starting from a cold resolver.
         YtMusicStreamResolver.primeForPlayback(song.videoId)
         backgroundScope.launch {
-            val dao = LibraryDb.get(context).tracks()
+            val dao = LibraryDb.get(appContext).tracks()
             val existing = runCatching { dao.byUrl(watchUrl) }.getOrNull()
             if (existing == null) {
                 dao.upsert(
@@ -292,7 +305,7 @@ object YtPlayback {
             .setCustomCacheKey(downloadId)
             .build()
         DownloadService.sendAddDownload(
-            context,
+            appContext,
             MusicExoDownloadService::class.java,
             request,
             false,
@@ -300,19 +313,35 @@ object YtPlayback {
     }
 
     fun removeDownload(context: Context, song: YtmSong) {
+        val appContext = context.applicationContext
+        backgroundScope.launch {
+            runCatching {
+                PlaylistMusicDownloadManager.removeManualDownload(appContext, song.videoId)
+            }.onFailure {
+                removeDownloadFiles(appContext, song.videoId)
+            }
+        }
+    }
+
+    internal fun removeDownloadFiles(context: Context, videoId: String) {
+        val appContext = context.applicationContext
+        val watchUrl = watchUrl(videoId)
         DownloadService.sendRemoveDownload(
-            context,
+            appContext,
             MusicExoDownloadService::class.java,
-            YtMusicDownloadUtil.downloadId(song.videoId),
+            YtMusicDownloadUtil.downloadId(videoId),
             false,
         )
         // Remove a pre-migration request if one remains in the old URL-keyed cache.
         DownloadService.sendRemoveDownload(
-            context,
+            appContext,
             MusicExoDownloadService::class.java,
-            watchUrl(song.videoId),
+            watchUrl,
             false,
         )
+        backgroundScope.launch {
+            runCatching { com.streamcloud.app.data.downloads.MusicDownloader.delete(appContext, watchUrl) }
+        }
     }
 
 

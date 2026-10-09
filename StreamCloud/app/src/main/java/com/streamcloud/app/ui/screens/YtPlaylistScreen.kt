@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.downloads.PlaylistMusicDownloadManager
+import com.streamcloud.app.ui.components.PlaylistDownloadToggle
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.data.ytmusic.YtMusicPlaylistRepository
 import com.streamcloud.app.data.ytmusic.YtPlayback
@@ -74,6 +76,14 @@ fun YtPlaylistScreen(
     var tracks by remember(playlistId) { mutableStateOf<List<YtmSong>?>(null) }
     var error by remember(playlistId) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val playlistDownloadOwner = remember(playlistId) {
+        PlaylistMusicDownloadManager.playlistOwnerKey("ytmusic", playlistId)
+    }
+    val playlistDownloadEnabled by remember(context, playlistDownloadOwner) {
+        PlaylistMusicDownloadManager.observeEnabled(context, playlistDownloadOwner)
+    }.collectAsState(initial = false)
+    var playlistDownloadBusy by remember(playlistId) { mutableStateOf(false) }
+    var freshTracksLoaded by remember(playlistId) { mutableStateOf(false) }
 
     var showPlaylistMenu by remember { mutableStateOf(false) }
     var showThumbSheet   by remember { mutableStateOf(false) }
@@ -185,6 +195,7 @@ fun YtPlaylistScreen(
     }
 
     LaunchedEffect(playlistId, cookie, syncTrigger) {
+        freshTracksLoaded = false
         if (cookie.isBlank()) {
             error = "Not signed in."
             return@LaunchedEffect
@@ -205,6 +216,7 @@ fun YtPlaylistScreen(
         }
         if (fresh != null) {
             tracks = fresh
+            freshTracksLoaded = true
             if (fresh.isNotEmpty()) {
                 com.streamcloud.app.data.ytmusic.PlaylistCache.write(context, playlistId, fresh)
 
@@ -222,6 +234,18 @@ fun YtPlaylistScreen(
         }
     }
 
+    LaunchedEffect(playlistId, playlistDownloadEnabled, freshTracksLoaded, tracks) {
+        val currentTracks = tracks
+        if (playlistDownloadEnabled && freshTracksLoaded && currentTracks != null) {
+            PlaylistMusicDownloadManager.syncEnabledPlaylist(
+                context = context,
+                ownerKey = playlistDownloadOwner,
+                songs = currentTracks,
+            )
+        } else if (!playlistDownloadEnabled) {
+            PlaylistMusicDownloadManager.cleanupDisabledPlaylist(context, playlistDownloadOwner)
+        }
+    }
     // A playlist opens before its first row can be tapped. Resolve the visible queue during that
     // interval so starting a track normally consumes a warmed stream rather than beginning a
     // resolver waterfall after the tap.
@@ -374,6 +398,33 @@ fun YtPlaylistScreen(
                             },
                             onEditCover = { showThumbSheet = true },
                             onMoreOptions = { showPlaylistMenu = true },
+                            downloadEnabled = playlistDownloadEnabled,
+                            downloadBusy = playlistDownloadBusy,
+                            onDownloadChange = { enabled ->
+                                scope.launch {
+                                    playlistDownloadBusy = true
+                                    try {
+                                        val summary = PlaylistMusicDownloadManager.setEnabled(
+                                            context = context,
+                                            ownerKey = playlistDownloadOwner,
+                                            enabled = enabled,
+                                            songs = list,
+                                        )
+                                        val message = when {
+                                            !enabled -> "Removed playlist downloads"
+                                            list.isEmpty() -> "This playlist has no songs to download"
+                                            summary.failed > 0 -> "Some songs could not be queued for download"
+                                            summary.queued > 0 -> "Downloading songs for offline listening"
+                                            else -> "Playlist songs are already available offline"
+                                        }
+                                        snackbarHostState.showSnackbar(message)
+                                    } catch (_: Throwable) {
+                                        snackbarHostState.showSnackbar("Could not update playlist downloads")
+                                    } finally {
+                                        playlistDownloadBusy = false
+                                    }
+                                }
+                            },
                         )
                     }
                 }
@@ -422,19 +473,17 @@ fun YtPlaylistScreen(
                                     return@launch
                                 }
 
-                                // Clear both the Media3 download and legacy local-file download.
-                                YtPlayback.removeDownload(context, song)
-                                withContext(Dispatchers.IO) {
-                                    com.streamcloud.app.data.downloads.MusicDownloader.delete(
-                                        context,
-                                        YtPlayback.watchUrl(song.videoId),
-                                    )
-                                }
-
                                 val updated = list.toMutableList().apply {
                                     if (originalIndex in indices) removeAt(originalIndex)
                                 }
                                 tracks = updated
+                                if (updated.none { it.videoId == song.videoId }) {
+                                    PlaylistMusicDownloadManager.releaseTrack(
+                                        context = context,
+                                        ownerKey = playlistDownloadOwner,
+                                        videoId = song.videoId,
+                                    )
+                                }
                                 withContext(Dispatchers.IO) {
                                     com.streamcloud.app.data.ytmusic.PlaylistCache.write(
                                         context,
@@ -447,9 +496,7 @@ fun YtPlaylistScreen(
                                         updated.size,
                                     )
                                 }
-                                snackbarHostState.showSnackbar(
-                                    "Removed from playlist and deleted download",
-                                )
+                                snackbarHostState.showSnackbar("Removed from playlist")
                             }
                         },
                     )
@@ -506,12 +553,7 @@ fun YtPlaylistScreen(
                         }
                     }
                 },
-                onDownloadAll = {
-                    showPlaylistMenu = false
-                    currentList.forEach { s ->
-                        runCatching { YtPlayback.downloadSong(context, s) }
-                    }
-                },
+
                 onShare = {
                     showPlaylistMenu = false
                     val url = "https://music.youtube.com/playlist?list=$playlistId"
@@ -546,6 +588,9 @@ private fun PlaylistHero(
     onShuffle: () -> Unit,
     onEditCover: () -> Unit,
     onMoreOptions: () -> Unit,
+    downloadEnabled: Boolean,
+    downloadBusy: Boolean,
+    onDownloadChange: (Boolean) -> Unit,
 ) {
     Column(
         Modifier
@@ -649,6 +694,13 @@ private fun PlaylistHero(
                 )
             }
         }
+        Spacer(Modifier.height(12.dp))
+        PlaylistDownloadToggle(
+            checked = downloadEnabled,
+            busy = downloadBusy,
+            modifier = Modifier.fillMaxWidth(),
+            onCheckedChange = onDownloadChange,
+        )
     }
 }
 
@@ -662,7 +714,6 @@ private fun PlaylistActionsSheet(
     onEdit: () -> Unit,
     onSync: () -> Unit,
     onAddToQueue: () -> Unit,
-    onDownloadAll: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -708,13 +759,6 @@ private fun PlaylistActionsSheet(
                 title = "Add to queue",
                 subtitle = "Add to the bottom of your queue",
                 onClick = onAddToQueue,
-            )
-            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
-            PlaylistActionRow(
-                icon = Icons.Default.Download,
-                title = "Download",
-                subtitle = "Download all songs for offline playback",
-                onClick = onDownloadAll,
             )
             HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
             PlaylistActionRow(

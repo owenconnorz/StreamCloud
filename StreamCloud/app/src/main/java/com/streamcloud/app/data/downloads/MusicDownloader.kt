@@ -50,6 +50,8 @@ object MusicDownloader {
         return f.exists() && f.length() > 0
     }
 
+    fun isDownloading(url: String): Boolean = _progress.value.containsKey(url)
+
 
     suspend fun download(context: Context, url: String, title: String): File =
         withContext(Dispatchers.IO) {
