@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
+import com.streamcloud.app.audio.AudioFx
 import com.streamcloud.app.audio.SystemEqualizerPanel
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeOff
@@ -288,7 +289,7 @@ fun MusicActionsSheet(
             ) {
                 if (!openSystemEqualizer(context, controller)) {
                     onDismiss()
-                    toast(context, "This device does not provide a system equalizer panel.")
+                    toast(context, "Start music playback first, or your device may not provide a system equalizer.")
                 }
             }
             ActionRow(
@@ -550,9 +551,9 @@ private fun formatDur(ms: Long): String {
 }
 
 private fun openSystemEqualizer(context: Context, controller: Player): Boolean {
-    val sessionId: Int? = runCatching {
+    val sessionId: Int? = AudioFx.activeAudioSessionId() ?: runCatching {
         val ex = controller as? androidx.media3.exoplayer.ExoPlayer
-        ex?.audioSessionId?.takeIf { it != 0 }
+        ex?.audioSessionId?.takeIf { it > 0 }
     }.getOrNull()
     return SystemEqualizerPanel.open(context, sessionId)
 }

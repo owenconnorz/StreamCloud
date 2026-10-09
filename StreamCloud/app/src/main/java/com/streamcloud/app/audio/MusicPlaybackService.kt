@@ -273,6 +273,9 @@ class MusicPlaybackService : MediaLibraryService() {
                         }
                         AppLogger.e(TAG, "ExoPlayer error code=${error.errorCode} msg=${error.message}", error.cause)
                     }
+                    override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                        audioFx?.updateAudioSessionId(audioSessionId)
+                    }
                     override fun onPlaybackStateChanged(state: Int) {
                         val label = when (state) {
                             androidx.media3.common.Player.STATE_IDLE -> "IDLE"
