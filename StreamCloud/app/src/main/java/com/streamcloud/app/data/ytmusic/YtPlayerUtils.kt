@@ -11,6 +11,9 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -298,12 +301,31 @@ object YtPlayerUtils {
     @Volatile var appContext: Context? = null
     private val webSessionStateLock = Any()
     @Volatile private var storedYtMusicCookie: String = ""
+    private val premiumStatus = MutableStateFlow<Boolean?>(null)
+    val ytMusicPremiumStatus: StateFlow<Boolean?> = premiumStatus.asStateFlow()
+    @Volatile private var storedAudioQuality: String = "high"
+    var audioQuality: String
+        get() = storedAudioQuality
+        set(value) {
+            val normalized = AudioQualitySelector.normalize(value)
+            if (storedAudioQuality == normalized) return
+            val previousEffectiveQuality = effectiveAudioQuality()
+            storedAudioQuality = normalized
+            if (previousEffectiveQuality != effectiveAudioQuality()) {
+                YtMusicStreamResolver.onAudioPreferenceChanged()
+            }
+        }
     var ytMusicCookie: String
         get() = storedYtMusicCookie
         set(value) {
-            synchronized(webSessionStateLock) {
-                storedYtMusicCookie = value
+            val changed = synchronized(webSessionStateLock) {
+                if (storedYtMusicCookie == value) false
+                else {
+                    storedYtMusicCookie = value
+                    true
+                }
             }
+            if (changed) updateYtMusicPremiumStatus(if (value.isBlank()) false else null)
         }
     @Volatile var contentLanguage: String = "en"
     @Volatile var contentCountry:  String = "US"
@@ -351,6 +373,23 @@ object YtPlayerUtils {
     }
 
     fun currentWebSessionFingerprint(): String? = currentWebSessionSnapshot()?.fingerprint
+
+    fun isUltraAudioQualityAvailable(): Boolean =
+        ytMusicCookie.isNotBlank() && premiumStatus.value == true
+
+    fun effectiveAudioQuality(requested: String = audioQuality): String {
+        val normalized = AudioQualitySelector.normalize(requested)
+        return if (normalized == "ultra" && !isUltraAudioQualityAvailable()) "high" else normalized
+    }
+
+    fun updateYtMusicPremiumStatus(hasPremium: Boolean?) {
+        val status = if (ytMusicCookie.isBlank()) false else hasPremium
+        val previousEffectiveQuality = effectiveAudioQuality()
+        premiumStatus.value = status
+        if (previousEffectiveQuality != effectiveAudioQuality()) {
+            YtMusicStreamResolver.onAudioPreferenceChanged()
+        }
+    }
 
     private fun ensureVisitorData() {
         val now = System.currentTimeMillis()
@@ -513,10 +552,11 @@ object YtPlayerUtils {
     suspend fun resolveAudioFormatInfo(
         videoId: String,
         preferItag: Int? = null,
-        preferHighQuality: Boolean = true,
+        audioQuality: String = effectiveAudioQuality(),
         sonosSafe: Boolean = false,
         excludedClientLabels: Set<String> = emptySet(),
     ): AudioFormatInfo? = withContext(Dispatchers.IO) {
+        val selectedAudioQuality = effectiveAudioQuality(audioQuality)
         val isLoggedIn = ytMusicCookie.isNotBlank()
         var visitorDataPreparedForWebFallback = false
 
@@ -605,7 +645,7 @@ object YtPlayerUtils {
                 client = client,
                 videoId = videoId,
                 preferItag = preferItag,
-                preferHighQuality = preferHighQuality,
+                audioQuality = selectedAudioQuality,
                 poToken = poTokenResult?.playerRequestPoToken,
                 sonosSafe = sonosSafe,
                 webSessionSnapshot = webSessionSnapshot,
@@ -958,7 +998,7 @@ object YtPlayerUtils {
         client: ClientConfig,
         videoId: String,
         preferItag: Int?,
-        preferHighQuality: Boolean,
+        audioQuality: String,
         poToken: String?,
         sonosSafe: Boolean = false,
         webSessionSnapshot: WebSessionSnapshot? = null,
@@ -1011,11 +1051,10 @@ object YtPlayerUtils {
 
             val best = if (preferItag != null) {
                 candidateFormats.find { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == preferItag }
-                    ?: selectHighQuality(candidateFormats)
-                    ?: selectByQuality(candidateFormats, preferHighQuality)
+                    ?: AudioQualitySelector.select(candidateFormats, audioQuality)
             } else {
-                selectHighQuality(candidateFormats) ?: selectByQuality(candidateFormats, preferHighQuality)
-            }
+                AudioQualitySelector.select(candidateFormats, audioQuality)
+            } ?: candidateFormats.first()
 
             val cpn = generateCpn()
             // Get the URL — direct field first, then extract from signatureCipher
@@ -1166,24 +1205,6 @@ object YtPlayerUtils {
             }
             parsed
         }
-    }
-
-    private fun selectByQuality(audioFormats: List<JsonObject>, preferHighQuality: Boolean): JsonObject =
-        audioFormats.maxByOrNull { fmt ->
-            val bitrate = fmt["bitrate"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
-            val isOpus  = fmt["mimeType"]?.jsonPrimitive?.content.orEmpty().startsWith("audio/webm")
-            val sign    = if (preferHighQuality) 1L else -1L
-            bitrate * sign + (if (isOpus) 10_240L else 0L)
-        } ?: audioFormats.first()
-
-    private fun selectHighQuality(audioFormats: List<JsonObject>): JsonObject? {
-        val high = audioFormats.filter {
-            it["audioQuality"]?.jsonPrimitive?.content == "AUDIO_QUALITY_HIGH"
-        }
-        if (high.isEmpty()) return null
-        return high.firstOrNull { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 774 }
-            ?: high.firstOrNull { it["itag"]?.jsonPrimitive?.content?.toIntOrNull() == 141 }
-            ?: high.first()
     }
 
     /**

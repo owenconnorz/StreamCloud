@@ -912,7 +912,8 @@ class MusicPlaybackService : MediaLibraryService() {
         val preferMaintainedExtractor = videoId in preferMaintainedExtractorVideoIds
         StreamUrlCache.getEntry(
             videoId,
-            YtPlayerUtils.currentWebSessionFingerprint(),
+            expectedSessionFingerprint = YtPlayerUtils.currentWebSessionFingerprint(),
+            expectedAudioQuality = YtPlayerUtils.effectiveAudioQuality(),
         )?.takeIf { entry ->
             // Never resurrect the exact client that just returned a CDN 403.
             entry.clientLabel !in rejectedClients &&

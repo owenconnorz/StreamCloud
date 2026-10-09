@@ -99,7 +99,11 @@ object YtMusicStreamResolver {
     ): StreamUrlCache.Entry {
         require(videoId.isNotBlank()) { "A YouTube video ID is required." }
 
-        StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint())
+        StreamUrlCache.getEntry(
+            videoId,
+            expectedSessionFingerprint = YtPlayerUtils.currentWebSessionFingerprint(),
+            expectedAudioQuality = YtPlayerUtils.effectiveAudioQuality(),
+        )
             ?.takeIf { entry ->
                 excludedClientLabels.isEmpty() || entry.clientLabel !in excludedClientLabels
             }
@@ -136,7 +140,11 @@ object YtMusicStreamResolver {
         }
 
     private suspend fun resolveForPrefetch(videoId: String): StreamUrlCache.Entry {
-        StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint())?.let { return it }
+        StreamUrlCache.getEntry(
+            videoId,
+            expectedSessionFingerprint = YtPlayerUtils.currentWebSessionFingerprint(),
+            expectedAudioQuality = YtPlayerUtils.effectiveAudioQuality(),
+        )?.let { return it }
         return resolveShared(videoId, speculative = true)
     }
 
@@ -146,7 +154,11 @@ object YtMusicStreamResolver {
     ): StreamUrlCache.Entry {
         while (true) {
             val decision = synchronized(generationState(videoId)) {
-                StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint())
+                StreamUrlCache.getEntry(
+            videoId,
+            expectedSessionFingerprint = YtPlayerUtils.currentWebSessionFingerprint(),
+            expectedAudioQuality = YtPlayerUtils.effectiveAudioQuality(),
+        )
                     ?.let { return@synchronized ResolutionDecision.Cached(it) }
                 recoveryExclusions[videoId]
                     ?.takeIf { it.isNotEmpty() }
@@ -214,7 +226,8 @@ object YtMusicStreamResolver {
                 val requiredExclusions = recoveryExclusions[videoId]
                     ?: StreamUrlCache.getEntry(
                         videoId,
-                        YtPlayerUtils.currentWebSessionFingerprint(),
+                        expectedSessionFingerprint = YtPlayerUtils.currentWebSessionFingerprint(),
+                        expectedAudioQuality = YtPlayerUtils.effectiveAudioQuality(),
                     )?.takeIf { cached -> cached.clientLabel !in excludedClientLabels }
                         ?.let { return@synchronized RecoveryDecision.Cached(it) }
                     ?: ConcurrentHashMap.newKeySet<String>().also {
@@ -326,7 +339,12 @@ object YtMusicStreamResolver {
         excludedClientLabels: Set<String>,
         generation: Long,
     ): StreamUrlCache.Entry {
-        StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint())
+        val audioQuality = YtPlayerUtils.effectiveAudioQuality()
+        StreamUrlCache.getEntry(
+            videoId,
+            expectedSessionFingerprint = YtPlayerUtils.currentWebSessionFingerprint(),
+            expectedAudioQuality = audioQuality,
+        )
             ?.takeIf { entry ->
                 excludedClientLabels.isEmpty() || entry.clientLabel !in excludedClientLabels
             }
@@ -336,6 +354,7 @@ object YtMusicStreamResolver {
         PlaybackLatencyTrace.mark(videoId, "resolver-start")
         val info = YtPlayerUtils.resolveAudioFormatInfo(
             videoId = videoId,
+            audioQuality = audioQuality,
             excludedClientLabels = excludedClientLabels,
         ) ?: error("YouTube returned no audio stream for $videoId")
         PlaybackLatencyTrace.mark(videoId, "resolver-end-${info.clientLabel}")
@@ -352,6 +371,7 @@ object YtMusicStreamResolver {
             contentLength = info.contentLength,
             requiresByteRange = true,
             generation = generation,
+            audioQuality = audioQuality,
         )
         // A foreground recovery/promotion may have superseded this resolver while an underlying
         // extractor ignored cancellation. Generation validation and cache publication share the
@@ -377,6 +397,9 @@ object YtMusicStreamResolver {
     ): Boolean {
         synchronized(generationState(videoId)) {
             if (generation != generationState(videoId).get()) return false
+            if (entry.audioQuality != YtPlayerUtils.effectiveAudioQuality() &&
+                entry.audioQuality != StreamUrlCache.UNMANAGED_AUDIO_QUALITY
+            ) return false
             val active = inFlightResolutions[videoId]
             if (
                 active?.generation == generation &&
@@ -395,8 +418,22 @@ object YtMusicStreamResolver {
                 contentLength = entry.contentLength,
                 requiresByteRange = entry.requiresByteRange,
                 generation = entry.generation,
+                audioQuality = entry.audioQuality,
             )
             return true
+        }
+    }
+
+    /**
+     * Retire in-flight stream URL work when the selected audio tier or Premium entitlement changes.
+     * Old generations are not allowed to publish under the new selection.
+     */
+    internal fun onAudioPreferenceChanged() {
+        resolutionGenerations.forEach { (videoId, generation) ->
+            synchronized(generation) {
+                generation.incrementAndGet()
+                inFlightResolutions.remove(videoId)
+            }
         }
     }
 
@@ -439,7 +476,11 @@ object YtMusicStreamResolver {
     }
 
     private fun schedulePrefetch(videoId: String, priority: PrefetchPriority): Boolean {
-        if (StreamUrlCache.getEntry(videoId, YtPlayerUtils.currentWebSessionFingerprint()) != null) return false
+        if (StreamUrlCache.getEntry(
+            videoId,
+            expectedSessionFingerprint = YtPlayerUtils.currentWebSessionFingerprint(),
+            expectedAudioQuality = YtPlayerUtils.effectiveAudioQuality(),
+        ) != null) return false
         if (queuedPrefetchPriorities.putIfAbsent(videoId, priority) != null) return false
         val budget = when (priority) {
             PrefetchPriority.VISIBLE_LIST -> MAX_VISIBLE_LIST_PREFETCH

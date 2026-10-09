@@ -87,7 +87,16 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         }
 
         scope.launch {
-            val cookieFlow = ServiceLocator.get(this@StreamCloudApplication).settings.ytMusicCookie
+            val settings = ServiceLocator.get(this@StreamCloudApplication).settings
+            val qualityFlow = settings.audioQuality
+            com.streamcloud.app.data.ytmusic.YtPlayerUtils.audioQuality = qualityFlow.first()
+            launch {
+                qualityFlow.collectLatest { quality ->
+                    com.streamcloud.app.data.ytmusic.YtPlayerUtils.audioQuality = quality
+                }
+            }
+
+            val cookieFlow = settings.ytMusicCookie
             val initialCookie = cookieFlow.first()
             com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = initialCookie
             com.streamcloud.app.data.ytmusic.YtPlayerUtils.ytMusicCookie = initialCookie
@@ -96,6 +105,16 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
                 cookieFlow.collectLatest { cookie ->
                     com.streamcloud.app.data.newpipe.NewPipeDownloader.instance.ytMusicCookie = cookie
                     com.streamcloud.app.data.ytmusic.YtPlayerUtils.ytMusicCookie = cookie
+                    val accountInfo = if (cookie.isNotBlank()) {
+                        com.streamcloud.app.data.util.GoogleAccountHelper.fetchYtMusicAccountInfo(cookie)
+                    } else {
+                        null
+                    }
+                    if (com.streamcloud.app.data.ytmusic.YtPlayerUtils.ytMusicCookie == cookie) {
+                        com.streamcloud.app.data.ytmusic.YtPlayerUtils.updateYtMusicPremiumStatus(
+                            if (cookie.isBlank()) false else accountInfo?.hasPremium,
+                        )
+                    }
                 }
             }
             // Start the one shared resolver warm-up only after the initial account state is known.

@@ -17,6 +17,9 @@ object StreamUrlCache {
     private const val CONTENT_LENGTH_KEY = "contentLength"
     private const val REQUIRES_BYTE_RANGE_KEY = "requiresByteRange"
     private const val GENERATION_KEY = "generation"
+    private const val AUDIO_QUALITY_KEY = "audioQuality"
+    private const val LEGACY_AUDIO_QUALITY = "legacy"
+    const val UNMANAGED_AUDIO_QUALITY = "unmanaged"
     private const val MAX_PERSISTED_ENTRIES = 128
 
     data class Entry(
@@ -39,6 +42,8 @@ object StreamUrlCache {
         val requiresByteRange: Boolean = true,
         /** Resolver generation that owns this entry; older work cannot replace it. */
         val generation: Long = 0L,
+        /** Tier used for managed Innertube streams; legacy entries are evicted on the next lookup. */
+        val audioQuality: String = UNMANAGED_AUDIO_QUALITY,
     )
 
     private val cache = ConcurrentHashMap<String, Entry>()
@@ -75,12 +80,23 @@ object StreamUrlCache {
 
 
 
-    fun getEntry(videoId: String, expectedSessionFingerprint: String? = null): Entry? {
+    fun getEntry(
+        videoId: String,
+        expectedSessionFingerprint: String? = null,
+        expectedAudioQuality: String? = null,
+    ): Entry? {
         val entry = cache[videoId]
             ?: preferences?.getString(videoId, null)
                 ?.let(::decode)
                 ?.also { cache[videoId] = it }
             ?: return null
+        if (expectedAudioQuality != null &&
+            entry.audioQuality != expectedAudioQuality &&
+            entry.audioQuality != UNMANAGED_AUDIO_QUALITY
+        ) {
+            discard(videoId)
+            return null
+        }
         if (entry.requiresWebSessionHeaders &&
             (expectedSessionFingerprint == null || entry.sessionFingerprint != expectedSessionFingerprint)
         ) {
@@ -109,6 +125,7 @@ object StreamUrlCache {
         contentLength: Long? = null,
         requiresByteRange: Boolean = true,
         generation: Long = 0L,
+        audioQuality: String = UNMANAGED_AUDIO_QUALITY,
     ) {
         val entry = Entry(
             url = url,
@@ -120,6 +137,7 @@ object StreamUrlCache {
             contentLength = contentLength,
             requiresByteRange = requiresByteRange,
             generation = generation,
+            audioQuality = audioQuality,
         )
         cache[videoId] = entry
         if (expiryMs > System.currentTimeMillis()) {
@@ -164,6 +182,7 @@ object StreamUrlCache {
         .put(CONTENT_LENGTH_KEY, entry.contentLength)
         .put(REQUIRES_BYTE_RANGE_KEY, entry.requiresByteRange)
         .put(GENERATION_KEY, entry.generation)
+        .put(AUDIO_QUALITY_KEY, entry.audioQuality)
         .toString()
 
     private fun decode(value: String): Entry? = runCatching {
@@ -181,6 +200,7 @@ object StreamUrlCache {
                     .takeIf { it >= 0L },
                 requiresByteRange = json.optBoolean(REQUIRES_BYTE_RANGE_KEY, true),
                 generation = json.optLong(GENERATION_KEY, 0L),
+                audioQuality = json.optString(AUDIO_QUALITY_KEY, LEGACY_AUDIO_QUALITY),
             )
         }
     }.getOrNull()

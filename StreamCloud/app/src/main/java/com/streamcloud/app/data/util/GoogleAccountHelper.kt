@@ -4,6 +4,8 @@ import android.accounts.AccountManager
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import com.streamcloud.app.data.ytmusic.YtMusicPremiumDetector
 import org.json.JSONException
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -35,13 +37,16 @@ object GoogleAccountHelper {
     /** Profile photos from Google always contain /a/ in the path. */
     private val PROFILE_PHOTO_RE = Regex("""https://lh3\.googleusercontent\.com/a/[^"\\]+""")
 
+    data class YtMusicAccountInfo(
+        val profilePhotoUrl: String?,
+        val hasPremium: Boolean,
+    )
+
     /**
-     * Calls the YouTube Music account menu endpoint with the stored SAPISID
-     * cookie and extracts the signed-in user's profile photo URL.
-     *
-     * Returns null on any failure (network error, not signed in, bad JSON).
+     * Calls the YouTube Music account menu with the saved session, returning the profile photo and
+     * only treating explicit Premium account indicators as an entitlement.
      */
-    suspend fun fetchFromYtMusicApi(cookie: String): String? = withContext(Dispatchers.IO) {
+    suspend fun fetchYtMusicAccountInfo(cookie: String): YtMusicAccountInfo? = withContext(Dispatchers.IO) {
         if (cookie.isBlank()) return@withContext null
         try {
             val conn = URL(YTM_API_URL).openConnection() as HttpURLConnection
@@ -64,15 +69,20 @@ object GoogleAccountHelper {
 
             val body = conn.inputStream.bufferedReader().readText()
             conn.disconnect()
-
-            // Find the first profile photo URL in the response
-            // Profile photo URLs always contain /a/ (user account photos)
-            PROFILE_PHOTO_RE.find(body)?.value
-                ?.replace(Regex("=s\\d+.*$"), "=s256") // bump to 256 px
+            val response = Json.parseToJsonElement(body)
+            val photoUrl = PROFILE_PHOTO_RE.find(body)?.value
+                ?.replace(Regex("=s\\d+.*$"), "=s256")
+            YtMusicAccountInfo(
+                profilePhotoUrl = photoUrl,
+                hasPremium = YtMusicPremiumDetector.isPremium(response),
+            )
         } catch (_: Exception) {
             null
         }
     }
+
+    suspend fun fetchFromYtMusicApi(cookie: String): String? =
+        fetchYtMusicAccountInfo(cookie)?.profilePhotoUrl
 
     // ── AccountManager fallback (device Google account) ───────────────────────
 

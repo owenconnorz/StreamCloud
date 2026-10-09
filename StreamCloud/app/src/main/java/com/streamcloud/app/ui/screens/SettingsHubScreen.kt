@@ -178,6 +178,7 @@ fun SettingsHubScreen(
         com.streamcloud.app.data.library.LibraryDb.get(context.applicationContext)
             .localPlaylists().allPlaylists()
     }.collectAsState(initial = emptyList())
+    val ytMusicPremium by com.streamcloud.app.data.ytmusic.YtPlayerUtils.ytMusicPremiumStatus.collectAsState()
 
 
     var backendUrl          by remember { mutableStateOf("") }
@@ -186,6 +187,10 @@ fun SettingsHubScreen(
     var nsfw                by remember { mutableStateOf(false) }
     var videoQuality        by remember { mutableStateOf("auto") }
     var audioQuality        by remember { mutableStateOf("high") }
+    val audioQualitySummary = when {
+        audioQuality == "ultra" && ytMusicPremium != true -> "Ultra · Premium required"
+        else -> audioQuality.replaceFirstChar { it.uppercase() }
+    }
     var extLinks            by remember { mutableStateOf(true) }
     var autoplay            by remember { mutableStateOf(true) }
     var subs                by remember { mutableStateOf(true) }
@@ -734,7 +739,7 @@ fun SettingsHubScreen(
                     SettingNav(
                         icon = Icons.Default.GraphicEq, tint = ColourPlayer,
                         title = "Audio quality",
-                        value = audioQuality.replaceFirstChar { it.uppercase() },
+                        value = audioQualitySummary,
                         onClick = { showQualityAudioDialog = true },
                     )
                     SettingDivider()
@@ -1051,7 +1056,7 @@ fun SettingsHubScreen(
                     SettingNav(
                         icon = Icons.Default.GraphicEq, tint = ColourPlayer,
                         title = "Audio quality",
-                        value = audioQuality.replaceFirstChar { it.uppercase() },
+                        value = audioQualitySummary,
                         onClick = { showQualityAudioDialog = true },
                     )
                     SettingDivider()
@@ -2330,10 +2335,27 @@ fun SettingsHubScreen(
         QualityDialog(
             title = "Audio quality",
             options = listOf(
-                "high" to "High (best available)", "medium" to "Medium", "low" to "Low (data saver)",
-            ),
-            selected = audioQuality,
-            onSelect = { audioQuality = it; scope.launch { sl.settings.setAudioQuality(it) }; showQualityAudioDialog = false },
+                "low" to "Low (data saver)",
+                "medium" to "Medium",
+                "high" to "High (best available)",
+            ) + if (ytMusicPremium == true) {
+                listOf("ultra" to "Ultra (YouTube Premium · highest available)")
+            } else {
+                emptyList()
+            },
+            selected = if (audioQuality == "ultra" && ytMusicPremium != true) "high" else audioQuality,
+            description = if (ytMusicPremium == true) {
+                "Ultra selects the highest-bitrate audio format YouTube provides."
+            } else {
+                "Ultra appears after StreamCloud confirms Premium on the signed-in YouTube Music account."
+            },
+            onSelect = { quality ->
+                if (quality != "ultra" || ytMusicPremium == true) {
+                    audioQuality = quality
+                    scope.launch { sl.settings.setAudioQuality(quality) }
+                }
+                showQualityAudioDialog = false
+            },
             onDismiss = { showQualityAudioDialog = false },
         )
     }
@@ -3759,12 +3781,21 @@ private fun QualityDialog(
     selected: String,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
+    description: String? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
+                description?.let { descriptionText ->
+                    Text(
+                        text = descriptionText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
                 options.forEach { (value, label) ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
