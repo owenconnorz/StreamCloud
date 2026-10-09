@@ -1,6 +1,9 @@
 package com.streamcloud.app.data.api
 
+import com.streamcloud.app.ui.screens.adult.isAllowedPornhubShortiesNavigation
+import com.streamcloud.app.ui.screens.adult.isPornhubShortiesPageUrl
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -238,4 +241,22 @@ class PornhubRepositoryTest {
 
         assertEquals("https://cdn.example.com/720.mp4", selected?.url)
     }
+
+    @Test
+    fun shortiesWebViewAllowsOfficialTopLevelAndSecureSubframesOnly() {
+        assertTrue(isAllowedPornhubShortiesNavigation("https", "www.pornhub.com", true))
+        assertTrue(isAllowedPornhubShortiesNavigation("https", "media.example", false))
+        assertFalse(isAllowedPornhubShortiesNavigation("https", "pornhub.com.example", true))
+        assertFalse(isAllowedPornhubShortiesNavigation("http", "www.pornhub.com", true))
+        assertFalse(isAllowedPornhubShortiesNavigation("http", "media.example", false))
+    }
+
+    @Test
+    fun onlyOfficialShortiesPathsCountAsTheFeedLandingPage() {
+        assertTrue(isPornhubShortiesPageUrl("https://www.pornhub.com/shorties"))
+        assertTrue(isPornhubShortiesPageUrl("https://m.pornhub.com/shorties/clip-id"))
+        assertFalse(isPornhubShortiesPageUrl("https://www.pornhub.com/"))
+        assertFalse(isPornhubShortiesPageUrl("https://example.com/shorties"))
+    }
+
 }

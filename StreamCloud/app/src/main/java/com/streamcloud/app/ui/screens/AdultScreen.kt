@@ -73,6 +73,7 @@ import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.network.BrowserHeaders
 import com.streamcloud.app.ui.screens.adult.RedditFeedView
 import com.streamcloud.app.ui.screens.adult.RedGifsFeedView
+import com.streamcloud.app.ui.screens.adult.PornhubShortiesScreen
 import com.streamcloud.app.ui.screens.adult.ProviderHomeFeed
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import kotlinx.coroutines.launch
@@ -106,8 +107,10 @@ fun AdultScreen(
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showAllPornhubCategories by remember { mutableStateOf(false) }
     var showProviderPicker by remember { mutableStateOf(false) }
+    var showPornhubShorties by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
 
+    BackHandler(enabled = showPornhubShorties) { showPornhubShorties = false }
     BackHandler(
         enabled = state.source == AdultSource.Pornhub &&
             !state.pornhubHome && !showAllPornhubCategories && !showProviderPicker,
@@ -170,6 +173,17 @@ fun AdultScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         // ── Title row and provider controls ──────────────────────────────
+        if (showPornhubShorties) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { showPornhubShorties = false }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back from Shorties", tint = MaterialTheme.colorScheme.onBackground)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Shorties", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                    Text("Pornhub", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        } else {
         Spacer(Modifier.height(12.dp))
         Row(
             Modifier
@@ -229,15 +243,18 @@ fun AdultScreen(
                 }
             }
         }
+        }
         Spacer(Modifier.height(16.dp))
 
         // The age and PIN checks above also protect the advertising placement.
         // Keep it in the browse layout, never over a video or player controls.
-        if (LocalUiFormFactor.current != UiFormFactor.Tv && !showAllPornhubCategories) {
+        if (!showPornhubShorties && LocalUiFormFactor.current != UiFormFactor.Tv && !showAllPornhubCategories) {
             AdvertisingBanner(placement = AdPlacement.Adult)
         }
 
-        if (state.source == AdultSource.Pornhub && showAllPornhubCategories) {
+        if (showPornhubShorties && state.source == AdultSource.Pornhub) {
+            PornhubShortiesScreen(onClose = { showPornhubShorties = false }, modifier = Modifier.fillMaxWidth().weight(1f))
+        } else if (state.source == AdultSource.Pornhub && showAllPornhubCategories) {
             PornhubCategoriesPage(
                 categories = state.pornhubCategories,
                 loading = state.loadingPornhubCategories,
@@ -260,18 +277,15 @@ fun AdultScreen(
                 onSelect = { detailItem = it },
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 categories = {
-                    PornhubCategoryCarousel(
-                        categories = state.pornhubCategories,
-                        loading = state.loadingPornhubCategories,
-                        onViewAll = {
-                            vm.loadPornhubCategories()
-                            showAllPornhubCategories = true
-                        },
-                        onSelect = { category ->
-                            vm.selectPornhubCategory(category)
-                            query = category.title
-                        },
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PornhubShortiesEntry(onClick = { showPornhubShorties = true })
+                        PornhubCategoryCarousel(
+                            categories = state.pornhubCategories,
+                            loading = state.loadingPornhubCategories,
+                            onViewAll = { vm.loadPornhubCategories(); showAllPornhubCategories = true },
+                            onSelect = { category -> vm.selectPornhubCategory(category); query = category.title },
+                        )
+                    }
                 },
             )
         } else if (state.source == AdultSource.Reddit) {
@@ -923,6 +937,21 @@ private fun formatCount(n: Int): String = when {
     n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
     n >= 1_000     -> "%.1fK".format(n / 1_000.0)
     else           -> n.toString()
+}
+
+@Composable
+private fun PornhubShortiesEntry(onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant).clickable(onClick = onClick).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xFFFF9000)), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.PlayCircle, null, tint = Color.Black, modifier = Modifier.size(28.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Shorties", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Swipe through Pornhub’s vertical feed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.Default.ChevronRight, "Open Shorties", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
