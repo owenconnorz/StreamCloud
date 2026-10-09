@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 class AudioFx(
@@ -23,6 +24,7 @@ class AudioFx(
 
     fun start() {
         if (audioSessionId == 0) return
+        activeSessionId = audioSessionId
         runCatching { eq = Equalizer(0, audioSessionId).apply { enabled = false } }
         runCatching { bass = BassBoost(0, audioSessionId).apply { enabled = false } }
 
@@ -30,33 +32,20 @@ class AudioFx(
         watcher = scope.launch {
             combine(
                 sl.settings.eqEnabled,
-                sl.settings.eqPreset,
                 sl.settings.bassBoost,
-            ) { enabled, preset, boost ->
-                Triple(enabled, preset, boost)
-            }.collect { (enabled, preset, boost) ->
-                applyEq(enabled, preset)
-                applyBass(boost)
-            }
+            ) { enabled, boost -> enabled to boost }
+                .distinctUntilChanged()
+                .collect { (enabled, boost) ->
+                    applyEq(enabled)
+                    applyBass(boost)
+                }
         }
     }
 
-    private fun applyEq(enabled: Boolean, preset: String) {
-        val e = eq ?: return
-        runCatching {
-            e.enabled = enabled
-            if (!enabled) return@runCatching
-            val gains = PRESETS[preset] ?: PRESETS["flat"]!!
-            val bands = e.numberOfBands.toInt()
-            val (minLevel, maxLevel) = e.bandLevelRange.let { it[0].toInt() to it[1].toInt() }
-            for (i in 0 until bands) {
-
-                val frac = if (bands <= 1) 0f else i.toFloat() / (bands - 1)
-                val srcIdx = (frac * (gains.size - 1)).toInt().coerceIn(0, gains.size - 1)
-                val target = gains[srcIdx].coerceIn(minLevel, maxLevel)
-                e.setBandLevel(i.toShort(), target.toShort())
-            }
-        }
+    /** Keep the Android audio effect attached to this session, but leave its bands to the device panel. */
+    private fun applyEq(enabled: Boolean) {
+        val effect = eq ?: return
+        runCatching { effect.enabled = enabled }
     }
 
     private fun applyBass(boost: Boolean) {
@@ -71,17 +60,12 @@ class AudioFx(
         watcher?.cancel(); watcher = null
         runCatching { eq?.release() }; eq = null
         runCatching { bass?.release() }; bass = null
+        if (activeSessionId == audioSessionId) activeSessionId = 0
     }
 
     companion object {
+        @Volatile private var activeSessionId: Int = 0
 
-        private val PRESETS: Map<String, IntArray> = mapOf(
-            "flat"  to intArrayOf(   0,    0,    0,    0,    0),
-            "pop"   to intArrayOf(-100,  200,  400,  100, -100),
-            "rock"  to intArrayOf( 500,  300,  -50,  150,  300),
-            "jazz"  to intArrayOf( 300,  150,    0,  100,  200),
-            "bass"  to intArrayOf( 700,  500,  100, -100, -200),
-            "vocal" to intArrayOf(-200,    0,  400,  200,  100),
-        )
+        fun activeAudioSessionId(): Int? = activeSessionId.takeIf { it > 0 }
     }
 }

@@ -3,7 +3,6 @@ package com.streamcloud.app.ui.player
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
-import android.media.audiofx.AudioEffect
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,6 +24,7 @@ import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
+import com.streamcloud.app.audio.SystemEqualizerPanel
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
@@ -551,20 +551,9 @@ private fun formatDur(ms: Long): String {
 }
 
 private fun openSystemEqualizer(context: Context, controller: Player): Boolean {
-
-
     val sessionId: Int? = runCatching {
         val ex = controller as? androidx.media3.exoplayer.ExoPlayer
         ex?.audioSessionId?.takeIf { it != 0 }
     }.getOrNull()
-    val intent = Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        putExtra(AudioEffect.EXTRA_PACKAGE_NAME, context.packageName)
-        putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
-        if (sessionId != null) putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
-    }
-    return runCatching {
-        context.startActivity(intent)
-        true
-    }.getOrDefault(false)
+    return SystemEqualizerPanel.open(context, sessionId)
 }

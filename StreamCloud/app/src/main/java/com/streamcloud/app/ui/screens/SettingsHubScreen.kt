@@ -174,6 +174,23 @@ fun SettingsHubScreen(
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
     val scope   = rememberCoroutineScope()
+    val openSystemEqualizer = {
+        val sessionId = com.streamcloud.app.audio.AudioFx.activeAudioSessionId()
+        when {
+            sessionId == null -> android.widget.Toast.makeText(
+                context,
+                "Start music playback before opening the system equalizer.",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+            !com.streamcloud.app.audio.SystemEqualizerPanel.open(context, sessionId) ->
+                android.widget.Toast.makeText(
+                    context,
+                    "This device does not provide a system equalizer panel.",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            else -> Unit
+        }
+    }
     val localPlaylists by remember {
         com.streamcloud.app.data.library.LibraryDb.get(context.applicationContext)
             .localPlaylists().allPlaylists()
@@ -198,7 +215,6 @@ fun SettingsHubScreen(
     var hfToken             by remember { mutableStateOf("") }
     var dynamicColor        by remember { mutableStateOf(false) }
     var eqEnabled           by remember { mutableStateOf(false) }
-    var eqPreset            by remember { mutableStateOf("flat") }
     var bassBoost           by remember { mutableStateOf(false) }
     var enabledCollections  by remember { mutableStateOf<Set<String>>(emptySet()) }
     var themeMode           by remember { mutableStateOf("dark") }
@@ -276,7 +292,6 @@ fun SettingsHubScreen(
 
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
     var showQualityAudioDialog  by remember { mutableStateOf(false) }
-    var showEqDialog            by remember { mutableStateOf(false) }
     var showCollectionsDialog   by remember { mutableStateOf(false) }
     var showNavOrderDialog      by remember { mutableStateOf(false) }
     var showAboutDialog         by remember { mutableStateOf(false) }
@@ -330,7 +345,6 @@ fun SettingsHubScreen(
         hfToken             = sl.settings.hfToken.first()
         dynamicColor        = sl.settings.dynamicColor.first()
         eqEnabled           = sl.settings.eqEnabled.first()
-        eqPreset            = sl.settings.eqPreset.first()
         bassBoost           = sl.settings.bassBoost.first()
         themeMode           = sl.settings.theme.first()
         colorPalette        = sl.settings.colorPalette.first()
@@ -771,8 +785,8 @@ fun SettingsHubScreen(
                     SubSectionLabel("Equalizer")
                     SettingToggle(
                         icon = Icons.Default.GraphicEq, tint = ColourPlayer,
-                        title = "Equalizer",
-                        subtitle = if (eqEnabled) "On · ${eqPreset.replaceFirstChar { it.uppercase() }} preset" else "Off",
+                        title = "Use system equalizer",
+                        subtitle = if (eqEnabled) "On · controlled by your device" else "Off",
                         checked = eqEnabled,
                         onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
                     )
@@ -780,9 +794,9 @@ fun SettingsHubScreen(
                         SettingDivider()
                         SettingNav(
                             icon = Icons.Default.GraphicEq, tint = ColourPlayer,
-                            title = "EQ preset",
-                            value = eqPreset.replaceFirstChar { it.uppercase() },
-                            onClick = { showEqDialog = true },
+                            title = "Open device equalizer",
+                            value = "Open",
+                            onClick = { openSystemEqualizer() },
                         )
                     }
                     SettingDivider()
@@ -1166,8 +1180,8 @@ fun SettingsHubScreen(
                     SubSectionLabel("Equalizer")
                     SettingToggle(
                         icon = Icons.Default.GraphicEq, tint = ColourPlayer,
-                        title = "Equalizer",
-                        subtitle = if (eqEnabled) "On · ${eqPreset.replaceFirstChar { it.uppercase() }} preset" else "Off",
+                        title = "Use system equalizer",
+                        subtitle = if (eqEnabled) "On · controlled by your device" else "Off",
                         checked = eqEnabled,
                         onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
                     )
@@ -1175,9 +1189,9 @@ fun SettingsHubScreen(
                         SettingDivider()
                         SettingNav(
                             icon = Icons.Default.GraphicEq, tint = ColourPlayer,
-                            title = "EQ preset",
-                            value = eqPreset.replaceFirstChar { it.uppercase() },
-                            onClick = { showEqDialog = true },
+                            title = "Open device equalizer",
+                            value = "Open",
+                            onClick = { openSystemEqualizer() },
                         )
                     }
                     SettingDivider()
@@ -2357,18 +2371,6 @@ fun SettingsHubScreen(
                 showQualityAudioDialog = false
             },
             onDismiss = { showQualityAudioDialog = false },
-        )
-    }
-    if (showEqDialog) {
-        QualityDialog(
-            title = "Equalizer preset",
-            options = listOf(
-                "flat" to "Flat (no change)", "pop" to "Pop", "rock" to "Rock",
-                "jazz" to "Jazz", "bass" to "Bass booster", "vocal" to "Vocal",
-            ),
-            selected = eqPreset,
-            onSelect = { eqPreset = it; scope.launch { sl.settings.setEqPreset(it) }; showEqDialog = false },
-            onDismiss = { showEqDialog = false },
         )
     }
     if (showAiDialog) {
