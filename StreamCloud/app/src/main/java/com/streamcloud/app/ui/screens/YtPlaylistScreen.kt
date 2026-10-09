@@ -244,7 +244,13 @@ fun YtPlaylistScreen(
                 songs = currentTracks,
             )
         } else if (!playlistDownloadEnabled) {
-            PlaylistMusicDownloadManager.cleanupDisabledPlaylist(context, playlistDownloadOwner)
+            try {
+                PlaylistMusicDownloadManager.cleanupDisabledPlaylist(context, playlistDownloadOwner)
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (_: Throwable) {
+                snackbarHostState.showSnackbar("Could not finish removing playlist downloads")
+            }
         }
     }
     // A playlist opens before its first row can be tapped. Resolve the visible queue during that
@@ -421,7 +427,10 @@ fun YtPlaylistScreen(
                                         }
                                         snackbarHostState.showSnackbar(message)
                                     } catch (_: Throwable) {
-                                        snackbarHostState.showSnackbar("Could not update playlist downloads")
+                                        snackbarHostState.showSnackbar(
+                                            if (enabled) "Could not update playlist downloads"
+                                            else "Could not remove playlist downloads",
+                                        )
                                     } finally {
                                         playlistDownloadBusy = false
                                     }

@@ -13,6 +13,7 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadService
 import com.streamcloud.app.data.AppLogger
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.newpipe.NewPipeRepository
@@ -23,11 +24,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
@@ -423,6 +427,45 @@ object YtMusicDownloadUtil {
             ?: downloadMap[videoId]
             ?: downloadMap[watchUrlForDownloadId(videoId)]
     }
+
+    suspend fun removeDownloads(context: Context, downloadIds: Collection<String>) =
+        withContext(Dispatchers.IO) {
+            val ids = downloadIds.map(String::trim).filter(String::isNotEmpty).distinct()
+            if (ids.isEmpty()) return@withContext
+
+            val appContext = context.applicationContext
+            val manager = downloadManager(appContext)
+            val videoIds = ids.map(::videoIdFromDownloadId).toSet()
+            val pendingIds = downloads.value.keys
+                .filterTo(mutableSetOf()) { videoIdFromDownloadId(it) in videoIds }
+
+            ids.forEach { downloadId ->
+                runCatching {
+                    DownloadService.sendRemoveDownload(
+                        appContext,
+                        MusicExoDownloadService::class.java,
+                        downloadId,
+                        false,
+                    )
+                }.onFailure { error ->
+                    AppLogger.w(
+                        TAG,
+                        "Could not start download removal service for $downloadId: ${error.message}",
+                    )
+                }
+                // Remove through the in-process manager too, then wait for its removal callback.
+                manager.removeDownload(downloadId)
+            }
+
+            if (pendingIds.isNotEmpty()) {
+                withTimeout(30_000L) {
+                    downloads.first { current -> pendingIds.none(current::containsKey) }
+                }
+            }
+
+            val cache = DownloadCaches.downloadCache(appContext)
+            ids.forEach { downloadId -> cache.removeResource(downloadId) }
+        }
 
     fun getDownload(downloadId: String): Flow<Download?> =
         downloads.map { findDownload(it, downloadId) }

@@ -317,8 +317,13 @@ object YtPlayback {
         backgroundScope.launch {
             try {
                 PlaylistMusicDownloadManager.removeManualDownload(appContext, song.videoId)
-            } catch (_: Throwable) {
-                removeDownloadFiles(appContext, song.videoId)
+            } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                android.util.Log.w(
+                    "YtPlayback",
+                    "Could not remove owned download for ${song.videoId}",
+                    error,
+                )
             }
         }
     }
@@ -326,20 +331,11 @@ object YtPlayback {
     internal suspend fun removeDownloadFiles(context: Context, videoId: String) {
         val appContext = context.applicationContext
         val watchUrl = watchUrl(videoId)
-        DownloadService.sendRemoveDownload(
+        YtMusicDownloadUtil.removeDownloads(
             appContext,
-            MusicExoDownloadService::class.java,
-            YtMusicDownloadUtil.downloadId(videoId),
-            false,
+            listOf(YtMusicDownloadUtil.downloadId(videoId), watchUrl),
         )
-        // Remove a pre-migration request if one remains in the old URL-keyed cache.
-        DownloadService.sendRemoveDownload(
-            appContext,
-            MusicExoDownloadService::class.java,
-            watchUrl,
-            false,
-        )
-        // Await the legacy file deletion so playlist rows refresh only after it is gone.
+        // Also await cleanup of files created by the legacy downloader.
         com.streamcloud.app.data.downloads.MusicDownloader.delete(appContext, watchUrl)
     }
 

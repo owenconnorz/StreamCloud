@@ -51,6 +51,7 @@ object PlaylistMusicDownloadManager {
                 )
                 syncLocked(appContext, ownerKey, songs, pruneMissing)
             } else {
+                claimUnownedAvailableTracks(appContext, ownerKey, songs)
                 db.musicPlaylistDownloadStates().remove(ownerKey)
                 PlaylistDownloadSummary(removed = releaseAllLocked(appContext, ownerKey))
             }
@@ -104,11 +105,18 @@ object PlaylistMusicDownloadManager {
     suspend fun removeManualDownload(context: Context, videoId: String) = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
         withVideoLock(videoId) {
-            LibraryDb.get(appContext).musicDownloadOwners().remove(
-                MusicDownloadOwnerEntity.MANUAL_OWNER_KEY,
-                videoId,
-            )
-            YtPlayback.removeDownloadFiles(appContext, videoId)
+            val owners = LibraryDb.get(appContext).musicDownloadOwners().ownersForVideo(videoId)
+            when {
+                MusicDownloadOwnerEntity.MANUAL_OWNER_KEY in owners -> {
+                    releaseOneLocked(
+                        appContext,
+                        MusicDownloadOwnerEntity.MANUAL_OWNER_KEY,
+                        videoId,
+                    )
+                }
+                owners.isEmpty() -> YtPlayback.removeDownloadFiles(appContext, videoId)
+            }
+            Unit
         }
     }
 
@@ -118,6 +126,7 @@ object PlaylistMusicDownloadManager {
         songs: List<YtmSong>,
         pruneMissing: Boolean,
     ): PlaylistDownloadSummary {
+        YtMusicDownloadUtil.downloadManager(context)
         val ownerDao = LibraryDb.get(context).musicDownloadOwners()
         val distinctSongs = songs.distinctBy(YtmSong::videoId)
         val desiredIds = distinctSongs.mapTo(mutableSetOf(), YtmSong::videoId)
@@ -135,29 +144,44 @@ object PlaylistMusicDownloadManager {
 
         for (song in distinctSongs) {
             withVideoLock(song.videoId) {
-                val owners = ownerDao.ownersForVideo(song.videoId)
                 val downloaded = YtPlayback.isDownloaded(context, song)
                 val activeRequest = hasExistingRequest(song.videoId)
-                if ((downloaded || activeRequest) && owners.isEmpty()) {
-                    // A pre-existing unowned copy is independent of this playlist.
+                // Adopt an available, unowned copy into this playlist. Any known manual or
+                // other-playlist owners remain recorded and continue to protect the shared file.
+                ownerDao.add(MusicDownloadOwnerEntity(ownerKey, song.videoId))
+                if (downloaded || activeRequest) {
                     alreadyAvailable++
                 } else {
-                    ownerDao.add(MusicDownloadOwnerEntity(ownerKey, song.videoId))
-                    if (downloaded || activeRequest) {
-                        alreadyAvailable++
-                    } else {
-                        try {
-                            YtPlayback.enqueueDownload(context, song)
-                            queued++
-                        } catch (_: Throwable) {
-                            ownerDao.remove(ownerKey, song.videoId)
-                            failed++
-                        }
+                    try {
+                        YtPlayback.enqueueDownload(context, song)
+                        queued++
+                    } catch (_: Throwable) {
+                        ownerDao.remove(ownerKey, song.videoId)
+                        failed++
                     }
                 }
             }
         }
         return PlaylistDownloadSummary(queued, alreadyAvailable, removed, failed)
+    }
+
+    private suspend fun claimUnownedAvailableTracks(
+        context: Context,
+        ownerKey: String,
+        songs: List<YtmSong>,
+    ) {
+        YtMusicDownloadUtil.downloadManager(context)
+        val ownerDao = LibraryDb.get(context).musicDownloadOwners()
+        for (song in songs.distinctBy(YtmSong::videoId)) {
+            withVideoLock(song.videoId) {
+                val owners = ownerDao.ownersForVideo(song.videoId)
+                if (ownerKey !in owners &&
+                    (YtPlayback.isDownloaded(context, song) || hasExistingRequest(song.videoId))
+                ) {
+                    ownerDao.add(MusicDownloadOwnerEntity(ownerKey, song.videoId))
+                }
+            }
+        }
     }
 
     private suspend fun releaseAllLocked(context: Context, ownerKey: String): Int {
@@ -172,19 +196,28 @@ object PlaylistMusicDownloadManager {
 
     private suspend fun releaseOne(context: Context, ownerKey: String, videoId: String): Boolean =
         withVideoLock(videoId) {
-            val ownerDao = LibraryDb.get(context).musicDownloadOwners()
-            if (ownerKey !in ownerDao.ownersForVideo(videoId)) {
-                false
-            } else {
-                ownerDao.remove(ownerKey, videoId)
-                if (ownerDao.ownersForVideo(videoId).isEmpty()) {
-                    YtPlayback.removeDownloadFiles(context, videoId)
-                    true
-                } else {
-                    false
-                }
-            }
+            releaseOneLocked(context, ownerKey, videoId)
         }
+
+    private suspend fun releaseOneLocked(
+        context: Context,
+        ownerKey: String,
+        videoId: String,
+    ): Boolean {
+        val ownerDao = LibraryDb.get(context).musicDownloadOwners()
+        val owners = ownerDao.ownersForVideo(videoId)
+        if (ownerKey !in owners) return false
+
+        if (owners.size > 1) {
+            ownerDao.remove(ownerKey, videoId)
+            return false
+        }
+
+        // Keep the final owner until file cleanup succeeds so a failed deletion can be retried.
+        YtPlayback.removeDownloadFiles(context, videoId)
+        ownerDao.remove(ownerKey, videoId)
+        return true
+    }
 
     private fun hasExistingRequest(videoId: String): Boolean {
         val watchUrl = YtPlayback.watchUrl(videoId)

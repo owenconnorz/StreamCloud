@@ -120,7 +120,13 @@ object MusicDownloader {
         }
 
     suspend fun delete(context: Context, url: String) = withContext(Dispatchers.IO) {
-        fileFor(context, url).delete()
+        val completedFile = fileFor(context, url)
+        val partialFile = File(completedFile.absolutePath + ".part")
+        listOf(completedFile, partialFile).forEach { file ->
+            if (file.exists() && !file.delete()) {
+                error("Could not remove offline music file: ${file.name}")
+            }
+        }
         LibraryDb.get(context).tracks().setLocalPath(url, null)
         MusicDownloadNotifier.cancel(context, url)
     }
