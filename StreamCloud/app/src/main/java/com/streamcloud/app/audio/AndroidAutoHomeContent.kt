@@ -1,5 +1,7 @@
 package com.streamcloud.app.audio
 
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.ytmusic.HomeSection
 import com.streamcloud.app.data.ytmusic.YtMusicHomeFeed
@@ -16,6 +18,7 @@ internal object AndroidAutoHomeContent {
 
     private const val SPEED_DIAL_LIMIT = 8
     private const val QUICK_PICKS_LIMIT = 20
+    const val FLAT_SHELF_ITEM_LIMIT = 20
 
     fun speedDialTracks(
         recent: List<TrackEntity>,
@@ -60,7 +63,33 @@ internal object AndroidAutoHomeContent {
             )
         }
 
-    fun hasQuickPicksShelf(shelves: List<AndroidAutoHomeShelf>): Boolean =
+    fun flattenSections(groups: List<Pair<String, List<MediaItem>>>): List<MediaItem> =
+            groups.asSequence()
+                .flatMap { (sectionTitle, items) ->
+                    items.asSequence().map { item -> item.withSectionContext(sectionTitle) }
+                }
+                .distinctBy(MediaItem::mediaId)
+                .toList()
+
+        private fun MediaItem.withSectionContext(sectionTitle: String): MediaItem {
+            val metadata = mediaMetadata
+            val section = sectionTitle.trim()
+            val details = listOfNotNull(metadata.subtitle, metadata.artist)
+                .map { it.toString().trim() }
+                .filter { it.isNotBlank() && !it.equals(section, ignoreCase = true) }
+                .distinct()
+            val subtitle = (listOfNotNull(section.takeIf { it.isNotBlank() }) + details)
+                .joinToString(" · ")
+            return buildUpon()
+                .setMediaMetadata(
+                    MediaMetadata.Builder(metadata)
+                        .setSubtitle(subtitle)
+                        .build(),
+                )
+                .build()
+        }
+
+        fun hasQuickPicksShelf(shelves: List<AndroidAutoHomeShelf>): Boolean =
         shelves.any { it.title.contains("quick", ignoreCase = true) || it.title.contains("pick", ignoreCase = true) }
 
     private fun mergeDistinct(vararg groups: List<TrackEntity>): List<TrackEntity> =

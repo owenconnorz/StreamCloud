@@ -1,5 +1,7 @@
 package com.streamcloud.app.audio
 
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.ytmusic.HomeSection
 import com.streamcloud.app.data.ytmusic.MoodChip
@@ -79,7 +81,49 @@ class AndroidAutoHomeContentTest {
         assertFalse(AndroidAutoHomeContent.hasQuickPicksShelf(shelves))
     }
 
-    private fun track(url: String, playCount: Int = 0) = TrackEntity(
+    @Test
+        fun flattenSections_putsItemsInOneListAndPreservesPlaybackMetadata() {
+            val song = MediaItem.Builder()
+                .setMediaId("song-1")
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle("Song")
+                        .setArtist("Artist")
+                        .setIsPlayable(true)
+                        .build(),
+                )
+                .build()
+            val playlist = MediaItem.Builder()
+                .setMediaId("playlist-1")
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle("Mix")
+                        .setSubtitle("Curated")
+                        .setIsBrowsable(true)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
+                        .build(),
+                )
+                .build()
+
+            val flattened = AndroidAutoHomeContent.flattenSections(
+                listOf(
+                    "Speed dial" to listOf(song),
+                    "Listen again" to listOf(song, playlist),
+                ),
+            )
+
+            assertEquals(listOf("song-1", "playlist-1"), flattened.map(MediaItem::mediaId))
+            assertEquals("Song", flattened[0].mediaMetadata.title.toString())
+            assertEquals("Artist", flattened[0].mediaMetadata.artist.toString())
+            assertEquals("Speed dial · Artist", flattened[0].mediaMetadata.subtitle.toString())
+            assertTrue(flattened[0].mediaMetadata.isPlayable)
+            assertFalse(flattened[0].mediaMetadata.isBrowsable)
+            assertEquals("Listen again · Curated", flattened[1].mediaMetadata.subtitle.toString())
+            assertTrue(flattened[1].mediaMetadata.isBrowsable)
+            assertFalse(flattened[1].mediaMetadata.isPlayable)
+        }
+
+        private fun track(url: String, playCount: Int = 0) = TrackEntity(
         url = url,
         title = url,
         artist = "Artist",

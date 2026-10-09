@@ -1829,46 +1829,43 @@ class MusicPlaybackService : MediaLibraryService() {
     }
 
     private suspend fun homeChildren(): List<MediaItem> {
-        val (recent, liked, mostPlayed) = runCatching {
-            val dao = LibraryDb.get(this).tracks()
-            Triple(dao.recent().first(), dao.liked().first(), dao.mostPlayed().first())
-        }.getOrElse { error ->
-            AppLogger.w(TAG, "Couldn't load local Android Auto Home recommendations: ${error.message}")
-            Triple(emptyList(), emptyList(), emptyList())
-        }
-        val feedEnabled = sl.settings.androidAutoShowYoutubeSuggestions.first()
-        val feedShelves = if (feedEnabled) AndroidAutoHomeContent.feedShelves(ytHomeFeed) else emptyList()
-        val children = mutableListOf<MediaItem>()
-
-        val speedDialTracks = AndroidAutoHomeContent.speedDialTracks(recent, liked, mostPlayed)
-        if (speedDialTracks.isNotEmpty()) {
-            children += folder(
-                AndroidAutoHomeContent.SPEED_DIAL_ID,
-                "Speed dial",
-                AndroidAutoHomeContent.artworkUrl(speedDialTracks),
-            )
-        }
-        if (!AndroidAutoHomeContent.hasQuickPicksShelf(feedShelves)) {
-            val quickPicks = AndroidAutoHomeContent.quickPickTracks(mostPlayed, recent, liked)
-            if (quickPicks.isNotEmpty()) {
-                children += folder(
-                    AndroidAutoHomeContent.QUICK_PICKS_ID,
-                    "Quick picks",
-                    AndroidAutoHomeContent.artworkUrl(quickPicks),
-                )
+            val (recent, liked, mostPlayed) = runCatching {
+                val dao = LibraryDb.get(this).tracks()
+                Triple(dao.recent().first(), dao.liked().first(), dao.mostPlayed().first())
+            }.getOrElse { error ->
+                AppLogger.w(TAG, "Couldn't load local Android Auto Home recommendations: ${error.message}")
+                Triple(emptyList(), emptyList(), emptyList())
             }
-        }
-        children += feedShelves.map { shelf ->
-            folder(shelf.mediaId, shelf.title, shelf.artworkUrl)
-        }
+            val feedEnabled = sl.settings.androidAutoShowYoutubeSuggestions.first()
+            val feedShelves = if (feedEnabled) AndroidAutoHomeContent.feedShelves(ytHomeFeed) else emptyList()
+            val groups = mutableListOf<Pair<String, List<MediaItem>>>()
 
-        val ytLikedArtwork = ytLibrary.likedSongs.firstOrNull()?.thumbnail
-        val repeatedTracks = mostPlayed.filter { it.playCount > 0 }
-        children += playlist(RECENT_ID, "Recently Played", AndroidAutoHomeContent.artworkUrl(recent))
-        children += playlist(ON_REPEAT_ID, "On Repeat", AndroidAutoHomeContent.artworkUrl(repeatedTracks))
-        children += playlist(LIKED_ID, "Liked Songs", AndroidAutoHomeContent.artworkUrl(liked) ?: ytLikedArtwork)
-        return children.distinctBy(MediaItem::mediaId)
-    }
+            fun addSection(title: String, items: List<MediaItem>) {
+                val visibleItems = items.take(AndroidAutoHomeContent.FLAT_SHELF_ITEM_LIMIT)
+                if (visibleItems.isNotEmpty()) groups += title to visibleItems
+            }
+
+            val speedDialTracks = AndroidAutoHomeContent.speedDialTracks(recent, liked, mostPlayed)
+            addSection("Speed dial", speedDialTracks.map(::trackEntityItem))
+
+            if (!AndroidAutoHomeContent.hasQuickPicksShelf(feedShelves)) {
+                val quickPicks = AndroidAutoHomeContent.quickPickTracks(mostPlayed, recent, liked)
+                addSection("Quick picks", quickPicks.map(::trackEntityItem))
+            }
+
+            feedShelves.forEach { shelf ->
+                addSection(shelf.title, homeSectionItems(shelf.mediaId))
+            }
+
+            val repeatedTracks = mostPlayed.filter { it.playCount > 0 }
+            addSection("Recently Played", recent.take(AndroidAutoHomeContent.FLAT_SHELF_ITEM_LIMIT).map(::trackEntityItem))
+            addSection("On Repeat", repeatedTracks.take(AndroidAutoHomeContent.FLAT_SHELF_ITEM_LIMIT).map(::trackEntityItem))
+            addSection("Liked Songs", likedChildren())
+
+            // Keep each phone-style shelf's items directly in one car-safe list. Section labels
+            // are carried as subtitles instead of requiring an extra browse-folder tap.
+            return AndroidAutoHomeContent.flattenSections(groups)
+        }
 
     private suspend fun androidAutoBrowseChildCount(parentId: String): Int? {
         val tracks = LibraryDb.get(applicationContext).tracks()
@@ -2001,9 +1998,12 @@ class MusicPlaybackService : MediaLibraryService() {
         }
 
     private fun homeFeedChildren(): List<MediaItem> =
-        AndroidAutoHomeContent.feedShelves(ytHomeFeed).map { shelf ->
-            folder(shelf.mediaId, shelf.title, shelf.artworkUrl)
-        }
+            AndroidAutoHomeContent.flattenSections(
+                AndroidAutoHomeContent.feedShelves(ytHomeFeed).map { shelf ->
+                    shelf.title to homeSectionItems(shelf.mediaId)
+                        .take(AndroidAutoHomeContent.FLAT_SHELF_ITEM_LIMIT)
+                },
+            )
 
     private fun homeSectionItems(sectionId: String): List<MediaItem> {
         val idx = sectionId.removePrefix(YT_HOME_SECTION_PREFIX).toIntOrNull() ?: return emptyList()
