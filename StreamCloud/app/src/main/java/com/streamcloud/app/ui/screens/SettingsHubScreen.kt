@@ -2762,7 +2762,7 @@ private fun AndroidAutoSettingsPage(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .weight(1f)
-                            .tvFocusBorder(RoundedCornerShape(12.dp))
+                            .tvFocusBorder(RoundedCornerShape(12.dp), showOutline = false)
                             .clickable {
                                 if (!enabled || visibleSections.size > 1) {
                                     onVisibleSectionsChange(
@@ -3082,7 +3082,7 @@ private fun HubRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(14.dp))
+            .tvFocusBorder(RoundedCornerShape(14.dp), showOutline = false)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 13.dp),
     ) {
@@ -3153,7 +3153,7 @@ private fun SubPageScaffold(
         ) {
             IconButton(
                 onClick = onBack,
-                modifier = Modifier.tvFocusBorder(CircleShape),
+                modifier = Modifier.tvFocusBorder(CircleShape, showOutline = false),
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
@@ -3194,7 +3194,7 @@ private fun ThemeModeItem(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .tvFocusBorder(RoundedCornerShape(14.dp))
+            .tvFocusBorder(RoundedCornerShape(14.dp), showOutline = false)
             .clickable(onClick = onClick),
     ) {
         Box(
@@ -3249,7 +3249,7 @@ private fun PaletteItem(
         Modifier
             .size(50.dp)
             .clip(CircleShape)
-            .tvFocusBorder(CircleShape)
+            .tvFocusBorder(CircleShape, showOutline = false)
             .border(
                 width = if (selected) 2.5.dp else 1.dp,
                 color = if (selected) accent else outline.copy(alpha = 0.5f),
@@ -3288,7 +3288,7 @@ private fun PaletteDynamicItem(
             .size(50.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .tvFocusBorder(CircleShape)
+            .tvFocusBorder(CircleShape, showOutline = false)
             .border(
                 width = if (selected) 2.5.dp else 1.dp,
                 color = if (selected) accent else outline.copy(alpha = 0.5f),
@@ -3371,7 +3371,7 @@ private fun SettingNav(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 13.dp),
     ) {
@@ -3422,7 +3422,7 @@ private fun SettingToggle(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
             .clickable { onChange(!checked) }
             .padding(horizontal = 14.dp, vertical = 13.dp),
     ) {
@@ -3460,7 +3460,7 @@ private fun SpotifyAccountRow() {
     Row(
         Modifier
             .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
             .clickable(enabled = !signedIn) {
                 context.startActivity(
                     Intent(context, com.streamcloud.app.ui.account.SpotifyLoginActivity::class.java),
@@ -3527,7 +3527,7 @@ private fun RedditAccountRow(onLogin: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
             .clickable(onClick = onLogin)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -3581,7 +3581,7 @@ private fun PornhubAccountRow(onLogin: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
             .clickable(onClick = onLogin)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -3640,7 +3640,7 @@ private fun YtMusicAccountRow() {
     Row(
         Modifier
             .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
             .clickable(enabled = !signedIn) {
                 context.startActivity(
                     Intent(context, com.streamcloud.app.ui.account.YtMusicLoginActivity::class.java),
@@ -3699,7 +3699,7 @@ private fun UpdaterRow() {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(18.dp))
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
             .clickable(enabled = !checking && !downloading) {
                 checking = true; status = null; update = null
                 scope.launch {
@@ -3776,7 +3776,7 @@ private fun UpdaterRow() {
                     }
                 },
                 shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.tvFocusBorder(RoundedCornerShape(10.dp)),
+                modifier = Modifier.tvFocusBorder(RoundedCornerShape(10.dp), showOutline = false),
             ) { Text("Install") }
             else -> Icon(
                 Icons.Default.ChevronRight,
@@ -4708,7 +4708,7 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .tvFocusBorder(RoundedCornerShape(12.dp))
+                        .tvFocusBorder(RoundedCornerShape(12.dp), showOutline = false)
                         .clickable(onClick = toggleTmdb)
                         .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -4788,7 +4788,7 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
                         Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .tvFocusBorder(RoundedCornerShape(12.dp))
+                                .tvFocusBorder(RoundedCornerShape(12.dp), showOutline = false)
                                 .clickable(onClick = toggleStremio)
                                 .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -4860,7 +4860,7 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
                         Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .tvFocusBorder(RoundedCornerShape(12.dp))
+                                .tvFocusBorder(RoundedCornerShape(12.dp), showOutline = false)
                                 .clickable(onClick = toggleCs)
                                 .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,

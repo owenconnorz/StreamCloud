@@ -2467,7 +2467,7 @@ private fun CwDialogAction(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester)
                 else Modifier
             )
-            .tvFocusBorder(shape)
+            .tvFocusBorder(shape, showOutline = false)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp),
     ) {

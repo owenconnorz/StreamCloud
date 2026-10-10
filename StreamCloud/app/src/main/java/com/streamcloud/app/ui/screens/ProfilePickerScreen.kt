@@ -344,6 +344,7 @@ private fun ProfileManagementButton(
     isManaging: Boolean,
     onClick: () -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     OutlinedButton(
         onClick = onClick,
         shape = RoundedCornerShape(50),
@@ -352,13 +353,15 @@ private fun ProfileManagementButton(
             contentColor = Color(0xFFB4B4BA),
         ),
         modifier = Modifier
-            .width(if (isManaging) 104.dp else 190.dp)
-            .height(48.dp),
+            .width(if (isManaging) 112.dp else if (isTv) 230.dp else 190.dp)
+            .height(if (isTv) 56.dp else 48.dp),
     ) {
         Text(
             text = if (isManaging) "Done" else "Manage Profiles",
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }

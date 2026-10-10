@@ -2047,7 +2047,7 @@ private fun TvNetflixTopNav(
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .focusRequester(firstTabFocus)
                         .focusProperties { if (hasDirectContentRequester) down = contentFocusRequester }
-                        .tvFocusBorder(CircleShape)
+                        .tvFocusBorder(CircleShape, showOutline = false)
                         .clickable { onSearchClick() },
                 ) {
                     Icon(
@@ -2074,7 +2074,7 @@ private fun TvNetflixTopNav(
                                 }
                             )
                             .focusProperties { if (hasDirectContentRequester) down = contentFocusRequester }
-                            .tvFocusBorder(RoundedCornerShape(50))
+                            .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
                             .onFocusChanged { itemFocused = it.isFocused }
                             .clickable { onTabSelected(tab.route) }
                             .padding(horizontal = 20.dp, vertical = 8.dp),
@@ -2115,7 +2115,7 @@ private fun TvNavRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
-            .tvFocusBorder(RoundedCornerShape(10.dp))
+            .tvFocusBorder(RoundedCornerShape(10.dp), showOutline = false)
             .onKeyEvent { event ->
                 event.type == KeyEventType.KeyDown && (
                     (trapUp && event.key == Key.DirectionUp) ||
