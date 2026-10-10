@@ -216,9 +216,9 @@ fun StremioDetailScreen(
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         if (isSeries) {
-                                            "Play ${selectedEpisode?.displayLabel() ?: "Series"} · ${streams.size} sources"
+                                            "Play ${selectedEpisode?.displayLabel() ?: "Series"}"
                                         } else {
-                                            "Play Movie · ${streams.size} sources"
+                                            "Play Movie"
                                         },
                                         fontWeight = FontWeight.Bold,
                                     )

@@ -915,40 +915,62 @@ fun MoviesScreen(
 
         val cwEntry = cwSheetEntry
         if (cwEntry != null) {
-            ModalBottomSheet(
-                onDismissRequest = { cwSheetEntry = null },
-                sheetState = cwSheetState,
-            ) {
-                CwOptionsSheet(
-                    entry = cwEntry,
-                    onGoToDetails = {
-                        cwSheetEntry = null
-                        openCwEntry(cwEntry)
-                    },
-                    onPlayManually = {
-                        cwSheetEntry = null
-                        openCwEntry(cwEntry)
-                    },
-                    onStartFromBeginning = {
-                        cwSheetEntry = null
-                        vm.resetWatchProgress(
-                            cwEntry.tmdbId,
-                            cwEntry.mediaType,
-                            cwEntry.seasonNumber,
-                            cwEntry.episodeNumber,
-                        )
-                        openCwEntry(cwEntry)
-                    },
-                    onRemove = {
-                        cwSheetEntry = null
-                        vm.deleteWatchProgress(
-                            cwEntry.tmdbId,
-                            cwEntry.mediaType,
-                            cwEntry.seasonNumber,
-                            cwEntry.episodeNumber,
-                        )
-                    },
+            val goToDetails = {
+                cwSheetEntry = null
+                if (cwEntry.mediaType == "tv") onTvClick(cwEntry.tmdbId)
+                else onMovieClick(cwEntry.tmdbId)
+            }
+            val playManually = {
+                cwSheetEntry = null
+                openCwEntry(cwEntry)
+            }
+            val startFromBeginning = {
+                cwSheetEntry = null
+                vm.resetWatchProgress(
+                    cwEntry.tmdbId,
+                    cwEntry.mediaType,
+                    cwEntry.seasonNumber,
+                    cwEntry.episodeNumber,
                 )
+                openCwEntry(cwEntry)
+            }
+            val removeFromContinueWatching = {
+                cwSheetEntry = null
+                vm.deleteWatchProgress(
+                    cwEntry.tmdbId,
+                    cwEntry.mediaType,
+                    cwEntry.seasonNumber,
+                    cwEntry.episodeNumber,
+                )
+            }
+            if (isTv) {
+                androidx.compose.ui.window.Dialog(
+                    onDismissRequest = { cwSheetEntry = null },
+                    properties = androidx.compose.ui.window.DialogProperties(
+                        usePlatformDefaultWidth = false,
+                    ),
+                ) {
+                    CwOptionsDialog(
+                        entry = cwEntry,
+                        onGoToDetails = goToDetails,
+                        onPlayManually = playManually,
+                        onStartFromBeginning = startFromBeginning,
+                        onRemove = removeFromContinueWatching,
+                    )
+                }
+            } else {
+                ModalBottomSheet(
+                    onDismissRequest = { cwSheetEntry = null },
+                    sheetState = cwSheetState,
+                ) {
+                    CwOptionsSheet(
+                        entry = cwEntry,
+                        onGoToDetails = goToDetails,
+                        onPlayManually = playManually,
+                        onStartFromBeginning = startFromBeginning,
+                        onRemove = removeFromContinueWatching,
+                    )
+                }
             }
         }
 
@@ -2365,6 +2387,82 @@ private fun CwOptionsSheet(
         QuickActionRow(Icons.Default.Replay, "Start from beginning", onStartFromBeginning)
         QuickActionRow(Icons.Default.Delete, "Remove", onRemove)
     }
+}
+
+@Composable
+private fun CwOptionsDialog(
+    entry: WatchProgressEntity,
+    onGoToDetails: () -> Unit,
+    onPlayManually: () -> Unit,
+    onStartFromBeginning: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val firstActionFocus = remember { FocusRequester() }
+    LaunchedEffect(firstActionFocus) {
+        repeat(10) {
+            kotlinx.coroutines.delay(120)
+            if (runCatching { firstActionFocus.requestFocus() }.isSuccess) {
+                return@LaunchedEffect
+            }
+        }
+    }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth(0.78f)
+            .widthIn(max = 560.dp),
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xF0272B3B),
+        tonalElevation = 8.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 22.dp, vertical = 20.dp)) {
+            Text(
+                "Choose what you want to do with this item.",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            CwDialogAction(
+                icon = Icons.Default.Info,
+                label = "Go to details",
+                focusRequester = firstActionFocus,
+                onClick = onGoToDetails,
+            )
+            CwDialogAction(Icons.Default.PlayArrow, "Play manually", onClick = onPlayManually)
+            CwDialogAction(Icons.Default.Replay, "Start from beginning", onClick = onStartFromBeginning)
+            CwDialogAction(Icons.Default.Delete, "Remove", onClick = onRemove)
+        }
+    }
+}
+
+@Composable
+private fun CwDialogAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    focusRequester: FocusRequester? = null,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.055f))
+            .then(
+                if (focusRequester != null) Modifier.focusRequester(focusRequester)
+                else Modifier
+            )
+            .tvFocusBorder(shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp),
+    ) {
+        Icon(icon, null, tint = Color(0xFF9AC9FF), modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = Color.White)
+    }
+    Spacer(Modifier.height(7.dp))
 }
 
 @Composable

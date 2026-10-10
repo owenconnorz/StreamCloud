@@ -517,7 +517,7 @@ private fun CsReadyContent(
                         val playLabel = when {
                             resolving -> "Finding streams…"
                             sourcesState is SourcesState.Done && (sourcesState as SourcesState.Done).count > 0 ->
-                                "Play Movie · ${(sourcesState as SourcesState.Done).count} sources"
+                                "Play Movie"
                             sourcesState is SourcesState.Fetching -> "Play Movie"
                             else -> "Play Movie"
                         }

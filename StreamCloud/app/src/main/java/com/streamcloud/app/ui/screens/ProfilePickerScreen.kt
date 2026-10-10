@@ -256,20 +256,21 @@ private fun ProfileGridView(
             .navigationBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(48.dp))
+        Spacer(Modifier.height(if (isTv) 20.dp else 48.dp))
         Text(
             "Who's watching?",
-            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+            style = (if (isTv) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineLarge)
+                .copy(fontWeight = FontWeight.Bold),
             color = Color.White,
         )
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(if (isTv) 20.dp else 36.dp))
         if (isTv) {
             LazyRow(
                 modifier = Modifier
-                    .weight(1f)
                     .fillMaxWidth()
+                    .height(220.dp)
                     .padding(horizontal = 24.dp),
-                contentPadding = PaddingValues(horizontal = 32.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -292,6 +293,7 @@ private fun ProfileGridView(
                     )
                 }
             }
+            Spacer(Modifier.height(16.dp))
             ProfileManagementButton(
                 isManaging = isManagingProfiles,
                 onClick = onManageToggle,
