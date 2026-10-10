@@ -621,7 +621,8 @@ fun NativePlayerScreen(
                                             seasonNumber = progressKey.seasonNumber ?: 0,
                                             episodeNumber = progressKey.episodeNumber ?: 0,
                                         ))
-                                        com.streamcloud.app.data.nuvio.NuvioAutoSync.requestProgress(appContext)
+                                        // The final playback position must survive an already-running coalesced sync.
+                                        com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
                                     }
                                 }
                             }.onFailure { error ->
