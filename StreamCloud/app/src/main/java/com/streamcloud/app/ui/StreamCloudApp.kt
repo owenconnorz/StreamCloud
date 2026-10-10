@@ -1755,7 +1755,9 @@ fun StreamCloudApp() {
                             )
                         }
                         val showBar = currentRoute == null ||
-                            (tabs.any { it.route == currentRoute } && currentRoute != Tab.Settings.route)
+                            (tabs.any { it.route == currentRoute } &&
+                                currentRoute != Tab.Settings.route &&
+                                currentRoute != Tab.Adult.route)
                         if (showBar) {
                             val effectiveShowLabel = navExpanded && showNavLabels
                             Box(
