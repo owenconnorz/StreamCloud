@@ -164,14 +164,13 @@ object YtMusicDownloadUtil {
         val playerCache  = DownloadCaches.playerCache(ctx)
         activeDownloadCache = downloadCache
         activePlayerCache = playerCache
-        // Use playerCache (not downloadCache) in the upstream chain.
-        // DownloadManager already writes directly to downloadCache; having downloadCache
-        // in the factory too causes simultaneous read/write lock contention that
-        // serialises every download segment — the main reason downloads were slow.
-        // playerCache lets us reuse data already buffered from streaming, harmlessly.
+        // Keep reads from audio already buffered by playback, but do not mirror every
+        // downloaded byte into playerCache. DownloadManager writes the offline copy once
+        // into downloadCache, avoiding duplicate cache writes and lock contention.
         val dataSourceFactory = ResolvingDataSource.Factory(
             CacheDataSource.Factory()
                 .setCache(playerCache)
+                .setCacheWriteDataSinkFactory(null)
                 .setUpstreamDataSourceFactory(
                     OkHttpDataSource.Factory(downloadHttpClient)
                         .setUserAgent(FALLBACK_STREAM_USER_AGENT),
