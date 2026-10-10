@@ -685,8 +685,17 @@ fun MovieDetailScreen(
                     modifier = (if (isTv) Modifier else Modifier.weight(1f))
                         .height(if (isTv) 44.dp else 52.dp)
                         .tvFocusBorder(RoundedCornerShape(50))
-                        .then(if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier),
+                        .then(if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier)
+                        .semantics {
+                            contentDescription = episodePlaybackTarget?.buttonLabel
+                                ?: "Loading episode"
+                        },
                     shape = RoundedCornerShape(50),
+                    contentPadding = if (isTv) {
+                        ButtonDefaults.ContentPadding
+                    } else {
+                        PaddingValues(horizontal = 7.dp, vertical = 0.dp)
+                    },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -695,10 +704,17 @@ fun MovieDetailScreen(
                     ),
                 ) {
                     Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(if (isTv) 6.dp else 4.dp))
                     Text(
-                        episodePlaybackTarget?.buttonLabel ?: "Loading episode…",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        text = episodePlaybackTarget?.let { target ->
+                            if (isTv) target.buttonLabel
+                            else if (target.isContinue) "Continue" else "Play"
+                        } ?: "Loading…",
+                        style = (if (isTv) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleSmall)
+                            .copy(fontWeight = FontWeight.Bold),
+                        maxLines = if (isTv) Int.MAX_VALUE else 1,
+                        softWrap = isTv,
+                        overflow = if (isTv) TextOverflow.Clip else TextOverflow.Ellipsis,
                     )
                 }
                 if (hasRestartPoint) {
@@ -2227,21 +2243,28 @@ private fun RestartPlaybackButton(
             .tvFocusBorder(RoundedCornerShape(50))
             .semantics { contentDescription = description },
         shape = RoundedCornerShape(50),
+        contentPadding = if (isTv) {
+            ButtonDefaults.ContentPadding
+        } else {
+            PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+        },
         colors = ButtonDefaults.buttonColors(
             containerColor = Color.Black.copy(alpha = 0.52f),
             contentColor = Color.White,
         ),
     ) {
-        Icon(Icons.Default.Replay, null, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(6.dp))
+        Icon(Icons.Default.Replay, null, modifier = Modifier.size(if (isTv) 20.dp else 18.dp))
+        Spacer(Modifier.width(if (isTv) 6.dp else 4.dp))
         Text(
             "Restart",
             style = if (isTv) {
                 MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
             } else {
-                MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
             },
             maxLines = 1,
+            softWrap = isTv,
+            overflow = if (isTv) TextOverflow.Clip else TextOverflow.Ellipsis,
         )
     }
 }
@@ -2299,6 +2322,9 @@ private fun PlayMovieCta(
                     "Downloading · ${(animatedFill * 100).toInt()}%",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = playContent,
+                    maxLines = if (isTv) Int.MAX_VALUE else 1,
+                    softWrap = isTv,
+                    overflow = if (isTv) TextOverflow.Clip else TextOverflow.Ellipsis,
                 )
             }
             loading -> Row(
@@ -2309,7 +2335,10 @@ private fun PlayMovieCta(
                 Spacer(Modifier.width(12.dp))
                 Text("Finding best stream…",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = playContent)
+                    color = playContent,
+                    maxLines = if (isTv) Int.MAX_VALUE else 1,
+                    softWrap = isTv,
+                    overflow = if (isTv) TextOverflow.Clip else TextOverflow.Ellipsis)
             }
             else -> Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -2321,7 +2350,10 @@ private fun PlayMovieCta(
                 Spacer(Modifier.width(6.dp))
                 Text("Play Movie",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = if (enabled) playContent else onSurfaceVariant)
+                    color = if (enabled) playContent else onSurfaceVariant,
+                    maxLines = if (isTv) Int.MAX_VALUE else 1,
+                    softWrap = isTv,
+                    overflow = if (isTv) TextOverflow.Clip else TextOverflow.Ellipsis)
             }
         }
     }
