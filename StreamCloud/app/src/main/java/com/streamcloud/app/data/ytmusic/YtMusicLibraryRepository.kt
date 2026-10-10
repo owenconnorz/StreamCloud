@@ -19,6 +19,21 @@ object YtMusicLibraryRepository {
     private const val TAG = "YtMusicLibrary"
 
 
+    suspend fun playlistPreviewTracks(
+        cookie: String,
+        playlistId: String,
+        externalThumb: String? = null,
+    ): List<YtmSong> = withContext(Dispatchers.IO) {
+        if (cookie.isBlank() || playlistId.isBlank()) return@withContext emptyList()
+        val response = InnerTubeClient(cookie).browse(playlistId.toMusicBrowseId())
+            ?: return@withContext emptyList()
+        extractPlaylistPage(response).first
+            .asSequence()
+            .mapNotNull { parseResponsiveSong(it, fallbackThumb = externalThumb) }
+            .take(3)
+            .toList()
+    }
+
     suspend fun likeSong(cookie: String, videoId: String): Boolean =
         withContext(Dispatchers.IO) {
             if (cookie.isBlank() || videoId.isBlank()) return@withContext false

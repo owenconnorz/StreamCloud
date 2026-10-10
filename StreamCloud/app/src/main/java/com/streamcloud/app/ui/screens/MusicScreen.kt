@@ -999,6 +999,7 @@ fun MusicScreen(
                         is HomeSection.MoodChips -> Unit
                         is HomeSection.PlaylistRail -> {
                             val isListenTogether = section.title.isListenTogetherSection()
+                            val isCommunity = section.title.contains("community", ignoreCase = true)
                             item(key = "yt_prail_title_$idx") {
                                 if (isListenTogether) {
                                     StationSectionTitle(section.title)
@@ -1007,7 +1008,25 @@ fun MusicScreen(
                                 }
                             }
                             item(key = "yt_prail_$idx") {
-                                if (isListenTogether) {
+                                if (isCommunity) {
+                                    LazyRow(
+                                        modifier = Modifier.tvFocusGroup(),
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        items(
+                                            section.items,
+                                            key = { "community_${it.id}" },
+                                        ) { playlist ->
+                                            CommunityPlaylistCard(
+                                                playlist = playlist,
+                                                cookie = ytMusicCookie,
+                                                modifier = Modifier.width(350.dp),
+                                                onClick = { openPlaylistOrPlay(playlist) },
+                                            )
+                                        }
+                                    }
+                                } else if (isListenTogether) {
                                     BoxWithConstraints {
                                         val cardWidth = (maxWidth * 0.70f).coerceIn(280.dp, 360.dp)
                                         LazyRow(
@@ -2262,6 +2281,129 @@ private fun YtHomePlaylistCard(
         }
     }
 }
+
+@Composable
+private fun CommunityPlaylistCard(
+    playlist: YtmPlaylist,
+    cookie: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    var previewTracks by remember(playlist.id) { mutableStateOf<List<YtmSong>?>(null) }
+    LaunchedEffect(playlist.id, cookie) {
+        previewTracks = if (cookie.isBlank()) {
+            emptyList()
+        } else {
+            try {
+                com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+                    .playlistPreviewTracks(cookie, playlist.id, externalThumb = playlist.thumbnail)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                emptyList()
+            }
+        }
+    }
+
+    Column(
+        modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFF35251D))
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HomeThumbnail(
+                primary = playlist.thumbnail,
+                fallback = null,
+                contentDescription = playlist.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(82.dp)
+                    .clip(RoundedCornerShape(10.dp)),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    playlist.title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                playlist.subtitle?.takeIf(String::isNotBlank)?.let { subtitle ->
+                    Text(
+                        subtitle,
+                        color = Color.White.copy(alpha = 0.76f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        previewTracks.orEmpty().forEach { song ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HomeThumbnail(
+                    primary = song.thumbnail,
+                    fallback = null,
+                    contentDescription = song.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(5.dp)),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        song.title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        song.artist,
+                        color = Color.White.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FilledIconButton(
+                onClick = onClick,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = Color.White.copy(alpha = 0.14f),
+                    contentColor = Color.White,
+                ),
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "Open community playlist")
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Open playlist",
+                color = Color.White.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun StationSectionTitle(text: String) {

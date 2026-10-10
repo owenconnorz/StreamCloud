@@ -42,28 +42,39 @@ object YtMusicHomeRepository {
 
 
 
-            val sectionList = resp.findFirst("sectionListRenderer") as? JsonObject
-                ?: return@withContext YtMusicHomeFeed(failureReason = "No sections in response.")
-
-
-            val chips = parseChips(sectionList)
-
-
-            val contents = sectionList["contents"] as? JsonArray ?: JsonArray(emptyList())
-            val sections = buildList<HomeSection> {
-                if (chips.isNotEmpty()) add(HomeSection.MoodChips("", chips))
-                contents.forEach { entry ->
-                    val shelf = (entry as? JsonObject)?.get("musicCarouselShelfRenderer") as? JsonObject
-                        ?: (entry as? JsonObject)?.get("musicImmersiveCarouselShelfRenderer") as? JsonObject
-                        ?: (entry as? JsonObject)?.get("musicPlaylistShelfRenderer") as? JsonObject
-                        ?: return@forEach
-                    parseCarousel(shelf)?.let { add(it) }
+            val sectionLists = resp.findAll("sectionListRenderer").mapNotNull { it as? JsonObject }
+                val carouselCount = resp.findAll("musicCarouselShelfRenderer").size +
+                    resp.findAll("musicImmersiveCarouselShelfRenderer").size +
+                    resp.findAll("musicPlaylistShelfRenderer").size
+                if (sectionLists.isEmpty() && carouselCount == 0) {
+                    return@withContext YtMusicHomeFeed(failureReason = "No sections in response.")
                 }
 
+                val chips = sectionLists.flatMap(::parseChips).distinctBy { it.label }
+                val sections = buildList<HomeSection> {
+                    if (chips.isNotEmpty()) add(HomeSection.MoodChips("", chips))
+                    val shelves = (
+                        resp.findAll("musicCarouselShelfRenderer") +
+                            resp.findAll("musicImmersiveCarouselShelfRenderer") +
+                            resp.findAll("musicPlaylistShelfRenderer")
+                        )
+                        .mapNotNull { it as? JsonObject }
+                        .distinctBy { shelf ->
+                            val title = shelf["header"]?.runsText()
+                                ?: shelf["header"]?.jsonObject
+                                    ?.get("musicCarouselShelfBasicHeaderRenderer")?.jsonObject
+                                    ?.get("title").runsText()
+                            val firstItem = (shelf["contents"] as? JsonArray)?.firstOrNull()?.toString()
+                            "$title:$firstItem"
+                        }
+                    shelves.forEach { shelf ->
+                        parseCarousel(shelf)?.let { section ->
+                            if (none { it.title == section.title }) add(section)
+                        }
+                    }
 
 
-
-                var token = resp.findContinuationToken()
+                    var token = resp.findContinuationToken()
                 var safety = 12
                 while (!token.isNullOrBlank() && safety-- > 0) {
                     val page = client.browseContinuation(token)
