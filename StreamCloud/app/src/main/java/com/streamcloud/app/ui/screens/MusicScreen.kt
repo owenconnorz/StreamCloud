@@ -1340,7 +1340,7 @@ private fun YtMusicSamplesDialog(onDismiss: () -> Unit) {
                 }
                 Text("Samples", color = Color.White, style = MaterialTheme.typography.titleMedium)
             }
-            AndroidView(Modifier.weight(1f).fillMaxWidth(), factory = { ctx ->
+            AndroidView(modifier = Modifier.weight(1f).fillMaxWidth(), factory = { ctx ->
                 android.webkit.WebView(ctx).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
