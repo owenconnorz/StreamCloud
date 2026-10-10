@@ -1,3 +1,8 @@
+## V2125 — Restart movies and episodes from details
+
+### Playback
+- **Restart from the beginning** — Movie and series details show a Restart action when playback progress exists. For series, it restarts the latest in-progress episode; choosing a source resets saved resume progress before playback begins.
+
 ## V2093 — Change Android system brightness from the player
 
 ### Video player
