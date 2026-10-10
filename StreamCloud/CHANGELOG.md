@@ -1,3 +1,9 @@
+## V2129 — Android TV focus styling hotfix
+
+### Android TV
+- **Cleaner remote focus styling** — removed the extra dark outlines while keeping the light-blue highlight on navigation, press-and-hold menus, and settings pages.
+- **Manage Profiles fits its pill** — adjusted the profile-picker action so its label is no longer clipped.
+
 ## V2125 — Restart movies and episodes from details
 
 ### Playback
