@@ -709,7 +709,7 @@ fun MovieDetailScreen(
                         isTv = isTv,
                         onClick = {
                             inProgressEpisode?.let { progress ->
-                                val episodeTitle = progress.episodeTitle ?: tvEpisodes
+                                val episodeTitle = tvEpisodes
                                     .firstOrNull {
                                         it.seasonNumber == progress.seasonNumber &&
                                             it.episodeNumber == progress.episodeNumber
