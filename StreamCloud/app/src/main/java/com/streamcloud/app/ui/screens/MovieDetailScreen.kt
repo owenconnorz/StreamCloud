@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.*
@@ -165,6 +166,7 @@ fun MovieDetailScreen(
     val installedCsPlugins by sl.plugins.installed.collectAsState(initial = emptyList())
     var resolving by remember { mutableStateOf(false) }
     var resolverMessage by remember { mutableStateOf<String?>(null) }
+    var restartFromBeginning by remember(movieId, mediaType) { mutableStateOf(false) }
     var resolutionJob by remember { mutableStateOf<Job?>(null) }
 
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
@@ -330,6 +332,14 @@ fun MovieDetailScreen(
     val inProgressEpisode by watchProgressDao
         .latestInProgressEpisode(movieId, mediaType)
         .collectAsState(initial = null)
+    val inProgressMovie by watchProgressDao
+        .observeByKey(movieId, mediaType, seasonNumber = 0, episodeNumber = 0)
+        .collectAsState(initial = null)
+    val hasRestartPoint = if (mediaType == "tv") {
+        inProgressEpisode != null
+    } else {
+        inProgressMovie?.positionMs?.let { it > 5_000L } == true
+    }
     val episodePlaybackTarget = remember(
         inProgressEpisode,
         watchedEpisodes,
@@ -365,26 +375,43 @@ fun MovieDetailScreen(
         }
     }
 
-    fun playMovie() {
+    fun playMovie(restart: Boolean = false) {
         imdbId ?: run { resolverMessage = "Loading IMDB id… try again in a second."; return }
         if (installedAddons.isEmpty() && installedNuvio.isEmpty() && installedCsPlugins.isEmpty()) {
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed."
             return
         }
+        restartFromBeginning = restart
         resolverMessage = null; pickerForDownload = false
         pickerSeason = null; pickerEpisode = null; pickerEpTitle = null
         showStreamPicker = true
     }
 
-    fun playEpisode(seasonNum: Int, episodeNum: Int, episodeTitle: String?) {
+    fun playEpisode(seasonNum: Int, episodeNum: Int, episodeTitle: String?, restart: Boolean = false) {
         imdbId ?: run { resolverMessage = "Loading IMDB id… try again in a second."; return }
         if (installedAddons.isEmpty() && installedNuvio.isEmpty() && installedCsPlugins.isEmpty()) {
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed."
             return
         }
+        restartFromBeginning = restart
         pickerForDownload = false
         pickerSeason = seasonNum; pickerEpisode = episodeNum; pickerEpTitle = episodeTitle
         showStreamPicker = true
+    }
+
+    suspend fun resetSavedResumePosition(progressKey: WatchProgressKey) {
+        val saved = watchProgressDao.byKey(
+            progressKey.tmdbId,
+            progressKey.mediaType,
+            progressKey.seasonNumber ?: 0,
+            progressKey.episodeNumber ?: 0,
+        )
+        if (saved != null) {
+            watchProgressDao.upsert(
+                saved.copy(positionMs = 0L, updatedAt = System.currentTimeMillis()),
+            )
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
+        }
     }
 
     fun bingePlaybackSelection(progressKey: WatchProgressKey) =
@@ -674,6 +701,30 @@ fun MovieDetailScreen(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     )
                 }
+                if (hasRestartPoint) {
+                    RestartPlaybackButton(
+                        modifier = (if (isTv) Modifier else Modifier.weight(1f))
+                            .height(if (isTv) 44.dp else 52.dp),
+                        description = "Restart episode from the beginning",
+                        isTv = isTv,
+                        onClick = {
+                            inProgressEpisode?.let { progress ->
+                                val episodeTitle = progress.episodeTitle ?: tvEpisodes
+                                    .firstOrNull {
+                                        it.seasonNumber == progress.seasonNumber &&
+                                            it.episodeNumber == progress.episodeNumber
+                                    }
+                                    ?.name
+                                playEpisode(
+                                    progress.seasonNumber,
+                                    progress.episodeNumber,
+                                    episodeTitle,
+                                    restart = true,
+                                )
+                            }
+                        },
+                    )
+                }
                 TrailerBannerToggle(
                     enabled = movie != null,
                     isTv = isTv,
@@ -716,13 +767,21 @@ fun MovieDetailScreen(
             ) {
                 Box(if (isTv) Modifier else Modifier.weight(1f)) {
                     PlayMovieCta(
-                        addonCount = addonCount,
                         enabled = playEnabled,
                         loading = resolving,
                         downloadProgress = downloadProgress,
                         onClick = { playMovie() },
                         isTv = isTv,
                         modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
+                    )
+                }
+                if (hasRestartPoint) {
+                    RestartPlaybackButton(
+                        modifier = (if (isTv) Modifier else Modifier.weight(1f))
+                            .height(if (isTv) 44.dp else 52.dp),
+                        description = "Restart movie from the beginning",
+                        isTv = isTv,
+                        onClick = { playMovie(restart = true) },
                     )
                 }
                 TrailerBannerToggle(
@@ -1481,7 +1540,10 @@ fun MovieDetailScreen(
                         HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { csPickerPlugin = null }) { Text("Cancel", color = Color.White.copy(alpha = 0.6f)) }
+                            TextButton(onClick = {
+                                csPickerPlugin = null
+                                restartFromBeginning = false
+                            }) { Text("Cancel", color = Color.White.copy(alpha = 0.6f)) }
                             Spacer(Modifier.width(8.dp))
                             Button(
                                 onClick = {
@@ -1506,15 +1568,26 @@ fun MovieDetailScreen(
                                     val reordered = listOf(selPs) + ps.filter { it.url != selPs.url }
                                     csPickerPlugin = null
                                     val bingeSelection = bingePlaybackSelection(progressKey)
-                                    onPlay(
-                                        selPs.url,
-                                        displayTitle,
-                                        reordered,
-                                        progressKey,
-                                        bingeSelection.episodes,
-                                        bingeSelection.currentIndex,
-                                        pauseOverlayMetadataFor(progressKey),
-                                    )
+                                    val startPlayback = {
+                                        onPlay(
+                                            selPs.url,
+                                            displayTitle,
+                                            reordered,
+                                            progressKey,
+                                            bingeSelection.episodes,
+                                            bingeSelection.currentIndex,
+                                            pauseOverlayMetadataFor(progressKey),
+                                        )
+                                    }
+                                    if (restartFromBeginning) {
+                                        restartFromBeginning = false
+                                        scope.launch {
+                                            resetSavedResumePosition(progressKey)
+                                            startPlayback()
+                                        }
+                                    } else {
+                                        startPlayback()
+                                    }
                                 },
                                 enabled = csPickerSelSource != null,
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -1619,6 +1692,7 @@ fun MovieDetailScreen(
                 showStreamPicker = false
                 pickerForDownload = false
                 openInitialSourcePicker = false
+                restartFromBeginning = false
             },
             onPlay = { url, sources ->
                 if (pickerForDownload) {
@@ -1649,15 +1723,26 @@ fun MovieDetailScreen(
                         showTitle = m?.displayTitle,
                         episodeTitle = pickerEpTitle)
                     val bingeSelection = bingePlaybackSelection(progressKey)
-                    onPlay(
-                        url,
-                        displayTitle,
-                        sources,
-                        progressKey,
-                        bingeSelection.episodes,
-                        bingeSelection.currentIndex,
-                        pauseOverlayMetadataFor(progressKey),
-                    )
+                    val startPlayback = {
+                        onPlay(
+                            url,
+                            displayTitle,
+                            sources,
+                            progressKey,
+                            bingeSelection.episodes,
+                            bingeSelection.currentIndex,
+                            pauseOverlayMetadataFor(progressKey),
+                        )
+                    }
+                    if (restartFromBeginning) {
+                        restartFromBeginning = false
+                        scope.launch {
+                            resetSavedResumePosition(progressKey)
+                            startPlayback()
+                        }
+                    } else {
+                        startPlayback()
+                    }
                 }
             },
             onDownload = { source -> downloadSource(source) },
@@ -2130,8 +2215,38 @@ private fun monthAbbr(m: String): String = when (m) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
+private fun RestartPlaybackButton(
+    modifier: Modifier = Modifier,
+    description: String,
+    isTv: Boolean,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier
+            .tvFocusBorder(RoundedCornerShape(50))
+            .semantics { contentDescription = description },
+        shape = RoundedCornerShape(50),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+    ) {
+        Icon(Icons.Default.Replay, null, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "Restart",
+            style = if (isTv) {
+                MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+            } else {
+                MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+            },
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
 private fun PlayMovieCta(
-    addonCount: Int,
     enabled: Boolean,
     loading: Boolean,
     downloadProgress: Float? = null,
@@ -2201,12 +2316,6 @@ private fun PlayMovieCta(
                 Text("Play Movie",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = if (enabled) onPrimary else onSurfaceVariant)
-                if (addonCount > 0) {
-                    Spacer(Modifier.width(6.dp))
-                    Text("· $addonCount source${if (addonCount == 1) "" else "s"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (enabled) onPrimary.copy(0.8f) else onSurfaceVariant)
-                }
             }
         }
     }

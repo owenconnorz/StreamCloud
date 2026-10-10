@@ -203,6 +203,17 @@ interface WatchProgressDao {
         "SELECT * FROM watch_progress WHERE tmdb_id = :tmdbId AND media_type = :mediaType " +
             "AND season_number = :seasonNumber AND episode_number = :episodeNumber LIMIT 1",
     )
+    fun observeByKey(
+        tmdbId: Long,
+        mediaType: String,
+        seasonNumber: Int,
+        episodeNumber: Int,
+    ): Flow<WatchProgressEntity?>
+
+    @Query(
+        "SELECT * FROM watch_progress WHERE tmdb_id = :tmdbId AND media_type = :mediaType " +
+            "AND season_number = :seasonNumber AND episode_number = :episodeNumber LIMIT 1",
+    )
     suspend fun byKey(tmdbId: Long, mediaType: String, seasonNumber: Int, episodeNumber: Int): WatchProgressEntity?
 
     @Query("SELECT * FROM watch_progress WHERE tmdb_id = :tmdbId ORDER BY updated_at DESC LIMIT 1")
