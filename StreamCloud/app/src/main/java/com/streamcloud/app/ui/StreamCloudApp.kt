@@ -1887,12 +1887,6 @@ private fun TvNetflixTopNav(
       var pendingDownFocusHandoff by remember { mutableStateOf(false) }
       var downFocusAttempt by remember { mutableStateOf(0) }
       val focusManager = LocalFocusManager.current
-      val hasDirectContentRequester = currentRoute == Tab.Movies.route ||
-          currentRoute == Tab.Music.route ||
-          currentRoute == Tab.Library.route ||
-          currentRoute == Tab.Settings.route ||
-          currentRoute == Tab.LocalFiles.route ||
-          currentRoute == Tab.LiveTv.route
       LaunchedEffect(
           downFocusAttempt,
           pendingDownFocusHandoff,
@@ -2046,7 +2040,7 @@ private fun TvNetflixTopNav(
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .focusRequester(firstTabFocus)
-                        .focusProperties { if (hasDirectContentRequester) down = contentFocusRequester }
+                        
                         .tvFocusBorder(CircleShape, showOutline = false)
                         .clickable { onSearchClick() },
                 ) {
@@ -2073,7 +2067,7 @@ private fun TvNetflixTopNav(
                                     else -> Color.Transparent
                                 }
                             )
-                            .focusProperties { if (hasDirectContentRequester) down = contentFocusRequester }
+                            
                             .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
                             .onFocusChanged { itemFocused = it.isFocused }
                             .clickable { onTabSelected(tab.route) }

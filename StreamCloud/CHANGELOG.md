@@ -1,3 +1,11 @@
+## V2133 — Watch progress sync and Android TV focus crash fixes
+
+### Playback sync
+- **Final watch position syncs reliably** — playback saves the final position and queues a follow-up Nuvio sync so it is not lost behind an in-flight progress update.
+
+### Android TV
+- **Safer remote navigation** — removed focus destinations that could point to a requester not attached to the current page, preventing the reported `FocusRequester is not initialized` crash.
+
 ## V2129 — Android TV focus styling hotfix
 
 ### Android TV
