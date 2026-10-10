@@ -24,6 +24,22 @@ object YtMusicPlaylistRepository {
     private const val TAG = "YtmPlaylistRepo"
     private const val CLIENT_VERSION = "1.20250127.01.00"
 
+    suspend fun addPlaylistToLibrary(cookie: String, playlistId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            if (cookie.isBlank() || playlistId.isBlank()) return@withContext false
+            val response = postInnerTube(
+                cookie,
+                "playlist/add_to_library",
+                buildJsonObject {
+                    putContext()
+                    put("playlistId", playlistId.removePrefix("VL"))
+                },
+            )
+            response?.get("status")
+                ?.let { (it as? JsonPrimitive)?.contentOrNull == "STATUS_SUCCEEDED" }
+                ?: false
+        }
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)

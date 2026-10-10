@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,6 +28,9 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
@@ -86,6 +90,7 @@ import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.rememberBannerPalette
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
@@ -2289,7 +2294,19 @@ private fun CommunityPlaylistCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    var previewTracks by remember(playlist.id) { mutableStateOf<List<YtmSong>?>(null) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val palette = rememberBannerPalette(
+        imageUrl = playlist.thumbnail,
+        fallbackAccent = MaterialTheme.colorScheme.primary,
+        fallbackOnAccent = MaterialTheme.colorScheme.onPrimary,
+        fallbackBackground = Color(0xFF241812),
+        fallbackSurface = Color(0xFF35251D),
+    )
+    var previewTracks by remember(playlist.id, cookie) { mutableStateOf<List<YtmSong>?>(null) }
+    var playingPlaylist by remember(playlist.id, cookie) { mutableStateOf(false) }
+    var savingPlaylist by remember(playlist.id, cookie) { mutableStateOf(false) }
+    var savedToLibrary by remember(playlist.id, cookie) { mutableStateOf(false) }
     LaunchedEffect(playlist.id, cookie) {
         previewTracks = if (cookie.isBlank()) {
             emptyList()
@@ -2308,7 +2325,7 @@ private fun CommunityPlaylistCard(
     Column(
         modifier
             .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF35251D))
+            .background(palette.surfaceTint)
             .clickable(onClick = onClick)
             .padding(14.dp),
     ) {
@@ -2384,26 +2401,122 @@ private fun CommunityPlaylistCard(
         }
 
         Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             FilledIconButton(
-                onClick = onClick,
+                enabled = !playingPlaylist,
+                onClick = {
+                    if (playingPlaylist) return@FilledIconButton
+                    playingPlaylist = true
+                    scope.launch {
+                        try {
+                            val tracks = com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+                                .playlistTracks(cookie, playlist.id, externalThumb = playlist.thumbnail)
+                            if (tracks.isNotEmpty()) {
+                                com.streamcloud.app.data.ytmusic.YtPlayback.playPlaylist(context, tracks)
+                            } else {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Couldn't load this playlist",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Throwable) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Couldn't load this playlist",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        } finally {
+                            playingPlaylist = false
+                        }
+                    }
+                },
                 colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = Color.White.copy(alpha = 0.14f),
+                    containerColor = palette.accent.copy(alpha = 0.22f),
                     contentColor = Color.White,
                 ),
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Open community playlist")
+                if (playingPlaylist) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Play playlist")
+                }
             }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "Open playlist",
-                color = Color.White.copy(alpha = 0.9f),
-                style = MaterialTheme.typography.labelLarge,
-            )
+            OutlinedIconButton(
+                enabled = !playingPlaylist && previewTracks?.isNotEmpty() != false,
+                onClick = {
+                    scope.launch {
+                        val seed = previewTracks?.firstOrNull() ?: try {
+                            com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+                                .playlistPreviewTracks(cookie, playlist.id, playlist.thumbnail)
+                                .firstOrNull()
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        if (seed != null) {
+                            com.streamcloud.app.data.ytmusic.YtPlayback.startRadioFromCurrent(
+                                context,
+                                "https://music.youtube.com/watch?v=${seed.videoId}",
+                            )
+                        }
+                    }
+                },
+                border = BorderStroke(1.dp, palette.accent.copy(alpha = 0.58f)),
+                colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = palette.accent),
+            ) {
+                Icon(Icons.Default.Radio, contentDescription = "Start playlist radio")
+            }
+            OutlinedIconButton(
+                enabled = cookie.isNotBlank() && !savingPlaylist,
+                onClick = {
+                    if (savingPlaylist || cookie.isBlank()) return@OutlinedIconButton
+                    savingPlaylist = true
+                    scope.launch {
+                        try {
+                            savedToLibrary = com.streamcloud.app.data.ytmusic.YtMusicPlaylistRepository
+                                .addPlaylistToLibrary(cookie, playlist.id)
+                            android.widget.Toast.makeText(
+                                context,
+                                if (savedToLibrary) "Added to your library" else "Couldn't save playlist",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        } finally {
+                            savingPlaylist = false
+                        }
+                    }
+                },
+                border = BorderStroke(1.dp, palette.accent.copy(alpha = 0.58f)),
+                colors = IconButtonDefaults.outlinedIconButtonColors(
+                    contentColor = if (savedToLibrary) palette.accent else Color.White,
+                ),
+            ) {
+                if (savingPlaylist) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = palette.accent,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(
+                        if (savedToLibrary) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                        contentDescription = if (savedToLibrary) "Saved to library" else "Save playlist",
+                    )
+                }
+            }
         }
     }
 }
-
 
 @Composable
 private fun StationSectionTitle(text: String) {
