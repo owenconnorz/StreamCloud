@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Icon
@@ -2302,7 +2303,7 @@ private fun ProfileNavItem(
         targetValue = if (selected) accentColor.copy(alpha = 0.24f) else Color.Transparent,
         label = "profileNavItemBg",
     )
-    val itemLabel = if (avatar.isNotBlank()) "Profile" else "Settings"
+    val itemLabel = "Settings"
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2398,8 +2399,8 @@ private fun ProfileAvatarCircle(avatar: String, size: androidx.compose.ui.unit.D
         )
     } else {
         Icon(
-            Icons.Filled.Settings,
-            contentDescription = "Settings",
+            Icons.Filled.Person,
+            contentDescription = "Profile",
             tint = tint,
             modifier = Modifier.size(size),
         )

@@ -55,6 +55,7 @@ object YtMusicHomeRepository {
                 contents.forEach { entry ->
                     val shelf = (entry as? JsonObject)?.get("musicCarouselShelfRenderer") as? JsonObject
                         ?: (entry as? JsonObject)?.get("musicImmersiveCarouselShelfRenderer") as? JsonObject
+                        ?: (entry as? JsonObject)?.get("musicPlaylistShelfRenderer") as? JsonObject
                         ?: return@forEach
                     parseCarousel(shelf)?.let { add(it) }
                 }
@@ -71,7 +72,7 @@ object YtMusicHomeRepository {
                         break
                     }
                     val before = size
-                    page.findAll("musicCarouselShelfRenderer")
+                    (page.findAll("musicCarouselShelfRenderer") + page.findAll("musicPlaylistShelfRenderer"))
                         .mapNotNull { it as? JsonObject }
                         .forEach { shelf -> parseCarousel(shelf)?.let { add(it) } }
                     if (size == before) break

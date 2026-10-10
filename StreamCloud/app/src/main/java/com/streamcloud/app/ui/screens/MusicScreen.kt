@@ -52,6 +52,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -295,6 +298,7 @@ fun MusicScreen(
     val playbackIsPlaying by PlaybackBus.isPlaying.collectAsState()
     var query by remember { mutableStateOf("") }
     var showHistory by remember { mutableStateOf(false) }
+    var showSamples by remember { mutableStateOf(false) }
     var showDj by remember { mutableStateOf(false) }
     var showAccountMenu by remember { mutableStateOf(false) }
     var djRequest by remember { mutableStateOf("") }
@@ -737,6 +741,7 @@ fun MusicScreen(
                     tvNavFocusRequester =
                         if (isTv && query.isNotBlank()) tvNavFocusRequester else null,
                     onSearchClick = onSearchClick,
+                    onSamplesClick = { showSamples = true },
                     onDjClick = {
                         if (!djQuickMixLoading && !djStarting) {
                             djQuickMixLoading = true
@@ -1321,6 +1326,33 @@ fun MusicScreen(
                 onOpenSettings = onProfileClick,
             )
         }
+        if (showSamples) YtMusicSamplesDialog(onDismiss = { showSamples = false })
+    }
+}
+
+@Composable
+private fun YtMusicSamplesDialog(onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(Color.Black)) {
+            Row(Modifier.fillMaxWidth().statusBarsPadding().height(52.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close Samples", tint = Color.White)
+                }
+                Text("Samples", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            }
+            AndroidView(Modifier.weight(1f).fillMaxWidth(), factory = { ctx ->
+                android.webkit.WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.mediaPlaybackRequiresUserGesture = false
+                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                    android.webkit.CookieManager.getInstance().setAcceptCookie(true)
+                    android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webViewClient = android.webkit.WebViewClient()
+                    loadUrl("https://music.youtube.com/samples")
+                }
+            })
+        }
     }
 }
 
@@ -1475,6 +1507,7 @@ private fun MusicHeader(
     onHistoryClick: () -> Unit,
     onTrendingClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onSamplesClick: () -> Unit = {},
     isTv: Boolean = false,
     djLoading: Boolean = false,
     tvNavFocusRequester: FocusRequester? = null,
@@ -1515,6 +1548,13 @@ private fun MusicHeader(
                     onClick = onSearchClick,
                 )
             }
+            if (!isTv) {
+                MusicHeaderAction(
+                    icon = Icons.Default.PlayArrow,
+                    contentDescription = "YouTube Music Samples",
+                    onClick = onSamplesClick,
+                )
+            }
             MusicHeaderAction(
                 icon = Icons.Default.AutoAwesome,
                 contentDescription = "Play a personalized StreamCloud DJ mix; hold for DJ options",
@@ -1532,10 +1572,6 @@ private fun MusicHeader(
                 icon = Icons.Default.TrendingUp,
                 contentDescription = "Trending",
                 onClick = onTrendingClick,
-            )
-            MusicProfileAction(
-                avatarUrl = profileAvatar,
-                onClick = onProfileClick,
             )
         }
     }
