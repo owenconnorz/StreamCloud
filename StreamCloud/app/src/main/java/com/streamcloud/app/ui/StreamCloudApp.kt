@@ -639,6 +639,7 @@ fun StreamCloudApp() {
                         initialFocusRequester = firstMovieCardFocus,
                         initialFocusEnabled = !showProfilePicker,
                         tvNavHeroFocus = tvNavHeroFocus,
+                        tvNavSafeFocusRequester = firstTvNavFocus,
                         navScrollToTopVersion = navScrollToTopVersion,
                         tvNavDownFocusHandoffVersion = moviesNavDownFocusHandoffVersion,
                         onFirstMovieFocusedChanged = { firstMovieFocused = it },
@@ -1326,6 +1327,7 @@ fun StreamCloudApp() {
                 }
                 composable(Tab.LocalFiles.route) {
                     LocalFilesScreen(
+                        tvNavFocusRequester = tvNavHeroFocus,
                         onPlayAudio = { item ->
                             val url = URLEncoder.encode(item.uri.toString(), "UTF-8")
                             val title = URLEncoder.encode(item.title, "UTF-8")
@@ -1358,6 +1360,7 @@ fun StreamCloudApp() {
                 }
                 composable(Tab.LiveTv.route) {
                     LiveTvScreen(
+                        tvNavFocusRequester = tvNavHeroFocus,
                         onPlayChannel = { url, title, _ ->
                             val encodedUrl = URLEncoder.encode(url, "UTF-8")
                             val encodedTitle = URLEncoder.encode(title, "UTF-8")
@@ -1884,6 +1887,12 @@ private fun TvNetflixTopNav(
       var pendingDownFocusHandoff by remember { mutableStateOf(false) }
       var downFocusAttempt by remember { mutableStateOf(0) }
       val focusManager = LocalFocusManager.current
+      val hasDirectContentRequester = currentRoute == Tab.Movies.route ||
+          currentRoute == Tab.Music.route ||
+          currentRoute == Tab.Library.route ||
+          currentRoute == Tab.Settings.route ||
+          currentRoute == Tab.LocalFiles.route ||
+          currentRoute == Tab.LiveTv.route
       LaunchedEffect(
           downFocusAttempt,
           pendingDownFocusHandoff,
@@ -1974,7 +1983,7 @@ private fun TvNetflixTopNav(
                           }
                           // Movies nav items declare a direct Down focus target above.
                           // Let Compose execute that mapping instead of consuming the key.
-                          currentRoute != Tab.Movies.route
+                          false
                       }
                       // Nothing focusable above the nav bar — consume Up.
                       Key.DirectionUp -> true
@@ -2037,7 +2046,7 @@ private fun TvNetflixTopNav(
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .focusRequester(firstTabFocus)
-                        .focusProperties { if (currentRoute == Tab.Movies.route) down = contentFocusRequester }
+                        .focusProperties { if (hasDirectContentRequester) down = contentFocusRequester }
                         .tvFocusBorder(CircleShape)
                         .clickable { onSearchClick() },
                 ) {
@@ -2064,7 +2073,7 @@ private fun TvNetflixTopNav(
                                     else -> Color.Transparent
                                 }
                             )
-                            .focusProperties { if (currentRoute == Tab.Movies.route) down = contentFocusRequester }
+                            .focusProperties { if (hasDirectContentRequester) down = contentFocusRequester }
                             .tvFocusBorder(RoundedCornerShape(50))
                             .onFocusChanged { itemFocused = it.isFocused }
                             .clickable { onTabSelected(tab.route) }

@@ -23,6 +23,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -72,7 +74,10 @@ private fun nowStr(): String = SimpleDateFormat("HH:mm", Locale.getDefault()).fo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LiveTvScreen(onPlayChannel: (url: String, title: String, subtitle: String?) -> Unit) {
+fun LiveTvScreen(
+    onPlayChannel: (url: String, title: String, subtitle: String?) -> Unit,
+    tvNavFocusRequester: FocusRequester? = null,
+) {
     val context = LocalContext.current
     val vm: LiveTvViewModel = viewModel(factory = LiveTvViewModel.factory(context))
     val state by vm.state.collectAsState()
@@ -374,6 +379,7 @@ fun LiveTvScreen(onPlayChannel: (url: String, title: String, subtitle: String?) 
         ) {
             FloatingActionButton(
                 onClick        = { showAddSheet = true },
+                modifier       = if (tvNavFocusRequester != null) Modifier.focusRequester(tvNavFocusRequester) else Modifier,
                 containerColor = MaterialTheme.colorScheme.primary,
                 shape          = CircleShape,
             ) {

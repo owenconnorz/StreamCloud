@@ -2221,14 +2221,15 @@ private fun RestartPlaybackButton(
     isTv: Boolean,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(
+    Button(
         onClick = onClick,
         modifier = modifier
             .tvFocusBorder(RoundedCornerShape(50))
             .semantics { contentDescription = description },
         shape = RoundedCornerShape(50),
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = MaterialTheme.colorScheme.onSurface,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Black.copy(alpha = 0.52f),
+            contentColor = Color.White,
         ),
     ) {
         Icon(Icons.Default.Replay, null, modifier = Modifier.size(20.dp))
@@ -2257,6 +2258,8 @@ private fun PlayMovieCta(
     val primary  = MaterialTheme.colorScheme.primary
     val surface  = MaterialTheme.colorScheme.surface
     val onPrimary = MaterialTheme.colorScheme.onPrimary
+    val playSurface = if (isTv) Color.Black.copy(alpha = 0.52f) else primary
+    val playContent = if (isTv) Color.White else onPrimary
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val isDownloading = downloadProgress != null
     val animatedFill by animateFloatAsState(
@@ -2278,7 +2281,10 @@ private fun PlayMovieCta(
                         drawRect(color = primary, size = Size(width = size.width * animatedFill, height = size.height))
                     }
                 else
-                    Modifier.background(if (enabled) primary else surface)
+                    Modifier.background(
+                        if (enabled) playSurface
+                        else if (isTv) Color.Black.copy(alpha = 0.35f) else surface,
+                    )
             )
             .clickable(enabled = enabled && !isDownloading, onClick = onClick),
     ) {
@@ -2287,35 +2293,35 @@ private fun PlayMovieCta(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
             ) {
-                Icon(Icons.Default.Download, null, tint = onPrimary, modifier = Modifier.size(22.dp))
+                Icon(Icons.Default.Download, null, tint = playContent, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "Downloading · ${(animatedFill * 100).toInt()}%",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = onPrimary,
+                    color = playContent,
                 )
             }
             loading -> Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
             ) {
-                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = onPrimary)
+                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = playContent)
                 Spacer(Modifier.width(12.dp))
                 Text("Finding best stream…",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = onPrimary)
+                    color = playContent)
             }
             else -> Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
             ) {
                 Icon(Icons.Default.PlayArrow, null,
-                    tint = if (enabled) onPrimary else onSurfaceVariant,
+                    tint = if (enabled) playContent else onSurfaceVariant,
                     modifier = Modifier.size(26.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("Play Movie",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = if (enabled) onPrimary else onSurfaceVariant)
+                    color = if (enabled) playContent else onSurfaceVariant)
             }
         }
     }

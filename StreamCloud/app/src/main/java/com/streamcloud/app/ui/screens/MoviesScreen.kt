@@ -166,6 +166,7 @@ fun MoviesScreen(
     // Always attached to the current hero Play button so the TV nav D-pad Down
     // can jump here even when initialFocusRequester targets something else.
     tvNavHeroFocus: FocusRequester? = null,
+    tvNavSafeFocusRequester: FocusRequester? = null,
     // Incremented when the TV nav gains focus; immediately reveals the hero
     // before a later Down handoff requests its Play button.
     navScrollToTopVersion: Int = 0,
@@ -224,6 +225,23 @@ fun MoviesScreen(
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
+    var pendingCwRemoval by remember { mutableStateOf<WatchProgressEntity?>(null) }
+    LaunchedEffect(cwSheetEntry, pendingCwRemoval, tvNavSafeFocusRequester) {
+        val entry = pendingCwRemoval ?: return@LaunchedEffect
+        if (cwSheetEntry != null) return@LaunchedEffect
+
+        if (tvNavSafeFocusRequester == null) {
+            vm.deleteWatchProgress(entry.tmdbId, entry.mediaType, entry.seasonNumber, entry.episodeNumber)
+            pendingCwRemoval = null
+            return@LaunchedEffect
+        }
+
+        androidx.compose.runtime.withFrameNanos { }
+        runCatching { tvNavSafeFocusRequester.requestFocus() }
+        androidx.compose.runtime.withFrameNanos { }
+        vm.deleteWatchProgress(entry.tmdbId, entry.mediaType, entry.seasonNumber, entry.episodeNumber)
+        pendingCwRemoval = null
+    }
     val openCwEntry: (WatchProgressEntity) -> Unit = { entry ->
         val sr = entry.sourceRoute
         if (sr != null && sr.startsWith("cs:")) {
@@ -935,13 +953,8 @@ fun MoviesScreen(
                 openCwEntry(cwEntry)
             }
             val removeFromContinueWatching = {
+                pendingCwRemoval = cwEntry
                 cwSheetEntry = null
-                vm.deleteWatchProgress(
-                    cwEntry.tmdbId,
-                    cwEntry.mediaType,
-                    cwEntry.seasonNumber,
-                    cwEntry.episodeNumber,
-                )
             }
             if (isTv) {
                 androidx.compose.ui.window.Dialog(
