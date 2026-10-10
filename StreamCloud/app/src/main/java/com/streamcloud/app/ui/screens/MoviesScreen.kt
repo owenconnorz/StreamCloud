@@ -253,11 +253,25 @@ fun MoviesScreen(
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val moviesListState = rememberLazyListState()
+    var tvNavHeroHasFocus by remember { mutableStateOf(false) }
     // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.
     // When TV focus returns to the nav bar, jump to the top immediately. An
     // animated scroll can still be running when the next Down handoff starts.
     LaunchedEffect(navScrollToTopVersion) {
         if (navScrollToTopVersion > 0) moviesListState.scrollToItem(0)
+    }
+    // A Down key can arrive before the previous scroll settles, leaving the hero
+    // focus target detached. Reset synchronously and retry the exact target after
+    // the lazy item has had time to reattach.
+    LaunchedEffect(isTv, tvNavDownFocusHandoffVersion) {
+        if (!isTv || tvNavDownFocusHandoffVersion <= 0) return@LaunchedEffect
+        moviesListState.scrollToItem(0)
+        if (!state.showHeroSection || state.heroBanner.isEmpty()) return@LaunchedEffect
+        repeat(16) {
+            if (tvNavHeroHasFocus) return@LaunchedEffect
+            kotlinx.coroutines.delay(100L)
+            runCatching { tvNavHeroFocus?.requestFocus() }
+        }
     }
     val firstCollectionRowId = state.collections
         .firstOrNull { it.items.isNotEmpty() }
@@ -415,7 +429,10 @@ fun MoviesScreen(
                                 null
                             },
                             navFocusRequester = tvNavHeroFocus,
-                            onInitialItemFocusChanged = onFirstMovieFocusedChanged,
+                            onInitialItemFocusChanged = { focused ->
+                                 tvNavHeroHasFocus = focused
+                                 onFirstMovieFocusedChanged(focused)
+                             },
                             onClick = { item ->
                                 when {
                                     item.tmdbId != null && item.mediaType == "tv" -> onTvClick(item.tmdbId)
