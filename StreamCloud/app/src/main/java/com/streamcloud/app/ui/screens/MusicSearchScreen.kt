@@ -395,10 +395,12 @@ fun MusicSearchScreen(
         bottomBar = {
             if (formFactor != UiFormFactor.Tv) {
                 Surface(
-                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.98f),
+                    color = Color.Transparent,
                     modifier = Modifier.windowInsetsPadding(
                         WindowInsets.navigationBars.union(WindowInsets.ime),
                     ),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
                 ) {
                     Row(
                         modifier = Modifier
