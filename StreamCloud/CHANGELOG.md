@@ -1,3 +1,9 @@
+## Latest — Changes since V2161
+
+### Android TV and playback sync
+- **Faster Android TV Movies home** — Removed a redundant Stremio catalog refresh after discovery and stopped reshuffling hero items on each refresh.
+- **Continue Watching catches up across devices** — The active mobile Movies home requests Nuvio playback progress every two minutes; duplicate progress requests are throttled to once per minute, and polling pauses while the app is backgrounded or search is open.
+
 ## V2161 — Changes since V2156
 
 ### Nuvio sync
