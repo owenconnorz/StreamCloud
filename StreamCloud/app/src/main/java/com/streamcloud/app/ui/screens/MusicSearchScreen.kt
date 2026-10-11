@@ -1,5 +1,13 @@
 package com.streamcloud.app.ui.screens
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import android.net.Uri
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -134,7 +142,7 @@ fun MusicSearchScreen(
     }
 
     LaunchedEffect(searchBarVisible) {
-        if (searchBarVisible) {
+        if (searchBarVisible && formFactor == UiFormFactor.Tv) {
             delay(100)
             runCatching { focusRequester.requestFocus() }
         }
@@ -183,6 +191,32 @@ fun MusicSearchScreen(
         submitSearch(recognizedQuery)
     }
 
+    val voiceSearchLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val recognizedQuery = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+                ?.trim()
+                .orEmpty()
+            if (recognizedQuery.isNotBlank()) {
+                query = recognizedQuery
+                submitSearch(recognizedQuery)
+            }
+        }
+    }
+    fun startVoiceSearch() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Search music")
+        }
+        runCatching { voiceSearchLauncher.launch(intent) }
+            .onFailure {
+                Toast.makeText(context, "Voice search is unavailable on this device", Toast.LENGTH_SHORT).show()
+            }
+    }
+
     MusicRecognitionHost(
         onSearchWithQuery = ::handleRecognizedSearch,
     ) { onRecognitionClick ->
@@ -202,7 +236,8 @@ fun MusicSearchScreen(
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
-            Surface(
+            if (formFactor == UiFormFactor.Tv) {
+                Surface(
                 color = Color.Transparent,
                 modifier = Modifier.statusBarsPadding(),
             ) {
@@ -351,6 +386,106 @@ fun MusicSearchScreen(
                                 contentDescription = "Recognize music nearby",
                                 tint = MaterialTheme.colorScheme.onBackground,
                             )
+                        }
+                    }
+                }
+            }
+            }
+        },
+        bottomBar = {
+            if (formFactor != UiFormFactor.Tv) {
+                Surface(
+                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.98f),
+                    modifier = Modifier.navigationBarsPadding().imePadding(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                            )
+                        }
+                        TextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(54.dp)
+                                .focusRequester(focusRequester),
+                            placeholder = {
+                                Text(
+                                    "Search songs, artists, playlists...",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(Icons.Default.Search, contentDescription = null)
+                            },
+                            trailingIcon = {
+                                when {
+                                    state.loading -> CircularProgressIndicator(
+                                        Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    query.isNotEmpty() -> IconButton(onClick = { query = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear search")
+                                    }
+                                }
+                            },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { submitSearch(query) }),
+                            shape = RoundedCornerShape(28.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent,
+                            ),
+                        )
+                        IconButton(
+                            onClick = ::startVoiceSearch,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice search")
+                        }
+                        IconButton(
+                            onClick = onRecognitionClick,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .semantics { contentDescription = "Find a song by listening" },
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                listOf(7.dp, 13.dp, 18.dp, 11.dp, 6.dp).forEach { barHeight ->
+                                    Box(
+                                        Modifier
+                                            .width(2.dp)
+                                            .height(barHeight)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.onSurface),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
