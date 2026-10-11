@@ -35,6 +35,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -137,6 +138,18 @@ fun GlobalMiniPlayer(
         animationSpec = tween(600),
         label = "miniRingColor",
     )
+    val themedControlBackground = if (dynamicMiniTheme) {
+        accent.copy(alpha = 0.18f)
+    } else {
+        Color(0xFF2C2C2E)
+    }
+    val themedControlActiveBackground = if (dynamicMiniTheme) accent else Color(0xFF2C2C2E)
+    val themedControlIcon = if (dynamicMiniTheme) accent else Color.White
+    val onThemedControlActive = if (dynamicMiniTheme && accent.luminance() > 0.4f) {
+        Color.Black
+    } else {
+        Color.White
+    }
 
     var localPlaybackProgress by remember { mutableStateOf(0f) }
     LaunchedEffect(controller) {
@@ -502,7 +515,14 @@ fun GlobalMiniPlayer(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(if (isLiked) Color(0xFFE91E63) else Color(0xFF2C2C2E))
+                    .background(
+                        when {
+                            dynamicMiniTheme && isLiked -> themedControlActiveBackground
+                            dynamicMiniTheme -> themedControlBackground
+                            isLiked -> Color(0xFFE91E63)
+                            else -> themedControlBackground
+                        },
+                    )
                     .clickable {
                         val mediaId = nowMediaId ?: return@clickable
                         val nowLiked = isLiked
@@ -522,7 +542,11 @@ fun GlobalMiniPlayer(
                 Icon(
                     imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = if (isLiked) "Unlike" else "Like",
-                    tint = Color.White,
+                    tint = if (dynamicMiniTheme) {
+                        if (isLiked) onThemedControlActive else themedControlIcon
+                    } else {
+                        Color.White
+                    },
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -534,13 +558,24 @@ fun GlobalMiniPlayer(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF2C2C2E))
+                    .background(
+                        if (dynamicMiniTheme && (isNetworkCasting || isSonosCasting)) {
+                            themedControlActiveBackground
+                        } else {
+                            themedControlBackground
+                        },
+                    )
                     .clickable { showSonosPicker = true },
             ) {
                 Icon(
                     imageVector = Icons.Default.Cast,
-                    contentDescription = if (isNetworkCasting) "Casting to TV" else "Cast to devices",
-                    tint = if (isNetworkCasting) Color(0xFF66D9A6) else Color.White,
+                    contentDescription = if (isNetworkCasting || isSonosCasting) "Casting to device" else "Cast to devices",
+                    tint = when {
+                        dynamicMiniTheme && (isNetworkCasting || isSonosCasting) -> onThemedControlActive
+                        dynamicMiniTheme -> themedControlIcon
+                        isNetworkCasting || isSonosCasting -> Color(0xFF66D9A6)
+                        else -> Color.White
+                    },
                     modifier = Modifier.size(20.dp),
                 )
             }

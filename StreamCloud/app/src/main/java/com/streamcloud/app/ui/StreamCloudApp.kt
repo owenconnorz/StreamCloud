@@ -340,7 +340,7 @@ fun StreamCloudApp() {
     }
     val albumArtAccent by AlbumArtThemeBus.accent.collectAsState()
     val hasAlbumArt by AlbumArtThemeBus.hasArtwork.collectAsState()
-    val musicNavAccentColor = if (isMusicRoute && hasAlbumArt) {
+    val musicNavAccentColor = if (hasAlbumArt) {
         albumArtAccent
     } else {
         navAccentColor
@@ -1802,7 +1802,6 @@ fun StreamCloudApp() {
                                             showLabel = effectiveShowLabel,
                                             navAccentColor = navAccentColor,
                                             musicNavAccentColor = musicNavAccentColor,
-                                            isMusicRoute = isMusicRoute,
                                             navPillVPad = navPillVPad,
                                             onTabSelected = { route -> navigateToTab(nav, route) },
                                         )
@@ -1821,7 +1820,6 @@ fun StreamCloudApp() {
                                             showLabel = effectiveShowLabel,
                                             navAccentColor = navAccentColor,
                                             musicNavAccentColor = musicNavAccentColor,
-                                            isMusicRoute = isMusicRoute,
                                             navPillVPad = navPillVPad,
                                             onTabSelected = { route -> navigateToTab(nav, route) },
                                         )
@@ -2154,7 +2152,6 @@ private fun MobileNavTabScroller(
     showLabel: Boolean,
     navAccentColor: Color,
     musicNavAccentColor: Color,
-    isMusicRoute: Boolean,
     navPillVPad: androidx.compose.ui.unit.Dp,
     onTabSelected: (String) -> Unit,
 ) {
@@ -2179,7 +2176,7 @@ private fun MobileNavTabScroller(
                 key = { _, tab -> tab.route },
             ) { _, tab ->
                 val selected = currentRoute == tab.route
-                val tabAccentColor = if (tab.route == Tab.Music.route && isMusicRoute) {
+                val tabAccentColor = if (tab.route == Tab.Music.route || tab.route == Tab.Library.route) {
                     musicNavAccentColor
                 } else {
                     navAccentColor
