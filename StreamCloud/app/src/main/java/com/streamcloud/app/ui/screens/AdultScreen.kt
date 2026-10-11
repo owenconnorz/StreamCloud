@@ -1,9 +1,5 @@
 package com.streamcloud.app.ui.screens
 
-import com.streamcloud.app.ads.AdPlacement
-import com.streamcloud.app.ads.AdvertisingBanner
-import com.streamcloud.app.ui.theme.LocalUiFormFactor
-import com.streamcloud.app.ui.theme.UiFormFactor
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -245,12 +241,6 @@ fun AdultScreen(
         }
         }
         Spacer(Modifier.height(16.dp))
-
-        // The age and PIN checks above also protect the advertising placement.
-        // Keep it in the browse layout, never over a video or player controls.
-        if (!showPornhubShorties && LocalUiFormFactor.current != UiFormFactor.Tv && !showAllPornhubCategories) {
-            AdvertisingBanner(placement = AdPlacement.Adult)
-        }
 
         if (showPornhubShorties && state.source == AdultSource.Pornhub) {
             PornhubShortiesScreen(onClose = { showPornhubShorties = false }, modifier = Modifier.fillMaxWidth().weight(1f))
