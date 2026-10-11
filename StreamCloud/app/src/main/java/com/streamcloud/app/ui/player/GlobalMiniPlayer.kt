@@ -304,14 +304,24 @@ fun GlobalMiniPlayer(
                                         ) {
                                             MiniPlayerSwipeAction.SeekNext -> {
                                                 swipeOffsetX.animateTo(-90f, tween(100))
+                                                if (isSonosCasting) {
+                                                    controller?.playWhenReady = false
+                                                    controller?.pause()
+                                                }
                                                 controller?.seekToNextMediaItem()
+                                                if (isSonosCasting) controller?.playWhenReady = false
                                                 swipeOffsetX.snapTo(90f)
                                                 swipeOffsetX.animateTo(0f, tween(220))
                                             }
 
                                             MiniPlayerSwipeAction.SeekPrev -> {
                                                 swipeOffsetX.animateTo(90f, tween(100))
+                                                if (isSonosCasting) {
+                                                    controller?.playWhenReady = false
+                                                    controller?.pause()
+                                                }
                                                 controller?.seekToPreviousMediaItem()
+                                                if (isSonosCasting) controller?.playWhenReady = false
                                                 swipeOffsetX.snapTo(-90f)
                                                 swipeOffsetX.animateTo(0f, tween(220))
                                             }

@@ -2267,6 +2267,7 @@ private fun ProfileNavItem(
     val context = LocalContext.current
     val sl = remember(context) { ServiceLocator.get(context) }
     val ytAvatar by sl.settings.ytMusicUserAvatar.collectAsState(initial = "")
+    val savedDeviceAvatar by sl.settings.googleDeviceAvatar.collectAsState(initial = "")
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
     val ytName by sl.settings.ytMusicUserName.collectAsState(initial = "")
     val ytAccounts by sl.settings.ytMusicAccounts.collectAsState(initial = emptyList())
@@ -2278,9 +2279,9 @@ private fun ProfileNavItem(
     // try the YouTube Music account/account_menu API with the stored cookie.
     // Fall back to the device Google
     // account via AccountManager as a last resort.
-    var deviceAvatar by remember { mutableStateOf("") }
+    var deviceAvatar by remember(savedDeviceAvatar) { mutableStateOf(savedDeviceAvatar) }
     LaunchedEffect(ytAvatar, ytCookie) {
-        if (ytAvatar.isNotBlank() || deviceAvatar.isNotBlank()) return@LaunchedEffect
+        if (ytAvatar.isNotBlank()) return@LaunchedEffect
         val photoUrl = when {
             ytCookie.isNotBlank() ->
                 GoogleAccountHelper.fetchFromYtMusicApi(ytCookie)
@@ -2295,6 +2296,7 @@ private fun ProfileNavItem(
                 // ytAvatar will update via DataStore flow — no need to set deviceAvatar
             } else {
                 deviceAvatar = photoUrl
+                sl.settings.setGoogleDeviceAvatar(photoUrl)
             }
         }
     }

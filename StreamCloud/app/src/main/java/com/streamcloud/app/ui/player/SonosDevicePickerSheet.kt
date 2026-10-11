@@ -113,7 +113,7 @@ fun SonosDevicePickerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color(0xFF1A1A1A),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation  = 0.dp,
     ) {
         Column(

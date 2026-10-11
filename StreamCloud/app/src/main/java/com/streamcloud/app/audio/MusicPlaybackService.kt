@@ -1071,7 +1071,11 @@ class MusicPlaybackService : MediaLibraryService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         val p = session?.player ?: return
         persistQueueSnapshot(p, force = true)
-        if (!p.playWhenReady || p.mediaItemCount == 0) stopSelf()
+        val sonosOwnsPlayback =
+            com.streamcloud.app.data.sonos.SonosRepository.castState.value is
+                com.streamcloud.app.data.sonos.SonosRepository.CastState.Casting
+        // Sonos streams from the app's local proxy; keep its host service alive when the task is removed.
+        if ((!p.playWhenReady || p.mediaItemCount == 0) && !sonosOwnsPlayback) stopSelf()
     }
 
     override fun onDestroy() {

@@ -179,6 +179,7 @@ fun NowPlayingShell(
                     // SonosRepository owns the queue observer for the lifetime of the cast.
                     // This screen only keeps phone audio paused while the repository replaces
                     // the speaker URI, so mini-player and notification skips work too.
+                    controller.playWhenReady = false
                     controller.pause()
                 }
             }
@@ -226,6 +227,10 @@ fun NowPlayingShell(
 
     var lyrics by remember(mediaId) { mutableStateOf<com.streamcloud.app.data.lyrics.LrcEntry?>(null) }
     var lyricsLoading by remember(mediaId) { mutableStateOf(false) }
+    val lyricsPrefs = remember(context) {
+        context.getSharedPreferences("sc_lyrics_prefs", android.content.Context.MODE_PRIVATE)
+    }
+    var lyricsOffsetMs by remember { mutableStateOf(lyricsPrefs.getInt("offset_ms", 0)) }
     LaunchedEffect(mediaId, title, artist) {
         if (mediaId == null || title.isBlank()) return@LaunchedEffect
         lyricsLoading = true
@@ -285,13 +290,21 @@ fun NowPlayingShell(
     }
 
     fun skipToNext() {
-        if (isCasting) controller.pause()
+        if (isCasting) {
+            controller.playWhenReady = false
+            controller.pause()
+        }
         controller.seekToNextMediaItem()
+        if (isCasting) controller.playWhenReady = false
     }
 
     fun skipToPrevious() {
-        if (isCasting) controller.pause()
+        if (isCasting) {
+            controller.playWhenReady = false
+            controller.pause()
+        }
         controller.seekToPreviousMediaItem()
+        if (isCasting) controller.playWhenReady = false
     }
 
 
@@ -872,7 +885,12 @@ fun NowPlayingShell(
                     LyricsCard(
                         lyrics = lyrics,
                         loading = lyricsLoading,
-                        positionMs = positionMs,
+                        positionMs = displayPositionMs,
+                        offsetMs = lyricsOffsetMs,
+                        onOffsetChange = { offset ->
+                            lyricsOffsetMs = offset
+                            lyricsPrefs.edit().putInt("offset_ms", offset).apply()
+                        },
                         onTextColor = onBg,
                         accentColor = MaterialTheme.colorScheme.primary,
                         cardBg = Color.Black.copy(alpha = 0.35f),
@@ -1145,6 +1163,8 @@ private fun LyricsCard(
     lyrics: com.streamcloud.app.data.lyrics.LrcEntry?,
     loading: Boolean,
     positionMs: Long,
+    offsetMs: Int,
+    onOffsetChange: (Int) -> Unit,
     onTextColor: Color,
     accentColor: Color,
     cardBg: Color,
@@ -1166,6 +1186,14 @@ private fun LyricsCard(
                 color = onTextColor,
             )
             Spacer(Modifier.height(12.dp))
+            if (hasSynced) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { onOffsetChange(offsetMs - 100) }) { Text("−100 ms") }
+                    Text(if (offsetMs > 0) "+${offsetMs} ms" else "$offsetMs ms", color = onTextColor.copy(alpha = 0.78f), style = MaterialTheme.typography.labelMedium)
+                    TextButton(onClick = { onOffsetChange(offsetMs + 100) }) { Text("+100 ms") }
+                    if (offsetMs != 0) TextButton(onClick = { onOffsetChange(0) }) { Text("Reset") }
+                }
+            }
             when {
                 loading -> Box(
                     Modifier.fillMaxWidth().padding(20.dp),
@@ -1175,8 +1203,9 @@ private fun LyricsCard(
                 }
                 hasSynced -> {
                     val parsed = remember(lyrics) { LyricsRepository.parseTimedLrc(lyrics?.syncedLyrics) }
-                    val activeIdx = remember(positionMs, parsed) {
-                        parsed.indexOfLast { it.timestampMs <= positionMs }.coerceAtLeast(0)
+                    val lyricPositionMs = (positionMs - offsetMs).coerceAtLeast(0L)
+                    val activeIdx = remember(positionMs, offsetMs, parsed) {
+                        parsed.indexOfLast { it.timestampMs <= lyricPositionMs }.coerceAtLeast(0)
                     }
                     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
                     androidx.compose.runtime.LaunchedEffect(activeIdx) {
@@ -1194,7 +1223,7 @@ private fun LyricsCard(
                                 LyricsRepository.activeWordIndex(
                                     line = line,
                                     nextLineTimestampMs = parsed.getOrNull(i + 1)?.timestampMs,
-                                    positionMs = positionMs,
+                                    positionMs = lyricPositionMs,
                                 )
                             } else {
                                 -1

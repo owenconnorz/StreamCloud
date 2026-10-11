@@ -152,7 +152,9 @@ object SonosRepository {
                     }
                     // Sonos owns only one external URI at a time. Media3 remains the queue owner,
                     // and every transition replaces that URI through the generation-aware path.
-                    controller.pause()
+                    controller.playWhenReady = false
+                    controller.playWhenReady = false
+            controller.pause()
                     updateTrack(context.applicationContext, videoId, title, watchUrl)
                 }
             }

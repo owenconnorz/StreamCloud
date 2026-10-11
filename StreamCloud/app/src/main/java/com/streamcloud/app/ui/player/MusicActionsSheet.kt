@@ -54,7 +54,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,12 +89,8 @@ fun MusicActionsSheet(
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val bgTintRaw by AlbumArtThemeBus.bgTint.collectAsState()
     val accentRaw  by AlbumArtThemeBus.accent.collectAsState()
-    val sheetBg    by animateColorAsState(
-        bgTintRaw.copy(alpha = 0.92f).compositeOver(Color(0xFF0E0E0E)),
-        animationSpec = tween(700), label = "sheetBg",
-    )
+    val sheetBg = MaterialTheme.colorScheme.surfaceContainerHigh
     val sheetAccent by animateColorAsState(accentRaw, animationSpec = tween(700), label = "sheetAccent")
 
     var showDetails by remember { mutableStateOf(false) }
@@ -390,14 +385,14 @@ private fun ChipPill(
         modifier = modifier
             .height(56.dp)
             .clip(RoundedCornerShape(28.dp))
-            .background(Color.White.copy(alpha = 0.06f))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.74f))
             .clickable(onClick = onClick),
     ) {
-        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = label, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(8.dp))
         Text(
             label,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
         )
     }
@@ -416,27 +411,27 @@ private fun ActionRow(
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = if (enabled) 0.04f else 0.02f))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 0.72f else 0.42f))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             icon, contentDescription = title,
-            tint = Color.White.copy(alpha = if (enabled) 1f else 0.4f),
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f),
             modifier = Modifier.size(26.dp),
         )
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                color = Color.White.copy(alpha = if (enabled) 1f else 0.5f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.5f),
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
-                    color = Color.White.copy(alpha = 0.55f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )

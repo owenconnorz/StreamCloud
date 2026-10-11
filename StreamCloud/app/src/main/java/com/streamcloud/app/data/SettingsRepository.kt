@@ -115,6 +115,7 @@ object SettingsKeys {
     val YT_MUSIC_COOKIE = stringPreferencesKey("yt_music_cookie")
     val YT_MUSIC_USER_NAME = stringPreferencesKey("yt_music_user_name")
     val YT_MUSIC_USER_AVATAR = stringPreferencesKey("yt_music_user_avatar")
+    val GOOGLE_DEVICE_AVATAR = stringPreferencesKey("google_device_avatar")
     val YT_MUSIC_ACCOUNTS = stringPreferencesKey("yt_music_accounts")
     val YT_MUSIC_ACTIVE_ACCOUNT_ID = stringPreferencesKey("yt_music_active_account_id")
     val NAV_TAB_ORDER = stringPreferencesKey("nav_tab_order")
@@ -515,6 +516,9 @@ class SettingsRepository(private val context: Context) {
     val ytMusicUserAvatar: Flow<String> = context.dataStore.data.map {
         activeStoredYtMusicAccount(it)?.avatar.orEmpty()
     }
+    val googleDeviceAvatar: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.GOOGLE_DEVICE_AVATAR].orEmpty()
+    }
 
 
     val navTabOrderCsv: Flow<String?> = context.dataStore.data.map { it[SettingsKeys.NAV_TAB_ORDER] }
@@ -593,7 +597,21 @@ class SettingsRepository(private val context: Context) {
         it[SettingsKeys.YT_MUSIC_USER_AVATAR] = avatar
     }
     suspend fun setYtMusicUserAvatar(avatar: String) =
-        context.dataStore.edit { it[SettingsKeys.YT_MUSIC_USER_AVATAR] = avatar }
+        context.dataStore.edit { prefs ->
+            val accounts = storedYtMusicAccounts(prefs)
+            val active = activeStoredYtMusicAccount(prefs)
+            if (active != null && accounts.isNotEmpty()) {
+                val updated = accounts.map { account ->
+                    if (account.id == active.id) account.copy(avatar = avatar) else account
+                }
+                prefs[SettingsKeys.YT_MUSIC_ACCOUNTS] =
+                    ytMusicAccountsJson.encodeToString(updated)
+            } else {
+                prefs[SettingsKeys.YT_MUSIC_USER_AVATAR] = avatar
+            }
+        }
+    suspend fun setGoogleDeviceAvatar(avatar: String) =
+        context.dataStore.edit { it[SettingsKeys.GOOGLE_DEVICE_AVATAR] = avatar }
 
     suspend fun saveYtMusicAccount(cookie: String, name: String, avatar: String) =
         context.dataStore.edit { prefs ->

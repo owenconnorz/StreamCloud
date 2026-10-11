@@ -371,7 +371,10 @@ fun MoviesScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(if (isTv) Color.Black else MaterialTheme.colorScheme.background)
+            .background(
+                if (state.showHeroSection) bannerPalette.backgroundTint
+                else MaterialTheme.colorScheme.background,
+            )
             // Keep vertical D-pad movement in focus traversal instead of
             // letting the parent list scroll independently.
             .tvDpadRepeatThrottle(handleInitialPresses = true),

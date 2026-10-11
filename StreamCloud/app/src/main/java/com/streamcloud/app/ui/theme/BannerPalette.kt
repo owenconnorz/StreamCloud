@@ -112,7 +112,7 @@ private fun paletteFrom(bitmap: Bitmap): BannerPalette? {
         android.graphics.Color.BLACK
     }
 
-    val backgroundHsl = floatArrayOf(sourceHsl[0], sourceHsl[1] * 0.18f, 0.045f)
+    val backgroundHsl = floatArrayOf(sourceHsl[0], sourceHsl[1] * 0.28f, 0.085f)
     val surfaceHsl = floatArrayOf(sourceHsl[0], sourceHsl[1] * 0.28f, 0.12f)
     val accentContainerHsl = floatArrayOf(sourceHsl[0], sourceHsl[1] * 0.62f, 0.22f)
 
