@@ -172,7 +172,7 @@ object SonosRepository {
         // accept our tiny preflight but reject Sonos's later long-lived range request with 403.
         val extractorStream = if (watchUrl.isNotBlank()) {
             runCatching {
-                NewPipeRepository.resolveVerifiedAudioStream(watchUrl)
+                NewPipeRepository.resolveVerifiedAudioStream(watchUrl, sonosSafe = true)
             }.getOrNull()
         } else {
             null
@@ -199,6 +199,18 @@ object SonosRepository {
 
     // ── Position polling ──────────────────────────────────────────────────────
 
+    private fun startCastKeepAlive(context: Context, speakerName: String) {
+        runCatching { SonosCastForegroundService.start(context.applicationContext, speakerName) }
+            .onFailure { Log.w(TAG, "Could not start Sonos background keep-alive", it) }
+    }
+
+    private fun stopCastKeepAlive(context: Context?) {
+        context?.let {
+            runCatching { SonosCastForegroundService.stop(it.applicationContext) }
+                .onFailure { error -> Log.w(TAG, "Could not stop Sonos background keep-alive", error) }
+        }
+    }
+
     private fun startPositionPolling(device: SonosDevice) {
         pollingJob?.cancel()
         pollingJob = scope.launch {
@@ -212,6 +224,7 @@ object SonosRepository {
                     _castState.update { CastState.Error("Sonos playback stopped: $upstreamFailure") }
                     SonosProxyServer.stop()
                     runCatching { SonosController.stop(device) }
+                    stopCastKeepAlive(appContext)
                     break
                 }
                 // GetPositionInfo every second for smooth progress bar
@@ -402,6 +415,7 @@ object SonosRepository {
                     SonosController.getVolume(device)?.let { _sonosVolume.value = it }
                     _sonosPositionMs.value = 0L
                     _sonosDurationMs.value = 0L
+                    startCastKeepAlive(context, displayName)
                     startPositionPolling(device)
                     _castState.update { CastState.Casting(device, title, displayName) }
                 } else {
@@ -602,6 +616,7 @@ object SonosRepository {
         appContext    = null
         scope.launch(Dispatchers.Main) { detachQueueObserverOnMain() }
         SonosProxyServer.stop()
+        stopCastKeepAlive(ctx)
         if (device != null) scope.launch { SonosController.stop(device) }
         _castState.update { CastState.Idle }
         _devices.value    = emptyList()

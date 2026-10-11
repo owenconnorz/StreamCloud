@@ -121,7 +121,7 @@ object SonosProxyServer {
             (if (track.videoId.isNotBlank())
                 runCatching { YtPlayerUtils.resolveAudioStream(track.videoId, sonosSafe = true) }.getOrNull()
             else null)
-                ?: runCatching { NewPipeRepository.resolveAudioStream(track.watchUrl) }.getOrNull()
+                ?: runCatching { NewPipeRepository.resolveVerifiedAudioStream(track.watchUrl, sonosSafe = true)?.url }.getOrNull()
         }
     }
 
@@ -134,7 +134,7 @@ object SonosProxyServer {
     private fun refreshTrack(track: TrackInfo): TrackInfo? = runBlocking {
         val extracted = if (track.watchUrl.isNotBlank()) {
             runCatching {
-                NewPipeRepository.resolveVerifiedAudioStream(track.watchUrl)
+                NewPipeRepository.resolveVerifiedAudioStream(track.watchUrl, sonosSafe = true)
             }.getOrNull()
         } else {
             null
@@ -332,19 +332,27 @@ object SonosProxyServer {
             var requestTrack = track
             var upstreamResponse = try {
                 openUpstream(requestTrack, rangeHeader)
-            } catch (error: Exception) {
-                val message = "The audio source connection failed (${error.javaClass.simpleName})."
-                reportUpstreamFailure(message)
-                client.getOutputStream()
-                    .write("HTTP/1.1 502 Upstream Connection Failed\r\nConnection: close\r\n\r\n".toByteArray())
-                return
+            } catch (firstError: Exception) {
+                val refreshed = refreshTrack(requestTrack)
+                if (refreshed == null) {
+                    reportUpstreamFailure("The audio source connection failed (${firstError.javaClass.simpleName}).")
+                    client.getOutputStream().write("HTTP/1.1 502 Upstream Connection Failed\r\nConnection: close\r\n\r\n".toByteArray())
+                    return
+                }
+                requestTrack = refreshed
+                currentTrack.set(refreshed)
+                try { openUpstream(requestTrack, rangeHeader) } catch (retryError: Exception) {
+                    reportUpstreamFailure("The refreshed audio source connection failed (${retryError.javaClass.simpleName}).")
+                    client.getOutputStream().write("HTTP/1.1 502 Refreshed Upstream Failed\r\nConnection: close\r\n\r\n".toByteArray())
+                    return
+                }
             }
 
             // A signed URL may be accepted by the preflight but rejected by the actual Sonos
             // request. Refresh it once instead of reporting a permanent cast failure. Do not
             // retry indefinitely: a persistent CDN rejection must remain visible to the user.
             if (!upstreamResponse.isSuccessful &&
-                upstreamResponse.code in setOf(403, 416) &&
+                shouldRetrySonosUpstreamStatus(upstreamResponse.code) &&
                 requestTrack.videoId.isNotBlank()
             ) {
                 upstreamResponse.close()
@@ -359,7 +367,7 @@ object SonosProxyServer {
                             "The refreshed audio source connection failed (${error.javaClass.simpleName})."
                         reportUpstreamFailure(message)
                         client.getOutputStream()
-                            .write("HTTP/502 Refreshed Upstream Failed\r\nConnection: close\r\n\r\n".toByteArray())
+                            .write("HTTP/1.1 502 Refreshed Upstream Failed\r\nConnection: close\r\n\r\n".toByteArray())
                         return
                     }
                 }
@@ -452,6 +460,9 @@ object SonosProxyServer {
             ?.getOrNull(1)
             ?.toLongOrNull()
 }
+
+internal fun shouldRetrySonosUpstreamStatus(statusCode: Int): Boolean =
+    statusCode in setOf(403, 408, 416, 429, 500, 502, 503, 504)
 
 /**
  * For a ranged response, Content-Length is only the size of the selected range. Sonos needs the

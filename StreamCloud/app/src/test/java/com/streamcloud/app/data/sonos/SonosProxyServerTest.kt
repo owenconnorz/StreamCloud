@@ -1,6 +1,8 @@
 package com.streamcloud.app.data.sonos
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -47,5 +49,13 @@ class SonosProxyServerTest {
     fun advertisesRangesOnlyWhenTheSourceHonorsTheProbe() {
         assertEquals(true, supportsByteRanges(206, "bytes 0-1/100"))
         assertEquals(false, supportsByteRanges(200, null))
+    }
+
+    @Test
+    fun retriesOnceForTransientOrExpiredSonosSourceResponses() {
+        assertTrue(shouldRetrySonosUpstreamStatus(403))
+        assertTrue(shouldRetrySonosUpstreamStatus(416))
+        assertTrue(shouldRetrySonosUpstreamStatus(503))
+        assertFalse(shouldRetrySonosUpstreamStatus(404))
     }
 }

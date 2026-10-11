@@ -392,9 +392,9 @@ object NewPipeRepository {
      * preferred for music pages; BravePipe is intentionally retained as a separate fallback
      * because its signature and throttling handling can succeed when PipePipe cannot.
      */
-    suspend fun resolveVerifiedAudioStream(url: String): ExtractedAudioStream? =
+    suspend fun resolveVerifiedAudioStream(url: String, sonosSafe: Boolean = false): ExtractedAudioStream? =
         withContext(Dispatchers.IO) {
-            resolveWithPipePipe(url) ?: resolveWithBravePipe(url)
+            resolveWithPipePipe(url, sonosSafe) ?: resolveWithBravePipe(url, sonosSafe)
         }
 
     /**
@@ -422,7 +422,7 @@ object NewPipeRepository {
         resolveVerifiedAudioStream(url)?.url
             ?: error("No verified YouTube audio stream was available for this track.")
 
-    private fun resolveWithPipePipe(watchUrl: String): ExtractedAudioStream? = runCatching {
+    private fun resolveWithPipePipe(watchUrl: String, sonosSafe: Boolean = false): ExtractedAudioStream? = runCatching {
         synchronized(pipePipeInitLock) {
             PipePipeDownloader.instance.ytMusicCookie = NewPipeDownloader.instance.ytMusicCookie
             PipePipe.init(PipePipeDownloader.instance)
@@ -442,12 +442,13 @@ object NewPipeRepository {
                     )
                 }
             },
+            sonosSafe = sonosSafe,
         )
     }.onFailure { error ->
         AppLogger.w(TAG, "PipePipe extraction failed: ${error.message}")
     }.getOrNull()
 
-    private fun resolveWithBravePipe(watchUrl: String): ExtractedAudioStream? {
+    private fun resolveWithBravePipe(watchUrl: String, sonosSafe: Boolean = false): ExtractedAudioStream? {
         fun extract(): ExtractedAudioStream? {
             val info = BravePipeStreamInfo.getInfo(
                 BravePipe.getService(0),
@@ -464,6 +465,7 @@ object NewPipeRepository {
                         )
                     }
                 },
+                sonosSafe = sonosSafe,
             )
         }
 
@@ -577,12 +579,14 @@ object NewPipeRepository {
     private fun selectVerifiedCandidate(
         resolverLabel: String,
         candidates: List<AudioCandidate>,
+        sonosSafe: Boolean = false,
     ): ExtractedAudioStream? {
-        if (candidates.isEmpty()) {
+        val sonosCandidates = if (sonosSafe) candidates.filter { it.container.equals("m4a", ignoreCase = true) } else candidates
+        if (sonosCandidates.isEmpty()) {
             AppLogger.w(TAG, "$resolverLabel returned no audio candidates")
             return null
         }
-        val ranked = candidates
+        val ranked = sonosCandidates
             .distinctBy { it.url }
             .sortedWith(
                 compareByDescending<AudioCandidate> { it.container.equals("m4a", ignoreCase = true) }
