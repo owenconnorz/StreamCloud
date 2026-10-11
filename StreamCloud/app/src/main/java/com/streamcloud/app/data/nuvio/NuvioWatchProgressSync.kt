@@ -131,6 +131,48 @@ internal data class NuvioProgressTimes(
     val updatedAtMs: Long?,
 )
 
+internal data class NuvioEpisodeNumbers(
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+)
+
+internal fun nuvioEpisodeNumbers(
+    season: Int?,
+    seasonNumber: Int?,
+    episode: Int?,
+    episodeNumber: Int?,
+    vararg identityKeys: String?,
+): NuvioEpisodeNumbers {
+    val directSeason = season?.takeIf { it > 0 } ?: seasonNumber?.takeIf { it > 0 }
+    val directEpisode = episode?.takeIf { it > 0 } ?: episodeNumber?.takeIf { it > 0 }
+    if (directSeason != null && directEpisode != null) {
+        return NuvioEpisodeNumbers(directSeason, directEpisode)
+    }
+
+    val keyPattern = Regex(
+        """(?i)^(?:tmdb:|imdb:)?(?:tt\d+|\d+)[:/](\d{1,2})[:/](\d{1,3})$""",
+    )
+    val encoded = identityKeys.asSequence()
+        .filterNotNull()
+        .map { it.trim() }
+        .firstNotNullOfOrNull { key ->
+            keyPattern.matchEntire(key)?.let { match ->
+                val parsedSeason = match.groupValues[1].toIntOrNull()?.takeIf { it > 0 }
+                val parsedEpisode = match.groupValues[2].toIntOrNull()?.takeIf { it > 0 }
+                if (parsedSeason != null && parsedEpisode != null) {
+                    NuvioEpisodeNumbers(parsedSeason, parsedEpisode)
+                } else {
+                    null
+                }
+            }
+        }
+
+    return NuvioEpisodeNumbers(
+        seasonNumber = directSeason ?: encoded?.seasonNumber ?: 0,
+        episodeNumber = directEpisode ?: encoded?.episodeNumber ?: 0,
+    )
+}
+
 internal fun normalizeNuvioProgressTimes(
     position: Long,
     duration: Long,

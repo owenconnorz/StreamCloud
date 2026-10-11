@@ -836,13 +836,26 @@ class NuvioAccountService(private val context: Context) {
             val remoteIdentities = mutableListOf<NuvioWatchProgressDeleteKey>()
             val stillPresentDeletes = mutableSetOf<NuvioWatchProgressDeleteKey>()
             entries.forEach { e ->
-                val season = e.season ?: e.season_number
-                val episode = e.episode ?: e.episode_number
-                val seasonNumber = season?.takeIf { it > 0 } ?: 0
-                val episodeNumber = episode?.takeIf { it > 0 } ?: 0
                 val isSeries = e.content_type.equals("series", ignoreCase = true) ||
                     e.content_type.equals("tv", ignoreCase = true) ||
                     e.content_type.equals("episode", ignoreCase = true)
+                val episodeNumbers = if (isSeries) {
+                    nuvioEpisodeNumbers(
+                        e.season,
+                        e.season_number,
+                        e.episode,
+                        e.episode_number,
+                        e.progress_key,
+                        e.video_id,
+                        e.content_id,
+                    )
+                } else {
+                    NuvioEpisodeNumbers(0, 0)
+                }
+                val seasonNumber = episodeNumbers.seasonNumber
+                val episodeNumber = episodeNumbers.episodeNumber
+                val season = seasonNumber.takeIf { it > 0 }
+                val episode = episodeNumber.takeIf { it > 0 }
                 val mediaType = if (isSeries) "tv" else "movie"
                 val normalizedContentId = normaliseNuvioContentId(
                     e.content_id,
@@ -1368,6 +1381,8 @@ class NuvioAccountService(private val context: Context) {
                         put("progress_key", progressKey)
                         season?.let { put("season", it) }
                         episode?.let { put("episode", it) }
+                        season?.let { put("season_number", it) }
+                        episode?.let { put("episode_number", it) }
                         e.title.takeIf { it.isNotBlank() }?.let { put("name", it) }
                         e.posterUrl?.let { put("poster", it) }
                     }
@@ -1784,6 +1799,8 @@ class NuvioAccountService(private val context: Context) {
                     put("title", item.showTitle)
                     put("season", item.seasonNumber)
                     put("episode", item.episodeNumber)
+                    put("season_number", item.seasonNumber)
+                    put("episode_number", item.episodeNumber)
                     put("watched_at", item.watchedAt)
                 }
             }
@@ -1825,19 +1842,28 @@ class NuvioAccountService(private val context: Context) {
                 text,
             )
             items.forEach { item ->
-                val season = item.season ?: item.season_number
-                val episode = item.episode ?: item.episode_number
                 val isSeries = item.content_type.equals("series", ignoreCase = true) ||
                     item.content_type.equals("tv", ignoreCase = true) ||
                     item.content_type.equals("episode", ignoreCase = true)
-                val validSeason = season?.takeIf { it > 0 }
-                val validEpisode = episode?.takeIf { it > 0 }
+                val episodeNumbers = if (isSeries) {
+                    nuvioEpisodeNumbers(
+                        item.season,
+                        item.season_number,
+                        item.episode,
+                        item.episode_number,
+                        item.content_id,
+                    )
+                } else {
+                    NuvioEpisodeNumbers(0, 0)
+                }
+                val validSeason = episodeNumbers.seasonNumber.takeIf { it > 0 }
+                val validEpisode = episodeNumbers.episodeNumber.takeIf { it > 0 }
                 val isEpisode = isSeries &&
                     validSeason != null && validEpisode != null
                 val normalizedContentId = normaliseNuvioContentId(
                     item.content_id,
-                    season,
-                    episode,
+                    validSeason,
+                    validEpisode,
                 ) ?: item.content_id
                 val tmdbId = resolveTmdbId(
                     normalizedContentId,

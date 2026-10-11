@@ -13,6 +13,30 @@ import org.junit.Test
 
 class NuvioSyncContractTest {
     @Test
+    fun readsEpisodeNumbersFromProgressIdentityWhenSeparateFieldsAreMissing() {
+        assertEquals(
+            NuvioEpisodeNumbers(2, 5),
+            nuvioEpisodeNumbers(null, null, null, null, "tmdb:123:2:5", "tmdb:123"),
+        )
+    }
+
+    @Test
+    fun explicitEpisodeNumbersTakePrecedenceOverEncodedKeys() {
+        assertEquals(
+            NuvioEpisodeNumbers(3, 7),
+            nuvioEpisodeNumbers(3, 2, 7, 5, "tmdb:123:2:5"),
+        )
+    }
+
+    @Test
+    fun ignoresEmptyEpisodeFieldsAndUsesNumberAliases() {
+        assertEquals(
+            NuvioEpisodeNumbers(2, 5),
+            nuvioEpisodeNumbers(0, 2, 0, 5, "tmdb:123"),
+        )
+    }
+
+    @Test
     fun extractsStreamCloudSettingsFromRpcRow() {
         val settings = extractStreamCloudHomeSettings(
             """[{"platform":"streamcloud","settings_json":{"streamcloud":{"schema_version":1,"show_hero_section":false}}}]""",
