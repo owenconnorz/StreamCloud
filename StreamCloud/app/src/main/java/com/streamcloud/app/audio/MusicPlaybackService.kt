@@ -146,6 +146,27 @@ class MusicPlaybackService : MediaLibraryService() {
     private var xfHandoffStartMs: Long = 0L          // wall-clock when the final handoff fade began
     private var xfHandoffTargetPositionMs: Long = -1L
     private lateinit var exoPlayer: ExoPlayer
+    private var sonosVolumePlayer: SonosVolumePlayer? = null
+
+    private fun stopSecondaryMusicPlayers() {
+        val crossfade = xfPlayer
+        val handoff = xfHandoffXfPlayer
+        xfPlayer = null
+        xfHandoffXfPlayer = null
+        xfCrossfading = false
+        xfHandoffPending = false
+        xfNextMediaItem = null
+        xfStartMs = 0L
+        xfHandoffStartMs = 0L
+        xfHandoffTargetPositionMs = -1L
+        runCatching { crossfade?.stop() }
+        runCatching { crossfade?.release() }
+        if (handoff !== crossfade) {
+            runCatching { handoff?.stop() }
+            runCatching { handoff?.release() }
+        }
+        if (::exoPlayer.isInitialized) exoPlayer.volume = 1f
+    }
 
     @Volatile private var ytLibrary: YtMusicLibrary = YtMusicLibrary()
     @Volatile private var ytHomeFeed: YtMusicHomeFeed = YtMusicHomeFeed()
@@ -323,30 +344,32 @@ class MusicPlaybackService : MediaLibraryService() {
                                 )
                             }
                         }
+                        val sonosOwnsPlayback =
+                            com.streamcloud.app.data.sonos.SonosRepository.castState.value is
+                                com.streamcloud.app.data.sonos.SonosRepository.CastState.Casting
+                        if (sonosOwnsPlayback && (playing || playWhenReady)) {
+                            // A queue skip, crossfade hand-off, or external media control can
+                            // briefly re-arm the phone player while Sonos owns the queue.
+                            exoPlayer.playWhenReady = false
+                            exoPlayer.pause()
+                        }
                         // The cast flow pauses the primary session player before replacing a
                         // Sonos URI. A secondary crossfade player is not session-owned, so it
                         // must be stopped explicitly or the upcoming song can leak from the phone.
-                        if (!playing && !playWhenReady) {
-                            val crossfade = xfPlayer
-                            xfPlayer = null
-                            crossfade?.stop()
-                            crossfade?.release()
-                            val handoff = xfHandoffXfPlayer
-                            xfHandoffXfPlayer = null
-                            if (handoff !== crossfade) {
-                                handoff?.stop()
-                                handoff?.release()
-                            }
-                            xfCrossfading = false
-                            xfHandoffPending = false
-                            xfNextMediaItem = null
-                            xfHandoffStartMs = 0L
-                            xfHandoffTargetPositionMs = -1L
-                            exoPlayer.volume = 1f
+                        if (sonosOwnsPlayback || (!playing && !playWhenReady)) {
+                            stopSecondaryMusicPlayers()
                         }
                     }
                     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                         persistQueueSnapshot(exoPlayer, force = true)
+                        val sonosOwnsPlayback =
+                            com.streamcloud.app.data.sonos.SonosRepository.castState.value is
+                                com.streamcloud.app.data.sonos.SonosRepository.CastState.Casting
+                        if (sonosOwnsPlayback) {
+                            exoPlayer.playWhenReady = false
+                            exoPlayer.pause()
+                            stopSecondaryMusicPlayers()
+                        }
                         mediaItem?.let { item ->
                             youtubeVideoId(item.mediaId)?.let { videoId ->
                                 // A newly started track gets its own one-shot 403 recovery budget.
@@ -360,7 +383,7 @@ class MusicPlaybackService : MediaLibraryService() {
                         // queues created by Android Auto or another MediaSession client.
                         prefetchUpcomingStreams()
                         refreshLikedState()
-                        if (xfCrossfading) {
+                        if (!sonosOwnsPlayback && xfCrossfading) {
                             // Primary advanced to the next track while xfPlayer was fading in.
                             // Hand off: keep xfPlayer audible, seek primary to match, then swap.
                             val xf = xfPlayer
@@ -380,7 +403,7 @@ class MusicPlaybackService : MediaLibraryService() {
                                 xfHandoffTargetPositionMs = -1L
                                 exoPlayer.volume = 1f
                             }
-                        } else {
+                        } else if (!sonosOwnsPlayback) {
                             // No active crossfade — restore full volume (e.g. very short track
                             // that ended before the fade-out window even started).
                             exoPlayer.volume = 1f
@@ -427,6 +450,22 @@ class MusicPlaybackService : MediaLibraryService() {
             .setSessionActivity(sessionActivityIntent)
             .build()
         session?.setCustomLayout(buildCustomLayout())
+        sonosVolumePlayer = SonosVolumePlayer(player)
+        ioScope.launch(Dispatchers.Main) {
+            var volumeRoutedToSonos = false
+            combine(
+                com.streamcloud.app.data.sonos.SonosRepository.castState,
+                com.streamcloud.app.data.sonos.SonosRepository.sonosVolume,
+            ) { state, volume ->
+                (state is com.streamcloud.app.data.sonos.SonosRepository.CastState.Casting) to volume
+            }.collect { (routeToSonos, volume) ->
+                if (routeToSonos != volumeRoutedToSonos) {
+                    session?.setPlayer(if (routeToSonos) sonosVolumePlayer ?: player else player)
+                    volumeRoutedToSonos = routeToSonos
+                }
+                if (routeToSonos) sonosVolumePlayer?.notifyDeviceVolumeChanged(volume)
+            }
+        }
 
         audioFx = AudioFx(applicationContext, player.audioSessionId).also { it.start() }
         exoPlayer = player
