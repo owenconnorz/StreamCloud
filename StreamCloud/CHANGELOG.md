@@ -1,3 +1,26 @@
+## Latest — Improvements since V2133
+
+### Sync and library
+- Bulk library deletions now sync to Nuvio, and TV watch-progress cleanup waits for the correct playback state.
+
+### Movies and TV
+- Added Skip Intro support using IntroDB.
+- Added a shortcut to Android battery settings for background-playback troubleshooting.
+
+### Music
+- Applied dynamic music theming to Library, playback menus, queue/cast sheets, mini-player actions, and navigation.
+- Added word-by-word timed lyrics.
+- Playlist details now show an editable description, total runtime, and owner name/profile image; playlist descriptions sync with YouTube Music.
+- Updated mobile Music Search with bottom-positioned search and voice controls, full-screen song recognition, keyboard-aware placement, matching dynamic themes, and cleaner search results without the mini-player overlay or stray borders.
+
+### Sonos and casting
+- Improved Sonos cast stability, audio compatibility, pause handling, and cast/queue sheet theming.
+- Samsung/system volume controls can target Sonos while StreamCloud is backgrounded; volume changes are serialized and checked against the speaker.
+- Added an in-app Sonos volume slider on Now Playing and automatic queue advancement when a track finishes, while keeping phone audio paused.
+
+### Maintenance
+- Removed inactive advertising scaffolding.
+
 ## V2133 — Watch progress sync and Android TV focus crash fixes
 
 ### Playback sync
