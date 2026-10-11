@@ -447,6 +447,7 @@ fun StreamCloudApp() {
         val navHostFocusRestoreRequester = remember { FocusRequester() }
         val seenNavDestinationIds = remember { mutableSetOf<String>() }
         var navHostHasTvFocus by remember { mutableStateOf(false) }
+        var tvNavHasFocus by remember { mutableStateOf(false) }
         // Dedicated requester always attached to the current hero Play button so
         // D-pad Down from the top nav bar reliably lands there regardless of
         // which startupFocusTarget the content decides to use.
@@ -639,7 +640,8 @@ fun StreamCloudApp() {
                         initialFocusRequester = firstMovieCardFocus,
                         initialFocusEnabled = !showProfilePicker,
                         tvNavHeroFocus = tvNavHeroFocus,
-                        tvNavSafeFocusRequester = firstTvNavFocus,
+                        tvNavSafeFocusRequester = firstTvNavFocus.takeIf { isTv },
+                        tvNavSafeFocusReceived = tvNavHasFocus,
                         navScrollToTopVersion = navScrollToTopVersion,
                         tvNavDownFocusHandoffVersion = moviesNavDownFocusHandoffVersion,
                         onFirstMovieFocusedChanged = { firstMovieFocused = it },
@@ -1711,6 +1713,7 @@ fun StreamCloudApp() {
                         firstTabFocus         = firstTvNavFocus,
                         contentFocusRequester = tvNavHeroFocus,
                         contentFocusReceived = firstMovieFocused,
+                        onNavFocusChanged = { tvNavHasFocus = it },
                         onNavFocusGained = {
                             if (currentRoute == Tab.Movies.route) {
                                 navScrollToTopVersion++
@@ -1874,6 +1877,7 @@ private fun TvNetflixTopNav(
     firstTabFocus: FocusRequester,
     contentFocusRequester: FocusRequester,
     contentFocusReceived: Boolean,
+    onNavFocusChanged: (Boolean) -> Unit = {},
     onNavFocusGained: () -> Unit = {},
     onDownFocusHandoffRequested: () -> Unit = {},
     onTabSelected: (String) -> Unit,
@@ -1957,6 +1961,7 @@ private fun TvNetflixTopNav(
               .onFocusChanged {
                   val gainedFocus = it.hasFocus && !navHasFocus
                   navHasFocus = it.hasFocus
+                  onNavFocusChanged(it.hasFocus)
                   if (gainedFocus) onNavFocusGained()
                   if (!it.hasFocus) pendingDownFocusHandoff = false
               }

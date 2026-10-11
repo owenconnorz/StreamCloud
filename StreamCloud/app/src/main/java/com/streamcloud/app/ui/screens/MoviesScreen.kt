@@ -167,6 +167,7 @@ fun MoviesScreen(
     // can jump here even when initialFocusRequester targets something else.
     tvNavHeroFocus: FocusRequester? = null,
     tvNavSafeFocusRequester: FocusRequester? = null,
+    tvNavSafeFocusReceived: Boolean = false,
     // Incremented when the TV nav gains focus; immediately reveals the hero
     // before a later Down handoff requests its Play button.
     navScrollToTopVersion: Int = 0,
@@ -226,7 +227,7 @@ fun MoviesScreen(
     var searchExpanded by remember { mutableStateOf(false) }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
     var pendingCwRemoval by remember { mutableStateOf<WatchProgressEntity?>(null) }
-    LaunchedEffect(cwSheetEntry, pendingCwRemoval, tvNavSafeFocusRequester) {
+    LaunchedEffect(cwSheetEntry, pendingCwRemoval, tvNavSafeFocusRequester, tvNavSafeFocusReceived) {
         val entry = pendingCwRemoval ?: return@LaunchedEffect
         if (cwSheetEntry != null) return@LaunchedEffect
 
@@ -236,8 +237,14 @@ fun MoviesScreen(
             return@LaunchedEffect
         }
 
-        androidx.compose.runtime.withFrameNanos { }
-        runCatching { tvNavSafeFocusRequester.requestFocus() }
+        // A frame after requestFocus() does not prove that focus moved. Keep the
+        // card in the lazy row until the TV navigation confirms it owns focus.
+        if (!tvNavSafeFocusReceived) {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching { tvNavSafeFocusRequester.requestFocus() }
+            return@LaunchedEffect
+        }
+
         androidx.compose.runtime.withFrameNanos { }
         vm.deleteWatchProgress(entry.tmdbId, entry.mediaType, entry.seasonNumber, entry.episodeNumber)
         pendingCwRemoval = null
