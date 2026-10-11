@@ -277,6 +277,21 @@ object YtMusicLibraryRepository {
         }
 
 
+    suspend fun playlistDescription(cookie: String, playlistId: String): String? =
+        withContext(Dispatchers.IO) {
+            if (cookie.isBlank() || playlistId.isBlank()) return@withContext null
+            val response = InnerTubeClient(cookie).browse(playlistId.toMusicBrowseId())
+                ?: return@withContext null
+            val header = listOf(
+                response.findFirst("musicEditablePlaylistDetailHeaderRenderer"),
+                response.findFirst("musicResponsiveHeaderRenderer"),
+            ).firstNotNullOfOrNull { it as? JsonObject }
+            val descriptionElement = header?.get("description")
+                ?: (response.findFirst("musicDescriptionShelfRenderer") as? JsonObject)
+                    ?.get("description")
+            descriptionElement?.runsText()?.trim().orEmpty()
+        }
+
     suspend fun playlistTracks(
         cookie: String,
         playlistId: String,

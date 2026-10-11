@@ -73,8 +73,12 @@ fun YtPlaylistScreen(
     val context = LocalContext.current
     val sl = remember(context) { ServiceLocator.get(context) }
     val cookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
+    val accountName by sl.settings.ytMusicUserName.collectAsState(initial = "")
+    val accountAvatar by sl.settings.ytMusicUserAvatar.collectAsState(initial = "")
     var tracks by remember(playlistId) { mutableStateOf<List<YtmSong>?>(null) }
     var error by remember(playlistId) { mutableStateOf<String?>(null) }
+    var playlistDescription by remember(playlistId) { mutableStateOf("") }
+    var descriptionDraft by remember(playlistId) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val playlistDownloadOwner = remember(playlistId) {
         PlaylistMusicDownloadManager.playlistOwnerKey("ytmusic", playlistId)
@@ -88,6 +92,7 @@ fun YtPlaylistScreen(
 
     var showPlaylistMenu by remember { mutableStateOf(false) }
     var showThumbSheet   by remember { mutableStateOf(false) }
+    var showDescriptionEditor by remember { mutableStateOf(false) }
     var syncTrigger by remember { mutableStateOf(0) }
 
     // ── Search ────────────────────────────────────────────────────────────────
@@ -232,6 +237,16 @@ fun YtPlaylistScreen(
             }
         } else if (cached == null) {
             tracks = emptyList()
+        }
+    }
+
+    LaunchedEffect(playlistId, cookie, syncTrigger) {
+        if (cookie.isNotBlank()) {
+            val description = withContext(Dispatchers.IO) {
+                runCatching { YtMusicLibraryRepository.playlistDescription(cookie, playlistId) }
+                    .getOrNull()
+            }
+            if (description != null) playlistDescription = description
         }
     }
 
@@ -396,6 +411,12 @@ fun YtPlaylistScreen(
                             title = title,
                             coverArt = fallbackCover,
                             trackCount = list.size,
+                            totalDuration = list.takeIf { songs ->
+                                songs.isNotEmpty() && songs.all { (it.durationSeconds ?: 0L) > 0L }
+                            }?.sumOf { it.durationSeconds ?: 0L }?.let(::formatPlaylistDuration),
+                            creatorName = accountName,
+                            creatorAvatar = accountAvatar,
+                            description = playlistDescription,
                             onPlay = { playSongHandoff(list, 0) },
                             onShuffle = {
                                 val shuffled = list.shuffled()
@@ -542,6 +563,48 @@ fun YtPlaylistScreen(
                 Spacer(Modifier.height(24.dp))
             }
         }
+        if (showDescriptionEditor) {
+            AlertDialog(
+                onDismissRequest = { showDescriptionEditor = false },
+                title = { Text("Edit playlist description") },
+                text = {
+                    OutlinedTextField(
+                        value = descriptionDraft,
+                        onValueChange = { descriptionDraft = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        maxLines = 6,
+                        label = { Text("Description") },
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = cookie.isNotBlank(),
+                        onClick = {
+                            showDescriptionEditor = false
+                            scope.launch {
+                                val updated = withContext(Dispatchers.IO) {
+                                    YtMusicPlaylistRepository.updatePlaylistDescription(
+                                        cookie = cookie,
+                                        playlistId = playlistId,
+                                        description = descriptionDraft.trim(),
+                                    )
+                                }
+                                if (updated) {
+                                    playlistDescription = descriptionDraft.trim()
+                                    snackbarHostState.showSnackbar("Description updated on YouTube Music")
+                                } else {
+                                    snackbarHostState.showSnackbar("Description update failed on YouTube Music")
+                                }
+                            }
+                        },
+                    ) { Text("Save") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDescriptionEditor = false }) { Text("Cancel") }
+                },
+            )
+        }
         if (showPlaylistMenu) {
             val currentList = tracks ?: emptyList()
             PlaylistActionsSheet(
@@ -551,7 +614,8 @@ fun YtPlaylistScreen(
                 onDismiss = { showPlaylistMenu = false },
                 onEdit = {
                     showPlaylistMenu = false
-                    pickThumb.launch(arrayOf("image/*"))
+                    descriptionDraft = playlistDescription
+                    showDescriptionEditor = true
                 },
                 onSync = {
                     showPlaylistMenu = false
@@ -600,10 +664,15 @@ private fun PlaylistHero(
     onShuffle: () -> Unit,
     onEditCover: () -> Unit,
     onMoreOptions: () -> Unit,
+    totalDuration: String?,
+    creatorName: String,
+    creatorAvatar: String,
+    description: String,
     downloadEnabled: Boolean,
     downloadBusy: Boolean,
     onDownloadChange: (Boolean) -> Unit,
 ) {
+    var descriptionExpanded by remember(title) { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxWidth()
@@ -664,10 +733,55 @@ private fun PlaylistHero(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "$trackCount songs",
+            buildString {
+                append("$trackCount songs")
+                totalDuration?.let { append(" · ").append(it) }
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (creatorName.isNotBlank() || creatorAvatar.isNotBlank()) {
+            Row(
+                modifier = Modifier.padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (creatorAvatar.isNotBlank()) {
+                    AsyncImage(
+                        model = creatorAvatar,
+                        contentDescription = "$creatorName profile picture",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(28.dp).clip(CircleShape),
+                    )
+                }
+                if (creatorName.isNotBlank()) {
+                    Text(
+                        creatorName,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        if (description.isNotBlank()) {
+            Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Text(
+                    text = description,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (description.length > 140) {
+                    TextButton(
+                        onClick = { descriptionExpanded = !descriptionExpanded },
+                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+                    ) { Text(if (descriptionExpanded) "Show less" else "Show more") }
+                }
+            }
+        }
         Spacer(Modifier.height(16.dp))
         Row(
             Modifier.fillMaxWidth(),
@@ -714,6 +828,13 @@ private fun PlaylistHero(
         }
 
     }
+}
+
+private fun formatPlaylistDuration(totalSeconds: Long): String {
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d:%02d".format(hours, minutes, seconds)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -231,6 +231,28 @@ object YtMusicPlaylistRepository {
     }
 
 
+    suspend fun updatePlaylistDescription(
+        cookie: String,
+        playlistId: String,
+        description: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (cookie.isBlank() || playlistId.isBlank()) return@withContext false
+        val body = buildJsonObject {
+            putContext()
+            put("playlistId", playlistId.removePrefix("VL"))
+            put("actions", buildJsonArray {
+                add(buildJsonObject {
+                    put("action", "ACTION_SET_PLAYLIST_DESCRIPTION")
+                    put("playlistDescription", description)
+                })
+            })
+        }
+        val response = postInnerTube(cookie, "browse/edit_playlist", body)
+            ?: return@withContext false
+        val status = (response["status"] as? JsonPrimitive)?.contentOrNull
+        status == "STATUS_SUCCEEDED"
+    }
+
     suspend fun createPlaylist(
         cookie: String,
         title: String,
