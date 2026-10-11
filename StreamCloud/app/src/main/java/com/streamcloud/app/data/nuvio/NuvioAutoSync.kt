@@ -1,6 +1,7 @@
 package com.streamcloud.app.data.nuvio
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -38,7 +39,10 @@ object NuvioAutoSync {
     private const val PENDING_ADDON_DELETES = "pending_addon_deletes"
     private const val PENDING_WATCH_PROGRESS_DELETES = "pending_watch_progress_deletes"
     private const val WATCH_PROGRESS_REMOTE_IDENTITIES = "watch_progress_remote_identities"
+    private const val PLAYBACK_PROGRESS_SYNC_MIN_INTERVAL_MS = 60_000L
     private val syncMutex = Mutex()
+    private val progressRequestLock = Any()
+    private var lastProgressRequestAtMs: Long? = null
 
     fun installPeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<NuvioAutoSyncWorker>(15, TimeUnit.MINUTES)
@@ -62,6 +66,19 @@ object NuvioAutoSync {
      * still append a guaranteed follow-up through [request].
      */
     fun requestProgress(context: Context) {
+        val now = SystemClock.elapsedRealtime()
+        synchronized(progressRequestLock) {
+            if (
+                !shouldEnqueuePlaybackProgressSync(
+                    lastRequestAtMs = lastProgressRequestAtMs,
+                    nowMs = now,
+                    minimumIntervalMs = PLAYBACK_PROGRESS_SYNC_MIN_INTERVAL_MS,
+                )
+            ) {
+                return
+            }
+            lastProgressRequestAtMs = now
+        }
         enqueue(context, progressOnly = true)
     }
 
@@ -694,6 +711,12 @@ object NuvioAutoSync {
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
 }
+
+internal fun shouldEnqueuePlaybackProgressSync(
+    lastRequestAtMs: Long?,
+    nowMs: Long,
+    minimumIntervalMs: Long,
+): Boolean = lastRequestAtMs == null || nowMs - lastRequestAtMs >= minimumIntervalMs
 
 internal fun syncRequestWorkPolicy(progressOnly: Boolean): ExistingWorkPolicy =
     if (progressOnly) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.APPEND_OR_REPLACE

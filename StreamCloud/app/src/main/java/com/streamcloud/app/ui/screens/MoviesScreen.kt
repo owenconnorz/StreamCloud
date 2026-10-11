@@ -67,6 +67,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import coil.compose.AsyncImage
 import com.lagradost.cloudstream3.SearchResponse
 import com.streamcloud.app.data.api.TmdbMovie
@@ -276,6 +277,15 @@ fun MoviesScreen(
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    LaunchedEffect(lifecycleOwner, nuvioUserId, isTv, searchExpanded) {
+        if (isTv || nuvioUserId.isBlank() || searchExpanded) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                kotlinx.coroutines.delay(120_000L)
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.requestProgress(context.applicationContext)
+            }
+        }
+    }
     val moviesListState = rememberLazyListState()
     var tvNavHeroHasFocus by remember { mutableStateOf(false) }
     // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.

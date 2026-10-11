@@ -216,6 +216,31 @@ class NuvioSyncContractTest {
         Json.parseToJsonElement(json).jsonObject
 
     @Test
+    fun playbackProgressSyncIsRateLimitedWithoutDroppingTheFirstRequest() {
+        assertTrue(
+            shouldEnqueuePlaybackProgressSync(
+                lastRequestAtMs = null,
+                nowMs = 10_000L,
+                minimumIntervalMs = 60_000L,
+            ),
+        )
+        assertFalse(
+            shouldEnqueuePlaybackProgressSync(
+                lastRequestAtMs = 10_000L,
+                nowMs = 69_999L,
+                minimumIntervalMs = 60_000L,
+            ),
+        )
+        assertTrue(
+            shouldEnqueuePlaybackProgressSync(
+                lastRequestAtMs = 10_000L,
+                nowMs = 70_000L,
+                minimumIntervalMs = 60_000L,
+            ),
+        )
+    }
+
+    @Test
     fun cleanFirstSyncAcceptsCloudSettings() {
         assertTrue(
             HomeCatalogSyncPolicy.shouldApplyRemoteSnapshot(
