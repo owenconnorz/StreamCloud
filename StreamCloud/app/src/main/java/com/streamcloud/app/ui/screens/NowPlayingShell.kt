@@ -63,8 +63,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -188,7 +190,8 @@ fun NowPlayingShell(
         while (true) {
             positionMs = controller.currentPosition.coerceAtLeast(0L)
             durationMs = controller.duration.coerceAtLeast(0L)
-            delay(500)
+            // Keep karaoke-style word highlighting responsive while Now Playing is open.
+            delay(100)
         }
     }
 
@@ -871,6 +874,7 @@ fun NowPlayingShell(
                         loading = lyricsLoading,
                         positionMs = positionMs,
                         onTextColor = onBg,
+                        accentColor = MaterialTheme.colorScheme.primary,
                         cardBg = Color.Black.copy(alpha = 0.35f),
                     )
                     val meta = trackMeta
@@ -1142,6 +1146,7 @@ private fun LyricsCard(
     loading: Boolean,
     positionMs: Long,
     onTextColor: Color,
+    accentColor: Color,
     cardBg: Color,
 ) {
     val hasSynced = lyrics?.syncedLyrics?.isNotBlank() == true
@@ -1169,9 +1174,9 @@ private fun LyricsCard(
                     CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = onTextColor)
                 }
                 hasSynced -> {
-                    val parsed = remember(lyrics) { LyricsRepository.parseLrc(lyrics?.syncedLyrics) }
+                    val parsed = remember(lyrics) { LyricsRepository.parseTimedLrc(lyrics?.syncedLyrics) }
                     val activeIdx = remember(positionMs, parsed) {
-                        parsed.indexOfLast { it.first <= positionMs }.coerceAtLeast(0)
+                        parsed.indexOfLast { it.timestampMs <= positionMs }.coerceAtLeast(0)
                     }
                     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
                     androidx.compose.runtime.LaunchedEffect(activeIdx) {
@@ -1184,10 +1189,44 @@ private fun LyricsCard(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(parsed.size) { i ->
-                            val (_, line) = parsed[i]
+                            val line = parsed[i]
+                            val activeWordIdx = if (i == activeIdx) {
+                                LyricsRepository.activeWordIndex(
+                                    line = line,
+                                    nextLineTimestampMs = parsed.getOrNull(i + 1)?.timestampMs,
+                                    positionMs = positionMs,
+                                )
+                            } else {
+                                -1
+                            }
+                            val lyricText = remember(line, i, activeIdx, activeWordIdx, onTextColor, accentColor) {
+                                buildAnnotatedString {
+                                    append(line.text)
+                                    line.words.forEachIndexed { wordIndex, word ->
+                                        val wordColor = when {
+                                            i != activeIdx -> onTextColor.copy(alpha = 0.4f)
+                                            wordIndex < activeWordIdx -> onTextColor
+                                            wordIndex == activeWordIdx -> accentColor
+                                            else -> onTextColor.copy(alpha = 0.42f)
+                                        }
+                                        addStyle(
+                                            SpanStyle(
+                                                color = wordColor,
+                                                fontWeight = if (i == activeIdx && wordIndex == activeWordIdx) {
+                                                    FontWeight.ExtraBold
+                                                } else {
+                                                    FontWeight.Normal
+                                                },
+                                            ),
+                                            start = word.startOffset,
+                                            end = word.endOffset,
+                                        )
+                                    }
+                                }
+                            }
                             Text(
-                                line,
-                                color = if (i == activeIdx) onTextColor else onTextColor.copy(alpha = 0.4f),
+                                lyricText,
+                                color = onTextColor,
                                 style = if (i == activeIdx)
                                     MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                                 else
@@ -1212,8 +1251,15 @@ private fun LyricsCard(
             }
             if (!loading && hasAny) {
                 Spacer(Modifier.height(8.dp))
+                val hasWordTimestamps = remember(lyrics) {
+                    LyricsRepository.parseTimedLrc(lyrics?.syncedLyrics).any { it.hasWordTimestamps }
+                }
                 Text(
-                    if (hasSynced) "Line Synced" else "Plain text",
+                    when {
+                        !hasSynced -> "Plain text"
+                        hasWordTimestamps -> "Word synced"
+                        else -> "Word sync estimated from line timing"
+                    },
                     color = onTextColor.copy(alpha = 0.4f),
                     style = MaterialTheme.typography.labelSmall,
                     textAlign = TextAlign.End,

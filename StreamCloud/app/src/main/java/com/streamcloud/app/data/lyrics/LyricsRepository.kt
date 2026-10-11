@@ -12,6 +12,20 @@ import java.util.concurrent.TimeUnit
 
 private const val TAG = "Lyrics"
 
+data class TimedLyricWord(
+    val text: String,
+    val startOffset: Int,
+    val endOffset: Int,
+    val startMs: Long?,
+)
+
+data class TimedLyricLine(
+    val timestampMs: Long,
+    val text: String,
+    val words: List<TimedLyricWord>,
+    val hasWordTimestamps: Boolean,
+)
+
 @Serializable
 data class LrcEntry(
     val id: Long = 0,
@@ -25,6 +39,10 @@ data class LrcEntry(
 )
 
 object LyricsRepository {
+
+    private val lineTimestampRegex = Regex("""\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]""")
+    private val wordTimestampRegex = Regex("""<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>""")
+    private val lyricWordRegex = Regex("""\S+""")
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -195,5 +213,92 @@ object LyricsRepository {
             }
         }
         return out.sortedBy { it.first }
+    }
+
+    /**
+     * Parses ordinary LRC line timestamps and Enhanced-LRC inline word timestamps.
+     * Ordinary LRC remains usable for karaoke-style highlighting by estimating each
+     * word's position within the gap before the next line.
+     */
+    fun parseTimedLrc(lrc: String?): List<TimedLyricLine> {
+        if (lrc.isNullOrBlank()) return emptyList()
+        val output = mutableListOf<TimedLyricLine>()
+
+        lrc.lineSequence().forEach { rawLine ->
+            val lineTags = lineTimestampRegex.findAll(rawLine).toList()
+            if (lineTags.isEmpty()) return@forEach
+
+            val encodedText = rawLine.substring(lineTags.last().range.last + 1)
+            val inlineTags = wordTimestampRegex.findAll(encodedText).toList()
+            var removedChars = 0
+            val cleanTagOffsets = inlineTags.map { tag ->
+                val cleanOffset = tag.range.first - removedChars
+                removedChars += tag.value.length
+                cleanOffset
+            }
+            val untrimmedText = wordTimestampRegex.replace(encodedText, "")
+            val leadingWhitespace = untrimmedText.indexOfFirst { !it.isWhitespace() }
+                .takeIf { it >= 0 } ?: untrimmedText.length
+            val text = untrimmedText.trim()
+            if (text.isBlank()) return@forEach
+
+            val tags = inlineTags.mapIndexed { index, tag ->
+                val startOffset = (cleanTagOffsets[index] - leadingWhitespace).coerceAtLeast(0)
+                startOffset to timestampMs(tag.groupValues[1], tag.groupValues[2], tag.groupValues[3])
+            }
+            val words = lyricWordRegex.findAll(text).map { match ->
+                val wordTimestamp = tags.lastOrNull { it.first <= match.range.first }?.second
+                TimedLyricWord(
+                    text = match.value,
+                    startOffset = match.range.first,
+                    endOffset = match.range.last + 1,
+                    startMs = wordTimestamp,
+                )
+            }.toList()
+
+            lineTags.forEach { tag ->
+                output += TimedLyricLine(
+                    timestampMs = timestampMs(tag.groupValues[1], tag.groupValues[2], tag.groupValues[3]),
+                    text = text,
+                    words = words,
+                    hasWordTimestamps = inlineTags.isNotEmpty(),
+                )
+            }
+        }
+        return output.sortedBy(TimedLyricLine::timestampMs)
+    }
+
+    /**
+     * Returns the word currently being sung. Enhanced LRC uses its word timestamps;
+     * standard line-synced LRC distributes time across words in proportion to length.
+     */
+    fun activeWordIndex(
+        line: TimedLyricLine,
+        nextLineTimestampMs: Long?,
+        positionMs: Long,
+    ): Int {
+        if (line.words.isEmpty() || positionMs < line.timestampMs) return -1
+
+        if (line.hasWordTimestamps) {
+            return line.words.indexOfLast { (it.startMs ?: line.timestampMs) <= positionMs }
+        }
+
+        val endMs = nextLineTimestampMs
+            ?.takeIf { it > line.timestampMs }
+            ?: (line.timestampMs + 5_000L)
+        val durationMs = (endMs - line.timestampMs).coerceAtLeast(1L)
+        val fraction = ((positionMs - line.timestampMs).toFloat() / durationMs).coerceIn(0f, 0.9999f)
+        val totalWeight = line.words.sumOf { it.text.length.coerceAtLeast(1) }
+        val targetWeight = fraction * totalWeight
+        var accumulated = 0
+        return line.words.indexOfFirst { word ->
+            accumulated += word.text.length.coerceAtLeast(1)
+            targetWeight < accumulated
+        }.let { if (it >= 0) it else line.words.lastIndex }
+    }
+
+    private fun timestampMs(minutes: String, seconds: String, fraction: String): Long {
+        val millis = fraction.padEnd(3, '0').take(3).toIntOrNull() ?: 0
+        return (minutes.toLong() * 60 + seconds.toLong()) * 1_000L + millis
     }
 }
