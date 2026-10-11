@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -412,46 +414,73 @@ fun MusicSearchScreen(
                                 tint = MaterialTheme.colorScheme.onBackground,
                             )
                         }
-                        TextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            modifier = Modifier
-                                .weight(1f)
-                                .focusRequester(focusRequester),
-                            placeholder = {
-                                Text(
-                                    "Search songs, artists, playlists...",
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            },
-                            singleLine = true,
-                            leadingIcon = {
-                                Icon(Icons.Default.Search, contentDescription = null)
-                            },
-                            trailingIcon = {
-                                when {
-                                    state.loading -> CircularProgressIndicator(
-                                        Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                    query.isNotEmpty() -> IconButton(onClick = { query = "" }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear search")
-                                    }
-                                }
-                            },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { submitSearch(query) }),
-                            shape = RoundedCornerShape(28.dp),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent,
-                            ),
-                        )
+                        Surface(
+                              modifier = Modifier
+                                  .weight(1f)
+                                  .height(56.dp),
+                              shape = RoundedCornerShape(28.dp),
+                              color = MaterialTheme.colorScheme.surfaceVariant,
+                              tonalElevation = 0.dp,
+                              shadowElevation = 0.dp,
+                          ) {
+                              Row(
+                                  modifier = Modifier
+                                      .fillMaxSize()
+                                      .padding(horizontal = 14.dp),
+                                  verticalAlignment = Alignment.CenterVertically,
+                              ) {
+                                  Icon(
+                                      Icons.Default.Search,
+                                      contentDescription = null,
+                                      tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                  )
+                                  Spacer(Modifier.width(12.dp))
+                                  Box(
+                                      modifier = Modifier.weight(1f),
+                                      contentAlignment = Alignment.CenterStart,
+                                  ) {
+                                      BasicTextField(
+                                          value = query,
+                                          onValueChange = { query = it },
+                                          modifier = Modifier
+                                              .fillMaxWidth()
+                                              .focusRequester(focusRequester),
+                                          singleLine = true,
+                                          textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                              color = MaterialTheme.colorScheme.onSurface,
+                                          ),
+                                          cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                          keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                          keyboardActions = KeyboardActions(onSearch = { submitSearch(query) }),
+                                          decorationBox = { innerTextField ->
+                                              if (query.isEmpty()) {
+                                                  Text(
+                                                      "Search songs, artists, playlists...",
+                                                      style = MaterialTheme.typography.bodyLarge,
+                                                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                      maxLines = 1,
+                                                      overflow = TextOverflow.Ellipsis,
+                                                  )
+                                              }
+                                              innerTextField()
+                                          },
+                                      )
+                                  }
+                                  when {
+                                      state.loading -> CircularProgressIndicator(
+                                          Modifier.size(18.dp),
+                                          strokeWidth = 2.dp,
+                                          color = MaterialTheme.colorScheme.primary,
+                                      )
+                                      query.isNotEmpty() -> IconButton(
+                                          onClick = { query = "" },
+                                          modifier = Modifier.size(36.dp),
+                                      ) {
+                                          Icon(Icons.Default.Close, contentDescription = "Clear search")
+                                      }
+                                  }
+                              }
+                          }
                         IconButton(
                             onClick = ::startVoiceSearch,
                             modifier = Modifier

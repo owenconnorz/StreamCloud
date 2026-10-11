@@ -387,9 +387,11 @@ fun StreamCloudApp() {
         currentRoute == "pornhub-login" ||
         currentRoute?.startsWith("adult-search/") == true ||
         currentRoute == Tab.Adult.route
+    val isMusicSearchRoute = currentRoute?.startsWith("music-search") == true
     val showMiniPlayer = currentRoute != null &&
         !isMediaRoute &&
         !isSettingsOrAdult &&
+        !isMusicSearchRoute &&
         miniNowPlayingId != null &&
         miniNowPlayingId != dismissedMiniPlayerId
 
@@ -1691,6 +1693,7 @@ fun StreamCloudApp() {
                         showRail &&
                         !isTv &&
                         currentRoute != Tab.Music.route &&
+                        !isMusicSearchRoute &&
                         !isMediaRoute &&
                         !isSettingsOrAdult
                     ) {
