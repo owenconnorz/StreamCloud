@@ -1,4 +1,14 @@
-## Latest — Improvements since V2133
+## Latest — Changes since V2156
+
+    ### Nuvio sync
+    - TV episode continue-watching progress now syncs correctly when Nuvio omits separate season and episode fields; episode IDs preserve the right episode across account sync.
+    - Progress and watched episodes send both season/episode field formats for better compatibility with Nuvio.
+
+    ### Movies home
+    - Phone and tablet use the normal app background instead of a colour wash sampled from the hero banner.
+    - Android TV limits the banner tint to the hero area and fades it to black just below the banner.
+
+    ## Latest — Improvements since V2133
 
 ### Sync and library
 - Bulk library deletions now sync to Nuvio, and TV watch-progress cleanup waits for the correct playback state.
