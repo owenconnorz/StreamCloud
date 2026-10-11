@@ -249,6 +249,7 @@ fun SonosDevicePickerSheet(
 
                 is SonosRepository.CastState.Casting -> {
                     val vol by SonosRepository.sonosVolume.collectAsState()
+                    var volumeSliderValue by remember(vol) { mutableFloatStateOf(vol / 100f) }
                     Column(
                         Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -295,8 +296,11 @@ fun SonosDevicePickerSheet(
                                 modifier = Modifier.size(20.dp),
                             )
                             Slider(
-                                value = vol / 100f,
-                                onValueChange = { SonosRepository.setVolume((it * 100).toInt()) },
+                                value = volumeSliderValue,
+                                onValueChange = { volumeSliderValue = it },
+                                onValueChangeFinished = {
+                                    SonosRepository.setVolume((volumeSliderValue * 100).toInt())
+                                },
                                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                                 colors = SliderDefaults.colors(
                                     thumbColor = MaterialTheme.colorScheme.primary,

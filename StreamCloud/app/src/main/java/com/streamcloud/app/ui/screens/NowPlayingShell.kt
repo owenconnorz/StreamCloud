@@ -267,6 +267,10 @@ fun NowPlayingShell(
     val isCasting = isSonosCasting || isNetworkCasting
 
     val sonosIsPlaying  by SonosRepository.isSonosPlaying.collectAsState()
+    val sonosVolume by SonosRepository.sonosVolume.collectAsState()
+    var sonosVolumeSliderValue by remember(sonosVolume) {
+        mutableFloatStateOf(sonosVolume / 100f)
+    }
     val sonosTrackUpdating by SonosRepository.isSonosTrackUpdating.collectAsState()
     val sonosPosMs      by SonosRepository.sonosPositionMs.collectAsState()
     val sonosDurMs      by SonosRepository.sonosDurationMs.collectAsState()
@@ -827,6 +831,38 @@ fun NowPlayingShell(
                         Text(
                             formatTime(displayDurationMs), color = onBg.copy(alpha = 0.85f),
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        )
+                    }
+                    if (isSonosCasting) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Sonos volume",
+                                color = onBg.copy(alpha = 0.85f),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            Text(
+                                "$sonosVolume%",
+                                color = onBg.copy(alpha = 0.85f),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                        Slider(
+                            value = sonosVolumeSliderValue,
+                            onValueChange = { sonosVolumeSliderValue = it },
+                            onValueChangeFinished = {
+                                SonosRepository.setVolume((sonosVolumeSliderValue * 100).toInt())
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = onBg,
+                                activeTrackColor = onBg,
+                                inactiveTrackColor = onBg.copy(alpha = 0.3f),
+                            ),
                         )
                     }
 

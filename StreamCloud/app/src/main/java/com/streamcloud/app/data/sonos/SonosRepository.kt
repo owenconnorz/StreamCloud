@@ -68,10 +68,13 @@ object SonosRepository {
     private var queuePlayer: Player? = null
     private var queueListener: Player.Listener? = null
     private var observedQueueMediaId: String? = null
+    private var completedQueueMediaId: String? = null
+    @Volatile private var furthestSonosPositionMs = 0L
     private var pollingJob: kotlinx.coroutines.Job? = null
     private var connectionJob: kotlinx.coroutines.Job? = null
     private var trackUpdateJob: kotlinx.coroutines.Job? = null
     private val trackUpdateMutex = Mutex()
+    private val volumeMutex = Mutex()
     private val trackUpdateGeneration = AtomicInteger(0)
     private data class TrackUpdateIntent(val generation: Int, val shouldPlay: Boolean)
     private val trackUpdateIntent = AtomicReference(TrackUpdateIntent(0, true))
@@ -130,6 +133,8 @@ object SonosRepository {
         queuePlayer = null
         queueListener = null
         observedQueueMediaId = null
+        completedQueueMediaId = null
+        furthestSonosPositionMs = 0L
     }
 
     private suspend fun attachQueueObserver(context: Context) =
@@ -137,12 +142,16 @@ object SonosRepository {
             val controller = MusicController.get(context.applicationContext)
             detachQueueObserverOnMain()
             observedQueueMediaId = controller.currentMediaItem?.mediaId
+            completedQueueMediaId = null
+            furthestSonosPositionMs = 0L
             val listener = object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     val item = mediaItem ?: return
                     if (activeDevice == null || _castState.value !is CastState.Casting) return
                     if (item.mediaId == observedQueueMediaId) return
                     observedQueueMediaId = item.mediaId
+                    completedQueueMediaId = null
+                    furthestSonosPositionMs = 0L
                     val (videoId, title, watchUrl) = queueTrack(item) ?: run {
                         Log.w(TAG, "Cannot map queue item ${item.mediaId} to a Sonos stream")
                         _castState.update {
@@ -228,18 +237,52 @@ object SonosRepository {
                     break
                 }
                 // GetPositionInfo every second for smooth progress bar
-                runCatching { SonosController.getPositionInfo(device) }.getOrNull()?.let { (pos, dur) ->
+                val positionInfo = runCatching {
+                    SonosController.getPositionInfo(device)
+                }.getOrNull()
+                positionInfo?.let { (pos, dur) ->
                     _sonosPositionMs.value = pos
                     _sonosDurationMs.value = dur
+                    if (pos > furthestSonosPositionMs) furthestSonosPositionMs = pos
                 }
                 // Sync transport state every 5 seconds
                 if (tick % 5 == 0) {
                     runCatching { SonosController.getState(device) }.getOrNull()?.let { state ->
-                        _isSonosPlaying.value = state == "PLAYING"
+                        val wasPlaying = _isSonosPlaying.value
+                        val isPlaying = state == "PLAYING"
+                        _isSonosPlaying.value = isPlaying
+                        if (
+                            wasPlaying &&
+                            !isPlaying &&
+                            state in setOf("STOPPED", "NO_MEDIA_PRESENT")
+                        ) {
+                            val duration = maxOf(
+                                _sonosDurationMs.value,
+                                positionInfo?.second ?: 0L,
+                            )
+                            val reachedEnd = duration <= 0L ||
+                                furthestSonosPositionMs >= duration * 85L / 100L ||
+                                _sonosPositionMs.value >= duration - 4_000L
+                            if (reachedEnd) advanceQueueAfterNaturalEnd()
+                        }
                     }
                 }
                 tick++
             }
+        }
+    }
+
+    private suspend fun advanceQueueAfterNaturalEnd() {
+        withContext(Dispatchers.Main) {
+            val controller = queuePlayer ?: return@withContext
+            val currentId = controller.currentMediaItem?.mediaId ?: return@withContext
+            if (completedQueueMediaId == currentId) return@withContext
+            completedQueueMediaId = currentId
+            if (!controller.hasNextMediaItem()) return@withContext
+
+            controller.playWhenReady = false
+            controller.pause()
+            controller.seekToNextMediaItem()
         }
     }
 
@@ -589,15 +632,34 @@ object SonosRepository {
     fun adjustVolume(delta: Int) {
         val device = activeDevice ?: return
         val newVol = (_sonosVolume.value + delta).coerceIn(0, 100)
-        _sonosVolume.value = newVol
-        scope.launch { SonosController.setVolume(device, newVol) }
+        setVolume(newVol)
     }
 
     fun setVolume(level: Int) {
         val device = activeDevice ?: return
+        val previousVolume = _sonosVolume.value
         val clamped = level.coerceIn(0, 100)
         _sonosVolume.value = clamped
-        scope.launch { SonosController.setVolume(device, clamped) }
+        scope.launch {
+            volumeMutex.withLock {
+                if (activeDevice != device) return@withLock
+                val accepted = SonosController.setVolume(device, clamped)
+                var confirmedVolume = SonosController.getVolume(device)
+                if (accepted && confirmedVolume != clamped) {
+                    for (attempt in 0 until 3) {
+                        delay(200L)
+                        confirmedVolume = SonosController.getVolume(device)
+                        if (confirmedVolume == clamped) break
+                    }
+                }
+                if (confirmedVolume != null) {
+                    _sonosVolume.value = confirmedVolume
+                } else if (!accepted) {
+                    Log.w(TAG, "Sonos rejected volume change; restoring the last confirmed volume")
+                    _sonosVolume.value = previousVolume
+                }
+            }
+        }
     }
 
     fun disconnect(resumeOnPhone: Boolean = true) {
