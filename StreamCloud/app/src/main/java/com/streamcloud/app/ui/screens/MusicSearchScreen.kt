@@ -124,11 +124,9 @@ fun MusicSearchScreen(
         showAllAlbums = false
     }
 
-    val nowArtwork = state.nowPlayingTrack?.thumbnail
-    val dominant  by rememberDominant(nowArtwork)
     val themeAccent = MaterialTheme.colorScheme.primary
     val animAccent by animateColorAsState(
-        targetValue = if (formFactor == UiFormFactor.Tv) themeAccent else dominant,
+        targetValue = themeAccent,
         animationSpec = tween(durationMillis = 700),
         label = "search-accent",
     )
@@ -396,7 +394,9 @@ fun MusicSearchScreen(
             if (formFactor != UiFormFactor.Tv) {
                 Surface(
                     color = MaterialTheme.colorScheme.background.copy(alpha = 0.98f),
-                    modifier = Modifier.navigationBarsPadding().imePadding(),
+                    modifier = Modifier.windowInsetsPadding(
+                        WindowInsets.navigationBars.union(WindowInsets.ime),
+                    ),
                 ) {
                     Row(
                         modifier = Modifier
@@ -417,7 +417,6 @@ fun MusicSearchScreen(
                             onValueChange = { query = it },
                             modifier = Modifier
                                 .weight(1f)
-                                .height(54.dp)
                                 .focusRequester(focusRequester),
                             placeholder = {
                                 Text(
