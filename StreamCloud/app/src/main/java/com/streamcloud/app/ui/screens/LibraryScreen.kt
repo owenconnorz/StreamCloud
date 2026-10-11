@@ -934,12 +934,22 @@ private fun MovieWatchlistsLibrarySection(
                     TextButton(
                         onClick = {
                             val ids = selectedIds.toList()
-                            scope.launch {
-                                if (activeListId == null) ids.forEach { db.watchlist().remove(it) }
-                                else dao.removeItems(activeListId!!, ids)
-                                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
-                                selectedIds = emptySet()
-                                selectionMode = false
+                                scope.launch {
+                                    if (activeListId == null) {
+                                        val removedItems = entries.filter { it.tmdbId in ids }
+                                        ids.forEach { db.watchlist().remove(it) }
+                                        com.streamcloud.app.data.nuvio.NuvioAutoSync
+                                            .requestLibraryDeletes(
+                                                context.applicationContext,
+                                                removedItems.map { it.tmdbId to it.mediaType },
+                                            )
+                                    } else {
+                                        dao.removeItems(activeListId!!, ids)
+                                        com.streamcloud.app.data.nuvio.NuvioAutoSync
+                                            .request(context.applicationContext)
+                                    }
+                                    selectedIds = emptySet()
+                                    selectionMode = false
                             }
                         },
                     ) { Text("Remove", color = MaterialTheme.colorScheme.error) }

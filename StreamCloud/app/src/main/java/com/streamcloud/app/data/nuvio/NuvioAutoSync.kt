@@ -190,34 +190,44 @@ object NuvioAutoSync {
      * offline, and Nuvio must not recreate it on the next pull.
      */
     suspend fun requestLibraryDelete(context: Context, tmdbId: Long, mediaType: String) {
-        val contentType = when (mediaType.lowercase()) {
-            "tv", "series" -> "series"
-            "movie" -> "movie"
-            else -> return
+            requestLibraryDeletes(context, listOf(tmdbId to mediaType))
         }
-        val appContext = context.applicationContext
-        val services = ServiceLocator.get(appContext)
-        val userId = services.settings.nuvioUserId.first().trim()
-        if (userId.isBlank()) return
-        NuvioAccountScopeStore.setCurrentUserId(appContext, userId)
-        val profiles = services.profiles
-        val localProfileId = profiles.currentActiveId()
-            ?: profiles.currentProfiles().firstOrNull()?.id
-            ?: return
-        if (profiles.nuvioProfileIndex(userId, localProfileId) == null) return
-        val key = "$contentType:tmdb:$tmdbId"
-        val prefs = appContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        val preferenceKey = libraryDeletePreferenceKey(userId, localProfileId)
-        val pending = prefs.getStringSet(preferenceKey, emptySet()).orEmpty().toMutableSet()
-        pending += key
-        // The process may be stopped immediately after the user removes an item.
-        // A tombstone must be on disk before any background work is scheduled.
-        check(prefs.edit().putStringSet(preferenceKey, pending).commit()) {
-            "Could not persist the Nuvio library deletion request"
-        }
-        request(context)
-    }
 
+        suspend fun requestLibraryDeletes(
+            context: Context,
+            items: Collection<Pair<Long, String>>,
+        ) {
+            val deletions = items.mapNotNull { (tmdbId, mediaType) ->
+                if (tmdbId <= 0L) return@mapNotNull null
+                val contentType = when (mediaType.lowercase()) {
+                    "tv", "series" -> "series"
+                    "movie" -> "movie"
+                    else -> return@mapNotNull null
+                }
+                "$contentType:tmdb:$tmdbId"
+            }.toSet()
+            if (deletions.isEmpty()) return
+            val appContext = context.applicationContext
+            val services = ServiceLocator.get(appContext)
+            val userId = services.settings.nuvioUserId.first().trim()
+            if (userId.isBlank()) return
+            NuvioAccountScopeStore.setCurrentUserId(appContext, userId)
+            val profiles = services.profiles
+            val localProfileId = profiles.currentActiveId()
+                ?: profiles.currentProfiles().firstOrNull()?.id
+                ?: return
+            if (profiles.nuvioProfileIndex(userId, localProfileId) == null) return
+            val prefs = appContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+            val preferenceKey = libraryDeletePreferenceKey(userId, localProfileId)
+            val pending = prefs.getStringSet(preferenceKey, emptySet()).orEmpty().toMutableSet()
+            pending += deletions
+            // The process may be stopped immediately after the user removes an item.
+            // A tombstone must be on disk before any background work is scheduled.
+            check(prefs.edit().putStringSet(preferenceKey, pending).commit()) {
+                "Could not persist the Nuvio library deletion request"
+            }
+            request(context)
+        }
     suspend fun recordWatchProgressDelete(
         context: Context,
         tmdbId: Long,
