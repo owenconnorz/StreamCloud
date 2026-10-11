@@ -883,6 +883,35 @@ fun SettingsHubScreen(
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
                     SettingNav(
+                        icon = Icons.Default.Bolt, tint = ColourSystem,
+                        title = "Android battery settings",
+                        subtitle = "Manage StreamCloud's battery and background limits",
+                        onClick = {
+                            val appSettingsIntent = Intent(
+                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:" + context.packageName),
+                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            val openedAppSettings = runCatching {
+                                context.startActivity(appSettingsIntent)
+                            }.isSuccess
+                            if (!openedAppSettings) {
+                                val openedBatterySettings = runCatching {
+                                    context.startActivity(
+                                        Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }.isSuccess
+                                if (!openedBatterySettings) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Android battery settings are unavailable on this device.",
+                                        android.widget.Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            }
+                        },
+                    )
+                    SettingNav(
                         icon = Icons.Default.Link, tint = ColourSystem,
                         title = "Open supported links",
                         subtitle = "Set StreamCloud as default for supported URLs",
