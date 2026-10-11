@@ -228,6 +228,7 @@ object NuvioAutoSync {
             }
             request(context)
         }
+    
     suspend fun recordWatchProgressDelete(
         context: Context,
         tmdbId: Long,
