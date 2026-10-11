@@ -734,7 +734,8 @@ private fun PlaylistActionsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF111111),
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = {
             Box(
@@ -743,7 +744,7 @@ private fun PlaylistActionsSheet(
                     .width(36.dp)
                     .height(4.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.25f)),
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)),
             )
         },
     ) {
@@ -758,28 +759,28 @@ private fun PlaylistActionsSheet(
                 subtitle = "Edit playlist",
                 onClick = onEdit,
             )
-            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), thickness = 0.5.dp)
             PlaylistActionRow(
                 icon = Icons.Default.Refresh,
                 title = "Sync",
                 subtitle = "Sync playlist with YouTube Music",
                 onClick = onSync,
             )
-            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), thickness = 0.5.dp)
             PlaylistActionRow(
                 icon = Icons.AutoMirrored.Filled.PlaylistAdd,
                 title = "Add to queue",
                 subtitle = "Add to the bottom of your queue",
                 onClick = onAddToQueue,
             )
-            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), thickness = 0.5.dp)
             PlaylistActionRow(
                 icon = Icons.Default.Share,
                 title = "Share",
                 subtitle = "Share this playlist with others",
                 onClick = onShare,
             )
-            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 0.5.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), thickness = 0.5.dp)
             PlaylistActionRow(
                 icon = Icons.Default.Delete,
                 title = "Delete",
@@ -796,9 +797,11 @@ private fun PlaylistActionRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    tint: Color = Color.White,
+    tint: Color? = null,
     onClick: () -> Unit,
 ) {
+    val actionTint = tint ?: MaterialTheme.colorScheme.onSurface
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -809,7 +812,7 @@ private fun PlaylistActionRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = tint,
+            tint = actionTint,
             modifier = Modifier.size(26.dp),
         )
         Spacer(Modifier.width(20.dp))
@@ -817,12 +820,12 @@ private fun PlaylistActionRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = tint,
+                color = actionTint,
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.55f),
+                color = secondaryText,
             )
         }
     }

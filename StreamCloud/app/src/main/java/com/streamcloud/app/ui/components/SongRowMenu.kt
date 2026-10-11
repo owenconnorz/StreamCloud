@@ -117,7 +117,8 @@ fun SongRowMenu(
         ModalBottomSheet(
             onDismissRequest = { open = false },
             sheetState = sheetState,
-            containerColor = Color(0xFF0E0E0E),
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             scrimColor = Color.Black.copy(alpha = 0.55f),
         ) {
             Column(
@@ -141,13 +142,13 @@ fun SongRowMenu(
                         modifier = Modifier
                             .size(60.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White.copy(alpha = 0.07f)),
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
                     )
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             song.title,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
                             maxLines = 1,
@@ -164,7 +165,7 @@ fun SongRowMenu(
                         }
                         Text(
                             subtitle,
-                            color = Color.White.copy(alpha = 0.6f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -182,7 +183,7 @@ fun SongRowMenu(
                         Icon(
                             if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = if (isLiked) "Unlike" else "Like",
-                            tint = if (isLiked) Color(0xFFE91E63) else Color.White.copy(alpha = 0.7f),
+                            tint = if (isLiked) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(26.dp),
                         )
                     }
@@ -194,7 +195,7 @@ fun SongRowMenu(
                         .fillMaxWidth()
                         .padding(vertical = 10.dp)
                         .height(1.dp)
-                        .background(Color.White.copy(alpha = 0.08f)),
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
                 )
 
 
@@ -448,14 +449,14 @@ private fun PillChip(
         modifier = modifier
             .height(52.dp)
             .clip(RoundedCornerShape(26.dp))
-            .background(Color.White.copy(alpha = 0.07f))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
     ) {
-        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = label, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(7.dp))
         Text(
             label,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.SemiBold,
             fontSize = 14.sp,
         )
@@ -474,17 +475,17 @@ private fun MenuActionRow(
             .fillMaxWidth()
             .padding(vertical = 3.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.04f))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = title, tint = Color.White, modifier = Modifier.size(24.dp))
+        Icon(icon, contentDescription = title, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
                 maxLines = 1,
@@ -494,7 +495,7 @@ private fun MenuActionRow(
                 Spacer(Modifier.height(1.dp))
                 Text(
                     subtitle,
-                    color = Color.White.copy(alpha = 0.55f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

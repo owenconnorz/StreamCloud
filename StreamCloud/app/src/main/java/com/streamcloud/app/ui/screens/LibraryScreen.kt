@@ -264,10 +264,19 @@ fun LibraryScreen(
     }
 
     val bgTintColorRaw by AlbumArtThemeBus.bgTint.collectAsState()
-    val bgTintColor by animateColorAsState(bgTintColorRaw, animationSpec = tween(700), label = "libBgTint")
+    val libraryBackgroundTarget = if (sectionMode == "Music") {
+        MaterialTheme.colorScheme.background
+    } else {
+        bgTintColorRaw
+    }
+    val libraryBackground by animateColorAsState(
+        libraryBackgroundTarget,
+        animationSpec = tween(700),
+        label = "libraryBackground",
+    )
     val vibrantRaw by AlbumArtThemeBus.vibrant.collectAsState()
     val animVibrant by animateColorAsState(vibrantRaw, animationSpec = tween(700), label = "libVibrant")
-    Column(Modifier.fillMaxSize().background(bgTintColor)) {
+    Column(Modifier.fillMaxSize().background(libraryBackground)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
