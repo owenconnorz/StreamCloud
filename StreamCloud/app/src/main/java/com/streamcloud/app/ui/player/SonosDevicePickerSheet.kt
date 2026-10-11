@@ -639,7 +639,7 @@ private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
 private fun DeviceRow(device: SonosDevice, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.07f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier
             .fillMaxWidth()
             .tvFocusBorder(RoundedCornerShape(14.dp))
