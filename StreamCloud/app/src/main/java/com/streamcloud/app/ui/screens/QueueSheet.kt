@@ -56,7 +56,7 @@ fun QueueSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF1A1210),
+        containerColor = MaterialTheme.colorScheme.surface,
         scrimColor = Color.Black.copy(alpha = 0.6f),
         dragHandle = null,
     ) {
@@ -74,26 +74,26 @@ fun QueueSheet(
                 Text(
                     "Queue",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
                 val count = queueItems.size
                 Text(
                     "$count track${if (count != 1) "s" else ""}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.45f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.width(12.dp))
                 IconButton(onClick = onDismiss) {
                     Icon(
                         Icons.Default.Close, "Close",
-                        tint = Color.White.copy(alpha = 0.65f),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
                 }
             }
 
-            HorizontalDivider(color = Color.White.copy(alpha = 0.07f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
 
             if (queueItems.isEmpty()) {
                 Box(
@@ -102,7 +102,7 @@ fun QueueSheet(
                 ) {
                     Text(
                         "Nothing queued",
-                        color = Color.White.copy(alpha = 0.4f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }
@@ -142,7 +142,10 @@ private fun QueueItemRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .background(if (isCurrent) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+            .background(
+                if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else Color.Transparent,
+            )
             .clickable(onClick = onTap)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -161,12 +164,12 @@ private fun QueueItemRow(
                 )
             } else {
                 Box(
-                    Modifier.fillMaxSize().background(Color(0xFF2E2220)),
+                    Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Default.PlayArrow, null,
-                        tint = Color.White.copy(alpha = 0.3f),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(22.dp),
                     )
                 }
@@ -186,7 +189,7 @@ private fun QueueItemRow(
         Column(Modifier.weight(1f)) {
             Text(
                 item.title,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                 ),
@@ -197,7 +200,7 @@ private fun QueueItemRow(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     item.artist,
-                    color = Color.White.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -208,7 +211,7 @@ private fun QueueItemRow(
         IconButton(onClick = onRemove) {
             Icon(
                 Icons.Default.Close, "Remove from queue",
-                tint = Color.White.copy(alpha = 0.3f),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
             )
         }

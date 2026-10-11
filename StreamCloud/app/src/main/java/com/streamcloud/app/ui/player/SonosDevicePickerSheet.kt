@@ -113,7 +113,7 @@ fun SonosDevicePickerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation  = 0.dp,
     ) {
         Column(
@@ -126,18 +126,18 @@ fun SonosDevicePickerSheet(
                 Icon(
                     Icons.Default.SpeakerGroup,
                     contentDescription = null,
-                    tint = Color(0xFF4FC3F7),
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(22.dp),
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
                     "Cast to devices",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 )
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, "Close", tint = Color.White.copy(alpha = 0.6f))
+                    Icon(Icons.Default.Close, "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
                 }
             }
 
@@ -147,7 +147,7 @@ fun SonosDevicePickerSheet(
                 selectedTabIndex = selectedTab,
                 modifier = Modifier.tvFocusGroup(),
                 containerColor = Color.Transparent,
-                contentColor = Color(0xFF4FC3F7),
+                contentColor = MaterialTheme.colorScheme.primary,
             ) {
                 Tab(
                     selected = selectedTab == 0,
@@ -243,7 +243,7 @@ fun SonosDevicePickerSheet(
                             onClick = { SonosRepository.cancelConnection(context) },
                             shape = RoundedCornerShape(12.dp),
                         ) {
-                            Text("Cancel", color = Color.White)
+                            Text("Cancel", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -256,24 +256,24 @@ fun SonosDevicePickerSheet(
                         Icon(
                             Icons.Default.SpeakerGroup,
                             contentDescription = null,
-                            tint = Color(0xFF4FC3F7),
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(48.dp),
                         )
                         Spacer(Modifier.height(10.dp))
                         Text(
                             "Now casting to",
-                            color = Color.White.copy(alpha = 0.6f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
                             state.displayName,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
                             state.title,
-                            color = Color.White.copy(alpha = 0.5f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -282,7 +282,7 @@ fun SonosDevicePickerSheet(
 
                         Text(
                             "Volume",
-                            color = Color.White.copy(alpha = 0.55f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.align(Alignment.Start),
                         )
@@ -291,7 +291,7 @@ fun SonosDevicePickerSheet(
                             Icon(
                                 Icons.Default.VolumeDown,
                                 contentDescription = "Volume down",
-                                tint = Color.White.copy(alpha = 0.6f),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                 modifier = Modifier.size(20.dp),
                             )
                             Slider(
@@ -299,27 +299,30 @@ fun SonosDevicePickerSheet(
                                 onValueChange = { SonosRepository.setVolume((it * 100).toInt()) },
                                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                                 colors = SliderDefaults.colors(
-                                    thumbColor        = Color(0xFF4FC3F7),
-                                    activeTrackColor  = Color(0xFF4FC3F7),
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.2f),
+                                    thumbColor = MaterialTheme.colorScheme.primary,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
                                 ),
                             )
                             Icon(
                                 Icons.Default.VolumeUp,
                                 contentDescription = "Volume up",
-                                tint = Color.White.copy(alpha = 0.6f),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                 modifier = Modifier.size(20.dp),
                             )
                         }
                         Text(
                             "$vol%",
-                            color = Color.White.copy(alpha = 0.4f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                             style = MaterialTheme.typography.labelSmall,
                         )
                         Spacer(Modifier.height(20.dp))
                         Button(
                             onClick = { SonosRepository.disconnect(); onDismiss() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF992222)),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
                             shape = RoundedCornerShape(12.dp),
                         ) {
                             Icon(Icons.Default.Stop, null, modifier = Modifier.size(18.dp))
@@ -333,7 +336,7 @@ fun SonosDevicePickerSheet(
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             state.message,
-                            color = Color(0xFFFF6B6B),
+                            color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Spacer(Modifier.height(16.dp))
@@ -341,7 +344,7 @@ fun SonosDevicePickerSheet(
                             onClick = { SonosRepository.startDiscovery(context) },
                             shape = RoundedCornerShape(12.dp),
                         ) {
-                            Text("Try Again", color = Color.White)
+                            Text("Try Again", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -419,29 +422,29 @@ private fun NetworkDestinationTab(
         is MusicRemoteCast.State.Casting -> {
             Text(
                 "Now playing on ${remoteState.name}",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 remoteState.title,
-                color = Color.White.copy(alpha = 0.55f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(16.dp))
             OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
-                Text("Disconnect", color = Color.White)
+                Text("Disconnect", color = MaterialTheme.colorScheme.onSurface)
             }
         }
 
         else -> {
-            Text("Google Cast / Google TV", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelLarge)
+            Text("Google Cast / Google TV", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), style = MaterialTheme.typography.labelLarge)
             if (googleRoutes.isEmpty()) {
                 Text(
                     "No Google Cast devices found. Check that the device is on the same Wi-Fi.",
-                    color = Color.White.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
@@ -457,7 +460,7 @@ private fun NetworkDestinationTab(
             }
 
             Spacer(Modifier.height(12.dp))
-            Text("Network speakers & TVs (DLNA)", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelLarge)
+            Text("Network speakers & TVs (DLNA)", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), style = MaterialTheme.typography.labelLarge)
             when {
                 isDlnaDiscovering && dlnaDevices.isEmpty() ->
                     SheetStatus("Scanning your Wi-Fi network…", showSpinner = true)
@@ -465,7 +468,7 @@ private fun NetworkDestinationTab(
                 dlnaDevices.isEmpty() -> {
                     Text(
                         "No compatible network devices found.",
-                        color = Color.White.copy(alpha = 0.5f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
@@ -484,12 +487,12 @@ private fun NetworkDestinationTab(
             Spacer(Modifier.height(8.dp))
             Text(
                 "Alexa/Echo devices only appear if they expose a standard Cast or DLNA route. Direct Alexa playback requires Amazon account integration.",
-                color = Color.White.copy(alpha = 0.42f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) {
-                Text("Scan again", color = Color.White)
+                Text("Scan again", color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }
@@ -502,19 +505,19 @@ private fun BluetoothDestinationTab(
 ) {
     Text(
         "Bluetooth audio",
-        color = Color.White.copy(alpha = 0.6f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         style = MaterialTheme.typography.labelLarge,
     )
     Text(
         "Connected Bluetooth speakers, headphones, and car audio appear here. Pair new devices in Android's Bluetooth settings first.",
-        color = Color.White.copy(alpha = 0.48f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f),
         style = MaterialTheme.typography.bodySmall,
         modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
     )
     if (routes.isEmpty()) {
         Text(
             "No Bluetooth audio devices are currently connected.",
-            color = Color.White.copy(alpha = 0.6f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(vertical = 14.dp),
         )
@@ -539,7 +542,7 @@ private fun DestinationRouteRow(
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = Color.White.copy(alpha = 0.07f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp)
@@ -550,14 +553,14 @@ private fun DestinationRouteRow(
             Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(25.dp))
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(25.dp))
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(name, color = Color.White, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
+                Text(name, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
                 subtitle?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         it,
-                        color = Color.White.copy(alpha = 0.45f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -586,7 +589,7 @@ private fun refreshDeviceRoutes(
 private fun SectionLabel(text: String) {
     Text(
         text,
-        color = Color.White.copy(alpha = 0.55f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
         style = MaterialTheme.typography.labelLarge,
     )
 }
@@ -595,7 +598,7 @@ private fun SectionLabel(text: String) {
 private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF4FC3F7).copy(alpha = 0.1f),
+        color = MaterialTheme.colorScheme.primaryContainer,
         modifier = Modifier
             .fillMaxWidth()
             .tvFocusBorder(RoundedCornerShape(14.dp))
@@ -608,21 +611,21 @@ private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
             Icon(
                 Icons.Default.SpeakerGroup,
                 contentDescription = null,
-                tint = Color(0xFF4FC3F7),
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(28.dp),
             )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     group.displayName,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     group.memberNames.joinToString(" · "),
-                    color = Color.White.copy(alpha = 0.45f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -636,7 +639,7 @@ private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
 private fun DeviceRow(device: SonosDevice, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = Color.White.copy(alpha = 0.07f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.07f),
         modifier = Modifier
             .fillMaxWidth()
             .tvFocusBorder(RoundedCornerShape(14.dp))
@@ -649,21 +652,21 @@ private fun DeviceRow(device: SonosDevice, onClick: () -> Unit) {
             Icon(
                 Icons.Default.Speaker,
                 contentDescription = null,
-                tint = Color(0xFF4FC3F7),
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(28.dp),
             )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     device.name,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     device.host,
-                    color = Color.White.copy(alpha = 0.35f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                 )
             }
@@ -682,10 +685,10 @@ private fun SheetStatus(text: String, showSpinner: Boolean) {
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
                 strokeWidth = 2.dp,
-                color = Color(0xFF4FC3F7),
+                color = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.width(12.dp))
         }
-        Text(text, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium)
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium)
     }
 }
