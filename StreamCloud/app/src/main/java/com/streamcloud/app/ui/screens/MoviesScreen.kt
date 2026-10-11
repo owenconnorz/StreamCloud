@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -368,12 +369,36 @@ fun MoviesScreen(
         fallbackBackground = MaterialTheme.colorScheme.background,
         fallbackSurface = MaterialTheme.colorScheme.surface,
     )
+    val showTvHeroBackground = isTv &&
+        query.isBlank() &&
+        state.showHeroSection &&
+        state.heroBanner.isNotEmpty()
+    val movieScreenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val tvStatusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val tvHeroBackgroundEndY = with(LocalDensity.current) {
+        val heroWidth = (movieScreenWidth - 48.dp).coerceAtLeast(320.dp)
+        (tvStatusBarHeight + 64.dp + heroWidth * (7f / 16f) + 64.dp).toPx()
+    }
     Box(
         Modifier
             .fillMaxSize()
-            .background(
-                if (state.showHeroSection) bannerPalette.backgroundTint
-                else MaterialTheme.colorScheme.background,
+            .background(MaterialTheme.colorScheme.background)
+            .then(
+                if (showTvHeroBackground) {
+                    Modifier.background(
+                        Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0f to bannerPalette.backgroundTint,
+                                0.72f to bannerPalette.backgroundTint.copy(alpha = 0.72f),
+                                1f to Color.Black,
+                            ),
+                            startY = 0f,
+                            endY = tvHeroBackgroundEndY,
+                        ),
+                    )
+                } else {
+                    Modifier
+                },
             )
             // Keep vertical D-pad movement in focus traversal instead of
             // letting the parent list scroll independently.
