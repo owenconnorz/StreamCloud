@@ -1,6 +1,7 @@
 package com.streamcloud.app.data.intro
 
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -23,6 +24,7 @@ object IntroDbService {
 
     suspend fun fetchSegments(imdbId: String, season: Int?, episode: Int?, apiKey: String): List<SkipSegment> =
         withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
             try {
                 val path = if (season != null && episode != null)
                     "/api/v1/show/$imdbId/$season/$episode"
@@ -30,6 +32,7 @@ object IntroDbService {
                     "/api/v1/movie/$imdbId"
                 val url = URL("$BASE$path")
                 val conn = (url.openConnection() as HttpURLConnection).apply {
+                    connection = this
                     requestMethod = "GET"
                     connectTimeout = 5_000
                     readTimeout    = 5_000
@@ -39,12 +42,15 @@ object IntroDbService {
                 if (code != 200) return@withContext emptyList()
                 val body = conn.inputStream.bufferedReader().readText()
                 parseSegments(body)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 Log.w(TAG, "fetchSegments failed", e)
                 emptyList()
+            } finally {
+                connection?.disconnect()
             }
         }
-
     private fun parseSegments(json: String): List<SkipSegment> {
         return try {
             val arr = JSONArray(json)

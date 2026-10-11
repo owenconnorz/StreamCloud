@@ -94,6 +94,7 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.intro.IntroDbService
 import com.streamcloud.app.data.MovieAudioPreferences
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchedEpisodeEntity
@@ -104,6 +105,7 @@ import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -659,13 +661,47 @@ fun NativePlayerScreen(
 
     // ── Skip intervals ────────────────────────────────────────────────────
     val activeSource = activeAutoSource ?: sources.firstOrNull { it.id == selectedSourceId }
-    val allSkipIntervals = activeSource?.skipIntervals.orEmpty()
-    var dismissedIntervalEnd by remember { mutableStateOf(-1L) }
+    val introDbApiKey by sl.settings.introDbApiKey.collectAsState(initial = "")
+    var introDbSkipIntervals by remember(progressKey, seasonNumber, episodeNumber) {
+        mutableStateOf(emptyList<SkipInterval>())
+    }
+    LaunchedEffect(progressKey?.tmdbId, progressKey?.mediaType, seasonNumber, episodeNumber, introDbApiKey) {
+        introDbSkipIntervals = emptyList()
+        val identity = progressKey ?: return@LaunchedEffect
+        val isTv = identity.mediaType.equals("tv", ignoreCase = true)
+        val season = seasonNumber ?: identity.seasonNumber
+        val episode = episodeNumber ?: identity.episodeNumber
+        if (isTv && (season == null || episode == null)) return@LaunchedEffect
+
+        val imdbId = try {
+            if (isTv) sl.tmdb.tvExternalIds(identity.tmdbId, sl.tmdbApiKey).imdbId
+            else sl.tmdb.externalIds(identity.tmdbId, sl.tmdbApiKey).imdbId
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }?.takeIf { it.startsWith("tt", ignoreCase = true) }
+            ?: return@LaunchedEffect
+
+        introDbSkipIntervals = IntroDbService.fetchSegments(
+            imdbId = imdbId,
+            season = if (isTv) season else null,
+            episode = if (isTv) episode else null,
+            apiKey = introDbApiKey,
+        ).map { segment ->
+            SkipInterval(startMs = segment.startMs, endMs = segment.endMs, type = segment.type)
+        }
+    }
+    val allSkipIntervals = (activeSource?.skipIntervals.orEmpty() + introDbSkipIntervals)
+        .distinctBy { Triple(it.startMs, it.endMs, it.type) }
+        .sortedBy(SkipInterval::startMs)
+    var dismissedIntervalEnd by remember(progressKey, seasonNumber, episodeNumber) {
+        mutableStateOf(-1L)
+    }
     val activeSkipInterval = remember(positionMs, allSkipIntervals, dismissedIntervalEnd) {
         allSkipIntervals.firstOrNull { it.startMs <= positionMs && positionMs < it.endMs && it.endMs != dismissedIntervalEnd }
     }
 
-    // ── Next episode prompt and end-of-episode autoplay ────────────────────
     val nextBingeEpisode = if (currentBingeIndex in 0 until (bingeEpisodes.size - 1))
         bingeEpisodes[currentBingeIndex + 1] else null
     val autoplayNextEnabled by sl.settings.autoplayNext.collectAsState(initial = true)
@@ -1185,15 +1221,24 @@ fun NativePlayerScreen(
         }
 
         // ── Skip intro pill ───────────────────────────────────────────────
-        if (activeSkipInterval != null && !locked) {
-            SkipIntroPill(
-                type      = activeSkipInterval.type,
-                onClick   = { ex?.seekTo(activeSkipInterval.endMs); dismissedIntervalEnd = activeSkipInterval.endMs; bumpInteraction() },
-                onDismiss = { dismissedIntervalEnd = activeSkipInterval.endMs },
-                modifier  = Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 110.dp),
-            )
+        AnimatedVisibility(
+            visible = activeSkipInterval != null && !locked,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 110.dp),
+        ) {
+            activeSkipInterval?.let { interval ->
+                SkipIntroPill(
+                    type = interval.type,
+                    onClick = {
+                        ex?.seekTo(interval.endMs)
+                        dismissedIntervalEnd = interval.endMs
+                        bumpInteraction()
+                    },
+                    onDismiss = { dismissedIntervalEnd = interval.endMs },
+                )
+            }
         }
-
         // Nuvio-style "Up next" chip during the last minute; playback only
         // advances automatically after the current episode has actually ended.
         AnimatedVisibility(
