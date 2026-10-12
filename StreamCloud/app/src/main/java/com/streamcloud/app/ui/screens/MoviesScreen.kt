@@ -1859,7 +1859,7 @@ private fun ContinueWatchingCard(
                 ) {
                     Box(
                         Modifier
-                            .fillMaxWidth(pct.coerceAtLeast(0.02f))
+                            .fillMaxWidth(pct)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(50))
                             .background(MaterialTheme.colorScheme.primary),
@@ -1867,7 +1867,11 @@ private fun ContinueWatchingCard(
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "${(pct * 100).toInt()}% watched",
+                    if (entry.durationMs > 0L) {
+                    "${(pct * 100f + 0.5f).toInt().coerceAtLeast(1)}% watched"
+                } else {
+                    "Progress saved"
+                },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )

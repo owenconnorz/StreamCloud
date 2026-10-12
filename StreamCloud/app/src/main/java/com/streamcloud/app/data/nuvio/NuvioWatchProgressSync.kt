@@ -178,21 +178,28 @@ internal fun normalizeNuvioProgressTimes(
     duration: Long,
     lastWatched: Long,
 ): NuvioProgressTimes {
-    val secondsBased = duration in 1 until 60_000L
-    fun toMillis(value: Long): Long =
-        if (secondsBased && value > 0L) {
-            if (value > Long.MAX_VALUE / 1_000L) Long.MAX_VALUE else value * 1_000L
-        } else {
-            value
-        }
+    val durationSecondsBased = duration in 1 until 60_000L
+    fun multiplySeconds(value: Long): Long =
+        if (value > 0L && value > Long.MAX_VALUE / 1_000L) Long.MAX_VALUE
+        else value * 1_000L
+    val durationMs = if (durationSecondsBased) multiplySeconds(duration) else duration
+    val positionMs = when {
+        position <= 0L -> position
+        durationSecondsBased && position <= duration -> multiplySeconds(position)
+        !durationSecondsBased &&
+            duration > 0L &&
+            position < 60_000L &&
+            position <= duration / 1_000L -> multiplySeconds(position)
+        else -> position
+    }
     val timestampMs = when {
         lastWatched <= 0L -> null
         lastWatched < 100_000_000_000L -> toEpochMillis(lastWatched)
         else -> lastWatched
     }
     return NuvioProgressTimes(
-        positionMs = toMillis(position),
-        durationMs = toMillis(duration),
+        positionMs = positionMs,
+        durationMs = durationMs,
         updatedAtMs = timestampMs,
     )
 }

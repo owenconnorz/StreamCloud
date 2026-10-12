@@ -178,6 +178,18 @@ class NuvioSyncContractTest {
     }
 
     @Test
+    fun normalizesPositionAndDurationWhenNuvioReturnsMixedUnits() {
+        assertEquals(
+            NuvioProgressTimes(120_000L, 2_400_000L, 1_700_000_000_000L),
+            normalizeNuvioProgressTimes(120L, 2_400_000L, 1_700_000_000L),
+        )
+        assertEquals(
+            NuvioProgressTimes(120_000L, 2_400_000L, 1_700_000_000_000L),
+            normalizeNuvioProgressTimes(120_000L, 2_400L, 1_700_000_000L),
+        )
+    }
+
+    @Test
     fun correctsPreviouslyImportedSecondBasedDurationEvenWhenTimestampMatches() {
         assertTrue(
             shouldUseNuvioProgress(
