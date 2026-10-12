@@ -1870,7 +1870,7 @@ private fun ContinueWatchingCard(
                     if (entry.durationMs > 0L) {
                     "${(pct * 100f + 0.5f).toInt().coerceAtLeast(1)}% watched"
                 } else {
-                    "Progress saved"
+                    "0% watched"
                 },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
