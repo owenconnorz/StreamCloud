@@ -836,9 +836,7 @@ class NuvioAccountService(private val context: Context) {
             val remoteIdentities = mutableListOf<NuvioWatchProgressDeleteKey>()
             val stillPresentDeletes = mutableSetOf<NuvioWatchProgressDeleteKey>()
             entries.forEach { e ->
-                val isSeries = e.content_type.equals("series", ignoreCase = true) ||
-                    e.content_type.equals("tv", ignoreCase = true) ||
-                    e.content_type.equals("episode", ignoreCase = true)
+                val isSeries = isNuvioSeriesType(e.content_type)
                 val episodeNumbers = if (isSeries) {
                     nuvioEpisodeNumbers(
                         e.season,
@@ -989,7 +987,7 @@ class NuvioAccountService(private val context: Context) {
                 page.forEach { item ->
                     val tmdbId = resolveTmdbId(item.content_id, item.content_type) ?: return@forEach
                     if (existingIds.add(tmdbId)) {
-                        val mediaType = if (item.content_type.equals("series", ignoreCase = true)) "tv" else "movie"
+                        val mediaType = if (isNuvioSeriesType(item.content_type)) "tv" else "movie"
                         val addedAt = item.added_at.takeIf { it > 0 } ?: System.currentTimeMillis()
                         watchlistDao.add(
                             WatchlistEntity(
@@ -1353,7 +1351,13 @@ class NuvioAccountService(private val context: Context) {
                 localProfileId = syncLocalProfileId,
             )
             val entries = db.watchProgress().getAllEntries()
-                .filter { it.mediaType == "movie" || it.mediaType == "tv" }
+                .filter { entry ->
+                    shouldPushNuvioWatchProgress(
+                        entry.mediaType,
+                        entry.seasonNumber,
+                        entry.episodeNumber,
+                    )
+                }
                 .filterNot { entry ->
                     pendingWatchProgressDeletes.any { deletion ->
                         deletion.matchesLocalProgress(
@@ -1846,9 +1850,7 @@ class NuvioAccountService(private val context: Context) {
                 text,
             )
             items.forEach { item ->
-                val isSeries = item.content_type.equals("series", ignoreCase = true) ||
-                    item.content_type.equals("tv", ignoreCase = true) ||
-                    item.content_type.equals("episode", ignoreCase = true)
+                val isSeries = isNuvioSeriesType(item.content_type)
                 val episodeNumbers = if (isSeries) {
                     nuvioEpisodeNumbers(
                         item.season,

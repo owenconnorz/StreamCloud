@@ -252,16 +252,19 @@ object NuvioAutoSync {
         mediaType: String,
         seasonNumber: Int,
         episodeNumber: Int,
+        userId: String? = null,
+        localProfileId: String? = null,
     ) {
         if (tmdbId <= 0L || mediaType !in setOf("movie", "tv", "series")) return
         val appContext = context.applicationContext
         val services = ServiceLocator.get(appContext)
-        val userId = services.settings.nuvioUserId.first().trim()
-        if (userId.isBlank()) return
-        NuvioAccountScopeStore.setCurrentUserId(appContext, userId)
+        val targetUserId = userId?.trim()?.takeIf { it.isNotBlank() }
+            ?: services.settings.nuvioUserId.first().trim()
+        if (targetUserId.isBlank()) return
+        NuvioAccountScopeStore.setCurrentUserId(appContext, targetUserId)
         val profiles = services.profiles
-        val localProfileId = profiles.currentActiveId()
-            ?.takeIf { it.isNotBlank() }
+        val targetProfileId = localProfileId?.takeIf { it.isNotBlank() }
+            ?: profiles.currentActiveId()?.takeIf { it.isNotBlank() }
             ?: profiles.currentProfiles().firstOrNull()?.id?.takeIf { it.isNotBlank() }
             ?: "default"
 
@@ -273,7 +276,7 @@ object NuvioAutoSync {
             episodeNumber.coerceAtLeast(0).toString(),
         ).joinToString("|")
         val prefs = appContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-        val key = watchProgressDeletePreferenceKey(userId, localProfileId)
+        val key = watchProgressDeletePreferenceKey(targetUserId, targetProfileId)
         val pending = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
         pending += serialized
         val progressIdentity = NuvioWatchProgressDeleteKey(
@@ -283,8 +286,8 @@ object NuvioAutoSync {
             episodeNumber = episodeNumber.coerceAtLeast(0),
         )
         val identityKey = watchProgressRemoteIdentityPreferenceKey(
-            userId,
-            localProfileId,
+            targetUserId,
+            targetProfileId,
             progressIdentity,
         )
         prefs.getStringSet(identityKey, emptySet()).orEmpty()
@@ -475,7 +478,12 @@ object NuvioAutoSync {
         episodeNumber: Int,
     ): Result<SyncOutcome> {
         val appContext = context.applicationContext
-        val progressDao = LibraryDb.get(appContext).watchProgress()
+        val services = ServiceLocator.get(appContext)
+        val userId = services.settings.nuvioUserId.first().trim()
+        val localProfileId = services.profiles.currentActiveId()?.takeIf { it.isNotBlank() }
+            ?: services.profiles.currentProfiles().firstOrNull()?.id
+            ?: "default"
+        val progressDao = LibraryDb.getForProfile(appContext, localProfileId, userId).watchProgress()
         return syncMutex.withLock {
             var deleteIntentRecorded = false
             try {
@@ -485,6 +493,8 @@ object NuvioAutoSync {
                     mediaType,
                     seasonNumber,
                     episodeNumber,
+                    userId = userId,
+                    localProfileId = localProfileId,
                 )
                 deleteIntentRecorded = true
                 progressDao.removeKey(
@@ -495,13 +505,6 @@ object NuvioAutoSync {
                 )
                 val result = syncNowDetailedLocked(appContext)
                 if (result.isSuccess) {
-                    val services = ServiceLocator.get(appContext)
-                    val userId = services.settings.nuvioUserId.first().trim()
-                    val localProfileId = services.profiles.currentActiveId()
-                        ?.takeIf { it.isNotBlank() }
-                        ?: services.profiles.currentProfiles().firstOrNull()?.id
-                            ?.takeIf { it.isNotBlank() }
-                        ?: "default"
                     val deleteStillPending = userId.isNotBlank() &&
                         pendingWatchProgressDeleteKeys(
                             appContext,

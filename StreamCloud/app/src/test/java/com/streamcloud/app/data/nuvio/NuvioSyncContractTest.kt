@@ -48,6 +48,18 @@ class NuvioSyncContractTest {
     }
 
     @Test
+    fun recognizesNuvioSeriesAliasesAndRequiresEpisodeIdentityForProgressPush() {
+        assertTrue(isNuvioSeriesType("series"))
+        assertTrue(isNuvioSeriesType("tv"))
+        assertTrue(isNuvioSeriesType("episode"))
+        assertFalse(isNuvioSeriesType("movie"))
+        assertTrue(shouldPushNuvioWatchProgress("tv", 3, 2))
+        assertFalse(shouldPushNuvioWatchProgress("tv", 0, 0))
+        assertFalse(shouldPushNuvioWatchProgress("series", 3, 0))
+        assertTrue(shouldPushNuvioWatchProgress("movie", 0, 0))
+    }
+
+    @Test
     fun extractsStreamCloudSettingsFromRpcRow() {
         val settings = extractStreamCloudHomeSettings(
             """[{"platform":"streamcloud","settings_json":{"streamcloud":{"schema_version":1,"show_hero_section":false}}}]""",

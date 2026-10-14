@@ -139,6 +139,21 @@ internal data class NuvioEpisodeNumbers(
 internal fun hasValidNuvioEpisodeIdentity(isSeries: Boolean, seasonNumber: Int, episodeNumber: Int): Boolean =
     !isSeries || (seasonNumber > 0 && episodeNumber > 0)
 
+internal fun isNuvioSeriesType(contentType: String): Boolean =
+    contentType.equals("series", ignoreCase = true) ||
+        contentType.equals("tv", ignoreCase = true) ||
+        contentType.equals("episode", ignoreCase = true)
+
+internal fun shouldPushNuvioWatchProgress(
+    mediaType: String,
+    seasonNumber: Int,
+    episodeNumber: Int,
+): Boolean = when (mediaType.lowercase()) {
+    "movie" -> true
+    "tv", "series" -> seasonNumber > 0 && episodeNumber > 0
+    else -> false
+}
+
 internal fun nuvioEpisodeNumbers(
     season: Int?,
     seasonNumber: Int?,
