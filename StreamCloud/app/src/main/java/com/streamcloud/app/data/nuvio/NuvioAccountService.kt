@@ -858,7 +858,6 @@ class NuvioAccountService(private val context: Context) {
                 val season = seasonNumber.takeIf { it > 0 }
                 val episode = episodeNumber.takeIf { it > 0 }
                 if (!hasValidNuvioEpisodeIdentity(isSeries, seasonNumber, episodeNumber)) {
-                    progressSnapshotComplete = false
                     return@forEach
                 }
                 val mediaType = if (isSeries) "tv" else "movie"
