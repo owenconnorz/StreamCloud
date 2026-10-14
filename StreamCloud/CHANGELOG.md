@@ -1,3 +1,17 @@
+## Latest — Changes since V2166
+
+### Nuvio sync and Continue Watching
+- **More reliable cross-device progress** — Nuvio playback positions and durations are normalized across units, and Continue Watching displays progress consistently.
+- **TV episode progress is protected** — incomplete series identities no longer overwrite valid episode progress; episode numbers are recovered from series titles when available, and sync handles Nuvio series types and user profiles more consistently.
+
+### Android TV and movies home
+- **Movies is the TV library default** — Android TV opens the Movies section by default while mobile keeps its existing Music default.
+- **More stable TV focus** — a focused Continue Watching card remains available while sync updates the row.
+- **Cleaner catalog rows** — removed the “from Streaming Catalogs” subtitle on TV and mobile without removing the rows.
+
+### Movie and TV details
+- **Actor filmographies** — cast members open pages of their movie and TV credits, with links to each title.
+
 ## Latest — Changes since V2161
 
 ### Android TV and playback sync
