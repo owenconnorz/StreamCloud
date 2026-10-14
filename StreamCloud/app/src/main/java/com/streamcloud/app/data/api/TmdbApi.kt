@@ -405,6 +405,12 @@ interface TmdbApi {
         @Query("api_key") apiKey: String,
     ): TmdbPersonCreditsResponse
 
+    @GET("3/person/{id}/tv_credits")
+    suspend fun personTvCredits(
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+    ): TmdbPersonCreditsResponse
+
     @GET("3/discover/tv")
     suspend fun discoverTv(
         @Query("api_key") apiKey: String,

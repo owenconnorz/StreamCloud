@@ -226,6 +226,15 @@ fun MoviesScreen(
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
+    var focusedCwEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
+    fun cwIdentity(entry: WatchProgressEntity) =
+        "${entry.tmdbId}_${entry.mediaType}_${entry.seasonNumber}_${entry.episodeNumber}"
+    val visibleContinueWatching = remember(isTv, state.continueWatching, focusedCwEntry) {
+        val focusedEntry = focusedCwEntry
+        if (isTv && focusedEntry != null && state.continueWatching.none { cwIdentity(it) == cwIdentity(focusedEntry) }) {
+            state.continueWatching + focusedEntry
+        } else state.continueWatching
+    }
     var pendingCwRemoval by remember { mutableStateOf<WatchProgressEntity?>(null) }
     LaunchedEffect(cwSheetEntry, pendingCwRemoval, tvNavSafeFocusRequester, tvNavSafeFocusReceived) {
         val entry = pendingCwRemoval ?: return@LaunchedEffect
@@ -554,7 +563,7 @@ fun MoviesScreen(
                         )
                     }
                 }
-                if (state.continueWatching.isNotEmpty()) {
+                if (visibleContinueWatching.isNotEmpty()) {
                     item(key = "continue_watching_t") { SectionTitle("Continue Watching") }
                     item(key = "continue_watching") {
                         LazyRow(
@@ -563,13 +572,17 @@ fun MoviesScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             itemsIndexed(
-                                state.continueWatching,
-                                key = { _, entry ->
-                                    "cw_${entry.tmdbId}_${entry.mediaType}_${entry.seasonNumber}_${entry.episodeNumber}"
-                                },
+                                visibleContinueWatching,
+                                key = { _, entry -> "cw_${cwIdentity(entry)}" },
                             ) { index, entry ->
                                 ContinueWatchingCard(
                                     entry = entry,
+                                    onFocusChanged = { hasFocus ->
+                                        if (hasFocus) focusedCwEntry = entry
+                                        else if (focusedCwEntry?.let { cwIdentity(it) == cwIdentity(entry) } == true) {
+                                            focusedCwEntry = null
+                                        }
+                                    },
                                     modifier = if (
                                         index == 0 &&
                                         startupFocusTarget == "continue" &&
@@ -1756,11 +1769,6 @@ private fun AddonSectionTitle(addon: String, catalog: String) {
             color = MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.Bold,
         )
-        Text(
-            "from $addon",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -1783,11 +1791,6 @@ private fun AddonSectionTitleWithViewAll(
                 color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Bold,
             )
-            Text(
-                "from $addon",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         Text(
             "View all →",
@@ -1806,6 +1809,7 @@ private fun AddonSectionTitleWithViewAll(
 private fun ContinueWatchingCard(
     entry: WatchProgressEntity,
     modifier: Modifier = Modifier,
+    onFocusChanged: (Boolean) -> Unit = {},
     onClick: () -> Unit,
     onLongPress: () -> Unit,
 ) {
@@ -1815,6 +1819,7 @@ private fun ContinueWatchingCard(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
+            .onFocusChanged { onFocusChanged(it.isFocused || it.hasFocus) }
             .width(320.dp)
             .tvOkPress(onClick, onLongPress)
             .tvFocusBorder(RoundedCornerShape(14.dp))

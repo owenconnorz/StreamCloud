@@ -970,6 +970,26 @@ fun StreamCloudApp() {
                         },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
+                        onPersonClick = { id, name ->
+                            val encodedName = URLEncoder.encode(name, "UTF-8")
+                            nav.navigate("person/$id/$encodedName")
+                        },
+                    )
+                }
+                composable(
+                    "person/{id}/{name}",
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.LongType },
+                        navArgument("name") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val personName = URLDecoder.decode(entry.arguments!!.getString("name")!!, "UTF-8")
+                    com.streamcloud.app.ui.screens.ActorFilmographyScreen(
+                        personId = entry.arguments!!.getLong("id"),
+                        personName = personName,
+                        onBack = { nav.popBackStack() },
+                        onMovieClick = { id -> nav.navigate("movie/$id") },
+                        onTvClick = { id -> nav.navigate("tv/$id") },
                     )
                 }
                 composable(
@@ -1015,6 +1035,10 @@ fun StreamCloudApp() {
                         },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
+                        onPersonClick = { id, name ->
+                            val encodedName = URLEncoder.encode(name, "UTF-8")
+                            nav.navigate("person/$id/$encodedName")
+                        },
                     )
                 }
                 composable(

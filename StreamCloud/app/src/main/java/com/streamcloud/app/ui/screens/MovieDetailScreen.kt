@@ -138,6 +138,7 @@ fun MovieDetailScreen(
     onOpenCsPluginForMovie: (internalName: String, title: String) -> Unit = { _, _ -> },
     onMovieClick: (Long) -> Unit = {},
     onTvClick: (Long) -> Unit = {},
+    onPersonClick: (Long, String) -> Unit = { _, _ -> },
     openSourcePickerOnStart: Boolean = false,
     initialPickerSeason: Int? = null,
     initialPickerEpisode: Int? = null,
@@ -1186,7 +1187,7 @@ fun MovieDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(cast, key = { it.id }) { member ->
-                        CastCard(member)
+                        CastCard(member) { if (member.id > 0L) onPersonClick(member.id, member.name) }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -1985,10 +1986,11 @@ private fun CreditsRow(label: String, value: String) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun CastCard(member: TmdbCastMember) {
+private fun CastCard(member: TmdbCastMember, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.width(72.dp).tvFocusBorder(RoundedCornerShape(8.dp)),
+        modifier = Modifier.width(72.dp).tvFocusBorder(RoundedCornerShape(8.dp))
+            .clickable(enabled = member.id > 0L, onClick = onClick),
     ) {
         Box(
             Modifier.size(68.dp).clip(CircleShape)
