@@ -51,7 +51,6 @@ import kotlinx.coroutines.coroutineScope
 private data class FilmographyCredit(
     val item: TmdbMovie,
     val mediaType: String,
-    val role: String?,
 )
 
 @Composable
@@ -83,10 +82,10 @@ fun ActorFilmographyScreen(
                 movies.await() to series.await()
             }
             credits = buildList {
-                movieCredits.cast.forEach { add(FilmographyCredit(it, "movie", it.character)) }
-                movieCredits.crew.forEach { add(FilmographyCredit(it, "movie", it.job)) }
-                tvCredits.cast.forEach { add(FilmographyCredit(it, "tv", it.character)) }
-                tvCredits.crew.forEach { add(FilmographyCredit(it, "tv", it.job)) }
+                movieCredits.cast.forEach { add(FilmographyCredit(it, "movie")) }
+                movieCredits.crew.forEach { add(FilmographyCredit(it, "movie")) }
+                tvCredits.cast.forEach { add(FilmographyCredit(it, "tv")) }
+                tvCredits.crew.forEach { add(FilmographyCredit(it, "tv")) }
             }
                 .distinctBy { "${it.mediaType}:${it.item.id}" }
                 .sortedByDescending { it.item.releaseDate ?: it.item.firstAirDate ?: "" }
@@ -191,15 +190,6 @@ fun ActorFilmographyScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                         )
-                        credit.role?.takeIf(String::isNotBlank)?.let { role ->
-                            Text(
-                                "as $role",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
                     }
                 }
             }

@@ -204,6 +204,7 @@ fun MoviesScreen(
         factory = MoviesViewModel.factory(context),
     )
     val state by vm.state.collectAsState()
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
@@ -285,7 +286,6 @@ fun MoviesScreen(
     var watchlistPickerEntry by remember { mutableStateOf<WatchlistEntity?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     LaunchedEffect(lifecycleOwner, nuvioUserId, isTv, searchExpanded) {
         if (isTv || nuvioUserId.isBlank() || searchExpanded) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
