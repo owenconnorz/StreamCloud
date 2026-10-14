@@ -136,6 +136,9 @@ internal data class NuvioEpisodeNumbers(
     val episodeNumber: Int,
 )
 
+internal fun hasValidNuvioEpisodeIdentity(isSeries: Boolean, seasonNumber: Int, episodeNumber: Int): Boolean =
+    !isSeries || (seasonNumber > 0 && episodeNumber > 0)
+
 internal fun nuvioEpisodeNumbers(
     season: Int?,
     seasonNumber: Int?,
@@ -152,11 +155,12 @@ internal fun nuvioEpisodeNumbers(
     val keyPattern = Regex(
         """(?i)^(?:tmdb:|imdb:)?(?:tt\d+|\d+)[:/](\d{1,2})[:/](\d{1,3})$""",
     )
+    val seasonEpisodePattern = Regex("""(?i)\bS(\d{1,2})\s*E(\d{1,3})\b""")
     val encoded = identityKeys.asSequence()
         .filterNotNull()
         .map { it.trim() }
         .firstNotNullOfOrNull { key ->
-            keyPattern.matchEntire(key)?.let { match ->
+            (keyPattern.matchEntire(key) ?: seasonEpisodePattern.find(key))?.let { match ->
                 val parsedSeason = match.groupValues[1].toIntOrNull()?.takeIf { it > 0 }
                 val parsedEpisode = match.groupValues[2].toIntOrNull()?.takeIf { it > 0 }
                 if (parsedSeason != null && parsedEpisode != null) {

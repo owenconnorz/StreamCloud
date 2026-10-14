@@ -37,6 +37,17 @@ class NuvioSyncContractTest {
     }
 
     @Test
+    fun readsEpisodeNumbersFromSeriesTitleAndRejectsUnidentifiedSeriesRows() {
+        assertEquals(
+            NuvioEpisodeNumbers(3, 2),
+            nuvioEpisodeNumbers(null, null, null, null, "The Rookie S03E02"),
+        )
+        assertTrue(hasValidNuvioEpisodeIdentity(true, 3, 2))
+        assertFalse(hasValidNuvioEpisodeIdentity(true, 0, 0))
+        assertTrue(hasValidNuvioEpisodeIdentity(false, 0, 0))
+    }
+
+    @Test
     fun extractsStreamCloudSettingsFromRpcRow() {
         val settings = extractStreamCloudHomeSettings(
             """[{"platform":"streamcloud","settings_json":{"streamcloud":{"schema_version":1,"show_hero_section":false}}}]""",

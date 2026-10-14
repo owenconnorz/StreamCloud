@@ -848,6 +848,7 @@ class NuvioAccountService(private val context: Context) {
                         e.progress_key,
                         e.video_id,
                         e.content_id,
+                        e.name,
                     )
                 } else {
                     NuvioEpisodeNumbers(0, 0)
@@ -856,6 +857,10 @@ class NuvioAccountService(private val context: Context) {
                 val episodeNumber = episodeNumbers.episodeNumber
                 val season = seasonNumber.takeIf { it > 0 }
                 val episode = episodeNumber.takeIf { it > 0 }
+                if (!hasValidNuvioEpisodeIdentity(isSeries, seasonNumber, episodeNumber)) {
+                    progressSnapshotComplete = false
+                    return@forEach
+                }
                 val mediaType = if (isSeries) "tv" else "movie"
                 val normalizedContentId = normaliseNuvioContentId(
                     e.content_id,
