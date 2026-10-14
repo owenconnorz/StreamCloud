@@ -240,7 +240,9 @@ fun LibraryScreen(
     var tab by remember { mutableStateOf(LibTab.Playlists) }
     var openTile by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
-    var sectionMode by remember { mutableStateOf("Music") }
+    var sectionMode by remember(isTv) {
+        mutableStateOf(if (isTv) "Movies" else "Music")
+    }
     val watchlistItems by db.watchlist().all().collectAsState(initial = emptyList())
     val downloadedMovies by db.movieDownloads().all().collectAsState(initial = emptyList())
     var movieSubTab by remember { mutableStateOf("Watchlist") }
@@ -302,12 +304,17 @@ fun LibraryScreen(
             ) {
                 listOf("Music" to Icons.Default.MusicNote, "Movies" to Icons.Default.Movie).forEachIndexed { idx, (label, icon) ->
                     val selected = sectionMode == label
+                    val defaultTvSectionIndex = if (isTv) 1 else 0
                     Box(
                         Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            // First toggle button is the D-pad Down entry point from the TV nav bar.
-                            .let { if (tvNavFocusRequester != null && idx == 0) it.focusRequester(tvNavFocusRequester) else it }
+                            // Focus the default section when moving down from the TV navigation bar.
+                            .let {
+                                if (tvNavFocusRequester != null && idx == defaultTvSectionIndex) {
+                                    it.focusRequester(tvNavFocusRequester)
+                                } else it
+                            }
                             .tvFocusBorder(CircleShape)
                             .background(
                                 if (selected) MaterialTheme.colorScheme.primary
