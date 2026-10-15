@@ -210,6 +210,18 @@ class NuvioSyncContractTest {
             NuvioProgressTimes(120_000L, 2_400_000L, 1_700_000_000_000L),
             normalizeNuvioProgressTimes(120_000L, 2_400L, 1_700_000_000L),
         )
+        val sistersProgress = normalizeNuvioProgressTimes(
+            position = 2_016L,
+            duration = 2_400_000L,
+            lastWatched = 1_700_000_000L,
+        )
+        assertEquals(2_016_000L, sistersProgress.positionMs)
+        assertEquals(2_400_000L, sistersProgress.durationMs)
+        assertEquals(
+            84.0,
+            sistersProgress.positionMs.toDouble() / sistersProgress.durationMs * 100.0,
+            0.001,
+        )
     }
 
     @Test
@@ -239,11 +251,10 @@ class NuvioSyncContractTest {
     }
 
     @Test
-    fun playbackProgressSyncCoalescesButExplicitSyncIsAppended() {
-        assertEquals(ExistingWorkPolicy.KEEP, syncRequestWorkPolicy(progressOnly = true))
+    fun immediateSyncRequestsAreQueuedBehindActiveSync() {
         assertEquals(
             ExistingWorkPolicy.APPEND_OR_REPLACE,
-            syncRequestWorkPolicy(progressOnly = false),
+            syncRequestWorkPolicy(),
         )
     }
 

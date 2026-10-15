@@ -57,13 +57,13 @@ object NuvioAutoSync {
     }
 
     fun request(context: Context) {
-        enqueue(context, progressOnly = false)
+        enqueue(context)
     }
 
     /**
-     * Playback position changes are frequent and replaceable. Keep at most one
-     * sync in the unique chain for them; explicit changes and watch completion
-     * still append a guaranteed follow-up through [request].
+     * Playback position changes are rate-limited, then serialized behind any
+     * active sync so a newer snapshot is not lost while a worker is running.
+     * Explicit changes and watch completion use the same guaranteed queue.
      */
     fun requestProgress(context: Context) {
         val now = SystemClock.elapsedRealtime()
@@ -79,17 +79,17 @@ object NuvioAutoSync {
             }
             lastProgressRequestAtMs = now
         }
-        enqueue(context, progressOnly = true)
+        enqueue(context)
     }
 
-    private fun enqueue(context: Context, progressOnly: Boolean) {
+    private fun enqueue(context) {
         val request = OneTimeWorkRequestBuilder<NuvioAutoSyncWorker>()
             .setConstraints(networkConstraints())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             IMMEDIATE_WORK,
-            syncRequestWorkPolicy(progressOnly),
+            syncRequestWorkPolicy(),
             request,
         )
     }
@@ -721,8 +721,8 @@ internal fun shouldEnqueuePlaybackProgressSync(
     minimumIntervalMs: Long,
 ): Boolean = lastRequestAtMs == null || nowMs - lastRequestAtMs >= minimumIntervalMs
 
-internal fun syncRequestWorkPolicy(progressOnly: Boolean): ExistingWorkPolicy =
-    if (progressOnly) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.APPEND_OR_REPLACE
+internal fun syncRequestWorkPolicy(): ExistingWorkPolicy =
+    ExistingWorkPolicy.APPEND_OR_REPLACE
 
 
 class NuvioAutoSyncWorker(
