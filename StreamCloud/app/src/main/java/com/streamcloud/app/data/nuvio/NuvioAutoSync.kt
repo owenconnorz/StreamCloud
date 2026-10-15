@@ -82,7 +82,7 @@ object NuvioAutoSync {
         enqueue(context)
     }
 
-    private fun enqueue(context) {
+    private fun enqueue(context: Context) {
         val request = OneTimeWorkRequestBuilder<NuvioAutoSyncWorker>()
             .setConstraints(networkConstraints())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
