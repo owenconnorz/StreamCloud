@@ -81,6 +81,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.graphics.Brush
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.player.toAddonSubtitles
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.ui.screens.AdultScreen
 import com.streamcloud.app.ui.screens.AdultSearchScreen
@@ -1585,6 +1586,7 @@ fun StreamCloudApp() {
                         mutableStateOf(sources.firstOrNull { it.url == initial }?.id)
                     }
                     val active = sources.firstOrNull { it.id == currentId }
+                    val sourceSubtitles = (addonSubtitles + active?.subtitleTracks.orEmpty()).distinctBy { it.url }
                     val subtitle = active?.let { "${it.addonName}${it.qualityTag?.let { q -> " · $q" } ?: ""}" }
                     val refreshScope = rememberCoroutineScope()
 
@@ -1627,7 +1629,7 @@ fun StreamCloudApp() {
                             }
                         },
                         // ── Addon subtitles ───────────────────────────────────
-                        addonSubtitles = addonSubtitles,
+                        addonSubtitles = sourceSubtitles,
                         // ── Per-provider errors ───────────────────────────────
                         sourceErrors   = sourceErrors,
                         onRefresh = {
@@ -1650,6 +1652,7 @@ fun StreamCloudApp() {
                                                 qualityTag = nuvioQualityTag(stream.quality),
                                                 isMagnet = stream.url.startsWith("magnet:"),
                                                 headers = stream.headers ?: emptyMap(),
+                                                subtitleTracks = stream.toAddonSubtitles(provider.name),
                                             )
                                         }
                                 }.getOrDefault(emptyList())

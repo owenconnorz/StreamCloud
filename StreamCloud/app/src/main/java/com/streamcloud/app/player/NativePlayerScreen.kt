@@ -82,6 +82,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -285,7 +286,14 @@ fun NativePlayerScreen(
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent(playerUserAgent)
             .also { f -> if (requestHeaders.isNotEmpty()) f.setDefaultRequestProperties(requestHeaders) }
-        val dsFactory: DataSource.Factory = DefaultDataSource.Factory(context, httpFactory)
+        val subtitleHeaders = addonSubtitles.filter { it.headers.isNotEmpty() }.associate { it.url to it.headers }
+        val resolvingHttpFactory = ResolvingDataSource.Factory(httpFactory) { dataSpec ->
+            val extraHeaders = subtitleHeaders[dataSpec.uri.toString()].orEmpty()
+            if (extraHeaders.isEmpty()) dataSpec else dataSpec.buildUpon()
+                .setHttpRequestHeaders(dataSpec.httpRequestHeaders + extraHeaders)
+                .build()
+        }
+        val dsFactory: DataSource.Factory = DefaultDataSource.Factory(context, resolvingHttpFactory)
         val mediaItem = MediaItem.fromUri(url)
         val source: MediaSource = when {
             url.contains(".m3u8", true) -> HlsMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
@@ -1409,8 +1417,14 @@ fun NativePlayerScreen(
                                     supportingContent = { Text(sub.addonName, style = MaterialTheme.typography.bodySmall) },
                                     leadingContent = { Icon(Icons.Default.Subtitles, null) },
                                     modifier = Modifier.clickable {
-                                        val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub.url))
-                                            .setMimeType("application/x-subrip")
+                                        val subtitleUri = Uri.parse(sub.url)
+                                        val subtitleMimeType = when (subtitleUri.lastPathSegment?.substringAfterLast('.', "")?.lowercase()) {
+                                            "vtt" -> "text/vtt"
+                                            "ttml", "xml" -> "application/ttml+xml"
+                                            else -> "application/x-subrip"
+                                        }
+                                        val subConfig = MediaItem.SubtitleConfiguration.Builder(subtitleUri)
+                                            .setMimeType(subtitleMimeType)
                                             .setLanguage(sub.lang.ifBlank { null })
                                             .setLabel(sub.label)
                                             .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)

@@ -99,6 +99,7 @@ import com.streamcloud.app.player.BingeEpisode
 import com.streamcloud.app.player.PlayerPauseOverlayMetadata
 import com.streamcloud.app.player.buildBingeEpisodeQueue
 import com.streamcloud.app.player.PlayerSource
+import com.streamcloud.app.player.toAddonSubtitles
 import com.streamcloud.app.player.StreamCacheRepository
 import com.streamcloud.app.player.WatchProgressKey
 import com.streamcloud.app.player.sourceSelectionRoute
@@ -2439,6 +2440,7 @@ private fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): Player
         url = url, label = label, addonName = provider.name,
         qualityTag = normaliseNuvioQuality(qualityHint), isMagnet = url.startsWith("magnet:"),
         headers = headers ?: emptyMap(),
+        subtitleTracks = toAddonSubtitles(provider.name),
     )
 }
 

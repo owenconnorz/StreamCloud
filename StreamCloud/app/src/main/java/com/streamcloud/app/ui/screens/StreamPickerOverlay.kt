@@ -53,6 +53,7 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
+import com.streamcloud.app.player.toAddonSubtitles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
@@ -749,6 +750,7 @@ private fun NuvioStream.pickerToPlayerSource(provider: InstalledNuvioProvider): 
         qualityTag = pickerNormaliseQuality(qualityHint),
         isMagnet = url.startsWith("magnet:"),
         headers = headers ?: emptyMap(),
+        subtitleTracks = toAddonSubtitles(provider.name),
     )
 }
 

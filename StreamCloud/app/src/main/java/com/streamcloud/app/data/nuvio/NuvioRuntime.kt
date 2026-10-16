@@ -2273,14 +2273,42 @@ object NuvioRuntime {
         return sentinel != "undefined" && sentinel != "null" && sentinel != "none"
     }
 
-    private fun parseStreams(json: String): List<NuvioStream> {
+    internal fun parseStreams(json: String): List<NuvioStream> {
         if (json.isBlank() || json == "null") return emptyList()
         val J = kotlinx.serialization.json.Json
 
         fun prim(o: kotlinx.serialization.json.JsonObject, vararg keys: String): String? =
-            keys.firstNotNullOfOrNull { k -> (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() } }
+              keys.firstNotNullOfOrNull { k -> (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() } }
 
-        val element = runCatching { J.parseToJsonElement(json) }.getOrNull() ?: return emptyList()
+          fun parseHeaders(value: kotlinx.serialization.json.JsonElement?): Map<String, String>? =
+              when (value) {
+                  is kotlinx.serialization.json.JsonObject -> value.mapValues { (_, v) ->
+                      (v as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                  }.filterKeys { it.isNotBlank() }
+                  is kotlinx.serialization.json.JsonArray -> value.filterIsInstance<kotlinx.serialization.json.JsonObject>()
+                      .mapNotNull { entry ->
+                          val key = (entry["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                              ?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                          val headerValue = (entry["value"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                          key to headerValue
+                      }.toMap()
+                  else -> null
+              }
+
+          fun parseSubtitles(value: kotlinx.serialization.json.JsonElement?): List<NuvioStreamSubtitle>? =
+              (value as? kotlinx.serialization.json.JsonArray)?.mapNotNull { entry ->
+                  val subtitle = entry as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+                  val subtitleUrl = prim(subtitle, "url", "link")?.takeIf { it.looksLikeUrl() }
+                      ?: return@mapNotNull null
+                  NuvioStreamSubtitle(
+                      url = subtitleUrl,
+                      language = prim(subtitle, "language", "lang") ?: "und",
+                      name = prim(subtitle, "name", "label", "title"),
+                      headers = parseHeaders(subtitle["headers"]),
+                  )
+              }
+
+            val element = runCatching { J.parseToJsonElement(json) }.getOrNull() ?: return emptyList()
         val arr = element as? kotlinx.serialization.json.JsonArray ?: return emptyList()
         return arr.mapNotNull { item ->
             when (item) {
@@ -2290,6 +2318,7 @@ object NuvioRuntime {
                     NuvioStream(url = u)
                 }
                 is kotlinx.serialization.json.JsonObject -> {
+                    val subtitles = parseSubtitles(item["subtitles"])
                     // ── Stremio / Torrentio torrent format: infoHash + sources ──
                     // Providers like Torrentio and NoTorrent return torrent streams
                     // using the Stremio addon format ({infoHash, sources, name, title})
@@ -2314,7 +2343,7 @@ object NuvioRuntime {
                         val name    = prim(item, "name", "label")
                         val title   = prim(item, "title")
                         val quality = prim(item, "quality", "resolution", "res")
-                        return@mapNotNull NuvioStream(name = name, title = title, url = magnetUrl, quality = quality)
+                        return@mapNotNull NuvioStream(name = name, title = title, url = magnetUrl, quality = quality, subtitles = subtitles)
                     }
 
                     val url = prim(item, "url", "stream_url", "streamUrl", "link", "href")
@@ -2323,22 +2352,12 @@ object NuvioRuntime {
                     val name    = prim(item, "name", "label", "description")
                     val title   = prim(item, "title")
                     val quality = prim(item, "quality", "resolution", "res", "qualityTag", "quality_tag")
-                    val headers: Map<String, String>? = when (val h = item["headers"]) {
-                        is kotlinx.serialization.json.JsonObject ->
-                            h.mapValues { (_, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() }
-                                .filterKeys { it.isNotBlank() }
-                        is kotlinx.serialization.json.JsonArray ->
-
-                            h.filterIsInstance<kotlinx.serialization.json.JsonObject>()
-                                .mapNotNull { entry ->
-                                    val k = (entry["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                                    val v = (entry["value"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
-                                    k to v
-                                }.toMap()
-                        else -> null
+                    val headers = parseHeaders(item["headers"])
+                        NuvioStream(
+                            name = name, title = title, url = url, quality = quality,
+                            headers = headers, subtitles = subtitles,
+                        )
                     }
-                    NuvioStream(name = name, title = title, url = url, quality = quality, headers = headers)
-                }
                 else -> null
             }
         }

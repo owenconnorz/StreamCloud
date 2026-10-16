@@ -16,6 +16,7 @@ data class PlayerSource(
     val debridHost: String? = null,
     val skipIntervals: List<SkipInterval> = emptyList(),
     val sourceRoute: String? = null,
+    val subtitleTracks: List<AddonSubtitle> = emptyList(),
 ) {
     companion object {
         private val KNOWN_DEBRID_HOSTS = setOf(
@@ -58,8 +59,21 @@ fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): PlayerSource {
         isMagnet = url.startsWith("magnet:"),
         headers = headers ?: emptyMap(),
         debridHost = PlayerSource.detectDebridHost(url),
+        subtitleTracks = toAddonSubtitles(provider.name),
     )
 }
+
+fun NuvioStream.toAddonSubtitles(providerName: String): List<AddonSubtitle> =
+    subtitles.orEmpty().mapNotNull { subtitle ->
+        subtitle.url.takeIf { it.isNotBlank() }?.let { subtitleUrl ->
+            val language = subtitle.language.ifBlank { "und" }
+            AddonSubtitle(
+                url = subtitleUrl, lang = language,
+                label = subtitle.name?.takeIf { it.isNotBlank() } ?: language,
+                addonName = providerName, headers = subtitle.headers.orEmpty(),
+            )
+        }
+    }
 
 fun normaliseNuvioQuality(q: String?): String? {
     if (q.isNullOrBlank()) return null

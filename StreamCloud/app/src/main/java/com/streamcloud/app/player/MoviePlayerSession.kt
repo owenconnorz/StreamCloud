@@ -167,4 +167,5 @@ data class AddonSubtitle(
     val lang: String,
     val label: String,
     val addonName: String,
+    val headers: Map<String, String> = emptyMap(),
 )
