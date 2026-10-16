@@ -434,11 +434,12 @@ fun NativePlayerScreen(
         val session = MediaSession.Builder(context.applicationContext, currentEx).setId("sc_video_player").build()
         onDispose { session.release() }
     }
-    DisposableEffect(player.value, matchDisplayFrameRate, isTv) {
+    DisposableEffect(player.value, matchDisplayFrameRate) {
         val currentEx = player.value
         val activity = context as? Activity
         if (
-            currentEx == null || activity == null || !isTv || !matchDisplayFrameRate ||
+            currentEx == null || activity == null || !matchDisplayFrameRate ||
+            !activity.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
             android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M
         ) {
             return@DisposableEffect onDispose {}
