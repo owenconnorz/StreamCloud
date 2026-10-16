@@ -1,3 +1,15 @@
+## Latest — Changes since V2175
+
+### Nuvio playback sync
+- **Progress updates queue reliably across devices** — Nuvio playback progress is now queued with the correct app context so Continue Watching can catch up consistently on TV and mobile.
+
+### Subtitles
+- **Nuvio subtitles are available in movie playback** — subtitle tracks returned by Nuvio can now be surfaced and selected in the player when provided.
+
+### Android TV playback
+- **More playback compatibility controls** — TV settings now offer decoder fallback, tunneled playback, and display refresh-rate matching.
+- **Settings are easier to navigate with a remote** — TV settings are organized by category with a focused detail panel.
+
 ## Latest — Changes since V2166
 
 ### Nuvio sync and Continue Watching
