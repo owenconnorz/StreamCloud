@@ -203,6 +203,9 @@ object SettingsKeys {
     val PREFERRED_AUDIO_LANG       = stringPreferencesKey("preferred_audio_lang")
     val PREFERRED_SUBTITLE_LANG    = stringPreferencesKey("preferred_subtitle_lang")
     val HARDWARE_DECODING          = booleanPreferencesKey("hardware_decoding")
+    val DECODER_FALLBACK           = booleanPreferencesKey("decoder_fallback")
+    val TUNNELED_PLAYBACK          = booleanPreferencesKey("tunneled_playback")
+    val MATCH_DISPLAY_FRAME_RATE   = booleanPreferencesKey("match_display_frame_rate")
     val PIP_ENABLED                = booleanPreferencesKey("pip_enabled")
     val GESTURE_VOLUME_ENABLED     = booleanPreferencesKey("gesture_volume_enabled")
     val GESTURE_BRIGHTNESS_ENABLED = booleanPreferencesKey("gesture_brightness_enabled")
@@ -976,6 +979,9 @@ class SettingsRepository(private val context: Context) {
     val preferredAudioLang: Flow<String>       = context.dataStore.data.map { it[SettingsKeys.PREFERRED_AUDIO_LANG]       ?: "en" }
     val preferredSubtitleLang: Flow<String>    = context.dataStore.data.map { it[SettingsKeys.PREFERRED_SUBTITLE_LANG]    ?: "en" }
     val hardwareDecodingEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HARDWARE_DECODING]          ?: true }
+    val decoderFallbackEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.DECODER_FALLBACK] ?: true }
+    val tunneledPlaybackEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.TUNNELED_PLAYBACK] ?: false }
+    val matchDisplayFrameRateEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.MATCH_DISPLAY_FRAME_RATE] ?: false }
     val pipEnabled: Flow<Boolean>              = context.dataStore.data.map { it[SettingsKeys.PIP_ENABLED]                ?: true }
     val gestureVolumeEnabled: Flow<Boolean>    = context.dataStore.data.map { it[SettingsKeys.GESTURE_VOLUME_ENABLED]     ?: true }
     val gestureBrightnessEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.GESTURE_BRIGHTNESS_ENABLED] ?: true }
@@ -998,6 +1004,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun setPreferredAudioLang(s: String)         = context.dataStore.edit { it[SettingsKeys.PREFERRED_AUDIO_LANG]       = s }
     suspend fun setPreferredSubtitleLang(s: String)      = context.dataStore.edit { it[SettingsKeys.PREFERRED_SUBTITLE_LANG]    = s }
     suspend fun setHardwareDecodingEnabled(b: Boolean)   = context.dataStore.edit { it[SettingsKeys.HARDWARE_DECODING]          = b }
+    suspend fun setDecoderFallbackEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.DECODER_FALLBACK] = b }
+    suspend fun setTunneledPlaybackEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.TUNNELED_PLAYBACK] = b }
+    suspend fun setMatchDisplayFrameRateEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.MATCH_DISPLAY_FRAME_RATE] = b }
     suspend fun setPipEnabled(b: Boolean)                = context.dataStore.edit { it[SettingsKeys.PIP_ENABLED]                = b }
     suspend fun setGestureVolumeEnabled(b: Boolean)      = context.dataStore.edit { it[SettingsKeys.GESTURE_VOLUME_ENABLED]     = b }
     suspend fun setGestureBrightnessEnabled(b: Boolean)  = context.dataStore.edit { it[SettingsKeys.GESTURE_BRIGHTNESS_ENABLED] = b }

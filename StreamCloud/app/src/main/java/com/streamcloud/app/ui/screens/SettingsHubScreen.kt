@@ -13,7 +13,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,6 +91,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.AllMoviesThemes
@@ -310,6 +313,9 @@ fun SettingsHubScreen(
     var preferredAudioLang     by remember { mutableStateOf("en") }
     var preferredSubtitleLang  by remember { mutableStateOf("en") }
     var hwDecoding             by remember { mutableStateOf(true) }
+    var decoderFallback        by remember { mutableStateOf(true) }
+    var tunneledPlayback       by remember { mutableStateOf(false) }
+    var matchDisplayFrameRate  by remember { mutableStateOf(false) }
     var pipEnabled             by remember { mutableStateOf(true) }
     var gestureVolume          by remember { mutableStateOf(true) }
     var gestureBrightness      by remember { mutableStateOf(true) }
@@ -407,6 +413,9 @@ fun SettingsHubScreen(
         preferredAudioLang    = sl.settings.preferredAudioLang.first()
         preferredSubtitleLang = sl.settings.preferredSubtitleLang.first()
         hwDecoding            = sl.settings.hardwareDecodingEnabled.first()
+        decoderFallback = sl.settings.decoderFallbackEnabled.first()
+        tunneledPlayback = sl.settings.tunneledPlaybackEnabled.first()
+        matchDisplayFrameRate = sl.settings.matchDisplayFrameRateEnabled.first()
         pipEnabled            = sl.settings.pipEnabled.first()
         gestureVolume         = sl.settings.gestureVolumeEnabled.first()
         gestureBrightness     = sl.settings.gestureBrightnessEnabled.first()
@@ -558,6 +567,43 @@ fun SettingsHubScreen(
                             title = "Picture in Picture",
                             checked = pipEnabled,
                             onChange = { pipEnabled = it; scope.launch { sl.settings.setPipEnabled(it) } },
+                        )
+                    }
+                }
+                SettingsGroup {
+                    SubSectionLabel("Advanced playback")
+                    SettingToggle(
+                        icon = Icons.Default.Bolt, tint = ColourPlayer,
+                        title = "Decoder fallback",
+                        subtitle = "Let ExoPlayer retry with another available decoder if playback fails",
+                        checked = decoderFallback,
+                        onChange = {
+                            decoderFallback = it
+                            scope.launch { sl.settings.setDecoderFallbackEnabled(it) }
+                        },
+                    )
+                    if (isTv) {
+                        SettingDivider()
+                        SettingToggle(
+                            icon = Icons.Default.LiveTv, tint = ColourPlayer,
+                            title = "Match display refresh rate",
+                            subtitle = "Switch the TV to a supported mode close to the video frame rate",
+                            checked = matchDisplayFrameRate,
+                            onChange = {
+                                matchDisplayFrameRate = it
+                                scope.launch { sl.settings.setMatchDisplayFrameRateEnabled(it) }
+                            },
+                        )
+                        SettingDivider()
+                        SettingToggle(
+                            icon = Icons.Default.LiveTv, tint = ColourPlayer,
+                            title = "Tunneled playback",
+                            subtitle = "Use the TV’s low-level audio/video path; turn off if playback glitches",
+                            checked = tunneledPlayback,
+                            onChange = {
+                                tunneledPlayback = it
+                                scope.launch { sl.settings.setTunneledPlaybackEnabled(it) }
+                            },
                         )
                     }
                 }
@@ -3012,86 +3058,213 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
         }
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .tvFocusGroup(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 100.dp),
-    ) {
-        // ── Title ──────────────────────────────────────────────────────────
-        item {
+    if (isTv) {
+        var selectedSectionLabel by remember { mutableStateOf(visibleSections.firstOrNull()?.label.orEmpty()) }
+        val railState = rememberLazyListState()
+        val selectedSection = visibleSections.firstOrNull { it.label == selectedSectionLabel }
+            ?: visibleSections.firstOrNull()
+        LaunchedEffect(visibleSections.map { it.label }) {
+            if (visibleSections.none { it.label == selectedSectionLabel }) {
+                selectedSectionLabel = visibleSections.firstOrNull()?.label.orEmpty()
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .tvFocusGroup()
+                .padding(horizontal = 34.dp, vertical = 18.dp),
+        ) {
             Text(
                 "Settings",
                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 14.dp),
+                modifier = Modifier.padding(start = 6.dp, bottom = 14.dp),
             )
-        }
-        // ── Search bar — hidden on TV (no keyboard; D-pad navigates rows directly).
-        if (!isTv) item {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = {
-                    Text("Search settings…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                },
-                leadingIcon = {
-                    Icon(Icons.Default.Search, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // Phone/tablet search owns the entry focus when visible. TV attaches the
-                    // same requester to the first real setting row below.
-                    .let { if (tvNavFocusRequester != null) it.focusRequester(tvNavFocusRequester) else it }
-                    .padding(bottom = 22.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor   = MaterialTheme.colorScheme.outlineVariant,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    focusedContainerColor   = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ),
-            )
-        }
-        // ── Sections ───────────────────────────────────────────────────────
-        filtered.forEachIndexed { sectionIdx, section ->
-            item(key = "lbl:${section.label}") {
-                Text(
-                    section.label,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight    = FontWeight.Bold,
-                        letterSpacing = 0.9.sp,
-                    ),
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                    modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
-                )
+            LazyRow(
+                state = railState,
+                modifier = Modifier.fillMaxWidth().tvFocusGroup(),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                itemsIndexed(visibleSections, key = { _, section -> section.label }) { index, section ->
+                    TVSettingsSectionTab(
+                        title = section.label,
+                        selected = section.label == selectedSectionLabel,
+                        onFocused = { selectedSectionLabel = section.label },
+                        onClick = { selectedSectionLabel = section.label },
+                        modifier = if (index == 0 && tvNavFocusRequester != null) {
+                            Modifier.focusRequester(tvNavFocusRequester)
+                        } else Modifier,
+                    )
+                }
             }
-            item(key = "grp:${section.label}") {
-                SettingsGroup {
-                    section.items.forEachIndexed { idx, it ->
-                        HubRow(
-                            icon       = it.icon,
-                            title      = it.title,
-                            subtitle   = it.subtitle,
-                            badge      = it.badge,
-                            badgeError = it.badgeError,
-                            iconTint   = it.iconTint,
-                            onClick    = it.onClick,
-                            modifier   = if (sectionIdx == 0 && idx == 0 && isTv && tvNavFocusRequester != null)
-                                Modifier.focusRequester(tvNavFocusRequester) else Modifier,
-                        )
-                        if (idx < section.items.lastIndex) SettingDivider()
+            HorizontalDivider(
+                modifier = Modifier.padding(top = 4.dp, bottom = 18.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+            )
+            AnimatedContent(
+                targetState = selectedSection?.label.orEmpty(),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                label = "tv_settings_category",
+            ) { sectionLabel ->
+                val section = visibleSections.firstOrNull { it.label == sectionLabel }
+                if (section == null) {
+                    Spacer(Modifier.fillMaxSize())
+                } else {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                        Column(
+                            modifier = Modifier
+                                .widthIn(max = 1050.dp)
+                                .fillMaxWidth()
+                                .fillMaxHeight(),
+                        ) {
+                            Text(
+                                section.label.lowercase().replaceFirstChar { it.uppercase() },
+                                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
+                            )
+                            SettingsGroup {
+                                section.items.forEachIndexed { index, item ->
+                                    HubRow(
+                                        icon = item.icon,
+                                        title = item.title,
+                                        subtitle = item.subtitle,
+                                        badge = item.badge,
+                                        badgeError = item.badgeError,
+                                        iconTint = item.iconTint,
+                                        onClick = item.onClick,
+                                    )
+                                    if (index < section.items.lastIndex) SettingDivider()
+                                }
+                            }
+                        }
                     }
                 }
-                Spacer(Modifier.height(22.dp))
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .tvFocusGroup(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 100.dp),
+        ) {
+            item {
+                Text(
+                    "Settings",
+                    style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 14.dp),
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search settings…", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 22.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                )
+            }
+            filtered.forEach { section ->
+                item(key = "lbl:${section.label}") {
+                    Text(
+                        section.label,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.9.sp,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                        modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
+                    )
+                }
+                item(key = "grp:${section.label}") {
+                    SettingsGroup {
+                        section.items.forEachIndexed { index, item ->
+                            HubRow(
+                                icon = item.icon,
+                                title = item.title,
+                                subtitle = item.subtitle,
+                                badge = item.badge,
+                                badgeError = item.badgeError,
+                                iconTint = item.iconTint,
+                                onClick = item.onClick,
+                            )
+                            if (index < section.items.lastIndex) SettingDivider()
+                        }
+                    }
+                    Spacer(Modifier.height(22.dp))
+                }
             }
         }
     }
 }
+
+
+@Composable
+private fun TVSettingsSectionTab(
+    title: String,
+    selected: Boolean,
+    onFocused: () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val icon = when (title) {
+        "ACCOUNT" -> Icons.Default.Group
+        "MUSIC" -> Icons.Default.MusicNote
+        "MOVIES" -> Icons.Default.Movie
+        "GENERAL" -> Icons.Default.Settings
+        else -> Icons.Default.Info
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        modifier = modifier
+            .onFocusChanged { if (it.isFocused) onFocused() }
+            .tvFocusBorder(RoundedCornerShape(24.dp), showOutline = false)
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.surfaceContainerHigh
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            title.lowercase().replaceFirstChar { it.uppercase() },
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 
 @Composable
 private fun HubRow(

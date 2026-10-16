@@ -240,6 +240,9 @@ fun NativePlayerScreen(
     val seekIncrementSec    by sl.settings.seekIncrementSeconds.collectAsState(initial = "10")
     val defaultSpeedStr     by sl.settings.defaultPlaybackSpeed.collectAsState(initial = "1.0")
     val hwDecodingEnabled   by sl.settings.hardwareDecodingEnabled.collectAsState(initial = true)
+    val decoderFallbackEnabled by sl.settings.decoderFallbackEnabled.collectAsState(initial = true)
+    val tunneledPlaybackEnabled by sl.settings.tunneledPlaybackEnabled.collectAsState(initial = false)
+    val matchDisplayFrameRate by sl.settings.matchDisplayFrameRateEnabled.collectAsState(initial = false)
     val gestureVolumeOn     by sl.settings.gestureVolumeEnabled.collectAsState(initial = true)
     val gestureBrightnessOn by sl.settings.gestureBrightnessEnabled.collectAsState(initial = true)
     val resumePlaybackOn    by sl.settings.resumePlayback.collectAsState(initial = true)
@@ -274,7 +277,7 @@ fun NativePlayerScreen(
 
     LaunchedEffect(subtitleStyle) { applySubtitleStyle(playerViewRef.value, subtitleStyle) }
 
-    LaunchedEffect(resolvedUrl, needsWebView, restartKey, playbackAttempt) {
+    LaunchedEffect(resolvedUrl, needsWebView, restartKey, playbackAttempt, hwDecodingEnabled, decoderFallbackEnabled, tunneledPlaybackEnabled) {
         player.value?.release()
         player.value = null
         playbackError = null
@@ -302,10 +305,18 @@ fun NativePlayerScreen(
         }
         val videoAudioAttrs = androidx.media3.common.AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build()
-        val renderersFactory = if (!hwDecodingEnabled)
-            androidx.media3.exoplayer.DefaultRenderersFactory(context)
-                .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-        else null
+        val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(decoderFallbackEnabled)
+            .apply {
+                if (!hwDecodingEnabled) {
+                    setExtensionRendererMode(
+                        androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                    )
+                }
+            }
+        val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context).apply {
+            setParameters(buildUponParameters().setTunnelingEnabled(tunneledPlaybackEnabled).build())
+        }
         val savedPosition = if (resumePlaybackOn) {
             progressKey?.let { pk ->
                 runCatching {
@@ -323,7 +334,8 @@ fun NativePlayerScreen(
             }
         } else null
         val ex = ExoPlayer.Builder(context)
-            .apply { if (renderersFactory != null) setRenderersFactory(renderersFactory) }
+            .setRenderersFactory(renderersFactory)
+            .setTrackSelector(trackSelector)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dsFactory))
             .setAudioAttributes(videoAudioAttrs, true)
             .setHandleAudioBecomingNoisy(true)
@@ -421,6 +433,42 @@ fun NativePlayerScreen(
         val currentEx = player.value ?: return@DisposableEffect onDispose {}
         val session = MediaSession.Builder(context.applicationContext, currentEx).setId("sc_video_player").build()
         onDispose { session.release() }
+    }
+    DisposableEffect(player.value, matchDisplayFrameRate, isTv) {
+        val currentEx = player.value
+        val activity = context as? Activity
+        if (
+            currentEx == null || activity == null || !isTv || !matchDisplayFrameRate ||
+            android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M
+        ) {
+            return@DisposableEffect onDispose {}
+        }
+        val window = activity.window
+        val originalModeId = window.attributes.preferredDisplayModeId
+        fun setPreferredMode(modeId: Int) {
+            window.attributes = window.attributes.apply { preferredDisplayModeId = modeId }
+        }
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                val frameRate = currentEx.currentTracks.groups
+                    .asSequence()
+                    .filter { it.type == C.TRACK_TYPE_VIDEO }
+                    .flatMap { group ->
+                        (0 until group.mediaTrackGroup.length).asSequence()
+                            .filter { group.isTrackSelected(it) }
+                            .map { group.getTrackFormat(it).frameRate }
+                    }
+                    .firstOrNull { it.isFinite() && it > 0f }
+                val preferredModeId = frameRate?.let { findDisplayModeForFrameRate(activity, it) }
+                setPreferredMode(preferredModeId ?: originalModeId)
+            }
+        }
+        currentEx.addListener(listener)
+        listener.onTracksChanged(currentEx.currentTracks)
+        onDispose {
+            currentEx.removeListener(listener)
+            setPreferredMode(originalModeId)
+        }
     }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -2363,6 +2411,20 @@ private fun ToolbarItem(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 // ────────────────────────────────────────────────────────────────────────────
 // Utilities
 // ────────────────────────────────────────────────────────────────────────────
+
+private fun findDisplayModeForFrameRate(activity: Activity, frameRate: Float): Int? {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return null
+    val display = activity.windowManager.defaultDisplay
+    val candidates = display.supportedModes
+        .mapNotNull { mode ->
+            val rate = mode.refreshRate
+            val matchedRate = listOf(frameRate, frameRate * 2f, frameRate * 3f, frameRate * 4f)
+                .firstOrNull { kotlin.math.abs(rate - it) <= 0.75f }
+            matchedRate?.let { mode to kotlin.math.abs(rate - it) }
+        }
+    return candidates.minByOrNull { it.second }?.first?.modeId
+}
+
 
 private fun formatTime(ms: Long): String {
     if (ms <= 0) return "0:00"
