@@ -143,7 +143,7 @@ import com.streamcloud.app.data.util.GoogleAccountHelper
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.focus.focusRestorer
+import com.streamcloud.app.ui.theme.tvUnpinnedFocusRestorer
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -621,7 +621,7 @@ fun StreamCloudApp() {
                                     Modifier
                                         .focusRequester(navHostFocusRestoreRequester)
                                         .onFocusChanged { navHostHasTvFocus = it.hasFocus }
-                                        .focusRestorer()
+                                        .tvUnpinnedFocusRestorer(navHostFocusRestoreRequester)
                                         .focusGroup()
                                 } else {
                                     Modifier
