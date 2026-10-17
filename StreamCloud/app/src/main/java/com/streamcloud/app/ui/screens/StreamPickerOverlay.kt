@@ -54,6 +54,7 @@ import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.toAddonSubtitles
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
@@ -121,6 +122,8 @@ fun StreamPickerOverlay(
             .map { it.key to it.name }
     }
     val providerKeySet = remember(groupOrder) { groupOrder.mapTo(mutableSetOf()) { it.first } }
+    val csTitle = movie?.displayTitle.orEmpty()
+    val csYear = movie?.pickerYear()
 
     var groups by remember(providerKeySet) {
         mutableStateOf(groupOrder.associate { (key, name) -> key to PickerGroupState(name) })
@@ -135,21 +138,34 @@ fun StreamPickerOverlay(
         }
     }
 
-    LaunchedEffect(revision, providerKeySet, providerOrderIsLoaded) {
+    LaunchedEffect(
+        revision,
+        providerKeySet,
+        providerOrderIsLoaded,
+        groupOrder,
+        installedAddons,
+        installedNuvio,
+        eligibleCs,
+        tmdbId,
+        imdbId,
+        mediaType,
+        season,
+        episode,
+        csTitle,
+        csYear,
+    ) {
         if (!providerOrderIsLoaded) return@LaunchedEffect
         groups = groupOrder.associate { (key, name) -> key to PickerGroupState(name) }
         selectedTab = 0
 
         val stremioType = if (mediaType == "tv") "series" else "movie"
         val tt = imdbId ?: ""
-        val csTitle = movie?.displayTitle.orEmpty()
-        val csYear = movie?.pickerYear()
 
         coroutineScope {
             installedAddons.forEach { addon ->
                 launch {
                     val sources = withContext(Dispatchers.IO) {
-                        runCatching {
+                        try {
                             val ids = buildList {
                                 if (tt.isNotBlank()) add(tt)
                                 if (!tt.startsWith("tmdb:")) add("tmdb:$tmdbId")
@@ -161,7 +177,9 @@ fun StreamPickerOverlay(
                                         .mapNotNull { it.pickerToPlayerSource(addon) }
                                 } ?: emptyList()
                             }.filter { seen.add(it.url) }
-                        }.getOrElse { e ->
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
                             Log.d("StreamPicker", "Stremio ${addon.name}: ${e.message}")
                             emptyList()
                         }
@@ -174,7 +192,7 @@ fun StreamPickerOverlay(
                 launch {
                     val streams = withContext(Dispatchers.IO) {
                         withTimeoutOrNull(30_000L) {
-                            runCatching {
+                            try {
                                 val seen = mutableSetOf<String>()
                                 sl.nuvio.resolveSingle(
                                     provider = provider,
@@ -185,7 +203,9 @@ fun StreamPickerOverlay(
                                     imdbId = imdbId,
                                 ).map { it.pickerToPlayerSource(provider) }
                                     .filter { seen.add(it.url) }
-                            }.getOrElse { e ->
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Throwable) {
                                 Log.d("StreamPicker", "Nuvio ${provider.name}: ${e.message}")
                                 emptyList()
                             }
@@ -200,9 +220,11 @@ fun StreamPickerOverlay(
                 launch {
                     val sources = withContext(Dispatchers.IO) {
                         withTimeoutOrNull(35_000L) {
-                            runCatching {
+                            try {
                                 resolveCsForPicker(context, plugin, csTitle, csYear)
-                            }.getOrElse { e ->
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Throwable) {
                                 Log.d("StreamPicker", "CS ${plugin.name}: ${e.message}")
                                 emptyList()
                             }
