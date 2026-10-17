@@ -1,4 +1,17 @@
-## Latest — Changes since V2183
+## Latest — Changes since V2194
+
+    ### Nuvio library sync
+    - **TV library removals sync across devices** — Deletions use the active Nuvio account and profile, and remain queued until the remote removal can be confirmed.
+
+    ### Library actions
+    - **Manage saved titles with a hold** — Mobile long-press and TV remote hold open per-title actions, including Remove from library and Mark as watched.
+
+    ### Home, search, and settings
+    - **TV home rows follow the configured order** — Provider and catalog ordering now matches the Layout settings.
+    - **Search is preserved when returning from a title** — The query and results stay available, and the search field has more room for its text.
+    - **TV Settings Back stays in the redesigned settings** — Back no longer returns to the legacy settings hub.
+
+    ## Latest — Changes since V2183
 
 ### Nuvio playback sync
 - **TV episode progress syncs more reliably across devices** — Episode identities, payload aliases, and progress acknowledgements are handled consistently so phone and TV Continue Watching can stay aligned.
