@@ -126,7 +126,13 @@ fun LibraryScreen(
     val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
     val profileKey = activeProfile?.id ?: "default"
     val storageScopeKey = "$nuvioUserId:$profileKey"
-    val db = remember(storageScopeKey) { LibraryDb.get(context.applicationContext) }
+    val db = remember(profileKey, nuvioUserId) {
+        LibraryDb.getForProfile(
+            context = context.applicationContext,
+            profileId = profileKey,
+            userId = nuvioUserId,
+        )
+    }
     val dao = remember(db) { db.tracks() }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
     val spotifyCookie by sl.settings.spotifyCookie.collectAsState(initial = "")
@@ -469,7 +475,8 @@ fun LibraryScreen(
                 MovieWatchlistsLibrarySection(
                     defaultItems = watchlistItems,
                     isTv = isTv,
-                    profileKey = storageScopeKey,
+                    profileId = profileKey,
+                    userId = nuvioUserId,
                     tvStableFocusRequester = tvNavFocusRequester,
                     tvStableFocus = movieSectionFocused,
                     onOpen = { entry ->
@@ -851,13 +858,20 @@ fun LibraryScreen(
 private fun MovieWatchlistsLibrarySection(
     defaultItems: List<WatchlistEntity>,
     isTv: Boolean,
-    profileKey: String,
+    profileId: String,
+    userId: String,
     tvStableFocusRequester: FocusRequester?,
     tvStableFocus: Boolean,
     onOpen: (WatchlistEntity) -> Unit,
 ) {
     val context = LocalContext.current
-    val db = remember(profileKey) { LibraryDb.get(context.applicationContext) }
+    val db = remember(profileId, userId) {
+        LibraryDb.getForProfile(
+            context = context.applicationContext,
+            profileId = profileId,
+            userId = userId,
+        )
+    }
     val dao = db.movieWatchlists()
     val scope = rememberCoroutineScope()
     val customLists by dao.all().collectAsState(initial = emptyList())
@@ -889,7 +903,7 @@ private fun MovieWatchlistsLibrarySection(
     LaunchedEffect(pendingTvMutation, tvStableFocus) {
         val mutation = pendingTvMutation ?: return@LaunchedEffect
         if (!isTv) {
-            runCatching { applyMovieWatchlistMutation(context, db, mutation) }
+            runCatching { applyMovieWatchlistMutation(context, db, mutation, userId, profileId) }
                 .onFailure {
                     Toast.makeText(context, "Could not update the library item.", Toast.LENGTH_SHORT).show()
                 }
@@ -922,7 +936,7 @@ private fun MovieWatchlistsLibrarySection(
 
         delay(100)
         if (!tvStableFocus) return@LaunchedEffect
-        runCatching { applyMovieWatchlistMutation(context, db, mutation) }
+        runCatching { applyMovieWatchlistMutation(context, db, mutation, userId, profileId) }
             .onSuccess { pendingTvMutation = null }
             .onFailure {
                 pendingTvMutation = null
@@ -1235,6 +1249,8 @@ private suspend fun applyMovieWatchlistMutation(
     context: android.content.Context,
     db: LibraryDb,
     mutation: MovieWatchlistMutation,
+    userId: String,
+    profileId: String,
 ) {
     when (mutation) {
         is MovieWatchlistMutation.Remove -> {
@@ -1244,6 +1260,8 @@ private suspend fun applyMovieWatchlistMutation(
                     context.applicationContext,
                     mutation.entry.tmdbId,
                     mutation.entry.mediaType,
+                    userId = userId,
+                    localProfileId = profileId,
                 )
             } else {
                 db.movieWatchlists().removeItem(mutation.listId, mutation.entry.tmdbId)
@@ -1262,6 +1280,8 @@ private suspend fun applyMovieWatchlistMutation(
                     context.applicationContext,
                     mutation.entry.tmdbId,
                     mutation.entry.mediaType,
+                    userId = userId,
+                    localProfileId = profileId,
                 )
             } else {
                 com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)

@@ -207,46 +207,59 @@ object NuvioAutoSync {
      * separate from the network request: a user can remove an item while
      * offline, and Nuvio must not recreate it on the next pull.
      */
-    suspend fun requestLibraryDelete(context: Context, tmdbId: Long, mediaType: String) {
-            requestLibraryDeletes(context, listOf(tmdbId to mediaType))
-        }
+    suspend fun requestLibraryDelete(
+        context: Context,
+        tmdbId: Long,
+        mediaType: String,
+        userId: String? = null,
+        localProfileId: String? = null,
+    ) {
+        requestLibraryDeletes(
+            context = context,
+            items = listOf(tmdbId to mediaType),
+            userId = userId,
+            localProfileId = localProfileId,
+        )
+    }
 
-        suspend fun requestLibraryDeletes(
-            context: Context,
-            items: Collection<Pair<Long, String>>,
-        ) {
-            val deletions = items.mapNotNull { (tmdbId, mediaType) ->
-                if (tmdbId <= 0L) return@mapNotNull null
-                val contentType = when (mediaType.lowercase()) {
-                    "tv", "series" -> "series"
-                    "movie" -> "movie"
-                    else -> return@mapNotNull null
-                }
-                "$contentType:tmdb:$tmdbId"
-            }.toSet()
-            if (deletions.isEmpty()) return
-            val appContext = context.applicationContext
-            val services = ServiceLocator.get(appContext)
-            val userId = services.settings.nuvioUserId.first().trim()
-            if (userId.isBlank()) return
-            NuvioAccountScopeStore.setCurrentUserId(appContext, userId)
-            val profiles = services.profiles
-            val localProfileId = profiles.currentActiveId()
-                ?: profiles.currentProfiles().firstOrNull()?.id
-                ?: return
-            if (profiles.nuvioProfileIndex(userId, localProfileId) == null) return
-            val prefs = appContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
-            val preferenceKey = libraryDeletePreferenceKey(userId, localProfileId)
-            val pending = prefs.getStringSet(preferenceKey, emptySet()).orEmpty().toMutableSet()
-            pending += deletions
-            // The process may be stopped immediately after the user removes an item.
-            // A tombstone must be on disk before any background work is scheduled.
-            check(prefs.edit().putStringSet(preferenceKey, pending).commit()) {
-                "Could not persist the Nuvio library deletion request"
+    suspend fun requestLibraryDeletes(
+        context: Context,
+        items: Collection<Pair<Long, String>>,
+        userId: String? = null,
+        localProfileId: String? = null,
+    ) {
+        val deletions = items.mapNotNull { (tmdbId, mediaType) ->
+            if (tmdbId <= 0L) return@mapNotNull null
+            val contentType = when (mediaType.lowercase()) {
+                "tv", "series" -> "series"
+                "movie" -> "movie"
+                else -> return@mapNotNull null
             }
-            request(context)
+            "$contentType:tmdb:$tmdbId"
+        }.toSet()
+        if (deletions.isEmpty()) return
+        val appContext = context.applicationContext
+        val services = ServiceLocator.get(appContext)
+        val targetUserId = userId?.trim()?.takeIf { it.isNotBlank() }
+            ?: services.settings.nuvioUserId.first().trim()
+        if (targetUserId.isBlank()) return
+        NuvioAccountScopeStore.setCurrentUserId(appContext, targetUserId)
+        val profiles = services.profiles
+        val targetLocalProfileId = localProfileId?.trim()?.takeIf { it.isNotBlank() }
+            ?: profiles.currentActiveId()?.takeIf { it.isNotBlank() }
+            ?: profiles.currentProfiles().firstOrNull()?.id?.takeIf { it.isNotBlank() }
+            ?: "default"
+        val prefs = appContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val preferenceKey = libraryDeletePreferenceKey(targetUserId, targetLocalProfileId)
+        val pending = prefs.getStringSet(preferenceKey, emptySet()).orEmpty().toMutableSet()
+        pending += deletions
+        // Persist explicit removal even before a cloud profile mapping is ready.
+        // The sync worker will deliver it once that account/profile can be resolved.
+        check(prefs.edit().putStringSet(preferenceKey, pending).commit()) {
+            "Could not persist the Nuvio library deletion request"
         }
-    
+        request(context)
+    }
     suspend fun recordWatchProgressDelete(
         context: Context,
         tmdbId: Long,
