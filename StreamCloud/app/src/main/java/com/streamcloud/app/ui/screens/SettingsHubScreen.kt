@@ -16,8 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -178,28 +178,10 @@ fun SettingsHubScreen(
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
     val scope   = rememberCoroutineScope()
-    val openSystemEqualizer = {
-        val sessionId = com.streamcloud.app.audio.AudioFx.activeAudioSessionId()
-        when {
-            sessionId == null -> android.widget.Toast.makeText(
-                context,
-                "Start music playback before opening the system equalizer.",
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
-            !com.streamcloud.app.audio.SystemEqualizerPanel.open(context, sessionId) ->
-                android.widget.Toast.makeText(
-                    context,
-                    "This device does not provide a system equalizer panel.",
-                    android.widget.Toast.LENGTH_LONG,
-                ).show()
-            else -> Unit
-        }
-    }
     val localPlaylists by remember {
         com.streamcloud.app.data.library.LibraryDb.get(context.applicationContext)
             .localPlaylists().allPlaylists()
     }.collectAsState(initial = emptyList())
-    val ytMusicPremium by com.streamcloud.app.data.ytmusic.YtPlayerUtils.ytMusicPremiumStatus.collectAsState()
 
 
     var backendUrl          by remember { mutableStateOf("") }
@@ -208,10 +190,6 @@ fun SettingsHubScreen(
     var nsfw                by remember { mutableStateOf(false) }
     var videoQuality        by remember { mutableStateOf("auto") }
     var audioQuality        by remember { mutableStateOf("high") }
-    val audioQualitySummary = when {
-        audioQuality == "ultra" && ytMusicPremium != true -> "Ultra · Premium required"
-        else -> audioQuality.replaceFirstChar { it.uppercase() }
-    }
     var extLinks            by remember { mutableStateOf(true) }
     var autoplay            by remember { mutableStateOf(true) }
     var subs                by remember { mutableStateOf(true) }
@@ -219,6 +197,7 @@ fun SettingsHubScreen(
     var hfToken             by remember { mutableStateOf("") }
     var dynamicColor        by remember { mutableStateOf(false) }
     var eqEnabled           by remember { mutableStateOf(false) }
+    var eqPreset            by remember { mutableStateOf("flat") }
     var bassBoost           by remember { mutableStateOf(false) }
     var enabledCollections  by remember { mutableStateOf<Set<String>>(emptySet()) }
     var themeMode           by remember { mutableStateOf("dark") }
@@ -296,6 +275,7 @@ fun SettingsHubScreen(
 
     var showQualityVideoDialog  by remember { mutableStateOf(false) }
     var showQualityAudioDialog  by remember { mutableStateOf(false) }
+    var showEqDialog            by remember { mutableStateOf(false) }
     var showCollectionsDialog   by remember { mutableStateOf(false) }
     var showNavOrderDialog      by remember { mutableStateOf(false) }
     var showAboutDialog         by remember { mutableStateOf(false) }
@@ -352,6 +332,7 @@ fun SettingsHubScreen(
         hfToken             = sl.settings.hfToken.first()
         dynamicColor        = sl.settings.dynamicColor.first()
         eqEnabled           = sl.settings.eqEnabled.first()
+        eqPreset            = sl.settings.eqPreset.first()
         bassBoost           = sl.settings.bassBoost.first()
         themeMode           = sl.settings.theme.first()
         colorPalette        = sl.settings.colorPalette.first()
@@ -415,8 +396,8 @@ fun SettingsHubScreen(
         preferredAudioLang    = sl.settings.preferredAudioLang.first()
         preferredSubtitleLang = sl.settings.preferredSubtitleLang.first()
         hwDecoding            = sl.settings.hardwareDecodingEnabled.first()
-        decoderFallback = sl.settings.decoderFallbackEnabled.first()
-        tunneledPlayback = sl.settings.tunneledPlaybackEnabled.first()
+        decoderFallback       = sl.settings.decoderFallbackEnabled.first()
+        tunneledPlayback      = sl.settings.tunneledPlaybackEnabled.first()
         matchDisplayFrameRate = sl.settings.matchDisplayFrameRateEnabled.first()
         pipEnabled            = sl.settings.pipEnabled.first()
         gestureVolume         = sl.settings.gestureVolumeEnabled.first()
@@ -572,6 +553,7 @@ fun SettingsHubScreen(
                         )
                     }
                 }
+                Spacer(Modifier.height(16.dp))
                 SettingsGroup {
                     SubSectionLabel("Advanced playback")
                     SettingToggle(
@@ -623,8 +605,8 @@ fun SettingsHubScreen(
                         SettingDivider()
                         SettingToggle(
                             icon = Icons.Default.Brightness6, tint = ColourPlayer,
-                            title = "System brightness gesture",
-                            subtitle = "Swipe on the player's right side to change Android brightness across apps",
+                            title = "Brightness gesture",
+                            subtitle = "Swipe up or down on the right side of the player",
                             checked = gestureBrightness,
                             onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
                         )
@@ -800,7 +782,7 @@ fun SettingsHubScreen(
                     SettingNav(
                         icon = Icons.Default.GraphicEq, tint = ColourPlayer,
                         title = "Audio quality",
-                        value = audioQualitySummary,
+                        value = audioQuality.replaceFirstChar { it.uppercase() },
                         onClick = { showQualityAudioDialog = true },
                     )
                     SettingDivider()
@@ -832,24 +814,18 @@ fun SettingsHubScreen(
                     SubSectionLabel("Equalizer")
                     SettingToggle(
                         icon = Icons.Default.GraphicEq, tint = ColourPlayer,
-                        title = "Use system equalizer",
-                        subtitle = if (eqEnabled) "On · controlled by your device" else "Off",
+                        title = "Equalizer",
+                        subtitle = if (eqEnabled) "On · ${eqPreset.replaceFirstChar { it.uppercase() }} preset" else "Off",
                         checked = eqEnabled,
-                        onChange = { enabled ->
-                            eqEnabled = enabled
-                            scope.launch {
-                                sl.settings.setEqEnabled(enabled)
-                                if (enabled) openSystemEqualizer()
-                            }
-                        },
+                        onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
                     )
                     if (eqEnabled) {
                         SettingDivider()
                         SettingNav(
                             icon = Icons.Default.GraphicEq, tint = ColourPlayer,
-                            title = "Open device equalizer",
-                            value = "Open",
-                            onClick = { openSystemEqualizer() },
+                            title = "EQ preset",
+                            value = eqPreset.replaceFirstChar { it.uppercase() },
+                            onClick = { showEqDialog = true },
                         )
                     }
                     SettingDivider()
@@ -937,7 +913,7 @@ fun SettingsHubScreen(
                         onClick = {
                             val appSettingsIntent = Intent(
                                 android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.parse("package:" + context.packageName),
+                                Uri.parse("package:${context.packageName}"),
                             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             val openedAppSettings = runCatching {
                                 context.startActivity(appSettingsIntent)
@@ -1152,7 +1128,7 @@ fun SettingsHubScreen(
                     SettingNav(
                         icon = Icons.Default.GraphicEq, tint = ColourPlayer,
                         title = "Audio quality",
-                        value = audioQualitySummary,
+                        value = audioQuality.replaceFirstChar { it.uppercase() },
                         onClick = { showQualityAudioDialog = true },
                     )
                     SettingDivider()
@@ -1262,24 +1238,18 @@ fun SettingsHubScreen(
                     SubSectionLabel("Equalizer")
                     SettingToggle(
                         icon = Icons.Default.GraphicEq, tint = ColourPlayer,
-                        title = "Use system equalizer",
-                        subtitle = if (eqEnabled) "On · controlled by your device" else "Off",
+                        title = "Equalizer",
+                        subtitle = if (eqEnabled) "On · ${eqPreset.replaceFirstChar { it.uppercase() }} preset" else "Off",
                         checked = eqEnabled,
-                        onChange = { enabled ->
-                            eqEnabled = enabled
-                            scope.launch {
-                                sl.settings.setEqEnabled(enabled)
-                                if (enabled) openSystemEqualizer()
-                            }
-                        },
+                        onChange = { eqEnabled = it; scope.launch { sl.settings.setEqEnabled(it) } },
                     )
                     if (eqEnabled) {
                         SettingDivider()
                         SettingNav(
                             icon = Icons.Default.GraphicEq, tint = ColourPlayer,
-                            title = "Open device equalizer",
-                            value = "Open",
-                            onClick = { openSystemEqualizer() },
+                            title = "EQ preset",
+                            value = eqPreset.replaceFirstChar { it.uppercase() },
+                            onClick = { showEqDialog = true },
                         )
                     }
                     SettingDivider()
@@ -1377,8 +1347,8 @@ fun SettingsHubScreen(
                     SettingDivider()
                     SettingToggle(
                         icon = Icons.Default.Brightness6, tint = ColourPlayer,
-                        title = "System brightness gesture",
-                        subtitle = "Swipe on the player's right side to change Android brightness across apps",
+                        title = "Brightness gesture",
+                        subtitle = "Swipe up/down on the right side of the player",
                         checked = gestureBrightness,
                         onChange = { gestureBrightness = it; scope.launch { sl.settings.setGestureBrightnessEnabled(it) } },
                     )
@@ -2442,28 +2412,23 @@ fun SettingsHubScreen(
         QualityDialog(
             title = "Audio quality",
             options = listOf(
-                "low" to "Low (data saver)",
-                "medium" to "Medium",
-                "high" to "High (best available)",
-            ) + if (ytMusicPremium == true) {
-                listOf("ultra" to "Ultra (YouTube Premium · highest available)")
-            } else {
-                emptyList()
-            },
-            selected = if (audioQuality == "ultra" && ytMusicPremium != true) "high" else audioQuality,
-            description = if (ytMusicPremium == true) {
-                "Ultra selects the highest-bitrate audio format YouTube provides."
-            } else {
-                "Ultra appears after StreamCloud confirms Premium on the signed-in YouTube Music account."
-            },
-            onSelect = { quality ->
-                if (quality != "ultra" || ytMusicPremium == true) {
-                    audioQuality = quality
-                    scope.launch { sl.settings.setAudioQuality(quality) }
-                }
-                showQualityAudioDialog = false
-            },
+                "high" to "High (best available)", "medium" to "Medium", "low" to "Low (data saver)",
+            ),
+            selected = audioQuality,
+            onSelect = { audioQuality = it; scope.launch { sl.settings.setAudioQuality(it) }; showQualityAudioDialog = false },
             onDismiss = { showQualityAudioDialog = false },
+        )
+    }
+    if (showEqDialog) {
+        QualityDialog(
+            title = "Equalizer preset",
+            options = listOf(
+                "flat" to "Flat (no change)", "pop" to "Pop", "rock" to "Rock",
+                "jazz" to "Jazz", "bass" to "Bass booster", "vocal" to "Vocal",
+            ),
+            selected = eqPreset,
+            onSelect = { eqPreset = it; scope.launch { sl.settings.setEqPreset(it) }; showEqDialog = false },
+            onDismiss = { showEqDialog = false },
         )
     }
     if (showAiDialog) {
@@ -3229,7 +3194,6 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
     }
 }
 
-
 @Composable
 private fun TVSettingsSectionTab(
     title: String,
@@ -3274,7 +3238,6 @@ private fun TVSettingsSectionTab(
         )
     }
 }
-
 
 @Composable
 private fun HubRow(
@@ -4004,21 +3967,12 @@ private fun QualityDialog(
     selected: String,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
-    description: String? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
-                description?.let { descriptionText ->
-                    Text(
-                        text = descriptionText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                }
                 options.forEach { (value, label) ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

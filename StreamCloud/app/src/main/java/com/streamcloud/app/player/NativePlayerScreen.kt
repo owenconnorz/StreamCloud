@@ -3,19 +3,14 @@ package com.streamcloud.app.player
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
-import android.provider.Settings as AndroidSettings
-import android.widget.Toast
 import android.util.Log
 import android.util.TypedValue
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -95,8 +90,8 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
-import com.streamcloud.app.data.intro.IntroDbService
 import com.streamcloud.app.data.MovieAudioPreferences
+import com.streamcloud.app.data.intro.IntroDbService
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchedEpisodeEntity
 import com.streamcloud.app.data.library.WatchedMovieEntity
@@ -106,8 +101,8 @@ import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -278,7 +273,15 @@ fun NativePlayerScreen(
 
     LaunchedEffect(subtitleStyle) { applySubtitleStyle(playerViewRef.value, subtitleStyle) }
 
-    LaunchedEffect(resolvedUrl, needsWebView, restartKey, playbackAttempt, hwDecodingEnabled, decoderFallbackEnabled, tunneledPlaybackEnabled) {
+    LaunchedEffect(
+        resolvedUrl,
+        needsWebView,
+        restartKey,
+        playbackAttempt,
+        hwDecodingEnabled,
+        decoderFallbackEnabled,
+        tunneledPlaybackEnabled,
+    ) {
         player.value?.release()
         player.value = null
         playbackError = null
@@ -290,10 +293,13 @@ fun NativePlayerScreen(
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent(playerUserAgent)
             .also { f -> if (requestHeaders.isNotEmpty()) f.setDefaultRequestProperties(requestHeaders) }
-        val subtitleHeaders = addonSubtitles.filter { it.headers.isNotEmpty() }.associate { it.url to it.headers }
+        val subtitleHeaders = addonSubtitles
+            .filter { it.headers.isNotEmpty() }
+            .associate { it.url to it.headers }
         val resolvingHttpFactory = ResolvingDataSource.Factory(httpFactory) { dataSpec ->
             val extraHeaders = subtitleHeaders[dataSpec.uri.toString()].orEmpty()
-            if (extraHeaders.isEmpty()) dataSpec else dataSpec.buildUpon()
+            if (extraHeaders.isEmpty()) dataSpec
+            else dataSpec.buildUpon()
                 .setHttpRequestHeaders(dataSpec.httpRequestHeaders + extraHeaders)
                 .build()
         }
@@ -316,7 +322,11 @@ fun NativePlayerScreen(
                 }
             }
         val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context).apply {
-            setParameters(buildUponParameters().setTunnelingEnabled(tunneledPlaybackEnabled).build())
+            setParameters(
+                buildUponParameters()
+                    .setTunnelingEnabled(tunneledPlaybackEnabled)
+                    .build()
+            )
         }
         val savedPosition = if (resumePlaybackOn) {
             progressKey?.let { pk ->
@@ -380,19 +390,8 @@ fun NativePlayerScreen(
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var volumeOverlay    by remember { mutableStateOf<Float?>(null) }
     var brightnessOverlay by remember { mutableStateOf<Float?>(null) }
-    var showSystemBrightnessPermissionDialog by remember { mutableStateOf(false) }
-    val systemBrightnessPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) {
-        showSystemBrightnessPermissionDialog = !AndroidSettings.System.canWrite(context)
-    }
 
     DisposableEffect(Unit) {
-        window?.let { playerWindow ->
-            val params = playerWindow.attributes
-            params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-            playerWindow.attributes = params
-        }
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         @Suppress("DEPRECATION")
         window?.decorView?.systemUiVisibility = (
@@ -404,11 +403,6 @@ fun NativePlayerScreen(
         activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            window?.let { playerWindow ->
-                val params = playerWindow.attributes
-                params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                playerWindow.attributes = params
-            }
             @Suppress("DEPRECATION")
             window?.decorView?.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             activity?.requestedOrientation =
@@ -655,22 +649,29 @@ fun NativePlayerScreen(
                 if (playbackReachedWatchCompletion(pos, dur, ended)) {
                     markCompletedPlayback(completionTarget)
                 }
-                if (shouldPersistWatchProgress(pos, dur, ended, completionHandled.get())) {
+                if (pos > 0L && !ended && !completionHandled.get()) {
                     runCatching {
-                        com.streamcloud.app.data.library.LibraryDb.get(appContext)
-                            .watchProgress().upsert(
+                        val progressDao = com.streamcloud.app.data.library.LibraryDb
+                            .get(appContext)
+                            .watchProgress()
+                        val existing = progressDao.byKey(
+                            progressKey.tmdbId,
+                            progressKey.mediaType,
+                            progressKey.seasonNumber ?: 0,
+                            progressKey.episodeNumber ?: 0,
+                        )
+                        progressDao.upsert(
                                 com.streamcloud.app.data.library.WatchProgressEntity(
                                     tmdbId = progressKey.tmdbId, title = progressKey.title,
                                     posterUrl = progressKey.posterUrl, mediaType = progressKey.mediaType,
-                                    positionMs = pos, durationMs = dur,
+                                    positionMs = pos,
+                                    durationMs = dur.takeIf { it > 0L } ?: existing?.durationMs ?: 0L,
                                     updatedAt = System.currentTimeMillis(), sourceRoute = progressKey.sourceRoute,
                                      seasonNumber = progressKey.seasonNumber ?: 0,
                                      episodeNumber = progressKey.episodeNumber ?: 0,
                                 )
                             )
                         com.streamcloud.app.data.nuvio.NuvioAutoSync.requestProgress(appContext)
-                    }.onFailure { error ->
-                        Log.e("NativePlayerScreen", "Failed to save in-progress watch progress", error)
                     }
                 }
             }
@@ -681,30 +682,34 @@ fun NativePlayerScreen(
                 if (cur != null) {
                     val pos = cur.currentPosition.coerceAtLeast(0L)
                     val dur = cur.duration.coerceAtLeast(0L)
-                    if (shouldPersistWatchProgress(
-                            pos,
-                            dur,
-                            cur.playbackState == Player.STATE_ENDED,
-                            completionHandled.get(),
-                        )) {
+                    if (pos > 0L &&
+                        cur.playbackState != Player.STATE_ENDED &&
+                        !completionHandled.get()
+                    ) {
                         Thread {
                             runCatching {
                                 com.streamcloud.app.data.library.LibraryDb.get(appContext).watchProgress().let { dao ->
                                     kotlinx.coroutines.runBlocking {
+                                        val existing = dao.byKey(
+                                            progressKey.tmdbId,
+                                            progressKey.mediaType,
+                                            progressKey.seasonNumber ?: 0,
+                                            progressKey.episodeNumber ?: 0,
+                                        )
                                         dao.upsert(com.streamcloud.app.data.library.WatchProgressEntity(
                                             tmdbId = progressKey.tmdbId, title = progressKey.title,
                                             posterUrl = progressKey.posterUrl, mediaType = progressKey.mediaType,
-                                            positionMs = pos, durationMs = dur,
+                                            positionMs = pos,
+                                            durationMs = dur.takeIf { it > 0L } ?: existing?.durationMs ?: 0L,
                                             updatedAt = System.currentTimeMillis(), sourceRoute = progressKey.sourceRoute,
                                             seasonNumber = progressKey.seasonNumber ?: 0,
                                             episodeNumber = progressKey.episodeNumber ?: 0,
                                         ))
-                                        // The final playback position must survive an already-running coalesced sync.
+                                        // This is the final position snapshot for this playback session.
+                                        // Queue a guaranteed follow-up if a periodic sync is already running.
                                         com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
                                     }
                                 }
-                            }.onFailure { error ->
-                                Log.e("NativePlayerScreen", "Failed to save in-progress watch progress", error)
                             }
                         }.start()
                     }
@@ -765,7 +770,11 @@ fun NativePlayerScreen(
             episode = if (isTv) episode else null,
             apiKey = introDbApiKey,
         ).map { segment ->
-            SkipInterval(startMs = segment.startMs, endMs = segment.endMs, type = segment.type)
+            SkipInterval(
+                startMs = segment.startMs,
+                endMs = segment.endMs,
+                type = segment.type,
+            )
         }
     }
     val allSkipIntervals = (activeSource?.skipIntervals.orEmpty() + introDbSkipIntervals)
@@ -778,6 +787,7 @@ fun NativePlayerScreen(
         allSkipIntervals.firstOrNull { it.startMs <= positionMs && positionMs < it.endMs && it.endMs != dismissedIntervalEnd }
     }
 
+    // ── Next episode prompt and end-of-episode autoplay ────────────────────
     val nextBingeEpisode = if (currentBingeIndex in 0 until (bingeEpisodes.size - 1))
         bingeEpisodes[currentBingeIndex + 1] else null
     val autoplayNextEnabled by sl.settings.autoplayNext.collectAsState(initial = true)
@@ -963,9 +973,6 @@ fun NativePlayerScreen(
                     val startX = down.position.x; val startY = down.position.y
                     val startTime = System.currentTimeMillis()
                     var dragging = false; var dragSide = startX
-                    var brightnessAtGestureStart = DEFAULT_SYSTEM_BRIGHTNESS
-                    var lastWrittenSystemBrightness = DEFAULT_SYSTEM_BRIGHTNESS
-                    var brightnessGestureDelta = 0f
                     while (true) {
                         val event  = awaitPointerEvent()
                         val change = event.changes.firstOrNull() ?: break
@@ -988,21 +995,8 @@ fun NativePlayerScreen(
                         val dx = change.position.x - startX; val dy = change.position.y - startY
                         val dist = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
                         if (!dragging && dist > slop) {
-                            if (kotlin.math.abs(dy) >= kotlin.math.abs(dx)) {
-                                dragging = true
-                                dragSide = startX
-                                if (dragSide >= widthPx / 2f && gestureBrightnessOn) {
-                                    brightnessAtGestureStart = runCatching {
-                                        AndroidSettings.System.getInt(
-                                            context.contentResolver,
-                                            AndroidSettings.System.SCREEN_BRIGHTNESS,
-                                            DEFAULT_SYSTEM_BRIGHTNESS,
-                                        )
-                                    }.getOrDefault(DEFAULT_SYSTEM_BRIGHTNESS).coerceIn(1, 255)
-                                    lastWrittenSystemBrightness = brightnessAtGestureStart
-                                    brightnessGestureDelta = 0f
-                                }
-                            } else break
+                            if (kotlin.math.abs(dy) >= kotlin.math.abs(dx)) { dragging = true; dragSide = startX }
+                            else break
                         }
                         if (dragging) {
                             change.consume()
@@ -1013,36 +1007,10 @@ fun NativePlayerScreen(
                                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (cur + (delta * maxVol).toInt()).coerceIn(0, maxVol), 0)
                                 volumeOverlay = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVol
                             } else if (dragSide >= widthPx / 2f && gestureBrightnessOn) {
-                                if (!AndroidSettings.System.canWrite(context)) {
-                                    showSystemBrightnessPermissionDialog = true
-                                    break
-                                }
-                                brightnessGestureDelta += delta
-                                val nextBrightness = adjustedSystemBrightness(
-                                    brightnessAtGestureStart,
-                                    brightnessGestureDelta,
-                                )
-                                if (nextBrightness == lastWrittenSystemBrightness) {
-                                    brightnessOverlay = systemBrightnessFraction(nextBrightness)
-                                } else {
-                                    val saved = runCatching {
-                                        AndroidSettings.System.putInt(
-                                            context.contentResolver,
-                                            AndroidSettings.System.SCREEN_BRIGHTNESS,
-                                            nextBrightness,
-                                        )
-                                    }.getOrElse { error ->
-                                        Log.e("NativePlayerScreen", "Could not update Android system brightness", error)
-                                        false
-                                    }
-                                    if (saved) {
-                                        lastWrittenSystemBrightness = nextBrightness
-                                        brightnessOverlay = systemBrightnessFraction(nextBrightness)
-                                    } else {
-                                        showSystemBrightnessPermissionDialog = true
-                                        break
-                                    }
-                                }
+                                val lp = window?.attributes ?: break
+                                val cur = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
+                                lp.screenBrightness = (cur + delta).coerceIn(0.01f, 1f)
+                                window?.attributes = lp; brightnessOverlay = lp.screenBrightness
                             }
                         }
                     }
@@ -1070,39 +1038,8 @@ fun NativePlayerScreen(
         }
         brightnessOverlay?.let { b ->
             Box(Modifier.align(Alignment.CenterEnd).padding(end = 28.dp)) {
-                SwipeIndicatorPill(Icons.Default.Brightness6, "System brightness", b)
+                SwipeIndicatorPill(Icons.Default.Brightness6, "Brightness", b)
             }
-        }
-        if (showSystemBrightnessPermissionDialog) {
-            AlertDialog(
-                onDismissRequest = { showSystemBrightnessPermissionDialog = false },
-                title = { Text("Allow system brightness changes?") },
-                text = {
-                    Text("StreamCloud needs permission to change Android's saved screen brightness. Changes will also affect other apps and remain after you leave the player.")
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val permissionIntent = Intent(
-                            AndroidSettings.ACTION_MANAGE_WRITE_SETTINGS,
-                            Uri.parse("package:${context.packageName}"),
-                        )
-                        try {
-                            systemBrightnessPermissionLauncher.launch(permissionIntent)
-                        } catch (error: ActivityNotFoundException) {
-                            showSystemBrightnessPermissionDialog = false
-                            Log.w("NativePlayerScreen", "System brightness settings are unavailable", error)
-                            Toast.makeText(
-                                context,
-                                "This device does not offer system brightness access.",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    }) { Text("Open settings") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showSystemBrightnessPermissionDialog = false }) { Text("Not now") }
-                },
-            )
         }
 
         // Auto-switch banner
@@ -1297,7 +1234,6 @@ fun NativePlayerScreen(
                                 onSpeedClick         = { showSpeedSheet = true; bumpInteraction() },
                                 onSubsClick          = { showSubsSheet = true; bumpInteraction() },
                                 onAudioClick         = { showAudioSheet = true; bumpInteraction() },
-                                onSubtitleStyleClick = { showSubtitleStyle = true; bumpInteraction() },
                                 effectiveUrl         = effectiveUrl,
                                 effectiveHeaders     = effectiveHeaders,
                                 context              = context,
@@ -1329,6 +1265,7 @@ fun NativePlayerScreen(
                 )
             }
         }
+
         // Nuvio-style "Up next" chip during the last minute; playback only
         // advances automatically after the current episode has actually ended.
         AnimatedVisibility(
@@ -1420,6 +1357,7 @@ fun NativePlayerScreen(
                 sources          = sources,
                 selectedSourceId = selectedSourceId,
                 sourceErrors     = sourceErrors,
+                sidePanelOnPhone = isLandscape && !isTv,
                 onPick           = { src -> showSourcesSheet = false; onSwitchSource?.invoke(src) },
                 onDismiss        = { showSourcesSheet = false },
                 onRefresh        = onRefresh,
@@ -1500,7 +1438,9 @@ fun NativePlayerScreen(
                                     leadingContent = { Icon(Icons.Default.Subtitles, null) },
                                     modifier = Modifier.clickable {
                                         val subtitleUri = Uri.parse(sub.url)
-                                        val subtitleMimeType = when (subtitleUri.lastPathSegment?.substringAfterLast('.', "")?.lowercase()) {
+                                        val subtitleMimeType = when (
+                                            subtitleUri.lastPathSegment?.substringAfterLast('.', "")?.lowercase()
+                                        ) {
                                             "vtt" -> "text/vtt"
                                             "ttml", "xml" -> "application/ttml+xml"
                                             else -> "application/x-subrip"
@@ -1562,6 +1502,19 @@ fun NativePlayerScreen(
             )
         }
     }
+}
+
+private fun findDisplayModeForFrameRate(activity: Activity, frameRate: Float): Int? {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return null
+    val display = activity.windowManager.defaultDisplay
+    val candidates = display.supportedModes
+        .mapNotNull { mode ->
+            val rate = mode.refreshRate
+            val matchedRate = listOf(frameRate, frameRate * 2f, frameRate * 3f, frameRate * 4f)
+                .firstOrNull { kotlin.math.abs(rate - it) <= 0.75f }
+            matchedRate?.let { mode to kotlin.math.abs(rate - it) }
+        }
+    return candidates.minByOrNull { it.second }?.first?.modeId
 }
 
 @Composable
@@ -2089,10 +2042,12 @@ private fun PlayerSidePanel(
 private fun SourcesPickerSheet(
     sources: List<PlayerSource>, selectedSourceId: String?,
     sourceErrors: Map<String, String> = emptyMap(),
+    sidePanelOnPhone: Boolean = false,
     onPick: (PlayerSource) -> Unit, onDismiss: () -> Unit,
     onRefresh: (() -> Unit)? = null, nuvioScanning: Boolean = false,
 ) {
     val isTv           = LocalUiFormFactor.current == UiFormFactor.Tv
+    val showAsSidePanel = isTv || sidePanelOnPhone
     val safeSources    = remember(sources) { sources.distinctBy { it.id } }
     val addonFilters   = remember(safeSources) { listOf("All") + safeSources.map { it.addonName }.distinct() }
     var activeFilter   by remember(safeSources) { mutableStateOf("All") }
@@ -2117,9 +2072,9 @@ private fun SourcesPickerSheet(
         }
     }
 
-    if (isTv) {
-        // TV: Nuvio-style right-side panel — the video/backdrop stays visible on
-        // the left, and a full-height source card slides in from the right.
+    if (showAsSidePanel) {
+        // On TV and in landscape phone playback, show a full-height source drawer
+        // while keeping the video dimly visible behind it.
         BackHandler(onBack = onDismiss)
         Row(
             Modifier
@@ -2138,7 +2093,8 @@ private fun SourcesPickerSheet(
                 Modifier
                     .weight(0.58f)
                     .fillMaxHeight()
-                    .background(Color(0xFF0E0E0E))
+                    .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
+                    .background(Color(0xFF1B1A1F))
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2146,7 +2102,7 @@ private fun SourcesPickerSheet(
                         if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                         else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
                     }
-                    Text("Streams", color = Color.White, style = MaterialTheme.typography.titleLarge,
+                    Text("Sources", color = Color.White, style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f).padding(start = 8.dp))
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
                 }
@@ -2220,7 +2176,7 @@ private fun SourcesPickerSheet(
                         if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                         else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
                     }
-                    Text("Streams", color = Color.White, style = MaterialTheme.typography.titleLarge,
+                    Text("Sources", color = Color.White, style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f).padding(start = 8.dp))
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
                 }
@@ -2383,7 +2339,6 @@ private fun PlayerToolbarPill(
     onRotate: (() -> Unit)? = null, isFill: Boolean = false, onFitClick: () -> Unit = {},
     currentSpeed: Float = 1f, onSpeedClick: () -> Unit = {},
     onSubsClick: () -> Unit = {}, onAudioClick: () -> Unit = {},
-    onSubtitleStyleClick: () -> Unit = {},
     effectiveUrl: String = "", effectiveHeaders: Map<String, String> = emptyMap(),
     context: Context? = null, hasBinge: Boolean = false, onBingeClick: () -> Unit = {},
 ) {
@@ -2396,7 +2351,6 @@ private fun PlayerToolbarPill(
         ToolbarItem(Icons.Default.AspectRatio, if (isFill) "Fill" else "Fit") { onFitClick() }
         ToolbarItem(Icons.Default.Speed, speedLabel) { onSpeedClick() }
         ToolbarItem(Icons.Default.ClosedCaption, "Subs") { onSubsClick() }
-        ToolbarItem(Icons.Default.Tune, "Sub Style") { onSubtitleStyleClick() }
         ToolbarItem(Icons.Default.VolumeUp, "Audio") { onAudioClick() }
         ToolbarItem(Icons.AutoMirrored.Filled.CompareArrows, "Sources", enabled = onSourcesClick != null) { onSourcesClick?.invoke() }
         if (hasBinge) ToolbarItem(Icons.Default.QueuePlayNext, "Episodes") { onBingeClick() }
@@ -2445,20 +2399,6 @@ private fun ToolbarItem(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 // ────────────────────────────────────────────────────────────────────────────
 // Utilities
 // ────────────────────────────────────────────────────────────────────────────
-
-private fun findDisplayModeForFrameRate(activity: Activity, frameRate: Float): Int? {
-    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return null
-    val display = activity.windowManager.defaultDisplay
-    val candidates = display.supportedModes
-        .mapNotNull { mode ->
-            val rate = mode.refreshRate
-            val matchedRate = listOf(frameRate, frameRate * 2f, frameRate * 3f, frameRate * 4f)
-                .firstOrNull { kotlin.math.abs(rate - it) <= 0.75f }
-            matchedRate?.let { mode to kotlin.math.abs(rate - it) }
-        }
-    return candidates.minByOrNull { it.second }?.first?.modeId
-}
-
 
 private fun formatTime(ms: Long): String {
     if (ms <= 0) return "0:00"
