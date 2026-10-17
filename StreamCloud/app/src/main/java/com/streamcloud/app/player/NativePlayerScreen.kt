@@ -1084,7 +1084,7 @@ fun NativePlayerScreen(
             }
         }
 
-        if (controlsVisible && partyMedia != null && !needsWebView && !anyDeviceCasting) {
+        if (controlsVisible && partyMedia != null && !needsWebView && !anyDeviceCasting && !isTv) {
             FilledTonalButton(
                 onClick = { showWatchParty = true },
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 16.dp),
@@ -1136,18 +1136,21 @@ fun NativePlayerScreen(
             enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize()) {
                 if (!locked) {
-                    // Title bar
-                    Column(Modifier.align(Alignment.TopStart)
-                        .padding(
-                            start = if (!isTv && isLandscape) 90.dp else 28.dp,
-                            top = if (!isTv && !isLandscape) 70.dp else 22.dp,
-                            end = if (isLandscape) 220.dp else 90.dp,
-                        )) {
-                        Text(title, color = Color.White, style = MaterialTheme.typography.headlineSmall, maxLines = 2)
-                        if (!episodeLabel.isNullOrBlank()) {
-                            Spacer(Modifier.height(2.dp))
-                            Text(episodeLabel, color = Color.White.copy(alpha = 0.7f),
-                                style = MaterialTheme.typography.bodyMedium)
+                    if (!isTv) {
+                        // Keep the touch layout's title at the top; TV metadata is
+                        // grouped with the bottom progress controls.
+                        Column(Modifier.align(Alignment.TopStart)
+                            .padding(
+                                start = if (isLandscape) 90.dp else 28.dp,
+                                top = if (!isLandscape) 70.dp else 22.dp,
+                                end = if (isLandscape) 220.dp else 90.dp,
+                            )) {
+                            Text(title, color = Color.White, style = MaterialTheme.typography.headlineSmall, maxLines = 2)
+                            if (!episodeLabel.isNullOrBlank()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(episodeLabel, color = Color.White.copy(alpha = 0.7f),
+                                    style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
                 }
@@ -1170,7 +1173,7 @@ fun NativePlayerScreen(
                     }
                 }
 
-                if (!locked) {
+                if (!locked && !isTv) {
                     // Centre playback buttons
                     Row(Modifier.align(Alignment.Center).tvFocusGroup(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(56.dp)) {
@@ -1189,10 +1192,32 @@ fun NativePlayerScreen(
                             bumpInteraction()
                         }
                     }
+                }
 
+                if (!locked) {
                     // Bottom bar
                     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .padding(horizontal = 28.dp, vertical = 22.dp)) {
+                        .then(
+                            if (isTv) Modifier.background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.84f)),
+                                ),
+                            ) else Modifier
+                        )
+                        .padding(
+                            horizontal = if (isTv) 48.dp else 28.dp,
+                            vertical = if (isTv) 20.dp else 22.dp,
+                        )) {
+                        if (isTv) {
+                            Text(
+                                if (!episodeLabel.isNullOrBlank()) "$title · $episodeLabel" else title,
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                        }
                         Slider(
                             value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
                             onValueChange = { v -> ex?.seekTo((v * durationMs).toLong()); bumpInteraction() },
@@ -1211,11 +1236,19 @@ fun NativePlayerScreen(
                                 },
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            TimestampChip(formatTime(positionMs))
-                            TimestampChip(formatTime((durationMs - positionMs).coerceAtLeast(0L)))
+                            if (isTv) {
+                                Text(formatTime(positionMs), color = Color.White, style = MaterialTheme.typography.titleMedium)
+                                Text(formatTime(durationMs), color = Color.White, style = MaterialTheme.typography.titleMedium)
+                            } else {
+                                TimestampChip(formatTime(positionMs))
+                                TimestampChip(formatTime((durationMs - positionMs).coerceAtLeast(0L)))
+                            }
                         }
                         Spacer(Modifier.height(14.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = if (isTv) Arrangement.Start else Arrangement.Center,
+                        ) {
                             PlayerToolbarPill(
                                 onSourcesClick       = if (sources.isNotEmpty()) {{ showSourcesSheet = true; bumpInteraction() }} else null,
                                 isLandscape          = isLandscape,
@@ -1239,6 +1272,16 @@ fun NativePlayerScreen(
                                 context              = context,
                                 hasBinge             = bingeEpisodes.size > 1,
                                 onBingeClick         = { showSidePanel = !showSidePanel; sidePanelTab = 0; bumpInteraction() },
+                                isTv                 = isTv,
+                                isPlaying            = isPlaying,
+                                onTogglePlayback     = {
+                                    ex?.let { if (it.isPlaying) it.pause() else it.play() }
+                                    bumpInteraction()
+                                },
+                                onPartyClick         = if (partyMedia != null) {
+                                    { showWatchParty = true; bumpInteraction() }
+                                } else null,
+                                primaryFocusRequester = primaryPlaybackFocusRequester,
                             )
                         }
                     }
@@ -2341,9 +2384,62 @@ private fun PlayerToolbarPill(
     onSubsClick: () -> Unit = {}, onAudioClick: () -> Unit = {},
     effectiveUrl: String = "", effectiveHeaders: Map<String, String> = emptyMap(),
     context: Context? = null, hasBinge: Boolean = false, onBingeClick: () -> Unit = {},
+    isTv: Boolean = false, isPlaying: Boolean = false, onTogglePlayback: () -> Unit = {},
+    onPartyClick: (() -> Unit)? = null, primaryFocusRequester: FocusRequester? = null,
 ) {
     val speedLabel = if (currentSpeed % 1f == 0f) "${currentSpeed.toInt()}x" else "${currentSpeed}x"
     val scrollState = rememberScrollState()
+    if (isTv) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(scrollState).tvFocusGroup(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TvPrimaryPlaybackButton(
+                isPlaying = isPlaying,
+                focusRequester = primaryFocusRequester,
+                onClick = onTogglePlayback,
+            )
+            ToolbarItem(Icons.Default.AspectRatio, if (isFill) "Fill" else "Fit", iconOnly = true) { onFitClick() }
+            ToolbarItem(Icons.Default.Speed, speedLabel, iconOnly = true) { onSpeedClick() }
+            ToolbarItem(Icons.Default.ClosedCaption, "Subtitles", iconOnly = true) { onSubsClick() }
+            ToolbarItem(Icons.Default.VolumeUp, "Audio", iconOnly = true) { onAudioClick() }
+            ToolbarItem(
+                Icons.AutoMirrored.Filled.CompareArrows,
+                "Sources",
+                enabled = onSourcesClick != null,
+                iconOnly = true,
+            ) { onSourcesClick?.invoke() }
+            if (hasBinge) {
+                ToolbarItem(Icons.Default.QueuePlayNext, "Episodes", iconOnly = true) { onBingeClick() }
+            }
+            if (onPartyClick != null) {
+                ToolbarItem(Icons.Default.Group, "Watch party", iconOnly = true, onClick = onPartyClick)
+            }
+            if (effectiveUrl.startsWith("http", true) && context != null) {
+                ToolbarItem(Icons.Default.OpenInNew, "External", iconOnly = true) {
+                    try {
+                        context.startActivity(Intent.createChooser(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(effectiveUrl)).apply {
+                                setDataAndType(Uri.parse(effectiveUrl), "video/*")
+                                if (effectiveHeaders.isNotEmpty()) {
+                                    putExtra(
+                                        "headers",
+                                        effectiveHeaders.entries.joinToString("\r\n") { "${it.key}: ${it.value}" },
+                                    )
+                                }
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            },
+                            "Open with…",
+                        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
+        return
+    }
+
     Row(Modifier.fillMaxWidth(if (isLandscape) 0.75f else 1f).clip(RoundedCornerShape(50))
         .background(Color.Black.copy(alpha = 0.55f)).horizontalScroll(scrollState).tvFocusGroup()
         .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -2373,6 +2469,30 @@ private fun PlayerToolbarPill(
 }
 
 @Composable
+private fun TvPrimaryPlaybackButton(
+    isPlaying: Boolean,
+    focusRequester: FocusRequester?,
+    onClick: () -> Unit,
+) {
+    val icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
+    val label = if (isPlaying) "Pause" else "Play"
+    Box(
+        Modifier
+            .size(44.dp)
+            .let { base ->
+                if (focusRequester != null) base.focusRequester(focusRequester) else base
+            }
+            .clip(CircleShape)
+            .tvFocusBorder(CircleShape)
+            .background(Color(0xFFE8D6F5))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = Color(0xFF25142C), modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
 private fun SwipeIndicatorPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: Float) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.70f))
@@ -2385,8 +2505,27 @@ private fun SwipeIndicatorPill(icon: androidx.compose.ui.graphics.vector.ImageVe
 }
 
 @Composable
-private fun ToolbarItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+private fun ToolbarItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    iconOnly: Boolean = false,
+    onClick: () -> Unit,
+) {
     val tint = if (enabled) Color.White else Color.White.copy(alpha = 0.35f)
+    if (iconOnly) {
+        Box(
+            Modifier
+                .size(44.dp)
+                .tvFocusBorder(CircleShape)
+                .clip(CircleShape)
+                .clickable(enabled = enabled, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, label, tint = tint, modifier = Modifier.size(22.dp))
+        }
+        return
+    }
     Row(Modifier.clip(RoundedCornerShape(50)).tvFocusBorder(RoundedCornerShape(50))
         .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically) {

@@ -159,6 +159,40 @@ private enum class SettingsPage {
     Storage, BackupRestore, About, Logs, HomeLayout, AndroidAuto
 }
 
+private val TvSettingsAccent = Color(0xFFB84BEF)
+private val TvSettingsBackground = Color(0xFF0D0C11)
+private val TvSettingsPanel = Color(0xFF1B1A20)
+private val TvSettingsCard = Color(0xFF25242B)
+
+private data class TvSettingsNavEntry(
+    val key: String,
+    val label: String,
+    val icon: ImageVector,
+    val page: SettingsPage? = null,
+    val opensProfiles: Boolean = false,
+)
+
+private val tvSettingsNavEntries = listOf(
+    TvSettingsNavEntry("account", "Account", Icons.Default.Person, SettingsPage.Account),
+    TvSettingsNavEntry("profiles", "Profiles", Icons.Default.Group, opensProfiles = true),
+    TvSettingsNavEntry("watch-party", "Watch party", Icons.Default.Group, SettingsPage.WatchParty),
+    TvSettingsNavEntry("appearance", "Appearance", Icons.Default.Palette, SettingsPage.Appearance),
+    TvSettingsNavEntry("layout", "Layout", Icons.Default.Dashboard, SettingsPage.HomeLayout),
+    TvSettingsNavEntry("content", "Content & discovery", Icons.Default.Movie, SettingsPage.Content),
+    TvSettingsNavEntry("playback", "Playback", Icons.Default.PlayArrow, SettingsPage.Playback),
+    TvSettingsNavEntry("integrations", "Integrations", Icons.Default.Extension, SettingsPage.Account),
+    TvSettingsNavEntry("tracking", "Tracking", Icons.Default.History, SettingsPage.Privacy),
+    TvSettingsNavEntry("advanced", "Advanced", Icons.Default.Settings, SettingsPage.Storage),
+    TvSettingsNavEntry("about", "About", Icons.Default.Info, SettingsPage.About),
+)
+
+private data class TvSettingsNavigation(
+    val selectedKey: String,
+    val onSelect: (TvSettingsNavEntry) -> Unit,
+)
+
+private val LocalTvSettingsNavigation = staticCompositionLocalOf<TvSettingsNavigation?> { null }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsHubScreen(
@@ -175,6 +209,7 @@ fun SettingsHubScreen(
     tvNavFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val sl      = remember { ServiceLocator.get(context) }
     val pluginRepo = remember { PluginRepository(context.applicationContext) }
     val scope   = rememberCoroutineScope()
@@ -415,10 +450,12 @@ fun SettingsHubScreen(
     val discordRpcStatus by DiscordRpcService.status.collectAsState()
     val discordRpcError  by DiscordRpcService.errorMessage.collectAsState()
 
-    var currentPage by remember { mutableStateOf<SettingsPage?>(null) }
+    var currentPage by remember(isTv) {
+        mutableStateOf(if (isTv) SettingsPage.Account else null)
+    }
+    var tvSelectedNavKey by remember(isTv) { mutableStateOf("account") }
     var streamPriorityReturnPage by remember { mutableStateOf<SettingsPage?>(null) }
     var handledBackRequest by remember { mutableStateOf(backRequest) }
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
 
     BackHandler(enabled = currentPage != null) {
         currentPage = if (currentPage == SettingsPage.StreamPriority) streamPriorityReturnPage else null
@@ -426,6 +463,12 @@ fun SettingsHubScreen(
     }
     LaunchedEffect(currentPage) {
         onSubPageChanged(currentPage != null)
+    }
+    LaunchedEffect(currentPage, isTv) {
+        if (!isTv || currentPage == null) return@LaunchedEffect
+        if (currentPage == SettingsPage.Account && tvSelectedNavKey == "integrations") return@LaunchedEffect
+        tvSettingsNavEntries.firstOrNull { it.page == currentPage && !it.opensProfiles }
+            ?.let { tvSelectedNavKey = it.key }
     }
     LaunchedEffect(currentPage, focusRequest) {
         if (!isTv || currentPage != null || tvNavFocusRequester == null) return@LaunchedEffect
@@ -446,17 +489,33 @@ fun SettingsHubScreen(
     }
 
 
-    AnimatedContent(
-        targetState = currentPage,
-        transitionSpec = {
-            if (targetState != null) {
-                slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
-            } else {
-                slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
-            }
-        },
-        label = "settings_page",
-    ) { page ->
+    CompositionLocalProvider(
+        LocalTvSettingsNavigation provides TvSettingsNavigation(
+            selectedKey = tvSelectedNavKey,
+            onSelect = { entry ->
+                tvSelectedNavKey = entry.key
+                if (entry.opensProfiles) {
+                    onSwitchProfile()
+                } else {
+                    entry.page?.let { destination ->
+                        streamPriorityReturnPage = null
+                        currentPage = destination
+                    }
+                }
+            },
+        ),
+    ) {
+        AnimatedContent(
+            targetState = currentPage,
+            transitionSpec = {
+                if (targetState != null) {
+                    slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+                } else {
+                    slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+                }
+            },
+            label = "settings_page",
+        ) { page ->
         when (page) {
 
 
@@ -1379,18 +1438,28 @@ fun SettingsHubScreen(
                 title = "Account",
                 onBack = { currentPage = null },
             ) {
-                SettingsGroup {
-                    SettingNav(
-                        icon = Icons.Default.Group, tint = ColourSystem,
-                        title = "Profiles",
-                        subtitle = "Switch or manage profiles",
-                        onClick = onSwitchProfile,
-                    )
+                if (!isTv) {
+                    SettingsGroup {
+                        SettingNav(
+                            icon = Icons.Default.Group, tint = ColourSystem,
+                            title = "Profiles",
+                            subtitle = "Switch or manage profiles",
+                            onClick = onSwitchProfile,
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                } else {
+                    SettingsGroup {
+                        NuvioAccountRow()
+                    }
+                    Spacer(Modifier.height(16.dp))
                 }
-                Spacer(Modifier.height(16.dp))
+
                 SettingsGroup {
-                    NuvioAccountRow()
-                    SettingDivider()
+                    if (!isTv) {
+                        NuvioAccountRow()
+                        SettingDivider()
+                    }
                     YtMusicAccountRow()
                     SettingDivider()
                     SpotifyAccountRow()
@@ -1400,6 +1469,17 @@ fun SettingsHubScreen(
                     PornhubAccountRow(onLogin = onOpenPornhubLogin)
                 }
                 Spacer(Modifier.height(16.dp))
+                if (isTv) {
+                    SettingsGroup {
+                        SettingNav(
+                            icon = Icons.Default.Group, tint = ColourSystem,
+                            title = "Profiles",
+                            subtitle = "Switch or manage profiles",
+                            onClick = onSwitchProfile,
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
                 SettingsGroup {
                     // Trakt.tv
                     if (traktUsername.isNotBlank()) {
@@ -2289,6 +2369,12 @@ fun SettingsHubScreen(
                 title = "About",
                 onBack = { currentPage = null },
             ) {
+                if (isTv) {
+                    SettingsGroup {
+                        TvAboutBrandCard()
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
                 SettingsGroup {
                     UpdaterRow()
                     SettingDivider()
@@ -2307,35 +2393,37 @@ fun SettingsHubScreen(
                         },
                     )
                 }
-                Spacer(Modifier.height(16.dp))
-                SettingsGroup {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
+                if (!isTv) {
+                    Spacer(Modifier.height(16.dp))
+                    SettingsGroup {
+                        Row(
                             Modifier
-                                .size(56.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(HubIconBg),
-                            contentAlignment = Alignment.Center,
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(Icons.Default.MusicNote, null, tint = HubIconFg, modifier = Modifier.size(28.dp))
-                        }
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text(
-                                "StreamCloud",
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                "Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.VERSION_CODE}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Box(
+                                Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(HubIconBg),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Default.MusicNote, null, tint = HubIconFg, modifier = Modifier.size(28.dp))
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text(
+                                    "StreamCloud",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    "Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.VERSION_CODE}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -2393,6 +2481,7 @@ fun SettingsHubScreen(
             }
 
         }
+    }
     }
 
 
@@ -3312,6 +3401,97 @@ private fun SubPageScaffold(
     onBack: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val tvNavigation = LocalTvSettingsNavigation.current
+    if (isTv && tvNavigation != null) {
+        val baseColors = MaterialTheme.colorScheme
+        val tvColors = baseColors.copy(
+            primary = TvSettingsAccent,
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFF3B2346),
+            onPrimaryContainer = Color(0xFFF8E9FF),
+            secondary = Color(0xFFD6B2FF),
+            onSecondary = Color(0xFF24152D),
+            secondaryContainer = Color(0xFF35273E),
+            onSecondaryContainer = Color.White,
+            background = TvSettingsBackground,
+            onBackground = Color(0xFFF6F2F8),
+            surface = TvSettingsPanel,
+            onSurface = Color(0xFFF6F2F8),
+            surfaceVariant = Color(0xFF29272F),
+            onSurfaceVariant = Color(0xFFB9B3C1),
+            surfaceContainerHigh = TvSettingsCard,
+            outlineVariant = Color(0xFF45404B),
+        )
+        val displayTitle = when (tvNavigation.selectedKey) {
+            "integrations" -> "Integrations"
+            "layout" -> "Layout"
+            "advanced" -> "Advanced"
+            else -> title
+        }
+        val description = when (tvNavigation.selectedKey) {
+            "account" -> "Account and sync status"
+            "integrations" -> "Connected accounts and services"
+            "watch-party" -> "Watch films and episodes together"
+            "appearance" -> "Make StreamCloud feel like yours"
+            "layout" -> "Choose what appears on your home screen"
+            "content" -> "Manage sources, addons and discovery"
+            "playback" -> "Set your playback defaults and controls"
+            "tracking" -> "Control history and content preferences"
+            "advanced" -> "Storage, cache and app maintenance"
+            "about" -> "App information, updates and legal links"
+            else -> null
+        }
+        MaterialTheme(colorScheme = tvColors) {
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .background(TvSettingsBackground)
+                    .padding(horizontal = 34.dp, vertical = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TvSettingsSidebar(
+                    navigation = tvNavigation,
+                    modifier = Modifier.width(238.dp).fillMaxHeight(),
+                )
+                Spacer(Modifier.width(18.dp))
+                Surface(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    shape = RoundedCornerShape(26.dp),
+                    color = TvSettingsPanel,
+                    tonalElevation = 0.dp,
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 28.dp, vertical = 24.dp),
+                    ) {
+                        Text(
+                            displayTitle,
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (!description.isNullOrBlank()) {
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                description,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.height(18.dp))
+                        content()
+                        Spacer(Modifier.height(32.dp))
+                    }
+                }
+            }
+        }
+        return
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -3348,6 +3528,154 @@ private fun SubPageScaffold(
             )
             content()
             Spacer(Modifier.height(48.dp))
+        }
+    }
+}
+
+@Composable
+private fun TvAboutBrandCard() {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier
+                .size(58.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(TvSettingsAccent, Color(0xFF715CE8)),
+                    ),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.PlayCircle,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(36.dp),
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "StreamCloud",
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.VERSION_CODE}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun TvSettingsSidebar(
+    navigation: TvSettingsNavigation,
+    modifier: Modifier = Modifier,
+) {
+    val listState = rememberLazyListState()
+    val selectedFocusRequester = remember { FocusRequester() }
+    var focusedNavKey by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(navigation.selectedKey) {
+        val selectedIndex = tvSettingsNavEntries.indexOfFirst { it.key == navigation.selectedKey }
+        if (selectedIndex >= 0) listState.animateScrollToItem(selectedIndex)
+        repeat(10) {
+            if (focusedNavKey == navigation.selectedKey) return@LaunchedEffect
+            runCatching { selectedFocusRequester.requestFocus() }
+            delay(100)
+        }
+    }
+
+    Column(modifier) {
+        Row(
+            Modifier.padding(start = 12.dp, bottom = 12.dp, top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Icon(
+                Icons.Default.Settings,
+                contentDescription = null,
+                tint = Color(0xFF93C9FF),
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                "Settings",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.86f),
+            )
+        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().tvFocusGroup(),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            items(tvSettingsNavEntries, key = { it.key }) { entry ->
+                val selected = navigation.selectedKey == entry.key
+                var focused by remember(entry.key) { mutableStateOf(false) }
+                val shape = RoundedCornerShape(18.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (selected) Modifier.focusRequester(selectedFocusRequester)
+                            else Modifier
+                        )
+                        .onFocusChanged {
+                            focused = it.isFocused
+                            if (it.isFocused) focusedNavKey = entry.key
+                        }
+                        .tvFocusBorder(shape, showOutline = false)
+                        .clip(shape)
+                        .background(
+                            when {
+                                selected -> Color(0xFF30233A)
+                                focused -> Color.White.copy(alpha = 0.07f)
+                                else -> Color.Transparent
+                            },
+                        )
+                        .border(
+                            width = if (selected || focused) 1.5.dp else 0.dp,
+                            color = when {
+                                selected -> TvSettingsAccent
+                                focused -> TvSettingsAccent.copy(alpha = 0.62f)
+                                else -> Color.Transparent
+                            },
+                            shape = shape,
+                        )
+                        .clickable { navigation.onSelect(entry) }
+                        .padding(horizontal = 13.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        entry.icon,
+                        contentDescription = null,
+                        tint = if (selected) TvSettingsAccent else Color(0xFF94C8F5),
+                        modifier = Modifier.size(17.dp),
+                    )
+                    Text(
+                        entry.label,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        ),
+                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -3497,11 +3825,12 @@ private fun SubSectionLabel(title: String) {
 
 @Composable
 private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            .background(if (isTv) TvSettingsCard else MaterialTheme.colorScheme.surfaceContainerHigh),
         content = content,
     )
 }
@@ -5121,6 +5450,7 @@ private val ColourNuvio = Color(0xFF6C5CE7)
 @Composable
 private fun NuvioAccountRow() {
     val context  = LocalContext.current
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val sl       = remember(context) { ServiceLocator.get(context) }
     val scope    = rememberCoroutineScope()
     val nuvioSvc = remember(context) { NuvioAccountService.get(context) }
@@ -5175,15 +5505,19 @@ private fun NuvioAccountRow() {
     Row(
         Modifier
             .fillMaxWidth()
+            .then(
+                if (isTv) Modifier.tvFocusBorder(RoundedCornerShape(14.dp), showOutline = false)
+                else Modifier,
+            )
             .clickable { if (signedIn) syncStatus = "Syncing…" else showDialog = true }
-            .padding(horizontal = 14.dp, vertical = 13.dp),
+            .padding(horizontal = if (isTv) 18.dp else 14.dp, vertical = if (isTv) 16.dp else 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconBox(if (signedIn) Icons.Default.CloudUpload else Icons.Default.Cloud, ColourNuvio)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                if (signedIn) "Nuvio" else "Sign in to Nuvio",
+                if (isTv && signedIn) "Signed in" else if (signedIn) "Nuvio" else "Sign in to Nuvio",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -5285,7 +5619,7 @@ private fun NuvioAccountRow() {
                         }"
                     }
                 }
-            }) { Text("Sync ↕") }
+            }) { Text(if (isTv) "Sync now" else "Sync ↕") }
             TextButton(onClick = {
                 scope.launch {
                     runCatching { nuvioSvc.signOut(accessToken) }
