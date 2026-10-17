@@ -104,7 +104,7 @@ internal fun csHomeTmdbKey(
 ): String = "cs:$pluginInternalName:$sectionName:$itemUrl"
 
 @Composable
-private fun Modifier.tvOkPress(
+internal fun Modifier.tvOkPress(
     onClick: () -> Unit,
     onLongPress: () -> Unit,
 ): Modifier {

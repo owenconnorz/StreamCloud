@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -53,8 +54,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.core.content.FileProvider
@@ -70,6 +74,7 @@ import com.streamcloud.app.data.library.MovieDownloadEntity
 import com.streamcloud.app.data.library.MovieWatchlistEntity
 import com.streamcloud.app.data.library.MovieWatchlistItemEntity
 import com.streamcloud.app.data.library.TrackEntity
+import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.library.moveMovieWatchlistItems
 import com.streamcloud.app.data.library.toWatchlistEntity
@@ -80,6 +85,7 @@ import com.streamcloud.app.data.ytmusic.YtmSong
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -246,6 +252,7 @@ fun LibraryScreen(
     val watchlistItems by db.watchlist().all().collectAsState(initial = emptyList())
     val downloadedMovies by db.movieDownloads().all().collectAsState(initial = emptyList())
     var movieSubTab by remember { mutableStateOf("Watchlist") }
+    var movieSectionFocused by remember { mutableStateOf(false) }
 
     val localPlaylists by remember(storageScopeKey) {
         db.localPlaylists().allPlaylists()
@@ -312,7 +319,7 @@ fun LibraryScreen(
                             // Focus the default section when moving down from the TV navigation bar.
                             .let {
                                 if (tvNavFocusRequester != null && idx == defaultTvSectionIndex) {
-                                    it.focusRequester(tvNavFocusRequester)
+                                    it.focusRequester(tvNavFocusRequester).onFocusChanged { movieSectionFocused = it.isFocused }
                                 } else it
                             }
                             .tvFocusBorder(CircleShape)
@@ -463,6 +470,8 @@ fun LibraryScreen(
                     defaultItems = watchlistItems,
                     isTv = isTv,
                     profileKey = storageScopeKey,
+                    tvStableFocusRequester = tvNavFocusRequester,
+                    tvStableFocus = movieSectionFocused,
                     onOpen = { entry ->
                         when (entry.mediaType) {
                             "tv" -> onTvClick(entry.tmdbId)
@@ -843,6 +852,8 @@ private fun MovieWatchlistsLibrarySection(
     defaultItems: List<WatchlistEntity>,
     isTv: Boolean,
     profileKey: String,
+    tvStableFocusRequester: FocusRequester?,
+    tvStableFocus: Boolean,
     onOpen: (WatchlistEntity) -> Unit,
 ) {
     val context = LocalContext.current
@@ -852,16 +863,18 @@ private fun MovieWatchlistsLibrarySection(
     val customLists by dao.all().collectAsState(initial = emptyList())
     var activeListId by remember { mutableStateOf<Long?>(null) }
     var customItems by remember { mutableStateOf<List<MovieWatchlistItemEntity>>(emptyList()) }
-    var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var selectionMode by remember { mutableStateOf(false) }
+    var actionEntry by remember { mutableStateOf<WatchlistEntity?>(null) }
+    var moveEntry by remember { mutableStateOf<WatchlistEntity?>(null) }
+    var pendingTvMutation by remember { mutableStateOf<MovieWatchlistMutation?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var showMoveDialog by remember { mutableStateOf(false) }
     var deleteList by remember { mutableStateOf<MovieWatchlistEntity?>(null) }
 
     LaunchedEffect(activeListId) {
         val id = activeListId
-        selectedIds = emptySet()
-        selectionMode = false
+        actionEntry = null
+        moveEntry = null
+        showMoveDialog = false
         if (id == null) {
             customItems = emptyList()
         } else {
@@ -871,6 +884,51 @@ private fun MovieWatchlistsLibrarySection(
 
     val entries = if (activeListId == null) defaultItems else customItems.map { it.toWatchlistEntity() }
     val activeName = customLists.firstOrNull { it.id == activeListId }?.name ?: "Watchlist"
+    val hasMoveDestination = if (activeListId == null) customLists.isNotEmpty() else true
+
+    LaunchedEffect(pendingTvMutation, tvStableFocus) {
+        val mutation = pendingTvMutation ?: return@LaunchedEffect
+        if (!isTv) {
+            runCatching { applyMovieWatchlistMutation(context, db, mutation) }
+                .onFailure {
+                    Toast.makeText(context, "Could not update the library item.", Toast.LENGTH_SHORT).show()
+                }
+            pendingTvMutation = null
+            return@LaunchedEffect
+        }
+
+        var focusConfirmed = tvStableFocus
+        if (!focusConfirmed) {
+            val requester = tvStableFocusRequester
+            if (requester != null) {
+                for (attempt in 0 until 10) {
+                    delay(120)
+                    if (!tvStableFocus) runCatching { requester.requestFocus() }
+                    if (tvStableFocus) {
+                        focusConfirmed = true
+                        break
+                    }
+                }
+            }
+        }
+        if (!focusConfirmed || !tvStableFocus) {
+            Toast.makeText(
+                context,
+                "The item was kept. Move focus to the Movies selector to finish.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return@LaunchedEffect
+        }
+
+        delay(100)
+        if (!tvStableFocus) return@LaunchedEffect
+        runCatching { applyMovieWatchlistMutation(context, db, mutation) }
+            .onSuccess { pendingTvMutation = null }
+            .onFailure {
+                pendingTvMutation = null
+                Toast.makeText(context, "Could not update the library item.", Toast.LENGTH_SHORT).show()
+            }
+    }
 
     Column(Modifier.fillMaxSize()) {
         LazyRow(
@@ -925,57 +983,30 @@ private fun MovieWatchlistsLibrarySection(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    if (!selectionMode && selectedIds.isEmpty()) activeName else "${selectedIds.size} selected",
+                    activeName,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
-                if (selectedIds.isEmpty()) {
-                    TextButton(
-                        onClick = { selectionMode = !selectionMode },
-                    ) { Text(if (selectionMode) "Cancel" else "Select") }
-                }
-                TextButton(
-                    onClick = {
-                        selectionMode = true
-                        selectedIds = if (selectedIds.size == entries.size) {
-                            emptySet()
-                        } else {
-                            entries.mapTo(mutableSetOf()) { it.tmdbId }
-                        }
-                    },
-                ) { Text(if (selectedIds.size == entries.size) "Clear all" else "Select all") }
-                if (selectedIds.isNotEmpty()) {
-                    TextButton(onClick = { showMoveDialog = true }) { Text("Move") }
-                    TextButton(
-                        onClick = {
-                            val ids = selectedIds.toList()
-                                scope.launch {
-                                    if (activeListId == null) {
-                                        val removedItems = entries.filter { it.tmdbId in ids }
-                                        ids.forEach { db.watchlist().remove(it) }
-                                        com.streamcloud.app.data.nuvio.NuvioAutoSync
-                                            .requestLibraryDeletes(
-                                                context.applicationContext,
-                                                removedItems.map { it.tmdbId to it.mediaType },
-                                            )
-                                    } else {
-                                        dao.removeItems(activeListId!!, ids)
-                                        com.streamcloud.app.data.nuvio.NuvioAutoSync
-                                            .request(context.applicationContext)
-                                    }
-                                    selectedIds = emptySet()
-                                    selectionMode = false
-                            }
-                        },
-                    ) { Text("Remove", color = MaterialTheme.colorScheme.error) }
-                    IconButton(onClick = {
-                        selectedIds = emptySet()
-                        selectionMode = false
-                    }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear selection")
-                    }
-                }
+                Text(
+                    "${entries.size} items",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (pendingTvMutation != null && isTv) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Move focus to the Movies selector to finish the action.",
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = { pendingTvMutation = null }) { Text("Cancel") }
             }
         }
 
@@ -1013,50 +1044,29 @@ private fun MovieWatchlistsLibrarySection(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(entries, key = { "movie_wl_${activeListId ?: 0}_${it.tmdbId}" }) { entry ->
-                    val selected = entry.tmdbId in selectedIds
                     Column(
                         Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .tvFocusBorder(RoundedCornerShape(10.dp))
+                            .tvOkPress(
+                                onClick = { onOpen(entry) },
+                                onLongPress = { actionEntry = entry },
+                            )
                             .combinedClickable(
-                                onClick = {
-                                    if (selectionMode || selectedIds.isNotEmpty()) {
-                                        selectedIds = selectedIds.toggleMovie(entry.tmdbId)
-                                    } else {
-                                        onOpen(entry)
-                                    }
-                                },
-                                onLongClick = {
-                                    selectionMode = true
-                                    selectedIds = selectedIds.toggleMovie(entry.tmdbId)
-                                },
+                                onClick = { onOpen(entry) },
+                                onLongClick = { actionEntry = entry },
                             ),
                     ) {
-                        Box {
-                            AsyncImage(
-                                model = entry.posterUrl,
-                                contentDescription = entry.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(2f / 3f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                            )
-                            if (selected) {
-                                Box(
-                                    Modifier
-                                        .matchParentSize()
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)),
-                                )
-                                Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = "Selected",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(28.dp),
-                                )
-                            }
-                        }
+                        AsyncImage(
+                            model = entry.posterUrl,
+                            contentDescription = entry.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(2f / 3f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        )
                         Spacer(Modifier.height(4.dp))
                         Text(
                             entry.title,
@@ -1069,6 +1079,35 @@ private fun MovieWatchlistsLibrarySection(
                 }
             }
         }
+    }
+
+    actionEntry?.let { entry ->
+        MovieWatchlistActionDialog(
+            entry = entry,
+            isTv = isTv,
+            canMarkWatched = entry.tmdbId > 0L && entry.mediaType in setOf("movie", "tv", "series"),
+            removeLabel = if (activeListId == null) "Remove from library" else "Remove from list",
+            canMove = hasMoveDestination,
+            onDismiss = { actionEntry = null },
+            onRemove = {
+                actionEntry = null
+                pendingTvMutation = MovieWatchlistMutation.Remove(entry, activeListId)
+            },
+            onMarkWatched = {
+                actionEntry = null
+                scope.launch {
+                    runCatching { markMovieWatchlistEntryAsWatched(context, db, entry) }
+                        .onFailure {
+                            Toast.makeText(context, "Could not mark this item as watched.", Toast.LENGTH_SHORT).show()
+                        }
+                }
+            },
+            onMove = {
+                actionEntry = null
+                moveEntry = entry
+                showMoveDialog = true
+            },
+        )
     }
 
     if (showCreateDialog) {
@@ -1104,7 +1143,10 @@ private fun MovieWatchlistsLibrarySection(
 
     if (showMoveDialog) {
         AlertDialog(
-            onDismissRequest = { showMoveDialog = false },
+            onDismissRequest = {
+                showMoveDialog = false
+                moveEntry = null
+            },
             title = { Text("Move to watchlist") },
             text = {
                 Column {
@@ -1114,15 +1156,11 @@ private fun MovieWatchlistsLibrarySection(
                             modifier = Modifier
                                 .tvFocusBorder(RoundedCornerShape(8.dp))
                                 .clickable {
-                                    moveMovieEntries(
-                                        entries, selectedIds, activeListId, null, db,
-                                        scope = scope,
-                                        onFinished = {
-                                            selectedIds = emptySet()
-                                            selectionMode = false
-                                            showMoveDialog = false
-                                        },
-                                    )
+                                    moveEntry?.let { entry ->
+                                        pendingTvMutation = MovieWatchlistMutation.Move(entry, activeListId, null)
+                                    }
+                                    moveEntry = null
+                                    showMoveDialog = false
                                 },
                         )
                     }
@@ -1132,15 +1170,11 @@ private fun MovieWatchlistsLibrarySection(
                             modifier = Modifier
                                 .tvFocusBorder(RoundedCornerShape(8.dp))
                                 .clickable {
-                                    moveMovieEntries(
-                                        entries, selectedIds, activeListId, list.id, db,
-                                        scope = scope,
-                                        onFinished = {
-                                            selectedIds = emptySet()
-                                            selectionMode = false
-                                            showMoveDialog = false
-                                        },
-                                    )
+                                    moveEntry?.let { entry ->
+                                        pendingTvMutation = MovieWatchlistMutation.Move(entry, activeListId, list.id)
+                                    }
+                                    moveEntry = null
+                                    showMoveDialog = false
                                 },
                         )
                     }
@@ -1151,7 +1185,12 @@ private fun MovieWatchlistsLibrarySection(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showMoveDialog = false }) { Text("Cancel") }
+                TextButton(
+                    onClick = {
+                        showMoveDialog = false
+                        moveEntry = null
+                    },
+                ) { Text("Cancel") }
             },
         )
     }
@@ -1179,24 +1218,261 @@ private fun MovieWatchlistsLibrarySection(
     }
 }
 
-private fun moveMovieEntries(
-    entries: List<WatchlistEntity>,
-    selectedIds: Set<Long>,
-    sourceListId: Long?,
-    destinationListId: Long?,
+private sealed interface MovieWatchlistMutation {
+    data class Remove(
+        val entry: WatchlistEntity,
+        val listId: Long?,
+    ) : MovieWatchlistMutation
+
+    data class Move(
+        val entry: WatchlistEntity,
+        val sourceListId: Long?,
+        val destinationListId: Long?,
+    ) : MovieWatchlistMutation
+}
+
+private suspend fun applyMovieWatchlistMutation(
+    context: android.content.Context,
     db: LibraryDb,
-    scope: kotlinx.coroutines.CoroutineScope,
-    onFinished: () -> Unit,
+    mutation: MovieWatchlistMutation,
 ) {
-    scope.launch {
-        val moving = entries.filter { it.tmdbId in selectedIds }
-        db.moveMovieWatchlistItems(moving, sourceListId, destinationListId)
-        onFinished()
+    when (mutation) {
+        is MovieWatchlistMutation.Remove -> {
+            if (mutation.listId == null) {
+                db.watchlist().remove(mutation.entry.tmdbId)
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.requestLibraryDelete(
+                    context.applicationContext,
+                    mutation.entry.tmdbId,
+                    mutation.entry.mediaType,
+                )
+            } else {
+                db.movieWatchlists().removeItem(mutation.listId, mutation.entry.tmdbId)
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
+            }
+        }
+
+        is MovieWatchlistMutation.Move -> {
+            db.moveMovieWatchlistItems(
+                entries = listOf(mutation.entry),
+                sourceListId = mutation.sourceListId,
+                destinationListId = mutation.destinationListId,
+            )
+            if (mutation.sourceListId == null && mutation.destinationListId != null) {
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.requestLibraryDelete(
+                    context.applicationContext,
+                    mutation.entry.tmdbId,
+                    mutation.entry.mediaType,
+                )
+            } else {
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
+            }
+        }
     }
 }
 
-private fun Set<Long>.toggleMovie(id: Long): Set<Long> =
-    if (id in this) this - id else this + id
+private suspend fun markMovieWatchlistEntryAsWatched(
+    context: android.content.Context,
+    db: LibraryDb,
+    entry: WatchlistEntity,
+) {
+    if (entry.tmdbId <= 0L || entry.mediaType !in setOf("movie", "tv", "series")) return
+    val mediaType = if (entry.mediaType == "series") "tv" else entry.mediaType
+    db.watchedMovies().mark(
+        WatchedMovieEntity(
+            tmdbId = entry.tmdbId,
+            title = entry.title,
+            posterUrl = entry.posterUrl,
+            mediaType = mediaType,
+        ),
+    )
+    val progressDao = db.watchProgress()
+    progressDao.getAllEntries()
+        .filter { it.tmdbId == entry.tmdbId }
+        .forEach { progress ->
+            com.streamcloud.app.data.nuvio.NuvioAutoSync.recordWatchProgressDelete(
+                context.applicationContext,
+                progress.tmdbId,
+                progress.mediaType,
+                progress.seasonNumber,
+                progress.episodeNumber,
+            )
+        }
+    progressDao.remove(entry.tmdbId)
+    com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
+}
+
+@Composable
+private fun MovieWatchlistActionDialog(
+    entry: WatchlistEntity,
+    isTv: Boolean,
+    canMarkWatched: Boolean,
+    removeLabel: String,
+    canMove: Boolean,
+    onDismiss: () -> Unit,
+    onRemove: () -> Unit,
+    onMarkWatched: () -> Unit,
+    onMove: () -> Unit,
+) {
+    val firstActionRequester = remember { FocusRequester() }
+    var firstActionFocused by remember { mutableStateOf(false) }
+    val latestFirstActionFocused by rememberUpdatedState(firstActionFocused)
+
+    LaunchedEffect(entry.tmdbId, isTv) {
+        if (!isTv) return@LaunchedEffect
+        for (attempt in 0 until 10) {
+            if (latestFirstActionFocused) return@LaunchedEffect
+            delay(120)
+            runCatching { firstActionRequester.requestFocus() }
+            if (latestFirstActionFocused) return@LaunchedEffect
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 440.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 8.dp,
+        ) {
+            Column {
+                if (!entry.posterUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = entry.posterUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                    )
+                } else {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.Movie,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        entry.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        when (entry.mediaType) {
+                            "tv", "series" -> "TV series"
+                            "movie" -> "Movie"
+                            else -> entry.mediaType.replaceFirstChar(Char::uppercase)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    MovieWatchlistActionRow(
+                        label = removeLabel,
+                        icon = Icons.Default.Delete,
+                        isDestructive = true,
+                        isTv = isTv,
+                        focusRequester = firstActionRequester,
+                        onFocused = { firstActionFocused = it },
+                        onClick = onRemove,
+                    )
+                    if (canMarkWatched) {
+                        HorizontalDivider(Modifier.padding(horizontal = 8.dp))
+                        MovieWatchlistActionRow(
+                            label = "Mark as watched",
+                            icon = Icons.Default.CheckCircle,
+                            isDestructive = false,
+                            isTv = isTv,
+                            onClick = onMarkWatched,
+                        )
+                    }
+                    if (canMove) {
+                        HorizontalDivider(Modifier.padding(horizontal = 8.dp))
+                        MovieWatchlistActionRow(
+                            label = "Move to list",
+                            icon = Icons.Default.PlaylistPlay,
+                            isDestructive = false,
+                            isTv = isTv,
+                            onClick = onMove,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MovieWatchlistActionRow(
+    label: String,
+    icon: ImageVector,
+    isDestructive: Boolean,
+    isTv: Boolean,
+    focusRequester: FocusRequester? = null,
+    onFocused: (Boolean) -> Unit = {},
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { onFocused(it.isFocused) }
+            .then(
+                if (isTv && focusRequester != null) Modifier.focusRequester(focusRequester)
+                else Modifier,
+            )
+            .clip(shape)
+            .then(if (isTv) Modifier.tvFocusBorder(shape) else Modifier)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (isDestructive) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurface,
+        )
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (isDestructive) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
 
 private fun openInSamsungMyFiles(context: android.content.Context, filePath: String) {
     val samsungPkg = "com.sec.android.app.myfiles"
