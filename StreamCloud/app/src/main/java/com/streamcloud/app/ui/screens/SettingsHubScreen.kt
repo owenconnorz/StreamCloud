@@ -155,7 +155,7 @@ private val ColourSonos      = Color(0xFF56C8D8)
 
 private enum class SettingsPage {
     SystemUpdate, Appearance, Playback, PlayerAudio, MovieSettings, MusicSettings, StreamPriority, Account,
-    ListenTogether, Content, Privacy,
+    ListenTogether, WatchParty, Content, Privacy,
     Storage, BackupRestore, About, Logs, HomeLayout, AndroidAuto
 }
 
@@ -166,6 +166,7 @@ fun SettingsHubScreen(
     onOpenCollections: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
+    onWatchPartyMedia: (com.streamcloud.app.data.watchparty.PartyMedia) -> Unit = {},
     onOpenRedditLogin: () -> Unit = {},
     onOpenPornhubLogin: () -> Unit,
     onSubPageChanged: (Boolean) -> Unit = {},
@@ -1896,6 +1897,13 @@ fun SettingsHubScreen(
             }
 
 
+            SettingsPage.WatchParty -> SubPageScaffold(
+                title = "Watch Party",
+                onBack = { currentPage = null },
+            ) {
+                WatchPartyPage(onWatch = onWatchPartyMedia)
+            }
+
             SettingsPage.ListenTogether -> SubPageScaffold(
                 title = "Listen Together",
                 onBack = { currentPage = null },
@@ -3002,6 +3010,7 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
             HubItem(Icons.Default.MusicNote, "Music settings", "Audio quality, equaliser, lyrics and queue", ColourPlayer, onClick = { onNavigate(SettingsPage.MusicSettings) }),
             HubItem(Icons.Default.Dashboard, "Android Auto", "Configure music browsing and quick-add in your car", ColourPlayer, onClick = { onNavigate(SettingsPage.AndroidAuto) }),
             HubItem(Icons.Default.PlayArrow, "Player & playback", "Video quality, controls and playback behaviour", ColourPlayer, onClick = { onNavigate(SettingsPage.Playback) }),
+            HubItem(Icons.Default.Group,     "Watch Party", "Watch films and episodes with friends", ColourContent, onClick = { onNavigate(SettingsPage.WatchParty) }),
             HubItem(Icons.Default.Group,     "Listen Together",  "Sync playback with friends",               ColourSonos,  onClick = { onNavigate(SettingsPage.ListenTogether) }),
         )),
         HubSection("MOVIES", listOf(

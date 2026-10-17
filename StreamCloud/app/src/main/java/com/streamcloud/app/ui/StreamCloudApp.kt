@@ -1594,6 +1594,9 @@ fun StreamCloudApp() {
                     var switchKey by remember(initial) { mutableStateOf(0) }
                     NativePlayerScreen(
                         streamUrl = currentUrl,
+                        onWatchPartyMedia = { media ->
+                            nav.navigate("${media.mediaType}/${media.tmdbId}?openSources=true&season=${media.season}&episode=${media.episode}")
+                        },
                         title = title,
                         subtitle = subtitle,
                         headers = active?.headers ?: emptyMap(),
@@ -1667,6 +1670,9 @@ fun StreamCloudApp() {
                         SettingsHubScreen(
                             onOpenPlugins     = { nav.navigate("plugins") },
                             onOpenCollections = { nav.navigate("collections") },
+                            onWatchPartyMedia = { media ->
+                                nav.navigate("${media.mediaType}/${media.tmdbId}?openSources=true&season=${media.season}&episode=${media.episode}")
+                            },
                             onSwitchProfile   = { showProfilePicker = true },
                             onOpenRedditLogin = { nav.navigate("reddit-login") },
                             onOpenPornhubLogin = { nav.navigate("pornhub-login") },

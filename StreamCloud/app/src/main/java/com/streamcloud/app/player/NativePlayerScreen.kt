@@ -156,6 +156,7 @@ fun NativePlayerScreen(
 
     // ── Per-provider stream errors ────────────────────────────────────────
     sourceErrors: Map<String, String> = emptyMap(),
+    onWatchPartyMedia: ((com.streamcloud.app.data.watchparty.PartyMedia) -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -481,6 +482,24 @@ fun NativePlayerScreen(
     }
 
     val ex = player.value
+    val partyMedia = remember(progressKey, title, seasonNumber, episodeNumber) {
+        progressKey?.takeIf { it.mediaType == "movie" || it.mediaType == "tv" }?.let { key ->
+            com.streamcloud.app.data.watchparty.PartyMedia(
+                tmdbId = key.tmdbId.toLong(),
+                mediaType = key.mediaType,
+                season = key.seasonNumber ?: seasonNumber ?: 0,
+                episode = key.episodeNumber ?: episodeNumber ?: 0,
+                title = title.take(250),
+            )
+        }
+    }
+    var showWatchParty by remember { mutableStateOf(false) }
+    DisposableEffect(ex, partyMedia, needsWebView, anyDeviceCasting) {
+        val binding = if (ex != null && partyMedia != null && !needsWebView && !anyDeviceCasting) {
+            WatchPartyPlayerBinding(context, ex, partyMedia)
+        } else null
+        onDispose { binding?.close() }
+    }
     val playerAppContext = remember(context) { context.applicationContext }
     val completionHandled = remember(ex, progressKey, seasonNumber, episodeNumber) {
         java.util.concurrent.atomic.AtomicBoolean(false)
@@ -1126,6 +1145,20 @@ fun NativePlayerScreen(
                     }
                 }
             }
+        }
+
+        if (controlsVisible && partyMedia != null && !needsWebView && !anyDeviceCasting) {
+            FilledTonalButton(
+                onClick = { showWatchParty = true },
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 16.dp),
+            ) { Text("Watch Party") }
+        }
+        if (showWatchParty) {
+            com.streamcloud.app.ui.screens.WatchPartyPlayerDialog(
+                media = partyMedia,
+                onDismiss = { showWatchParty = false },
+                onWatch = onWatchPartyMedia,
+            )
         }
 
         // Cast status
