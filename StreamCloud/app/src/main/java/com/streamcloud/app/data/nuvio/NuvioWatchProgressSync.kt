@@ -158,6 +158,19 @@ internal fun shouldPushNuvioWatchProgress(
         else -> false
     }
 
+internal fun nuvioEpisodeProgressFields(
+    seasonNumber: Int,
+    episodeNumber: Int,
+): Map<String, Int> {
+    if (seasonNumber <= 0 || episodeNumber <= 0) return emptyMap()
+    return mapOf(
+        "season" to seasonNumber,
+        "episode" to episodeNumber,
+        "season_number" to seasonNumber,
+        "episode_number" to episodeNumber,
+    )
+}
+
 internal fun nuvioEpisodeNumbers(
     season: Int?,
     seasonNumber: Int?,

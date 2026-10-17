@@ -1166,8 +1166,10 @@ class NuvioAccountService(private val context: Context) {
                                     entry.episodeNumber.takeIf { it > 0 },
                                 ),
                         )
-                        entry.seasonNumber.takeIf { it > 0 }?.let { put("season", it) }
-                        entry.episodeNumber.takeIf { it > 0 }?.let { put("episode", it) }
+                        nuvioEpisodeProgressFields(
+                            entry.seasonNumber,
+                            entry.episodeNumber,
+                        ).forEach { (key, value) -> put(key, value) }
                         put("position", entry.positionMs)
                         put("duration", entry.durationMs)
                         put("last_watched", entry.updatedAt)

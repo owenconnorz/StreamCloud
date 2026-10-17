@@ -129,6 +129,20 @@ class NuvioSyncContractTest : NuvioProgressInteropTest() {
     }
 
     @Test
+    fun episodeProgressUploadsBothNuvioSeasonAndEpisodeAliases() {
+        assertEquals(
+            mapOf(
+                "season" to 3,
+                "episode" to 7,
+                "season_number" to 3,
+                "episode_number" to 7,
+            ),
+            nuvioEpisodeProgressFields(3, 7),
+        )
+        assertTrue(nuvioEpisodeProgressFields(3, 0).isEmpty())
+    }
+
+    @Test
     fun extractsStreamCloudSettingsFromRpcRow() {
         val settings = extractStreamCloudHomeSettings(
             """[{"platform":"streamcloud","settings_json":{"streamcloud":{"schema_version":1,"show_hero_section":false}}}]""",
