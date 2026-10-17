@@ -39,6 +39,7 @@ object NuvioAutoSync {
     private const val PENDING_ADDON_DELETES = "pending_addon_deletes"
     private const val PENDING_WATCH_PROGRESS_DELETES = "pending_watch_progress_deletes"
     private const val WATCH_PROGRESS_REMOTE_IDENTITIES = "watch_progress_remote_identities"
+    private const val REMOTE_PROGRESS_SNAPSHOT = "remote_progress_snapshot"
     private const val PLAYBACK_PROGRESS_SYNC_MIN_INTERVAL_MS = 60_000L
     private val syncMutex = Mutex()
     private val progressRequestLock = Any()
@@ -298,6 +299,18 @@ object NuvioAutoSync {
         }
     }
 
+    internal fun watchProgressRemoteIdentities(
+        context: Context,
+        userId: String,
+        localProfileId: String,
+        identity: NuvioWatchProgressDeleteKey,
+    ): List<NuvioWatchProgressDeleteKey> =
+        context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+            .getStringSet(
+                watchProgressRemoteIdentityPreferenceKey(userId, localProfileId, identity),
+                emptySet(),
+            ).orEmpty().mapNotNull(NuvioWatchProgressDeleteKey::deserialize)
+
     internal fun recordWatchProgressRemoteIdentities(
         context: Context,
         userId: String,
@@ -342,6 +355,48 @@ object NuvioAutoSync {
         check(editor.commit()) {
             "Could not persist Nuvio watch progress remote identities or pending deletes"
         }
+    }
+
+    internal suspend fun reconcileWatchProgressSnapshot(
+        context: Context,
+        userId: String,
+        localProfileId: String,
+        remoteItems: Collection<NuvioWatchProgressDeleteKey>,
+        dao: com.streamcloud.app.data.library.WatchProgressDao,
+    ) {
+        val prefs = context.applicationContext.getSharedPreferences(SYNC_PREFS, Context.MODE_PRIVATE)
+        val acknowledgements = NuvioProgressAcknowledgements(context, userId, localProfileId)
+        val key = "${REMOTE_PROGRESS_SNAPSHOT}_${stableKey("$userId:$localProfileId").take(20)}"
+        val previous = prefs.getStringSet(key, null)
+            ?.mapNotNull(NuvioWatchProgressDeleteKey::deserialize)
+        val snapshotAt = prefs.getLong("${key}_at", 0L)
+        if (previous != null && snapshotAt > 0L) {
+            previous.forEach { old ->
+                if (remoteItems.none {
+                        it.matchesLocalProgress(old.tmdbId, old.mediaType, old.seasonNumber, old.episodeNumber)
+                    }
+                ) {
+                    val local = dao.byKey(old.tmdbId, old.mediaType, old.seasonNumber, old.episodeNumber)
+                    if (
+                        local != null &&
+                        shouldRemoveMissingNuvioSnapshotRow(
+                            wasInPreviousSnapshot = true,
+                            rowUpdatedAt = local.updatedAt,
+                            previousSnapshotAt = snapshotAt,
+                            hasPendingLocalEdit = acknowledgements.hasPendingLocalEdit(local),
+                        )
+                    ) {
+                        dao.removeRemoteIfUnchanged(local)
+                    }
+                }
+            }
+        }
+        check(
+            prefs.edit()
+                .putStringSet(key, remoteItems.map(NuvioWatchProgressDeleteKey::serialize).toSet())
+                .putLong("${key}_at", System.currentTimeMillis())
+                .commit(),
+        ) { "Could not persist the Nuvio watch progress snapshot" }
     }
 
     internal fun pendingWatchProgressDeleteKeys(
@@ -566,7 +621,17 @@ object NuvioAutoSync {
         suspend fun attempt(token: String): Result<SyncOutcome> = try {
             val pull = service.syncPull(token, userId, localProfileId)
             if (pull.errors.isNotEmpty()) {
-                Result.failure(IllegalStateException(pull.errors.distinct().joinToString("; ")))
+                // Nuvio syncs progress independently of addons/library. Do not let an
+                // unrelated dataset failure strand a locally saved playback position.
+                val progressPushErrors = if (pull.errors.none { it.startsWith("watch progress pull:") }) {
+                    service.syncAll(
+                        token, userId, pull.localProfileId.ifBlank { localProfileId },
+                        watchProgressOnly = true,
+                    ).errors
+                } else emptyList()
+                Result.failure(
+                    IllegalStateException((pull.errors + progressPushErrors).distinct().joinToString("; ")),
+                )
             } else {
                 val push = service.syncAll(
                     accessToken = token,

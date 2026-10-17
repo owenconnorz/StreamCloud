@@ -11,12 +11,76 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class NuvioSyncContractTest {
+// The APK workflow selects this class; inherit the shared interoperability regressions too.
+class NuvioSyncContractTest : NuvioProgressInteropTest() {
+    @Test
+    fun officialMillisecondRowsNeverGuessSecondsFromSmallNumbers() {
+        val timestamp = 1_700_000_000_000L
+        // One second into a long episode, and a short clip/unknown-duration row.
+        for ((position, duration) in listOf(1_000L to 2_400_000L, 10_000L to 30_000L, 10L to 0L)) {
+            assertEquals(
+                NuvioProgressTimes(position, duration, timestamp),
+                normalizeNuvioProgressTimes(position, duration, timestamp),
+            )
+        }
+    }
+
+    @Test
+    fun officialEpisodeStorageKeyIsSeparateFromVideoId() {
+        val local = NuvioWatchProgressDeleteKey(123L, "tv", 2, 5)
+        val target = nuvioProgressUploadTargets(local, emptyList()).single()
+        assertEquals("tmdb:123_s2e5", target.remoteProgressKey)
+        assertEquals("tmdb:123:2:5", target.remoteVideoId)
+        assertEquals(
+            NuvioEpisodeNumbers(2, 5),
+            nuvioEpisodeNumbers(null, null, null, null, target.remoteProgressKey),
+        )
+    }
+
+    @Test
+    fun updatesExistingImdbAndLegacyEpisodeAliasesInsteadOfCreatingNewRows() {
+        val local = NuvioWatchProgressDeleteKey(123L, "tv", 2, 5)
+        val imdb = local.copy(
+            remoteContentId = "tt1234567", remoteVideoId = "tt1234567:2:5",
+            remoteProgressKey = "tt1234567_s2e5",
+        )
+        val legacy = local.copy(remoteProgressKey = "tmdb:123:2:5")
+        assertEquals(listOf(imdb, legacy), nuvioProgressUploadTargets(local, listOf(imdb, legacy)))
+    }
+
+    @Test
+    fun acknowledgedRemoteRowsAreNotReuploadedButLocalPlaybackChangesRemainPending() {
+        val acknowledged = nuvioProgressFingerprint(24_000L, 2_400_000L, 100L)
+        assertFalse(isPendingNuvioProgress(acknowledged, acknowledged))
+        val updated = nuvioProgressFingerprint(2_016_000L, 2_400_000L, 200L)
+        assertTrue(isPendingNuvioProgress(updated, acknowledged))
+        // A failed push leaves the acknowledgement unchanged and is retried.
+        assertTrue(isPendingNuvioProgress(updated, acknowledged))
+        assertFalse(isPendingNuvioProgress(updated, updated))
+        val duringRequest = nuvioProgressFingerprint(2_030_000L, 2_400_000L, 210L)
+        assertTrue(isPendingNuvioProgress(duringRequest, updated))
+    }
+
+    @Test
+    fun fresherEpisodeAliasWinsAtEqualTimestampsWithoutOverwritingNewerLocalPlayback() {
+        assertTrue(shouldUseNuvioProgress(100L, 2_400_000L, 100L, 2_400_000L, 2_400_000L,
+            existingPositionMs = 24_000L, incomingPositionMs = 2_016_000L))
+        assertFalse(shouldUseNuvioProgress(200L, 2_400_000L, 100L, 2_400_000L, 2_400_000L,
+            existingPositionMs = 24_000L, incomingPositionMs = 2_016_000L))
+    }
+
     @Test
     fun readsEpisodeNumbersFromProgressIdentityWhenSeparateFieldsAreMissing() {
         assertEquals(
             NuvioEpisodeNumbers(2, 5),
-            nuvioEpisodeNumbers(null, null, null, null, "tmdb:123:2:5", "tmdb:123"),
+            nuvioEpisodeNumbers(
+                null,
+                null,
+                null,
+                null,
+                "tmdb:123:2:5",
+                "tmdb:123",
+            ),
         )
     }
 
@@ -48,15 +112,20 @@ class NuvioSyncContractTest {
     }
 
     @Test
-    fun recognizesNuvioSeriesAliasesAndRequiresEpisodeIdentityForProgressPush() {
+    fun recognizesAllNuvioSeriesTypeAliases() {
         assertTrue(isNuvioSeriesType("series"))
         assertTrue(isNuvioSeriesType("tv"))
         assertTrue(isNuvioSeriesType("episode"))
         assertFalse(isNuvioSeriesType("movie"))
+    }
+
+    @Test
+    fun neverPushesSeriesProgressWithoutAnEpisodeIdentity() {
         assertTrue(shouldPushNuvioWatchProgress("tv", 3, 2))
         assertFalse(shouldPushNuvioWatchProgress("tv", 0, 0))
         assertFalse(shouldPushNuvioWatchProgress("series", 3, 0))
         assertTrue(shouldPushNuvioWatchProgress("movie", 0, 0))
+        assertFalse(shouldPushNuvioWatchProgress("music", 0, 0))
     }
 
     @Test
@@ -203,12 +272,28 @@ class NuvioSyncContractTest {
     @Test
     fun normalizesPositionAndDurationWhenNuvioReturnsMixedUnits() {
         assertEquals(
-            NuvioProgressTimes(120_000L, 2_400_000L, 1_700_000_000_000L),
-            normalizeNuvioProgressTimes(120L, 2_400_000L, 1_700_000_000L),
+            NuvioProgressTimes(
+                positionMs = 120_000L,
+                durationMs = 2_400_000L,
+                updatedAtMs = 1_700_000_000_000L,
+            ),
+            normalizeNuvioProgressTimes(
+                position = 120L,
+                duration = 2_400_000L,
+                lastWatched = 1_700_000_000L,
+            ),
         )
         assertEquals(
-            NuvioProgressTimes(120_000L, 2_400_000L, 1_700_000_000_000L),
-            normalizeNuvioProgressTimes(120_000L, 2_400L, 1_700_000_000L),
+            NuvioProgressTimes(
+                positionMs = 120_000L,
+                durationMs = 2_400_000L,
+                updatedAtMs = 1_700_000_000_000L,
+            ),
+            normalizeNuvioProgressTimes(
+                position = 120_000L,
+                duration = 2_400L,
+                lastWatched = 1_700_000_000L,
+            ),
         )
         val sistersProgress = normalizeNuvioProgressTimes(
             position = 2_016L,
@@ -251,15 +336,48 @@ class NuvioSyncContractTest {
     }
 
     @Test
+    fun remoteDeletionRemovesOnlyRowsFromThePreviousSnapshot() {
+        assertTrue(
+            shouldRemoveMissingNuvioSnapshotRow(
+                wasInPreviousSnapshot = true,
+                rowUpdatedAt = 100L,
+                previousSnapshotAt = 200L,
+            ),
+        )
+        assertFalse(
+            shouldRemoveMissingNuvioSnapshotRow(
+                wasInPreviousSnapshot = false,
+                rowUpdatedAt = 100L,
+                previousSnapshotAt = 200L,
+            ),
+        )
+    }
+
+    @Test
+    fun remoteDeletionPreservesLocalChangesMadeAfterTheSnapshot() {
+        assertFalse(
+            shouldRemoveMissingNuvioSnapshotRow(
+                wasInPreviousSnapshot = true,
+                rowUpdatedAt = 300L,
+                previousSnapshotAt = 200L,
+            ),
+        )
+        assertFalse(
+            shouldRemoveMissingNuvioSnapshotRow(
+                wasInPreviousSnapshot = true,
+                rowUpdatedAt = 100L,
+                previousSnapshotAt = 0L,
+            ),
+        )
+    }
+
+    @Test
     fun immediateSyncRequestsAreQueuedBehindActiveSync() {
         assertEquals(
             ExistingWorkPolicy.APPEND_OR_REPLACE,
             syncRequestWorkPolicy(),
         )
     }
-
-    private fun homeSnapshot(json: String): JsonObject =
-        Json.parseToJsonElement(json).jsonObject
 
     @Test
     fun playbackProgressSyncIsRateLimitedWithoutDroppingTheFirstRequest() {
@@ -285,6 +403,9 @@ class NuvioSyncContractTest {
             ),
         )
     }
+
+    private fun homeSnapshot(json: String): JsonObject =
+        Json.parseToJsonElement(json).jsonObject
 
     @Test
     fun cleanFirstSyncAcceptsCloudSettings() {

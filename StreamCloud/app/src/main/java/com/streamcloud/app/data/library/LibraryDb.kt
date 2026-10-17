@@ -216,6 +216,26 @@ interface WatchProgressDao {
     )
     suspend fun byKey(tmdbId: Long, mediaType: String, seasonNumber: Int, episodeNumber: Int): WatchProgressEntity?
 
+    /** A network pull must not overwrite playback saved while that pull was in flight. */
+    @Transaction
+    suspend fun upsertRemoteIfUnchanged(
+        expected: WatchProgressEntity?,
+        incoming: WatchProgressEntity,
+    ): Boolean {
+        val current = byKey(incoming.tmdbId, incoming.mediaType, incoming.seasonNumber, incoming.episodeNumber)
+        if (current != expected) return false
+        upsert(incoming)
+        return true
+    }
+
+    @Transaction
+    suspend fun removeRemoteIfUnchanged(expected: WatchProgressEntity): Boolean {
+        val current = byKey(expected.tmdbId, expected.mediaType, expected.seasonNumber, expected.episodeNumber)
+        if (current != expected) return false
+        removeKey(expected.tmdbId, expected.mediaType, expected.seasonNumber, expected.episodeNumber)
+        return true
+    }
+
     @Query("SELECT * FROM watch_progress WHERE tmdb_id = :tmdbId ORDER BY updated_at DESC LIMIT 1")
     suspend fun byId(tmdbId: Long): WatchProgressEntity?
 

@@ -833,8 +833,12 @@ class NuvioAccountService(private val context: Context) {
             ).getOrThrow()
             val entries = json.decodeFromString(ListSerializer(PullWatchProgress.serializer()), text)
             val progressDao = db.watchProgress()
+            val progressAcknowledgements = NuvioProgressAcknowledgements(
+                context, syncUserId, syncLocalProfileId,
+            )
             val remoteIdentities = mutableListOf<NuvioWatchProgressDeleteKey>()
             val stillPresentDeletes = mutableSetOf<NuvioWatchProgressDeleteKey>()
+            var progressSnapshotComplete = entries.size < 500
             entries.forEach { e ->
                 val isSeries = isNuvioSeriesType(e.content_type)
                 val episodeNumbers = if (isSeries) {
@@ -856,6 +860,7 @@ class NuvioAccountService(private val context: Context) {
                 val season = seasonNumber.takeIf { it > 0 }
                 val episode = episodeNumber.takeIf { it > 0 }
                 if (!hasValidNuvioEpisodeIdentity(isSeries, seasonNumber, episodeNumber)) {
+                    progressSnapshotComplete = false
                     return@forEach
                 }
                 val mediaType = if (isSeries) "tv" else "movie"
@@ -868,6 +873,7 @@ class NuvioAccountService(private val context: Context) {
                     normalizedContentId,
                     if (isSeries) "series" else e.content_type,
                 )
+                if (tmdbId == null) progressSnapshotComplete = false
                 val remoteIdentity = tmdbId?.let {
                     NuvioWatchProgressDeleteKey(
                         tmdbId = it,
@@ -899,13 +905,16 @@ class NuvioAccountService(private val context: Context) {
                 if (tmdbId == null) return@forEach
                 val existing = progressDao.byKey(tmdbId, mediaType, seasonNumber, episodeNumber)
                 val times = normalizeNuvioProgressTimes(e.position, e.duration, e.last_watched)
-                val updatedAt = times.updatedAtMs ?: System.currentTimeMillis()
+                val updatedAt = times.updatedAtMs ?: existing?.updatedAt ?: 0L
                 val shouldUseProgress = shouldUseNuvioProgress(
                     existingUpdatedAt = existing?.updatedAt,
                     existingDurationMs = existing?.durationMs,
                     incomingUpdatedAtMs = updatedAt,
                     incomingRawDuration = e.duration,
                     incomingDurationMs = times.durationMs,
+                    existingPositionMs = existing?.positionMs,
+                    incomingPositionMs = times.positionMs,
+                    hasPendingLocalEdit = existing?.let(progressAcknowledgements::hasPendingLocalEdit) ?: false,
                 )
                 val needsMetadata = existing == null ||
                     existing.title.isBlank() ||
@@ -919,8 +928,7 @@ class NuvioAccountService(private val context: Context) {
                     } else {
                         null
                     }
-                    progressDao.upsert(
-                        WatchProgressEntity(
+                    val importedProgress = WatchProgressEntity(
                             tmdbId = tmdbId,
                             title = e.name?.takeIf { it.isNotBlank() }
                                 ?: existing?.title?.takeIf { it.isNotBlank() && it != "Movie" && it != "Series" }
@@ -941,12 +949,23 @@ class NuvioAccountService(private val context: Context) {
                                 },
                             seasonNumber = seasonNumber,
                             episodeNumber = episodeNumber,
-                        )
                     )
+                    if (!progressDao.upsertRemoteIfUnchanged(existing, importedProgress)) {
+                        return@forEach
+                    }
+                    if (shouldUseProgress) {
+                        progressAcknowledgements.acknowledge(listOf(importedProgress))
+                    }
                     if (shouldUseProgress) {
                         val pct = if (e.duration > 0) e.position.toDouble() / e.duration else 0.0
                         if (pct < 0.95) pulledProgress++
                     }
+                } else if (existing != null &&
+                    existing.positionMs == times.positionMs &&
+                    existing.durationMs == times.durationMs &&
+                    existing.updatedAt == updatedAt
+                ) {
+                    progressAcknowledgements.acknowledge(listOf(existing))
                 }
             }
             NuvioAutoSync.clearConfirmedWatchProgressDeletes(
@@ -961,6 +980,15 @@ class NuvioAccountService(private val context: Context) {
                 localProfileId = syncLocalProfileId,
                 identities = remoteIdentities,
             )
+            if (progressSnapshotComplete) {
+                NuvioAutoSync.reconcileWatchProgressSnapshot(
+                    context = context,
+                    userId = syncUserId,
+                    localProfileId = syncLocalProfileId,
+                    remoteItems = remoteIdentities,
+                    dao = progressDao,
+                )
+            }
         }.onFailure {
             errors += "watch progress pull: ${it.message ?: "unknown error"}"
             Log.w(TAG, "pull watch progress: ${it.message}")
@@ -1094,10 +1122,83 @@ class NuvioAccountService(private val context: Context) {
         )
     }
 
+    private suspend fun pushWatchProgress(
+        accessToken: String,
+        userId: String,
+        localProfileId: String,
+        profileIndex: Int,
+        db: LibraryDb,
+    ): Int {
+        val acknowledgements = NuvioProgressAcknowledgements(context, userId, localProfileId)
+        val deletes = NuvioAutoSync.pendingWatchProgressDeleteKeys(context, userId, localProfileId)
+        val entries = db.watchProgress().getAllEntries().filter { entry ->
+            shouldPushNuvioWatchProgress(entry.mediaType, entry.seasonNumber, entry.episodeNumber) &&
+                acknowledgements.isPending(entry) &&
+                !(entry.positionMs <= 1L && entry.durationMs == 1L) &&
+                deletes.none {
+                    it.matchesLocalProgress(
+                        entry.tmdbId, entry.mediaType, entry.seasonNumber, entry.episodeNumber,
+                    )
+                }
+        }
+        if (entries.isEmpty()) return 0
+        val uploadedIdentities = mutableListOf<NuvioWatchProgressDeleteKey>()
+        val payload = buildJsonArray {
+            entries.forEach { entry ->
+                val local = NuvioWatchProgressDeleteKey(
+                    entry.tmdbId, entry.mediaType, entry.seasonNumber, entry.episodeNumber,
+                )
+                val targets = nuvioProgressUploadTargets(
+                    local,
+                    NuvioAutoSync.watchProgressRemoteIdentities(context, userId, localProfileId, local),
+                )
+                targets.forEach { target ->
+                    addJsonObject {
+                        put("content_id", target.contentId)
+                        put("content_type", target.contentType)
+                        put("video_id", target.remoteVideoId?.takeIf(String::isNotBlank) ?: target.remoteKey)
+                        put(
+                            "progress_key",
+                            target.remoteProgressKey?.takeIf(String::isNotBlank)
+                                ?: nuvioProgressKey(
+                                    target.contentId,
+                                    entry.seasonNumber.takeIf { it > 0 },
+                                    entry.episodeNumber.takeIf { it > 0 },
+                                ),
+                        )
+                        entry.seasonNumber.takeIf { it > 0 }?.let { put("season", it) }
+                        entry.episodeNumber.takeIf { it > 0 }?.let { put("episode", it) }
+                        put("position", entry.positionMs)
+                        put("duration", entry.durationMs)
+                        put("last_watched", entry.updatedAt)
+                    }
+                }
+                uploadedIdentities += targets
+            }
+        }
+        rpc(
+            "sync_push_watch_progress",
+            buildJsonObject {
+                put("p_entries", payload)
+                put("p_profile_id", profileIndex)
+                put("p_origin_client_id", syncOriginClientId(userId, profileIndex))
+            },
+            accessToken,
+        ).getOrThrow()
+        // Never acknowledge the current DB snapshot: it may have advanced while
+        // this request was in flight. Only these exact entries reached Nuvio.
+        acknowledgements.acknowledge(entries)
+        NuvioAutoSync.recordWatchProgressRemoteIdentities(
+            context, userId, localProfileId, uploadedIdentities,
+        )
+        return entries.size
+    }
+
     suspend fun syncAll(
         accessToken: String,
         userId: String? = null,
         localProfileId: String? = null,
+        watchProgressOnly: Boolean = false,
     ): NuvioSyncResult = withContext(Dispatchers.IO) {
         val services = ServiceLocator.get(context)
         val nuvioRepo = services.nuvio
@@ -1123,6 +1224,15 @@ class NuvioAccountService(private val context: Context) {
 
         val profileIndex = activeCloudProfileIndex(syncUserId, syncLocalProfileId)
             ?: error("The selected StreamCloud profile is not linked to a Nuvio profile")
+        if (watchProgressOnly) {
+            runCatching {
+                progress = pushWatchProgress(accessToken, syncUserId, syncLocalProfileId, profileIndex, db)
+            }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                errors += "watch progress push: ${it.message ?: "unknown error"}"
+            }
+            return@withContext NuvioSyncResult(watchProgress = progress, errors = errors)
+        }
         Log.i(
             TAG,
             "Pushing Nuvio data for profile_index=$profileIndex active_profile_id=$syncLocalProfileId",
@@ -1345,68 +1455,9 @@ class NuvioAccountService(private val context: Context) {
         }
 
         runCatching {
-            val pendingWatchProgressDeletes = NuvioAutoSync.pendingWatchProgressDeleteKeys(
-                context = context,
-                userId = syncUserId,
-                localProfileId = syncLocalProfileId,
-            )
-            val entries = db.watchProgress().getAllEntries()
-                .filter { entry ->
-                    shouldPushNuvioWatchProgress(
-                        entry.mediaType,
-                        entry.seasonNumber,
-                        entry.episodeNumber,
-                    )
-                }
-                .filterNot { entry ->
-                    pendingWatchProgressDeletes.any { deletion ->
-                        deletion.matchesLocalProgress(
-                            entry.tmdbId,
-                            entry.mediaType,
-                            entry.seasonNumber,
-                            entry.episodeNumber,
-                        )
-                    }
-                }
-            val arr = buildJsonArray {
-                entries.forEach { e ->
-                    val cid = "tmdb:${e.tmdbId}"
-                    val ctype = if (e.mediaType == "tv") "series" else "movie"
-                    val season = e.seasonNumber.takeIf { it > 0 }
-                    val episode = e.episodeNumber.takeIf { it > 0 }
-                    val progressKey = if (season != null && episode != null) {
-                        "$cid:$season:$episode"
-                    } else {
-                        cid
-                    }
-                    addJsonObject {
-                        put("content_id", cid)
-                        put("content_type", ctype)
-                        put("video_id", progressKey)
-                        put("position", e.positionMs)
-                        put("duration", e.durationMs)
-                        put("last_watched", e.updatedAt)
-                        put("progress_key", progressKey)
-                        season?.let { put("season", it) }
-                        episode?.let { put("episode", it) }
-                        season?.let { put("season_number", it) }
-                        episode?.let { put("episode_number", it) }
-                        e.title.takeIf { it.isNotBlank() }?.let { put("name", it) }
-                        e.posterUrl?.let { put("poster", it) }
-                    }
-                }
-            }
-            rpc(
-                "sync_push_watch_progress",
-                buildJsonObject {
-                    put("p_entries", arr)
-                    put("p_profile_id", profileIndex)
-                    put("p_origin_client_id", syncOriginClientId(syncUserId, profileIndex))
-                },
-                accessToken,
-            ).getOrThrow()
-            progress = entries.size
+            progress = pushWatchProgress(accessToken, syncUserId, syncLocalProfileId, profileIndex, db)
         }.onFailure {
+            if (it is kotlinx.coroutines.CancellationException) throw it
             errors += "watch progress push: ${it.message ?: "unknown error"}"
             Log.w(TAG, "push watch progress: ${it.message}")
         }

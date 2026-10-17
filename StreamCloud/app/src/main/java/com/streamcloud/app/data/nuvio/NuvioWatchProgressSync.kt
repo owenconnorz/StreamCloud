@@ -136,8 +136,11 @@ internal data class NuvioEpisodeNumbers(
     val episodeNumber: Int,
 )
 
-internal fun hasValidNuvioEpisodeIdentity(isSeries: Boolean, seasonNumber: Int, episodeNumber: Int): Boolean =
-    !isSeries || (seasonNumber > 0 && episodeNumber > 0)
+internal fun hasValidNuvioEpisodeIdentity(
+    isSeries: Boolean,
+    seasonNumber: Int,
+    episodeNumber: Int,
+): Boolean = !isSeries || (seasonNumber > 0 && episodeNumber > 0)
 
 internal fun isNuvioSeriesType(contentType: String): Boolean =
     contentType.equals("series", ignoreCase = true) ||
@@ -148,11 +151,12 @@ internal fun shouldPushNuvioWatchProgress(
     mediaType: String,
     seasonNumber: Int,
     episodeNumber: Int,
-): Boolean = when (mediaType.lowercase()) {
-    "movie" -> true
-    "tv", "series" -> seasonNumber > 0 && episodeNumber > 0
-    else -> false
-}
+): Boolean =
+    when (mediaType.lowercase()) {
+        "movie" -> true
+        "tv", "series" -> seasonNumber > 0 && episodeNumber > 0
+        else -> false
+    }
 
 internal fun nuvioEpisodeNumbers(
     season: Int?,
@@ -170,7 +174,7 @@ internal fun nuvioEpisodeNumbers(
     val keyPattern = Regex(
         """(?i)^(?:tmdb:|imdb:)?(?:tt\d+|\d+)[:/](\d{1,2})[:/](\d{1,3})$""",
     )
-    val seasonEpisodePattern = Regex("""(?i)\bS(\d{1,2})\s*E(\d{1,3})\b""")
+    val seasonEpisodePattern = Regex("""(?i)(?:^|[_\W])S(\d{1,2})\s*E(\d{1,3})(?:$|[_\W])""")
     val encoded = identityKeys.asSequence()
         .filterNotNull()
         .map { it.trim() }
@@ -197,6 +201,11 @@ internal fun normalizeNuvioProgressTimes(
     duration: Long,
     lastWatched: Long,
 ): NuvioProgressTimes {
+    // Official Nuvio TV/mobile store all three fields in milliseconds.
+    // Numeric size alone cannot distinguish seconds from the start of an episode.
+    if (lastWatched <= 0L || lastWatched >= 100_000_000_000L) {
+        return NuvioProgressTimes(position, duration, lastWatched.takeIf { it > 0L })
+    }
     val durationSecondsBased = duration in 1 until 60_000L
     fun multiplySeconds(value: Long): Long =
         if (value > 0L && value > Long.MAX_VALUE / 1_000L) Long.MAX_VALUE
@@ -229,10 +238,58 @@ internal fun shouldUseNuvioProgress(
     incomingUpdatedAtMs: Long,
     incomingRawDuration: Long,
     incomingDurationMs: Long,
+    existingPositionMs: Long? = null,
+    incomingPositionMs: Long? = null,
+    hasPendingLocalEdit: Boolean = false,
 ): Boolean =
-    existingUpdatedAt == null ||
+    !hasPendingLocalEdit && (existingUpdatedAt == null ||
         existingUpdatedAt < incomingUpdatedAtMs ||
-        (incomingDurationMs != incomingRawDuration && existingDurationMs == incomingRawDuration)
+        (existingUpdatedAt <= incomingUpdatedAtMs &&
+            incomingDurationMs != incomingRawDuration && existingDurationMs == incomingRawDuration) ||
+        (existingUpdatedAt == incomingUpdatedAtMs &&
+            existingPositionMs != null && incomingPositionMs != null &&
+            incomingPositionMs > existingPositionMs))
+
+/** Nuvio's storage/sync key is not the playable video ID. */
+internal fun nuvioProgressKey(contentId: String, season: Int?, episode: Int?): String =
+    if (season != null && episode != null) "${contentId}_s${season}e${episode}" else contentId
+
+internal fun nuvioProgressFingerprint(position: Long, duration: Long, updatedAt: Long): String =
+    "$position|$duration|$updatedAt"
+
+internal fun isPendingNuvioProgress(fingerprint: String, acknowledged: String?): Boolean =
+    fingerprint != acknowledged
+
+internal fun nuvioProgressUploadTargets(
+    local: NuvioWatchProgressDeleteKey,
+    remote: List<NuvioWatchProgressDeleteKey>,
+): List<NuvioWatchProgressDeleteKey> {
+    // Repair all known aliases of the same local episode, rather than create
+    // another row while an older IMDb/provider row continues to say 1%.
+    if (remote.isNotEmpty()) return remote.distinctBy {
+        it.remoteProgressKey?.takeIf(String::isNotBlank) ?: it.remoteKey
+    }
+    val season = local.seasonNumber.takeIf { it > 0 }
+    val episode = local.episodeNumber.takeIf { it > 0 }
+    return listOf(
+        local.copy(
+            remoteProgressKey = nuvioProgressKey(local.contentId, season, episode),
+            remoteVideoId = if (season != null && episode != null) {
+                "${local.contentId}:$season:$episode"
+            } else local.contentId,
+        ),
+    )
+}
+
+internal fun shouldRemoveMissingNuvioSnapshotRow(
+    wasInPreviousSnapshot: Boolean,
+    rowUpdatedAt: Long,
+    previousSnapshotAt: Long,
+    hasPendingLocalEdit: Boolean = false,
+): Boolean =
+    !hasPendingLocalEdit && wasInPreviousSnapshot &&
+        previousSnapshotAt > 0L &&
+        rowUpdatedAt <= previousSnapshotAt
 
 private fun toEpochMillis(seconds: Long): Long =
     if (seconds > Long.MAX_VALUE / 1_000L) Long.MAX_VALUE else seconds * 1_000L
