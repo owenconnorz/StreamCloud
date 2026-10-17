@@ -2073,11 +2073,12 @@ private fun MidPoster(
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
     val mediaType = if (m.title != null) "movie" else "tv"
-    val showTitleOnThumbnail = true
+    val showTitleOnThumbnail = useLandscape
     var isFocused by remember(m.id) { mutableStateOf(false) }
     val isExpanded = isTv && isFocused
-    LaunchedEffect(m.id, mediaType, titleLogoUrl) {
-        if (titleLogoUrl == null) onRequestTitleLogo()
+    LaunchedEffect(useLandscape, isExpanded, m.id, mediaType, titleLogoUrl) {
+        if ((!useLandscape && !isExpanded) || titleLogoUrl != null) return@LaunchedEffect
+        onRequestTitleLogo()
     }
     val animatedWidth by animateDpAsState(
         targetValue = if (isExpanded) 320.dp else width,
@@ -2209,7 +2210,7 @@ private fun StremioPoster(
     val isSeries = meta.type.equals("series", ignoreCase = true) ||
         meta.type.equals("tv", ignoreCase = true)
     val mediaType = if (isSeries) "tv" else "movie"
-    val showTitleOnThumbnail = true
+    val showTitleOnThumbnail = useLandscape
     val animatedWidth by animateDpAsState(
         targetValue = if (isExpanded) expandedWidth else width,
         animationSpec = tween(durationMillis = 260),
@@ -2228,8 +2229,9 @@ private fun StremioPoster(
         resolvedTmdbId,
         titleLogoUrl,
         showTitleOnThumbnail,
+        isExpanded,
     ) {
-        val shouldResolveTitle = showTitleOnThumbnail
+        val shouldResolveTitle = showTitleOnThumbnail || isExpanded
         if (!shouldResolveTitle) return@LaunchedEffect
         if (isTv) {
             // Wait for a stable focus before resolving external catalog IDs and logos.

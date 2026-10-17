@@ -155,7 +155,7 @@ private val ColourSonos      = Color(0xFF56C8D8)
 
 private enum class SettingsPage {
     SystemUpdate, Appearance, Playback, PlayerAudio, MovieSettings, MusicSettings, StreamPriority, Account,
-    ListenTogether, WatchParty, Content, Privacy,
+    ListenTogether, WatchParty, Content, Privacy, Adult,
     Storage, BackupRestore, About, Logs, HomeLayout, AndroidAuto
 }
 
@@ -175,6 +175,7 @@ private data class TvSettingsNavEntry(
 private val tvSettingsNavEntries = listOf(
     TvSettingsNavEntry("account", "Account", Icons.Default.Person, SettingsPage.Account),
     TvSettingsNavEntry("profiles", "Profiles", Icons.Default.Group, opensProfiles = true),
+    TvSettingsNavEntry("adult", "Adult", Icons.Default.Whatshot, SettingsPage.Adult),
     TvSettingsNavEntry("watch-party", "Watch party", Icons.Default.Group, SettingsPage.WatchParty),
     TvSettingsNavEntry("appearance", "Appearance", Icons.Default.Palette, SettingsPage.Appearance),
     TvSettingsNavEntry("layout", "Layout", Icons.Default.Dashboard, SettingsPage.HomeLayout),
@@ -1444,6 +1445,43 @@ fun SettingsHubScreen(
             }
 
 
+            SettingsPage.Adult -> SubPageScaffold(
+                title = "Adult",
+                onBack = { returnFromSettingsPage() },
+            ) {
+                SettingsGroup {
+                    SubSectionLabel("Provider accounts")
+                    RedditAccountRow(onLogin = onOpenRedditLogin)
+                    SettingDivider()
+                    PornhubAccountRow(onLogin = onOpenPornhubLogin)
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup {
+                    SubSectionLabel("Content controls")
+                    SettingToggle(
+                        icon = Icons.Default.Shield, tint = ColourPrivacy,
+                        title = "Safe search",
+                        subtitle = "Filter explicit search results",
+                        checked = safeSearch,
+                        onChange = {
+                            safeSearch = it
+                            scope.launch { sl.settings.setSafeSearch(it) }
+                        },
+                    )
+                    SettingDivider()
+                    SettingToggle(
+                        icon = Icons.Default.Lock, tint = ColourPrivacy,
+                        title = "Adult tab PIN lock",
+                        subtitle = "Require PIN to open the Adult tab (uses your safe-mode PIN)",
+                        checked = adultLockEnabled,
+                        onChange = {
+                            adultLockEnabled = it
+                            scope.launch { sl.settings.setAdultLockEnabled(it) }
+                        },
+                    )
+                }
+            }
+
             SettingsPage.Account -> SubPageScaffold(
                 title = "Account",
                 onBack = { currentPage = null },
@@ -1473,10 +1511,6 @@ fun SettingsHubScreen(
                     YtMusicAccountRow()
                     SettingDivider()
                     SpotifyAccountRow()
-                    SettingDivider()
-                    RedditAccountRow(onLogin = onOpenRedditLogin)
-                    SettingDivider()
-                    PornhubAccountRow(onLogin = onOpenPornhubLogin)
                 }
                 Spacer(Modifier.height(16.dp))
                 if (isTv) {
@@ -2072,25 +2106,6 @@ fun SettingsHubScreen(
                             },
                         )
                     }
-                    SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.Shield, tint = ColourPrivacy,
-                        title = "Safe search",
-                        subtitle = "Filter explicit search results",
-                        checked = safeSearch,
-                        onChange = { safeSearch = it; scope.launch { sl.settings.setSafeSearch(it) } },
-                    )
-                    SettingDivider()
-                    SettingToggle(
-                        icon = Icons.Default.Lock, tint = ColourPrivacy,
-                        title = "Adult tab PIN lock",
-                        subtitle = "Require PIN to open the Adult tab (uses your safe-mode PIN)",
-                        checked = adultLockEnabled,
-                        onChange = {
-                            adultLockEnabled = it
-                            scope.launch { sl.settings.setAdultLockEnabled(it) }
-                        },
-                    )
                     if (!isTv) {
                         SettingDivider()
                         SettingToggle(
@@ -3085,9 +3100,18 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
             HubItem(Icons.Default.Layers,     "Collections",       "Manage collections and folders",          ColourSystem,  onClick = onOpenCollections),
             HubItem(Icons.Default.Download,   "Downloads",         "Manage downloaded movies and episodes",   ColourStorage, onClick = onOpenDownloads),
         )),
+        HubSection("ADULT", listOf(
+            HubItem(
+                Icons.Default.Whatshot,
+                "Adult",
+                "Provider accounts and content controls",
+                ColourPrivacy,
+                onClick = { onNavigate(SettingsPage.Adult) },
+            ),
+        )),
         HubSection("GENERAL", listOf(
             HubItem(Icons.Default.Palette,     "Appearance",         "Theme, colours, navigation, display",       ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }),
-            HubItem(Icons.Default.Shield,      "Privacy",            "Safe search, history, explicit content",    ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }),
+            HubItem(Icons.Default.Shield,      "Privacy",            "Listening history and browsing privacy",    ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }),
             HubItem(Icons.Default.Storage,     "Storage",            "Cache management and storage usage",        ColourStorage,    onClick = { onNavigate(SettingsPage.Storage) }),
             HubItem(Icons.Default.CloudUpload, "Backup and restore", "Back up or restore your app data",          ColourSystem,     onClick = { onNavigate(SettingsPage.BackupRestore) }),
         )),

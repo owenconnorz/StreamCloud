@@ -699,10 +699,26 @@ fun MovieDetailScreen(
                         PaddingValues(horizontal = 7.dp, vertical = 0.dp)
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        disabledContainerColor = MaterialTheme.colorScheme.surface,
-                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        containerColor = if (episodePlaybackTarget?.isContinue == true) {
+                            Color.Black.copy(alpha = 0.52f)
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        contentColor = if (episodePlaybackTarget?.isContinue == true) {
+                            Color.White
+                        } else {
+                            MaterialTheme.colorScheme.onPrimary
+                        },
+                        disabledContainerColor = if (episodePlaybackTarget?.isContinue == true) {
+                            Color.Black.copy(alpha = 0.35f)
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                        disabledContentColor = if (episodePlaybackTarget?.isContinue == true) {
+                            Color.White.copy(alpha = 0.62f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     ),
                 ) {
                     Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(22.dp))

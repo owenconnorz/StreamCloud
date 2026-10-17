@@ -82,7 +82,9 @@ fun MovieSearchScreen(
             .filter { it.tmdbId > 0L && (it.mediaType == "movie" || it.mediaType == "tv") }
             .mapTo(mutableSetOf()) { it.tmdbId }
     }
-    var query by rememberSaveable(storageScopeKey) { mutableStateOf("") }
+    // Keep this independent of profile-load timing so returning from a detail
+    // route cannot reset a query when the active-profile key changes.
+    var query by rememberSaveable { mutableStateOf("") }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocusRequester = remember { FocusRequester() }
@@ -113,7 +115,7 @@ fun MovieSearchScreen(
         }
     }
 
-    LaunchedEffect(query) {
+    LaunchedEffect(query, vm) {
         if (query.length >= 2) {
             // Clear previous results immediately so screen feels instant
             vm.search(query)
@@ -636,7 +638,7 @@ private fun NuvioCard(
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
-                .tvFocusBorder(RoundedCornerShape(10.dp))
+                .tvFocusBorder(RoundedCornerShape(10.dp), borderWidth = 5.dp)
                 .clickable(onClick = onClick),
         ) {
             MovieArtwork(
