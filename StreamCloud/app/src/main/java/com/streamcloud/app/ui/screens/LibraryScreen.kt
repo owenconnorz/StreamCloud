@@ -21,7 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
+import com.streamcloud.app.ui.icons.AppIcons as Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -654,7 +654,7 @@ fun LibraryScreen(
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Icon(
-                                                androidx.compose.material.icons.Icons.Default.MusicNote,
+                                                Icons.Default.MusicNote,
                                                 contentDescription = null,
                                                 tint = androidx.compose.ui.graphics.Color.White,
                                                 modifier = Modifier.size(12.dp),

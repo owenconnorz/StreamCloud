@@ -33,7 +33,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.material.icons.Icons
+import com.streamcloud.app.ui.icons.AppIcons as Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
@@ -165,14 +165,19 @@ import androidx.compose.ui.focus.onFocusChanged
 import java.net.URLDecoder
 import java.net.URLEncoder
 
-private sealed class Tab(val route: String, val label: String, val icon: ImageVector) {
-    data object Movies   : Tab("movies",   "Movies",   Icons.Filled.Theaters)
-    data object Music    : Tab("music",    "Music",    Icons.Filled.MusicNote)
-    data object Library  : Tab("library",  "Library",  Icons.Filled.Bookmarks)
-    data object LocalFiles : Tab("local_files", "Local Files", Icons.Filled.Folder)
-    data object LiveTv   : Tab("live_tv",  "Live TV",  Icons.Filled.LiveTv)
-    data object Adult    : Tab("adult",    "Adult",    Icons.Filled.Whatshot)
-    data object Settings : Tab("settings", "Settings", Icons.Filled.Settings)
+private sealed class Tab(
+    val route: String,
+    val label: String,
+    val icon: ImageVector,
+    val outlinedIcon: ImageVector,
+) {
+    data object Movies   : Tab("movies", "Movies", Icons.Filled.Theaters, Icons.Outlined.Theaters)
+    data object Music    : Tab("music", "Music", Icons.Filled.MusicNote, Icons.Outlined.MusicNote)
+    data object Library  : Tab("library", "Library", Icons.Filled.Bookmarks, Icons.Outlined.Bookmarks)
+    data object LocalFiles : Tab("local_files", "Local Files", Icons.Filled.Folder, Icons.Outlined.Folder)
+    data object LiveTv   : Tab("live_tv", "Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv)
+    data object Adult    : Tab("adult", "Adult", Icons.Filled.Whatshot, Icons.Outlined.Whatshot)
+    data object Settings : Tab("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 @OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
@@ -535,7 +540,7 @@ fun StreamCloudApp() {
                             selected = selected,
                             onClick = { navigateToTab(nav, tab.route) },
                             modifier = if (idx == 0) Modifier.focusRequester(firstRailFocus) else Modifier,
-                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            icon = { Icon(if (currentRoute == tab.route) tab.icon else tab.outlinedIcon, contentDescription = tab.label) },
                             label = { Text(tab.label, style = MaterialTheme.typography.labelLarge) },
                             colors = NavigationRailItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.onPrimary,
@@ -2227,7 +2232,7 @@ private fun MobileNavTabScroller(
                     )
                 } else {
                     NuvioNavItem(
-                        icon = tab.icon,
+                        icon = if (selected) tab.icon else tab.outlinedIcon,
                         label = tab.label,
                         selected = selected,
                         showLabel = showLabel,
@@ -2358,7 +2363,7 @@ private fun ProfileNavItem(
             .clickable { showAccountMenu = true }
             .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {
-        ProfileAvatarCircle(avatar = avatar, size = 28.dp, tint = iconTint)
+        ProfileAvatarCircle(avatar = avatar, size = 28.dp, tint = iconTint, selected = selected)
         if (showLabel) {
             Spacer(Modifier.height(3.dp))
             Text(
@@ -2427,7 +2432,12 @@ private fun ProfileNavItem(
 }
 
 @Composable
-private fun ProfileAvatarCircle(avatar: String, size: androidx.compose.ui.unit.Dp, tint: Color) {
+private fun ProfileAvatarCircle(
+    avatar: String,
+    size: androidx.compose.ui.unit.Dp,
+    tint: Color,
+    selected: Boolean = false,
+) {
     val context = LocalContext.current
     if (avatar.isNotBlank()) {
         AsyncImage(
@@ -2442,7 +2452,7 @@ private fun ProfileAvatarCircle(avatar: String, size: androidx.compose.ui.unit.D
         )
     } else {
         Icon(
-            Icons.Filled.Person,
+            if (selected) Icons.Filled.Person else Icons.Outlined.Person,
             contentDescription = "Profile",
             tint = tint,
             modifier = Modifier.size(size),

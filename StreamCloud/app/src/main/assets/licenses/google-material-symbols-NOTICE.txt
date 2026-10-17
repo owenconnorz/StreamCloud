@@ -1,0 +1,6 @@
+Material Symbols Rounded
+Copyright Google LLC
+https://github.com/google/material-design-icons
+Licensed under Apache License 2.0.
+Upstream revision: 49d4db35df873165d6bd6ba09b063c7dafbac2f4
+SVG artwork converted into offline Compose ImageVectors for StreamCloud.
