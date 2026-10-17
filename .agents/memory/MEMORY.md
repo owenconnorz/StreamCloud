@@ -24,3 +24,4 @@
 - [Pornhub WebView login](pornhub-webview-login.md) — Restrict top-level login destinations, but allow secure third-party CAPTCHA and identity frames.
 - [Nuvio up-next UI](nuvio-up-next-ui.md) — Use a compact final-minute chip; start the autoplay countdown only after playback ends.
 - [Expanded movie-home cards](expanded-movie-home-cards.md) — Focused cards use static artwork and title logos; keep trailer previews on detail screens.
+- [Adult tab navigation visibility](adult-tab-navigation-visibility.md) — Show app navigation only on Pornhub and Eporner home screens, not Pornhub Shorts, Reddit, or RedGifs.

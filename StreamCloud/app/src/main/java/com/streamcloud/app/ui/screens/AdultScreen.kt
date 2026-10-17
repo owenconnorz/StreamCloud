@@ -81,6 +81,7 @@ fun AdultScreen(
     onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
     onOpenRedditLogin: () -> Unit = {},
     onOpenSearch: (AdultSource) -> Unit = {},
+    onAppNavigationVisibilityChanged: (Boolean) -> Unit = {},
     screenTitle: String = "Adult",
     screenSubtitle: String = "",
 ) {
@@ -105,6 +106,27 @@ fun AdultScreen(
     var showProviderPicker by remember { mutableStateOf(false) }
     var showPornhubShorties by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
+    val latestNavigationVisibilityCallback by rememberUpdatedState(onAppNavigationVisibilityChanged)
+    val showAdultHomeNavigation =
+        state.ageGateConfirmed &&
+            (!state.adultLockEnabled || state.safeModePin.isBlank() || state.lockUnlocked) &&
+            !showCategoryPicker &&
+            !showAllPornhubCategories &&
+            !showProviderPicker &&
+            !showPornhubShorties &&
+            detailItem == null &&
+            when (state.source) {
+                AdultSource.Pornhub -> state.pornhubHome
+                AdultSource.Eporner -> state.selectedCategory == null && query.isBlank()
+                AdultSource.Reddit, AdultSource.RedGifs -> false
+            }
+
+    LaunchedEffect(showAdultHomeNavigation) {
+        latestNavigationVisibilityCallback(showAdultHomeNavigation)
+    }
+    DisposableEffect(Unit) {
+        onDispose { latestNavigationVisibilityCallback(false) }
+    }
 
     BackHandler(enabled = showPornhubShorties) { showPornhubShorties = false }
     BackHandler(

@@ -187,6 +187,7 @@ fun StreamCloudApp() {
     val playerSurfaceState = com.streamcloud.app.ui.player.rememberPlayerSurfaceState()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+    var adultHomeNavigationVisible by remember { mutableStateOf(false) }
     var settingsHasSubPage by remember { mutableStateOf(false) }
     var settingsBackRequest by remember { mutableStateOf(0) }
     var settingsFocusRequest by remember { mutableStateOf(0) }
@@ -448,7 +449,8 @@ fun StreamCloudApp() {
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
         val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
         val showRail = useRail &&
-            (currentRoute == null || tabs.any { it.route == currentRoute })
+            (currentRoute == null || tabs.any { it.route == currentRoute }) &&
+            (currentRoute != Tab.Adult.route || adultHomeNavigationVisible)
         val firstRailFocus = remember { FocusRequester() }
         val firstTvNavFocus = remember { FocusRequester() }
         val firstMovieCardFocus = remember { FocusRequester() }
@@ -1414,6 +1416,9 @@ fun StreamCloudApp() {
                         onOpenSearch = { source ->
                             nav.navigate("adult-search/${source.name}")
                         },
+                        onAppNavigationVisibilityChanged = { visible ->
+                            adultHomeNavigationVisible = visible
+                        },
                     )
                 }
 
@@ -1805,7 +1810,7 @@ fun StreamCloudApp() {
                         val showBar = currentRoute == null ||
                             (tabs.any { it.route == currentRoute } &&
                                 currentRoute != Tab.Settings.route &&
-                                currentRoute != Tab.Adult.route)
+                                (currentRoute != Tab.Adult.route || adultHomeNavigationVisible))
                         if (showBar) {
                             val effectiveShowLabel = navExpanded && showNavLabels
                             Box(
