@@ -1,3 +1,23 @@
+## Latest — Changes since V2183
+
+### Nuvio playback sync
+- **TV episode progress syncs more reliably across devices** — Episode identities, payload aliases, and progress acknowledgements are handled consistently so phone and TV Continue Watching can stay aligned.
+
+### Android TV reliability
+- **Fixed a focus-restoration crash** — TV focus recovery no longer releases the same Compose focus node twice during layout and navigation changes.
+
+### Watch Party
+- **Watch together with StreamCloud invite codes** — Independent StreamCloud rooms synchronize playback while participants can choose their own available sources.
+- **Improved party and source panels** — Updated Watch Party controls and panels for clearer remote navigation.
+
+### Settings and video player
+- **Settings are easier to use with a TV remote** — TV settings use a category rail with a focused detail panel and TV-specific Account layout.
+- **Cleaner TV playback controls** — The video player groups title, progress, elapsed/remaining time, and compact subtitle, audio, source, episode, and Watch Party actions along the bottom.
+
+### Search results and icons
+- **New TV source searches stay current** — Late results from an older search no longer replace or hide results from a newer one.
+- **Updated app icons** — Google Material Symbols Rounded artwork is bundled for offline use.
+
 ## Latest — Changes since V2175
 
 ### Nuvio playback sync
