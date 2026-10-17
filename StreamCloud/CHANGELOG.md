@@ -1,3 +1,12 @@
+## Latest — Changes since V2205
+
+    ### Fire TV launcher
+    - **Branded artwork fits the Fire TV home row** — added a 16:9 StreamCloud banner with the app name at Android TV densities and set it directly on the TV launcher activity.
+    - **Updated adaptive launcher icon** — the cloud-and-play artwork now matches the Fire TV branding.
+
+    ### TV settings
+    - **Cleaner remote focus** — navigating the settings sidebar keeps the purple fill on the selected section while focus-only rows show an outline without an inner fill.
+    
 ## Latest — Changes since V2199
 
 ### Library
