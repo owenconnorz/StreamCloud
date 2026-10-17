@@ -1,3 +1,17 @@
+## Latest — Changes since V2199
+
+### Library
+- **Clearer Library hold actions** — Existing mobile long-press and TV remote hold actions now show enlarged artwork over a blurred background, with the available item actions easier to see.
+
+### Adult browsing and settings
+- **App navigation appears only on adult-provider home screens** — It remains available on Pornhub and Eporner home screens, and stays hidden on Pornhub Shorts, Reddit, and RedGifs.
+- **Adult sign-ins and controls have a dedicated settings page** — Reddit and Pornhub sign-in, Safe search, and the Adult tab PIN lock are grouped under Adult on phone and TV.
+
+### Search and playback
+- **Search is retained after viewing details** — Returning keeps the query and results, and TV search results have a stronger focus outline.
+- **Portrait cards no longer get duplicate title-logo overlays** — Landscape and expanded TV cards retain their title artwork.
+- **Resume-button styling is consistent** — Continue episode uses the same dark tint as Restart and Trailer.
+
 ## Latest — Changes since V2194
 
 ### Nuvio library sync
