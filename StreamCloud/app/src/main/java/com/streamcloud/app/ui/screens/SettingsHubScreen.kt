@@ -3663,15 +3663,9 @@ private fun TvSettingsSidebar(
                             focused = it.isFocused
                             if (it.isFocused) focusedNavKey = entry.key
                         }
-                        .tvFocusBorder(shape, showOutline = false)
+                        .tvFocusBorder(shape, showOutline = false, showFocusFill = false)
                         .clip(shape)
-                        .background(
-                            when {
-                                selected -> Color(0xFF30233A)
-                                focused -> Color.White.copy(alpha = 0.07f)
-                                else -> Color.Transparent
-                            },
-                        )
+                        .background(if (selected) Color(0xFF30233A) else Color.Transparent)
                         .border(
                             width = if (selected || focused) 1.5.dp else 0.dp,
                             color = when {

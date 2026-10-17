@@ -40,6 +40,7 @@ fun Modifier.tvFocusBorder(
     borderWidth: Dp = 3.dp,
     color: Color = Color.White,
     showOutline: Boolean = true,
+    showFocusFill: Boolean = true,
 ): Modifier = composed {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     if (!isTv) return@composed this
@@ -69,7 +70,7 @@ fun Modifier.tvFocusBorder(
             scaleY = scale
         }
         .background(
-            color = if (focused) focusColor.copy(alpha = 0.34f) else Color.Transparent,
+            color = if (focused && showFocusFill) focusColor.copy(alpha = 0.34f) else Color.Transparent,
             shape = shape,
         )
         .border(
