@@ -39,11 +39,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.animation.animateColorAsState
@@ -1351,51 +1353,77 @@ private fun MovieWatchlistActionDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
+        Box(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .widthIn(max = 440.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 8.dp,
+                .fillMaxSize()
+                .background(Color(0xFF050506)),
+            contentAlignment = Alignment.Center,
         ) {
-            Column {
-                if (!entry.posterUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = entry.posterUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f)
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                    )
-                } else {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f)
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center,
-                    ) {
+            if (!entry.posterUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = entry.posterUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(42.dp),
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .clickable(onClick = onDismiss),
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(if (isTv) 0.56f else 0.82f)
+                    .widthIn(max = if (isTv) 520.dp else 360.dp)
+                    .padding(horizontal = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF17171B)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!entry.posterUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = entry.posterUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    scaleX = 1.12f
+                                    scaleY = 1.12f
+                                },
+                        )
+                    } else {
                         Icon(
                             Icons.Default.Movie,
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = Color.White.copy(alpha = 0.7f),
                         )
                     }
                 }
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                        .padding(top = 12.dp, bottom = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         entry.title,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1407,45 +1435,52 @@ private fun MovieWatchlistActionDialog(
                             else -> entry.mediaType.replaceFirstChar(Char::uppercase)
                         },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color.White.copy(alpha = 0.68f),
                     )
                 }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(if (isTv) 0.92f else 0.86f),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFF1A191E),
+                    tonalElevation = 0.dp,
                 ) {
-                    MovieWatchlistActionRow(
-                        label = removeLabel,
-                        icon = Icons.Default.Delete,
-                        isDestructive = true,
-                        isTv = isTv,
-                        focusRequester = firstActionRequester,
-                        onFocused = { firstActionFocused = it },
-                        onClick = onRemove,
-                    )
-                    if (canMarkWatched) {
-                        HorizontalDivider(Modifier.padding(horizontal = 8.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
                         MovieWatchlistActionRow(
-                            label = "Mark as watched",
-                            icon = Icons.Default.CheckCircle,
-                            isDestructive = false,
+                            label = removeLabel,
+                            icon = Icons.Default.Delete,
+                            isDestructive = true,
                             isTv = isTv,
-                            onClick = onMarkWatched,
+                            focusRequester = firstActionRequester,
+                            onFocused = { firstActionFocused = it },
+                            onClick = onRemove,
                         )
-                    }
-                    if (canMove) {
-                        HorizontalDivider(Modifier.padding(horizontal = 8.dp))
-                        MovieWatchlistActionRow(
-                            label = "Move to list",
-                            icon = Icons.Default.PlaylistPlay,
-                            isDestructive = false,
-                            isTv = isTv,
-                            onClick = onMove,
-                        )
+                        if (canMarkWatched) {
+                            HorizontalDivider(Modifier.padding(horizontal = 8.dp))
+                            MovieWatchlistActionRow(
+                                label = "Mark as watched",
+                                icon = Icons.Default.CheckCircle,
+                                isDestructive = false,
+                                isTv = isTv,
+                                onClick = onMarkWatched,
+                            )
+                        }
+                        if (canMove) {
+                            HorizontalDivider(Modifier.padding(horizontal = 8.dp))
+                            MovieWatchlistActionRow(
+                                label = "Move to list",
+                                icon = Icons.Default.PlaylistPlay,
+                                isDestructive = false,
+                                isTv = isTv,
+                                onClick = onMove,
+                            )
+                        }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
             }
         }
     }
@@ -1481,13 +1516,13 @@ private fun MovieWatchlistActionRow(
             label,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyLarge,
-            color = if (isDestructive) MaterialTheme.colorScheme.error
+            color = if (isDestructive) Color(0xFFE77993)
             else MaterialTheme.colorScheme.onSurface,
         )
         Icon(
             icon,
             contentDescription = null,
-            tint = if (isDestructive) MaterialTheme.colorScheme.error
+            tint = if (isDestructive) Color(0xFFE77993)
             else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(22.dp),
         )
