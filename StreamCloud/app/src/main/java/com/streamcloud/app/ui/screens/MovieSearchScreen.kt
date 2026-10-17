@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,7 +82,7 @@ fun MovieSearchScreen(
             .filter { it.tmdbId > 0L && (it.mediaType == "movie" || it.mediaType == "tv") }
             .mapTo(mutableSetOf()) { it.tmdbId }
     }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable(storageScopeKey) { mutableStateOf("") }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocusRequester = remember { FocusRequester() }
@@ -221,7 +222,7 @@ fun MovieSearchScreen(
                         Modifier
                             .fillMaxWidth(0.82f)
                             .widthIn(max = 620.dp)
-                            .height(52.dp),
+                            .height(64.dp),
                     )
                 }
             } else {
@@ -459,8 +460,8 @@ private fun CombinedResultsList(
                 ) {
                     items(state.tvSearchResults, key = { it.id }) { movie ->
                         NuvioCard(
-                            imageUrl = movie.backdropUrl,
-                            fallbackImageUrl = movie.posterUrl,
+                            imageUrl = movie.posterUrl,
+                            fallbackImageUrl = movie.backdropUrl,
                             title = movie.displayTitle,
                             isWatched = movie.id in watchedTmdbIds,
                             focusRequester = if (
@@ -493,8 +494,8 @@ private fun CombinedResultsList(
                 ) {
                     items(state.searchResults, key = { it.id }) { movie ->
                         NuvioCard(
-                            imageUrl = movie.backdropUrl,
-                            fallbackImageUrl = movie.posterUrl,
+                            imageUrl = movie.posterUrl,
+                            fallbackImageUrl = movie.backdropUrl,
                             title = movie.displayTitle,
                             isWatched = movie.id in watchedTmdbIds,
                             focusRequester = if (
@@ -626,12 +627,12 @@ private fun NuvioCard(
     isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
 ) {
-    val cardWidth = 185.dp
+    val cardWidth = if (LocalUiFormFactor.current == UiFormFactor.Tv) 148.dp else 132.dp
     Column(modifier = Modifier.width(cardWidth)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(16f / 9f)
+                .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)

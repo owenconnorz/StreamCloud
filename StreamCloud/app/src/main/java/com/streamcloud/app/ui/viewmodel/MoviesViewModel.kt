@@ -225,6 +225,32 @@ private fun normalizeStremioRows(rows: Any?): List<StremioHomeRow> =
             row.copy(items = items).takeIf { items.isNotEmpty() }
         }
 
+internal fun orderStremioHomeRows(
+    rows: List<StremioHomeRow>,
+    disabledCatalogsCsv: String?,
+    orderCsv: String?,
+): List<StremioHomeRow> {
+    val disabledKeys = disabledCatalogsCsv
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotBlank() }
+        ?.toSet()
+        .orEmpty()
+    val visibleRows = rows.filterNot { it.rowKey in disabledKeys }
+    val orderedKeys = orderCsv
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotBlank() }
+        ?.distinct()
+        .orEmpty()
+    if (orderedKeys.isEmpty()) return visibleRows
+
+    val visibleByKey = visibleRows.associateBy { it.rowKey }
+    val orderedKeySet = orderedKeys.toSet()
+    return orderedKeys.mapNotNull(visibleByKey::get) +
+        visibleRows.filterNot { it.rowKey in orderedKeySet }
+}
+
 class MoviesViewModel(
     private val sl: ServiceLocator,
     private val pluginRepo: PluginRepository,
@@ -333,7 +359,11 @@ class MoviesViewModel(
                 .collectLatest { loadCsPluginRows() }
         }
         viewModelScope.launch {
-            sl.settings.stremioDisabledCatalogsCsv.collectLatest { applyStremioFilter() }
+            combine(
+                sl.settings.stremioDisabledCatalogsCsv,
+                sl.settings.stremioCatalogOrderCsv,
+            ) { _, _ -> Unit }
+                .collectLatest { applyStremioFilter() }
         }
         viewModelScope.launch {
             sl.settings.showHeroSection.collectLatest { v ->
@@ -643,17 +673,9 @@ class MoviesViewModel(
     private fun applyStremioFilter() {
         viewModelScope.launch {
             val csv = sl.settings.stremioDisabledCatalogsCsv.first()
-            val disabled = csv?.takeIf { it.isNotBlank() }?.split(",")?.toSet() ?: emptySet()
             val fetchedRows = normalizeStremioRows(allFetchedStremioRows)
-            val filtered = if (disabled.isEmpty()) fetchedRows
-                           else fetchedRows.filter { it.rowKey !in disabled }
-            // Apply saved catalog order
-            val orderCsv    = sl.settings.stremioCatalogOrderCsv.first()
-            val orderedKeys = orderCsv?.takeIf { it.isNotBlank() }?.split(",")?.map { it.trim() } ?: emptyList()
-            val sorted = if (orderedKeys.isEmpty()) filtered else {
-                val byKey = filtered.associateBy { it.rowKey }
-                orderedKeys.mapNotNull { byKey[it] } + filtered.filter { it.rowKey !in orderedKeys.toSet() }
-            }
+            val orderCsv = sl.settings.stremioCatalogOrderCsv.first()
+            val sorted = orderStremioHomeRows(fetchedRows, csv, orderCsv)
             stremioHeroItems = sorted
                 .flatMap { row -> row.items.take(2) }
                 .distinctBy { it.id }

@@ -457,12 +457,22 @@ fun SettingsHubScreen(
     var streamPriorityReturnPage by remember { mutableStateOf<SettingsPage?>(null) }
     var handledBackRequest by remember { mutableStateOf(backRequest) }
 
-    BackHandler(enabled = currentPage != null) {
-        currentPage = if (currentPage == SettingsPage.StreamPriority) streamPriorityReturnPage else null
+    fun returnFromSettingsPage() {
+        currentPage = when {
+            currentPage == SettingsPage.StreamPriority ->
+                streamPriorityReturnPage ?: if (isTv) SettingsPage.Account else null
+            isTv -> SettingsPage.Account
+            else -> null
+        }
         streamPriorityReturnPage = null
     }
+    BackHandler(
+        enabled = currentPage != null && (!isTv || currentPage != SettingsPage.Account),
+    ) {
+        returnFromSettingsPage()
+    }
     LaunchedEffect(currentPage) {
-        onSubPageChanged(currentPage != null)
+        onSubPageChanged(currentPage != null && (!isTv || currentPage != SettingsPage.Account))
     }
     LaunchedEffect(currentPage, isTv) {
         if (!isTv || currentPage == null) return@LaunchedEffect
@@ -484,7 +494,7 @@ fun SettingsHubScreen(
     LaunchedEffect(backRequest) {
         if (backRequest != handledBackRequest) {
             handledBackRequest = backRequest
-            currentPage = null
+            returnFromSettingsPage()
         }
     }
 
