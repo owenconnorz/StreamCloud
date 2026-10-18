@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -569,7 +570,15 @@ fun MoviesScreen(
                 if (visibleContinueWatching.isNotEmpty()) {
                     item(key = "continue_watching_t") { SectionTitle("Continue Watching") }
                     item(key = "continue_watching") {
+                        val continueRowState = rememberLazyListState()
+                        var focusedContinueIndex by remember { mutableIntStateOf(-1) }
+                        KeepTvFocusedItemAtStart(
+                            listState = continueRowState,
+                            focusedIndex = focusedContinueIndex,
+                            isTv = isTv,
+                        )
                         LazyRow(
+                            state = continueRowState,
                             modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -581,7 +590,10 @@ fun MoviesScreen(
                                 ContinueWatchingCard(
                                     entry = entry,
                                     onFocusChanged = { hasFocus ->
-                                        if (hasFocus) focusedCwEntry = entry
+                                        if (hasFocus) {
+                                            focusedContinueIndex = index
+                                            focusedCwEntry = entry
+        }
                                         else if (focusedCwEntry?.let { cwIdentity(it) == cwIdentity(entry) } == true) {
                                             focusedCwEntry = null
                                         }
@@ -699,7 +711,15 @@ fun MoviesScreen(
 
 
 
+                        val collectionRowState = rememberLazyListState()
+                        var focusedPosterIndex by remember { mutableIntStateOf(-1) }
+                        KeepTvFocusedItemAtStart(
+                            listState = collectionRowState,
+                            focusedIndex = focusedPosterIndex,
+                            isTv = isTv,
+                        )
                         LazyRow(
+                            state = collectionRowState,
                             modifier = Modifier
                                 .tvFocusGroup()
                                 .animateContentSize(animationSpec = tween(durationMillis = 260)),
@@ -718,6 +738,9 @@ fun MoviesScreen(
                                     isTv = isTv,
                                     titleLogoUrl = state.tmdbTitleLogos["$mediaType:${m.id}"],
                                     onRequestTitleLogo = { vm.requestTitleLogo(m.id, mediaType) },
+                                    onFocusChanged = { hasFocus ->
+                                        if (hasFocus) focusedPosterIndex = index
+                                    },
                                     modifier = if (
                                         row.id == firstCollectionRowId &&
                                         index == 0 &&
@@ -778,7 +801,15 @@ fun MoviesScreen(
                         )
                     }
                     item(key = "stremio_${row.rowKey}") {
+                        val stremioRowState = rememberLazyListState()
+                        var focusedPosterIndex by remember { mutableIntStateOf(-1) }
+                        KeepTvFocusedItemAtStart(
+                            listState = stremioRowState,
+                            focusedIndex = focusedPosterIndex,
+                            isTv = isTv,
+                        )
                         LazyRow(
+                            state = stremioRowState,
                             modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -802,6 +833,9 @@ fun MoviesScreen(
                                         state.tmdbTitleLogos["$mediaType:$it"]
                                     },
                                     onRequestTitleLogo = vm::requestTitleLogo,
+                                    onFocusChanged = { hasFocus ->
+                                        if (hasFocus) focusedPosterIndex = index
+                                    },
                                     modifier = if (
                                         row.rowKey == firstStremioRowKey &&
                                         index == 0 &&
@@ -903,7 +937,15 @@ fun MoviesScreen(
                     item(key = "cshome_${row.pluginInternalName}_${row.sectionName}") {
                         val csLandscape = posterStyle == "landscape"
                         val csAspect = if (csLandscape) 16f / 9f else 2f / 3f
+                        val csRowState = rememberLazyListState()
+                        var focusedPosterIndex by remember { mutableIntStateOf(-1) }
+                        KeepTvFocusedItemAtStart(
+                            listState = csRowState,
+                            focusedIndex = focusedPosterIndex,
+                            isTv = isTv,
+                        )
                         LazyRow(
+                            state = csRowState,
                             modifier = Modifier.tvFocusGroup(),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -938,6 +980,9 @@ fun MoviesScreen(
                                         state.tmdbTitleLogos["$csMediaType:${it.id}"]
                                     },
                                     onRequestTitleLogo = vm::requestTitleLogo,
+                                    onFocusChanged = { hasFocus ->
+                                        if (hasFocus) focusedPosterIndex = index
+                                    },
                                     onClick = {
                                         onOpenCsItem(
                                             row.pluginInternalName,
@@ -1926,6 +1971,18 @@ private fun ContinueWatchingCard(
 }
 
 @Composable
+private fun KeepTvFocusedItemAtStart(
+    listState: LazyListState,
+    focusedIndex: Int,
+    isTv: Boolean,
+) {
+    LaunchedEffect(isTv, focusedIndex) {
+        if (!isTv) return@LaunchedEffect
+        if (focusedIndex !in 0 until listState.layoutInfo.totalItemsCount) return@LaunchedEffect
+        listState.animateScrollToItem(focusedIndex)
+    }
+}
+@Composable
 private fun LandscapeCardTitle(title: String, logoUrl: String? = null) {
     Box(Modifier.fillMaxSize()) {
         Box(
@@ -1978,6 +2035,7 @@ private fun CsHomePosterCard(
     onRequestTmdbMovie: () -> Unit,
     titleLogoUrl: String?,
     onRequestTitleLogo: (Long, String) -> Unit,
+    onFocusChanged: (Boolean) -> Unit = {},
     onClick: () -> Unit,
 ) {
     var isFocused by remember(item.url) { mutableStateOf(false) }
@@ -2014,7 +2072,10 @@ private fun CsHomePosterCard(
         modifier = Modifier
             .width(animatedWidth)
             .tvOkPress(onClick, onLongPress = {})
-            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+            .onFocusChanged {
+                isFocused = it.isFocused || it.hasFocus
+                onFocusChanged(isFocused)
+            }
             .animateContentSize(animationSpec = tween(durationMillis = 260))
             .clickable(onClick = onClick),
     ) {
@@ -2097,6 +2158,7 @@ private fun MidPoster(
     isTv: Boolean = false,
     titleLogoUrl: String? = null,
     onRequestTitleLogo: () -> Unit = {},
+    onFocusChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongPress: () -> Unit = {},
@@ -2128,7 +2190,10 @@ private fun MidPoster(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
             .width(animatedWidth)
-            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+            .onFocusChanged {
+                isFocused = it.isFocused || it.hasFocus
+                onFocusChanged(isFocused)
+            }
             .animateContentSize(animationSpec = tween(durationMillis = 260))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
@@ -2224,6 +2289,7 @@ private fun StremioPoster(
     onRequestTmdbId: () -> Unit,
     titleLogoUrl: String? = null,
     onRequestTitleLogo: (Long, String) -> Unit = { _, _ -> },
+    onFocusChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     onLongPress: () -> Unit = {},
     onClick: () -> Unit,
@@ -2284,7 +2350,10 @@ private fun StremioPoster(
         modifier = modifier
             .tvOkPress(onClick, onLongPress)
             .width(animatedWidth)
-            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+            .onFocusChanged {
+                isFocused = it.isFocused || it.hasFocus
+                onFocusChanged(isFocused)
+            }
             .animateContentSize(animationSpec = tween(durationMillis = 260))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
