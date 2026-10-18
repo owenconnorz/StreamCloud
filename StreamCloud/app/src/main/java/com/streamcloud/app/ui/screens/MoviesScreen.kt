@@ -232,6 +232,9 @@ fun MoviesScreen(
     var searchExpanded by remember { mutableStateOf(false) }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
     var focusedCwEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
+    val continueWatchingBackdropCache = remember {
+        androidx.compose.runtime.mutableStateMapOf<String, String>()
+    }
     fun cwIdentity(entry: WatchProgressEntity) =
         "${entry.tmdbId}_${entry.mediaType}_${entry.seasonNumber}_${entry.episodeNumber}"
     val visibleContinueWatching = remember(isTv, state.continueWatching, focusedCwEntry) {
@@ -632,8 +635,16 @@ fun MoviesScreen(
                                 visibleContinueWatching,
                                 key = { _, entry -> "cw_${cwIdentity(entry)}" },
                             ) { index, entry ->
+                                val backdropCacheKey = "${entry.mediaType}:${entry.tmdbId}"
                                 ContinueWatchingCard(
                                     entry = entry,
+                                    isTv = isTv,
+                                    tmdbApi = sl.tmdb,
+                                    tmdbApiKey = sl.tmdbApiKey,
+                                    cachedBackdropUrl = continueWatchingBackdropCache[backdropCacheKey],
+                                    onBackdropResolved = { url ->
+                                        continueWatchingBackdropCache[backdropCacheKey] = url
+                                    },
                                     onFocusChanged = { hasFocus ->
                                         if (hasFocus) {
                                             focusedContinueIndex = index
@@ -1932,6 +1943,11 @@ private fun AddonSectionTitleWithViewAll(
 @Composable
 private fun ContinueWatchingCard(
     entry: WatchProgressEntity,
+    isTv: Boolean,
+    tmdbApi: com.streamcloud.app.data.api.TmdbApi,
+    tmdbApiKey: String,
+    cachedBackdropUrl: String?,
+    onBackdropResolved: (String) -> Unit,
     modifier: Modifier = Modifier,
     onFocusChanged: (Boolean) -> Unit = {},
     onClick: () -> Unit,
@@ -1940,76 +1956,167 @@ private fun ContinueWatchingCard(
     val pct = if (entry.durationMs > 0L)
         (entry.positionMs.toFloat() / entry.durationMs.toFloat()).coerceIn(0f, 1f)
     else 0f
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .onFocusChanged { onFocusChanged(it.isFocused || it.hasFocus) }
-            .width(320.dp)
-            .tvOkPress(onClick, onLongPress)
-            .tvFocusBorder(RoundedCornerShape(14.dp))
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress)
-            .padding(8.dp),
+    val landscapeImageUrl by androidx.compose.runtime.produceState(
+        initialValue = cachedBackdropUrl ?: entry.posterUrl,
+        entry.tmdbId,
+        entry.mediaType,
+        entry.posterUrl,
+        tmdbApiKey,
+        cachedBackdropUrl,
     ) {
-        AsyncImage(
-            model = entry.posterUrl,
-            contentDescription = entry.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(width = 84.dp, height = 116.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                entry.title,
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+        if (cachedBackdropUrl != null) {
+            value = cachedBackdropUrl
+            return@produceState
+        }
+        if (!isTv || entry.tmdbId <= 0L || tmdbApiKey.isBlank()) {
+            return@produceState
+        }
+        val details = runCatching {
+            if (entry.mediaType == "tv") {
+                tmdbApi.tvDetails(entry.tmdbId, tmdbApiKey)
+            } else {
+                tmdbApi.details(entry.tmdbId, tmdbApiKey)
+            }
+        }.getOrNull()
+        val resolvedBackdrop = details?.backdropUrl?.takeIf { it.isNotBlank() }
+        if (resolvedBackdrop != null) {
+            value = resolvedBackdrop
+            onBackdropResolved(resolvedBackdrop)
+        } else {
+            value = entry.posterUrl
+        }
+    }
+    val cardModifier = modifier
+        .onFocusChanged { onFocusChanged(it.isFocused || it.hasFocus) }
+        .width(320.dp)
+        .then(if (isTv) Modifier.height(124.dp) else Modifier)
+        .tvOkPress(onClick, onLongPress)
+        .tvFocusBorder(RoundedCornerShape(14.dp))
+        .clip(RoundedCornerShape(14.dp))
+        .background(MaterialTheme.colorScheme.surface)
+        .combinedClickable(onClick = onClick, onLongClick = onLongPress)
+
+    if (isTv) {
+        Box(cardModifier) {
+            AsyncImage(
+                model = landscapeImageUrl,
+                contentDescription = entry.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                watchProgressDisplayLabel(entry),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color.Black.copy(alpha = 0.88f),
+                                Color.Black.copy(alpha = 0.62f),
+                                Color.Black.copy(alpha = 0.16f),
+                            ),
+                        ),
+                    ),
             )
-            Spacer(Modifier.height(14.dp))
-            if (entry.durationMs > 0L) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+            ) {
+                Text(
+                    entry.title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    continueWatchingLandscapeSubtitle(entry),
+                    color = Color.White.copy(alpha = 0.82f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.weight(1f))
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(4.dp)
+                        .height(5.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)),
+                        .background(Color.White.copy(alpha = 0.26f)),
                 ) {
                     Box(
                         Modifier
-                            .fillMaxWidth(pct)
+                            .fillMaxWidth(pct.coerceAtLeast(0.02f))
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(50))
                             .background(MaterialTheme.colorScheme.primary),
                     )
                 }
-                Spacer(Modifier.height(6.dp))
+            }
+        }
+    } else {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = cardModifier.padding(8.dp),
+        ) {
+            AsyncImage(
+                model = entry.posterUrl,
+                contentDescription = entry.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(width = 84.dp, height = 116.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
-                    if (entry.durationMs > 0L) {
-                    "${(pct * 100f + 0.5f).toInt().coerceAtLeast(1)}% watched"
+                    entry.title,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    watchProgressDisplayLabel(entry),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(14.dp))
+                if (entry.durationMs > 0L) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(pct.coerceAtLeast(0.02f))
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${(pct * 100f + 0.5f).toInt().coerceAtLeast(1)}% watched",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 } else {
-                    "0% watched"
-                },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else {
-                Text(
-                    "Resume playback",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                    Text(
+                        "0% watched",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
     }
@@ -2023,26 +2130,73 @@ private fun KeepTvFocusedItemAtStart(
 ) {
     LaunchedEffect(isTv, focusedIndex) {
         if (!isTv) return@LaunchedEffect
-        val layoutInfo = listState.layoutInfo
-            if (focusedIndex !in 0 until layoutInfo.totalItemsCount) return@LaunchedEffect
-
-            val focusedItem = layoutInfo.visibleItemsInfo.firstOrNull { it.index == focusedIndex }
-            if (focusedItem == null) {
-                listState.scrollToItem(focusedIndex)
-                return@LaunchedEffect
-            }
-
-            // A spring scroll can overshoot while the focused poster is expanding.
-            // Use a short tween to keep the fixed-focus rail smooth without bouncing.
-            val scrollByPx = focusedItem.offset - layoutInfo.beforeContentPadding
-            if (scrollByPx != 0) {
-                listState.animateScrollBy(
-                    value = scrollByPx.toFloat(),
-                    animationSpec = tween(durationMillis = 190),
-                )
-            }
+        if (focusedIndex !in 0 until listState.layoutInfo.totalItemsCount) return@LaunchedEffect
+        if (listState.layoutInfo.visibleItemsInfo.none { it.index == focusedIndex }) {
+            listState.scrollToItem(focusedIndex)
         }
+
+        // Focused posters animate between portrait and landscape widths. Aligning
+        // against the pre-animation width can overscroll the row and clip the
+        // selected card at the leading edge. Wait until layout width settles.
+        var previousSize: Int? = null
+        var stableFrames = 0
+        for (frame in 0 until 28) {
+            androidx.compose.runtime.withFrameNanos { }
+            val current = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == focusedIndex }
+            if (current == null) {
+                stableFrames = 0
+                previousSize = null
+                continue
+            }
+            if (current.size == previousSize) {
+                stableFrames += 1
+            } else {
+                previousSize = current.size
+                stableFrames = 0
+            }
+            if (stableFrames >= 3) break
+        }
+
+        val layoutInfo = listState.layoutInfo
+        val focusedItem = layoutInfo.visibleItemsInfo.firstOrNull { it.index == focusedIndex }
+            ?: return@LaunchedEffect
+        val scrollByPx = focusedItem.offset - layoutInfo.beforeContentPadding
+        if (scrollByPx != 0) {
+            listState.animateScrollBy(
+                value = scrollByPx.toFloat(),
+                animationSpec = tween(durationMillis = 160),
+            )
+        }
+    }
 }
+
+private fun continueWatchingLandscapeSubtitle(entry: WatchProgressEntity): String {
+    val episodeLabel = if (
+        entry.mediaType == "tv" &&
+        entry.seasonNumber > 0 &&
+        entry.episodeNumber > 0
+    ) {
+        "S${entry.seasonNumber} E${entry.episodeNumber}"
+    } else if (entry.mediaType == "tv") {
+        "Series"
+    } else {
+        "Movie"
+    }
+    val remainingMinutes = if (entry.durationMs > 0L) {
+        ((entry.durationMs - entry.positionMs).coerceAtLeast(0L) + 59_999L) / 60_000L
+    } else {
+        0L
+    }
+    val remainingLabel = when {
+        remainingMinutes <= 0L -> null
+        remainingMinutes >= 60L ->
+            "${remainingMinutes / 60L}h ${remainingMinutes % 60L}m left"
+        else -> "${remainingMinutes}m left"
+    }
+    return listOfNotNull(episodeLabel, remainingLabel).joinToString(" · ")
+}
+
 @Composable
 private fun LandscapeCardTitle(title: String, logoUrl: String? = null) {
     Box(Modifier.fillMaxSize()) {
