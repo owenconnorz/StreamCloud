@@ -189,8 +189,9 @@ fun StreamCloudApp() {
     val playerSurfaceState = com.streamcloud.app.ui.player.rememberPlayerSurfaceState()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
-    var libraryMoviePaletteActive by remember {
-        mutableStateOf(LocalUiFormFactor.current == UiFormFactor.Tv)
+    val isTvFormFactor = LocalUiFormFactor.current == UiFormFactor.Tv
+    var libraryMoviePaletteActive by remember(isTvFormFactor) {
+        mutableStateOf(isTvFormFactor)
     }
     val useSelectedAppPalette = currentRoute == Tab.Movies.route ||
         (currentRoute == Tab.Library.route && libraryMoviePaletteActive) ||
