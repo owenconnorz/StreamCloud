@@ -1,3 +1,11 @@
+## Latest — Changes since V2225
+
+### Appearance and color palettes
+- **Five app-wide palettes** — Choose Modern Blue, Purple Aurora, Sunset Orange, Forest Green, or Light Clean.
+- **Consistent color across screens** — The selected palette now carries through the app theme, Library, and Settings instead of reverting to static colors.
+- **Palette-aware controls** — Buttons, accents, and supporting surfaces follow the chosen color scheme.
+- **Palette definitions are tested** — Added unit tests for palette values and legacy palette normalization.
+
 ## Latest — Changes since V2219
 
 ### Android TV Continue Watching
