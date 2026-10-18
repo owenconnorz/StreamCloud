@@ -1,3 +1,12 @@
+## Latest — Changes since V2210
+
+### Movies home
+- **Faster startup and fresher sections** — Previously loaded movie rows are reused while stale results refresh, and CloudStream extractors initialize in the background instead of delaying app startup.
+- **Amazon Prime-style TV browsing** — The selected poster stays in the first slot while the row scrolls beneath it across Continue Watching, TMDB, Stremio, and CloudStream rows.
+
+### Android TV settings
+- **Clearer sidebar icons** — Settings category icons are white while the purple selected-tab fill and outline remain.
+
 ## Latest — Changes since V2205
 
 ### Fire TV launcher
