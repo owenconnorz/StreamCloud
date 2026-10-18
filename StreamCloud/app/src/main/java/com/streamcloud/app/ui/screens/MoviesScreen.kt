@@ -47,7 +47,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -543,7 +542,7 @@ fun MoviesScreen(
                 },
             )
             .onPreviewKeyEvent { event ->
-                if (isTv && event.type == KeyEventType.KeyDown) {
+                if (isTv && event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN) {
                     lastTvInteractionAt = SystemClock.elapsedRealtime()
                 }
                 false

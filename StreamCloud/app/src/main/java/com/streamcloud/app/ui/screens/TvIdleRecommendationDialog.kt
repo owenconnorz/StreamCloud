@@ -32,7 +32,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -92,7 +91,10 @@ internal fun TvIdleRecommendationDialog(
                 .focusRequester(focusRequester)
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
-                    if (event.type != KeyEventType.KeyDown && event.type != KeyEventType.KeyUp) {
+                    if (
+                        native.action != AndroidKeyEvent.ACTION_DOWN &&
+                        native.action != AndroidKeyEvent.ACTION_UP
+                    ) {
                         return@onPreviewKeyEvent false
                     }
                     when (native.action) {
