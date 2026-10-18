@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.LazyColumn
@@ -69,6 +70,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.flow.collect
 import coil.compose.AsyncImage
 import com.lagradost.cloudstream3.SearchResponse
 import com.streamcloud.app.data.api.TmdbMovie
@@ -174,6 +176,7 @@ fun MoviesScreen(
     navScrollToTopVersion: Int = 0,
     // Scroll Movies to the banner before retrying a TV-nav focus request.
     tvNavDownFocusHandoffVersion: Int = 0,
+    onTvTopBarVisibilityChanged: (Boolean) -> Unit = {},
     onFirstMovieFocusedChanged: (Boolean) -> Unit = {},
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit = {},
@@ -297,7 +300,50 @@ fun MoviesScreen(
         }
     }
     val moviesListState = rememberLazyListState()
-    var tvNavHeroHasFocus by remember { mutableStateOf(false) }
+    val moviesListState = rememberLazyListState()
+        val topBarVisibilityChanged by rememberUpdatedState(onTvTopBarVisibilityChanged)
+        val topBarScrollThresholdPx = with(LocalDensity.current) { 16.dp.roundToPx() }
+        LaunchedEffect(isTv, moviesListState, topBarScrollThresholdPx) {
+            if (!isTv) return@LaunchedEffect
+            var previousPosition: Pair<Int, Int>? = null
+            var accumulatedOffsetPx = 0
+            topBarVisibilityChanged(true)
+
+            androidx.compose.runtime.snapshotFlow {
+                moviesListState.firstVisibleItemIndex to
+                    moviesListState.firstVisibleItemScrollOffset
+            }.collect { position ->
+                val previous = previousPosition
+                previousPosition = position
+                if (previous == null) return@collect
+
+                when {
+                    position.first == 0 && position.second == 0 -> {
+                        accumulatedOffsetPx = 0
+                        topBarVisibilityChanged(true)
+                    }
+                    position.first > previous.first -> {
+                        accumulatedOffsetPx = 0
+                        topBarVisibilityChanged(false)
+                    }
+                    position.first < previous.first -> {
+                        accumulatedOffsetPx = 0
+                        topBarVisibilityChanged(true)
+                    }
+                    else -> {
+                        accumulatedOffsetPx += position.second - previous.second
+                        if (accumulatedOffsetPx >= topBarScrollThresholdPx) {
+                            accumulatedOffsetPx = 0
+                            topBarVisibilityChanged(false)
+                        } else if (accumulatedOffsetPx <= -topBarScrollThresholdPx) {
+                            accumulatedOffsetPx = 0
+                            topBarVisibilityChanged(true)
+                        }
+                    }
+                }
+            }
+        }
+        var tvNavHeroHasFocus by remember { mutableStateOf(false) }
     // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.
     // When TV focus returns to the nav bar, jump to the top immediately. An
     // animated scroll can still be running when the next Down handoff starts.
@@ -722,7 +768,7 @@ fun MoviesScreen(
                             state = collectionRowState,
                             modifier = Modifier
                                 .tvFocusGroup()
-                                .animateContentSize(animationSpec = tween(durationMillis = 260)),
+                                .then(if (isTv) Modifier else Modifier.animateContentSize(animationSpec = tween(durationMillis = 260))),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -1978,9 +2024,25 @@ private fun KeepTvFocusedItemAtStart(
 ) {
     LaunchedEffect(isTv, focusedIndex) {
         if (!isTv) return@LaunchedEffect
-        if (focusedIndex !in 0 until listState.layoutInfo.totalItemsCount) return@LaunchedEffect
-        listState.animateScrollToItem(focusedIndex)
-    }
+        val layoutInfo = listState.layoutInfo
+            if (focusedIndex !in 0 until layoutInfo.totalItemsCount) return@LaunchedEffect
+
+            val focusedItem = layoutInfo.visibleItemsInfo.firstOrNull { it.index == focusedIndex }
+            if (focusedItem == null) {
+                listState.scrollToItem(focusedIndex)
+                return@LaunchedEffect
+            }
+
+            // A spring scroll can overshoot while the focused poster is expanding.
+            // Use a short tween to keep the fixed-focus rail smooth without bouncing.
+            val scrollByPx = focusedItem.offset - layoutInfo.beforeContentPadding
+            if (scrollByPx != 0) {
+                listState.animateScrollBy(
+                    value = scrollByPx.toFloat(),
+                    animationSpec = tween(durationMillis = 190),
+                )
+            }
+        }
 }
 @Composable
 private fun LandscapeCardTitle(title: String, logoUrl: String? = null) {
@@ -2076,7 +2138,7 @@ private fun CsHomePosterCard(
                 isFocused = it.isFocused || it.hasFocus
                 onFocusChanged(isFocused)
             }
-            .animateContentSize(animationSpec = tween(durationMillis = 260))
+            .then(if (isTv) Modifier else Modifier.animateContentSize(animationSpec = tween(durationMillis = 260)))
             .clickable(onClick = onClick),
     ) {
         Box(
@@ -2194,7 +2256,7 @@ private fun MidPoster(
                 isFocused = it.isFocused || it.hasFocus
                 onFocusChanged(isFocused)
             }
-            .animateContentSize(animationSpec = tween(durationMillis = 260))
+            .then(if (isTv) Modifier else Modifier.animateContentSize(animationSpec = tween(durationMillis = 260)))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
     ) {
         Box(
@@ -2354,7 +2416,7 @@ private fun StremioPoster(
                 isFocused = it.isFocused || it.hasFocus
                 onFocusChanged(isFocused)
             }
-            .animateContentSize(animationSpec = tween(durationMillis = 260))
+            .then(if (isTv) Modifier else Modifier.animateContentSize(animationSpec = tween(durationMillis = 260)))
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
         Box(

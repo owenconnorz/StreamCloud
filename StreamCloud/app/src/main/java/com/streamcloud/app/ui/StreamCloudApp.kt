@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -458,6 +459,12 @@ fun StreamCloudApp() {
         val seenNavDestinationIds = remember { mutableSetOf<String>() }
         var navHostHasTvFocus by remember { mutableStateOf(false) }
         var tvNavHasFocus by remember { mutableStateOf(false) }
+        var hideTvTopNav by remember { mutableStateOf(false) }
+        val tvTopNavOffset by animateDpAsState(
+            targetValue = if (hideTvTopNav && !tvNavHasFocus) (-190).dp else 0.dp,
+            animationSpec = tween(durationMillis = 220),
+            label = "tvTopNavScrollVisibility",
+        )
         // Dedicated requester always attached to the current hero Play button so
         // D-pad Down from the top nav bar reliably lands there regardless of
         // which startupFocusTarget the content decides to use.
@@ -484,7 +491,10 @@ fun StreamCloudApp() {
         }
         // Netflix-style TV nav: track which item last had startup focus so Up-from-hero focuses nav
         var firstMovieFocused by remember { mutableStateOf(false) }
-        LaunchedEffect(currentRoute) { firstMovieFocused = false }
+        LaunchedEffect(currentRoute) {
+            firstMovieFocused = false
+            hideTvTopNav = false
+        }
         var tvMusicPlayerWasExpanded by remember { mutableStateOf(false) }
         LaunchedEffect(isTv, currentRoute, playerSurfaceState.progress) {
             if (!isTv || currentRoute != Tab.Music.route) return@LaunchedEffect
@@ -518,10 +528,12 @@ fun StreamCloudApp() {
                     if (isTv && showRail && event.type == KeyEventType.KeyDown) {
                         when {
                             event.key == Key.Menu -> {
+                                hideTvTopNav = false
                                 runCatching { firstTvNavFocus.requestFocus() }
                                 true
                             }
                             event.key == Key.DirectionUp && firstMovieFocused -> {
+                                hideTvTopNav = false
                                 runCatching { firstTvNavFocus.requestFocus() }
                                 true
                             }
@@ -654,6 +666,9 @@ fun StreamCloudApp() {
                         tvNavSafeFocusReceived = tvNavHasFocus,
                         navScrollToTopVersion = navScrollToTopVersion,
                         tvNavDownFocusHandoffVersion = moviesNavDownFocusHandoffVersion,
+                        onTvTopBarVisibilityChanged = { visible ->
+                            hideTvTopNav = !visible
+                        },
                         onFirstMovieFocusedChanged = { firstMovieFocused = it },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
@@ -1759,8 +1774,12 @@ fun StreamCloudApp() {
                         firstTabFocus         = firstTvNavFocus,
                         contentFocusRequester = tvNavHeroFocus,
                         contentFocusReceived = firstMovieFocused,
-                        onNavFocusChanged = { tvNavHasFocus = it },
+                        onNavFocusChanged = {
+                            tvNavHasFocus = it
+                            if (it) hideTvTopNav = false
+                        },
                         onNavFocusGained = {
+                            hideTvTopNav = false
                             if (currentRoute == Tab.Movies.route) {
                                 navScrollToTopVersion++
                             }
@@ -1787,7 +1806,10 @@ fun StreamCloudApp() {
                                 },
                             )
                         },
-                        modifier              = Modifier.align(Alignment.TopStart).fillMaxWidth(),
+                        modifier              = Modifier
+                            .align(Alignment.TopStart)
+                            .fillMaxWidth()
+                            .offset(y = tvTopNavOffset),
                     )
                 }
 
@@ -1934,7 +1956,22 @@ private fun TvNetflixTopNav(
     var navHasFocus by remember { mutableStateOf(false) }
       var pendingDownFocusHandoff by remember { mutableStateOf(false) }
       var downFocusAttempt by remember { mutableStateOf(0) }
+      var searchActionFocused by remember { mutableStateOf(false) }
+      var settingsActionFocused by remember { mutableStateOf(false) }
+      val clockFormatter = remember {
+          java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+      }
+      var clockText by remember {
+          mutableStateOf(clockFormatter.format(java.util.Date()))
+      }
       val focusManager = LocalFocusManager.current
+      LaunchedEffect(clockFormatter) {
+          while (true) {
+              val millisUntilNextMinute = 60_000L - (System.currentTimeMillis() % 60_000L)
+              kotlinx.coroutines.delay(millisUntilNextMinute)
+              clockText = clockFormatter.format(java.util.Date())
+          }
+      }
       LaunchedEffect(
           downFocusAttempt,
           pendingDownFocusHandoff,
@@ -2075,65 +2112,93 @@ private fun TvNetflixTopNav(
                 }
             }
 
-            // Search icon + tab labels — absolutely centred in the bar
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .align(Alignment.Center),
-            ) {
-                // Search icon item (first focusable — gets firstTabFocus)
-                Box(
-                    contentAlignment = Alignment.Center,
+            // Main destinations stay centred; Search and Settings sit with the
+                // local clock at the right edge, matching the TV home layout.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .focusRequester(firstTabFocus)
-                        
-                        .tvFocusBorder(CircleShape, showOutline = false)
-                        .clickable { onSearchClick() },
+                        .align(Alignment.Center)
+                        .padding(horizontal = 208.dp),
                 ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(22.dp),
-                    )
+                    tabs.filterNot { it.route == Tab.Settings.route }.forEach { tab ->
+                        val selected = currentRoute == tab.route
+                        var itemFocused by remember { mutableStateOf(false) }
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    when {
+                                        selected -> Color.White.copy(alpha = 0.20f)
+                                        itemFocused -> Color.White.copy(alpha = 0.12f)
+                                        else -> Color.Transparent
+                                    }
+                                )
+                                .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
+                                .onFocusChanged { itemFocused = it.isFocused }
+                                .clickable { onTabSelected(tab.route) }
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                tab.label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = when {
+                                    selected || itemFocused -> Color.White
+                                    else -> Color.White.copy(alpha = 0.60f)
+                                },
+                            )
+                        }
+                    }
                 }
 
-                // Tab items — Netflix-style grey pill on the active/focused tab
-                tabs.forEach { tab ->
-                    val selected = currentRoute == tab.route
-                    var itemFocused by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (searchActionFocused) Color.White.copy(alpha = 0.16f)
+                                else Color.Transparent,
+                            )
+                            .focusRequester(firstTabFocus)
+                            .onFocusChanged { searchActionFocused = it.isFocused }
+                            .tvFocusBorder(CircleShape, showOutline = false)
+                            .clickable(onClick = onSearchClick),
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
                             .background(
                                 when {
-                                    selected -> Color.White.copy(alpha = 0.20f)
-                                    itemFocused -> Color.White.copy(alpha = 0.12f)
+                                    currentRoute == Tab.Settings.route -> Color.White.copy(alpha = 0.20f)
+                                    settingsActionFocused -> Color.White.copy(alpha = 0.16f)
                                     else -> Color.Transparent
-                                }
+                                },
                             )
-                            
-                            .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
-                            .onFocusChanged { itemFocused = it.isFocused }
-                            .clickable { onTabSelected(tab.route) }
-                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                            .onFocusChanged { settingsActionFocused = it.isFocused }
+                            .tvFocusBorder(CircleShape, showOutline = false)
+                            .clickable { onTabSelected(Tab.Settings.route) },
                     ) {
-                        Text(
-                            tab.label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = when {
-                                selected || itemFocused -> Color.White
-                                else -> Color.White.copy(alpha = 0.60f)
-                            },
-                        )
+                        Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White, modifier = Modifier.size(22.dp))
                     }
+                    Text(
+                        text = clockText,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
                 }
-            }
         }
     }
 }
