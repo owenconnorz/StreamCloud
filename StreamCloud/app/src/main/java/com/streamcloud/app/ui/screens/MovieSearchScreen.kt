@@ -44,7 +44,7 @@ import com.streamcloud.app.ui.components.MovieArtwork
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.ui.components.WatchedPosterBadge
-import com.streamcloud.app.ui.theme.MoviesThemeWrapper
+import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
@@ -210,7 +210,7 @@ fun MovieSearchScreen(
         )
     }
 
-    MoviesThemeWrapper(moviesThemeName) {
+    LegacyMoviesThemeWrapper(moviesThemeName) {
     Scaffold(
         topBar = {
             if (isTv) {

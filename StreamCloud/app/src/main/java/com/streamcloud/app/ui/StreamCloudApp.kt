@@ -189,6 +189,9 @@ fun StreamCloudApp() {
     val playerSurfaceState = com.streamcloud.app.ui.player.rememberPlayerSurfaceState()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+    val useSelectedAppPalette = currentRoute == Tab.Movies.route ||
+        currentRoute == Tab.Library.route ||
+        currentRoute == Tab.Settings.route
     var adultHomeNavigationVisible by remember { mutableStateOf(false) }
     var settingsHasSubPage by remember { mutableStateOf(false) }
     var settingsBackRequest by remember { mutableStateOf(0) }
@@ -439,6 +442,9 @@ fun StreamCloudApp() {
     }
 
     Box(Modifier.fillMaxSize()) {
+    com.streamcloud.app.ui.theme.SelectedAppPaletteTheme(
+        enabled = useSelectedAppPalette,
+    ) {
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -729,7 +735,10 @@ fun StreamCloudApp() {
                     arguments = listOf(navArgument("folderId") { type = NavType.LongType }),
                 ) { entry ->
                     val folderId = entry.arguments!!.getLong("folderId")
-                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(moviesThemeNameForPill) {
+                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(
+                        moviesThemeNameForPill,
+                        useLegacyPalette = !useSelectedAppPalette,
+                    ) {
                         com.streamcloud.app.ui.screens.CollectionFolderPageScreen(
                             folderId = folderId,
                             onBack = { nav.popBackStack() },
@@ -770,7 +779,10 @@ fun StreamCloudApp() {
                     arguments = listOf(navArgument("collectionId") { type = NavType.LongType }),
                 ) { entry ->
                     val collectionId = entry.arguments!!.getLong("collectionId")
-                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(moviesThemeNameForPill) {
+                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(
+                        moviesThemeNameForPill,
+                        useLegacyPalette = !useSelectedAppPalette,
+                    ) {
                         com.streamcloud.app.ui.screens.CollectionTabbedScreen(
                             collectionId = collectionId,
                             onBack = { nav.popBackStack() },
@@ -837,7 +849,10 @@ fun StreamCloudApp() {
                     val src = URLDecoder.decode(entry.arguments!!.getString("src")!!, "UTF-8")
                     val t = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
                     val sub = URLDecoder.decode(entry.arguments!!.getString("subtitle")!!, "UTF-8")
-                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(moviesThemeNameForPill) {
+                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(
+                        moviesThemeNameForPill,
+                        useLegacyPalette = !useSelectedAppPalette,
+                    ) {
                         com.streamcloud.app.ui.screens.CatalogPageScreen(
                             source = src,
                             title = t,
@@ -1900,6 +1915,7 @@ fun StreamCloudApp() {
                 }
             }
         }
+    }
 
 
         com.streamcloud.app.ui.player.GlobalNowPlayingSheet(

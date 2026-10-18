@@ -104,7 +104,7 @@ import com.streamcloud.app.player.StreamCacheRepository
 import com.streamcloud.app.player.WatchProgressKey
 import com.streamcloud.app.player.sourceSelectionRoute
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
-import com.streamcloud.app.ui.theme.MoviesThemeWrapper
+import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.rememberBannerPalette
 import com.streamcloud.app.ui.theme.tvFocusBorder
@@ -592,7 +592,7 @@ fun MovieDetailScreen(
         }
     }
 
-    MoviesThemeWrapper(moviesThemeName) {
+    LegacyMoviesThemeWrapper(moviesThemeName) {
     val bannerPalette = rememberBannerPalette(
         imageUrl = movie?.backdropUrl?.takeIf { it.isNotBlank() }
             ?: movie?.posterUrl?.takeIf { it.isNotBlank() },

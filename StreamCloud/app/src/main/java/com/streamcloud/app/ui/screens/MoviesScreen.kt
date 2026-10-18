@@ -48,6 +48,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import com.streamcloud.app.ui.theme.LocalTvFocusColor
@@ -59,7 +60,6 @@ import androidx.compose.ui.graphics.Color
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
-import com.streamcloud.app.ui.theme.rememberBannerPalette
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -501,46 +501,10 @@ fun MoviesScreen(
         }
     }
     MoviesThemeWrapper(moviesThemeName) {
-    val heroForAmbientColor = activeHeroBanner?.takeIf { it in state.heroBanner }
-        ?: state.heroBanner.firstOrNull()
-    val bannerPalette = rememberBannerPalette(
-        imageUrl = heroForAmbientColor?.imageUrl?.takeIf { state.showHeroSection },
-        fallbackAccent = MaterialTheme.colorScheme.primary,
-        fallbackOnAccent = MaterialTheme.colorScheme.onPrimary,
-        fallbackBackground = MaterialTheme.colorScheme.background,
-        fallbackSurface = MaterialTheme.colorScheme.surface,
-    )
-    val showTvHeroBackground = isTv &&
-        query.isBlank() &&
-        state.showHeroSection &&
-        state.heroBanner.isNotEmpty()
-    val movieScreenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val tvStatusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val tvHeroBackgroundEndY = with(LocalDensity.current) {
-        val heroWidth = (movieScreenWidth - 48.dp).coerceAtLeast(320.dp)
-        (tvStatusBarHeight + 64.dp + heroWidth * (7f / 16f) + 64.dp).toPx()
-    }
     Box(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .then(
-                if (showTvHeroBackground) {
-                    Modifier.background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0f to bannerPalette.backgroundTint,
-                                0.72f to bannerPalette.backgroundTint.copy(alpha = 0.72f),
-                                1f to Color.Black,
-                            ),
-                            startY = 0f,
-                            endY = tvHeroBackgroundEndY,
-                        ),
-                    )
-                } else {
-                    Modifier
-                },
-            )
             .onPreviewKeyEvent { event ->
                 if (isTv && event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN) {
                     lastTvInteractionAt = SystemClock.elapsedRealtime()
@@ -600,7 +564,6 @@ fun MoviesScreen(
                     item(key = "hero_pager") {
                         HeroPager(
                             items = state.heroBanner,
-                            bannerTintColor = bannerPalette.artworkColor,
                             titleLogoUrlFor = { item ->
                                 val resolvedId = item.tmdbId ?: item.stremioMeta?.let { meta ->
                                     state.stremioTmdbIds["stremio:${meta.type}:${meta.id}"]
@@ -1364,7 +1327,6 @@ private fun MoviesHeader(
 @Composable
 private fun HeroPager(
     items: List<HeroBannerItem>,
-    bannerTintColor: Color,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
     onInitialItemFocusChanged: (Boolean) -> Unit = {},
@@ -1414,7 +1376,6 @@ private fun HeroPager(
                 HeroBannerSlide(
                     item = item,
                     onClick = { onClick(item) },
-                    bannerTintColor = bannerTintColor,
                     titleLogoUrl = titleLogoUrlFor(item),
                     titleLogoRequestKey = titleLogoRequestKeyFor(item),
                     onRequestTitleLogo = { onRequestTitleLogoFor(item) },
@@ -1477,7 +1438,6 @@ private fun HeroPager(
                 HeroBannerSlide(
                     item = item,
                     onClick = { onClick(item) },
-                    bannerTintColor = bannerTintColor,
                     titleLogoUrl = titleLogoUrlFor(item),
                     titleLogoRequestKey = titleLogoRequestKeyFor(item),
                     onRequestTitleLogo = { onRequestTitleLogoFor(item) },
@@ -1591,7 +1551,6 @@ private fun HeroBannerSlide(
     item: HeroBannerItem,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
-    bannerTintColor: Color? = null,
     titleLogoUrl: String? = null,
     titleLogoRequestKey: String? = null,
     onRequestTitleLogo: () -> Unit = {},
@@ -1633,21 +1592,6 @@ private fun HeroBannerSlide(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        if (bannerTintColor != null) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0f to bannerTintColor.copy(alpha = 0.22f),
-                                0.48f to bannerTintColor.copy(alpha = 0.13f),
-                                1f to bannerTintColor.copy(alpha = 0.04f),
-                            ),
-                        ),
-                    ),
-            )
-        }
         if (isTv && showTrailerPreview) {
             val previewMovie = remember(item.tmdbId, item.mediaType, item.title) {
                 item.tmdbId?.let { id ->

@@ -39,7 +39,7 @@ import com.streamcloud.app.data.buildStreamProviderPriorityEntries
 import com.streamcloud.app.data.firstReadyProviderItem
 import com.streamcloud.app.data.orderStreamProviderEntries
 import com.streamcloud.app.data.shouldShowAutoPlayResolvingState
-import com.streamcloud.app.ui.theme.MoviesThemeWrapper
+import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -309,7 +309,7 @@ fun StreamPickerOverlay(
         }
     }
 
-    MoviesThemeWrapper(moviesThemeName) {
+    LegacyMoviesThemeWrapper(moviesThemeName) {
     if (showAutoPlayProgress) {
         val playbackTitle = buildString {
             append(movie?.displayTitle ?: "Finding a stream")

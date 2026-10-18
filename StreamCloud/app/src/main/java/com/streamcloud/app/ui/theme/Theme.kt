@@ -58,6 +58,50 @@ internal fun shouldUseSystemDynamicTheme(
     supportsDynamic: Boolean,
 ): Boolean = dynamicColorEnabled && supportsDynamic
 
+@Composable
+fun SelectedAppPaletteTheme(
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val paletteId by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
+    val themeMode by sl.settings.theme.collectAsState(initial = "dark")
+    val inheritedColors = MaterialTheme.colorScheme
+    val inheritedFocusColor = LocalTvFocusColor.current
+    val typography = MaterialTheme.typography
+    val isSystemDark = isSystemInDarkTheme()
+    val useDark = when (themeMode) {
+        "light" -> false
+        "system" -> isSystemDark
+        else -> true
+    }
+    val normalizedPaletteId = normalizeAppColorPaletteId(paletteId)
+    val paletteLight = !useDark ||
+        (normalizedPaletteId == "light_clean" && themeMode != "black")
+    val paletteColors = appColorScheme(normalizedPaletteId, light = paletteLight)
+    val selectedColors = if (themeMode == "black") {
+        paletteColors.copy(
+            background = Color.Black,
+            surface = Color(0xFF0D0D0D),
+            surfaceVariant = Color(0xFF121212),
+            surfaceContainerHigh = Color(0xFF1A1A1A),
+        )
+    } else {
+        paletteColors
+    }
+    val colors = if (enabled) selectedColors else inheritedColors
+    val focusColor = if (enabled) colors.primary else inheritedFocusColor
+
+    CompositionLocalProvider(LocalTvFocusColor provides focusColor) {
+        MaterialTheme(
+            colorScheme = colors,
+            typography = typography,
+            content = content,
+        )
+    }
+}
+
 private val AioTypography = Typography(
     displayLarge = TextStyle(
         fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black,
@@ -178,10 +222,10 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
             else         dynamicLightColorScheme(context)
         }
 
-        !useDark -> appColorScheme(appPaletteId, light = true)
+        !useDark -> legacyAppColorScheme(appPaletteId, light = true)
         else -> {
             val paletteLight = appPaletteId == "light_clean" && themeMode != "black"
-            val scheme = appColorScheme(appPaletteId, light = paletteLight)
+            val scheme = legacyAppColorScheme(appPaletteId, light = paletteLight)
             if (themeMode == "black") scheme.copy(
                 background           = Color.Black,
                 surface              = Color(0xFF0D0D0D),
@@ -193,10 +237,7 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     // TV controller focus follows the same Color Theme used by the movie
     // navigation pill, so the selected theme stays visually consistent across
     // content, settings, navigation, and updater surfaces.
-    val tvFocusColor = AllMoviesThemes
-        .firstOrNull { it.id == normalizeAppColorPaletteId(moviesThemeName) }
-        ?.primary
-        ?: palettes[appPaletteId]?.primary ?: colors.primary
+    val tvFocusColor = legacyAppColorScheme(moviesThemeName, light = false).primary
     val usesLightBars = when {
         useAlbumArtDynamicTheme -> false
         useSystemDynamicTheme -> !useDark

@@ -26,3 +26,4 @@
 - [Expanded movie-home cards](expanded-movie-home-cards.md) — Focused cards use static artwork and title logos; keep trailer previews on detail screens.
 - [Adult tab navigation visibility](adult-tab-navigation-visibility.md) — Show app navigation only on Pornhub and Eporner home screens, not Pornhub Shorts, Reddit, or RedGifs.
 - [Fire TV idle recommendations](fire-tv-idle-recommendations.md) — Use an in-app idle screen; StreamCloud cannot overlay Amazon Gallery after Fire OS takes control.
+- [App palette scope](app-palette-scope.md) — Apply reference palettes to Movies home, Library, and Settings; keep Music and detail-page theming unchanged.

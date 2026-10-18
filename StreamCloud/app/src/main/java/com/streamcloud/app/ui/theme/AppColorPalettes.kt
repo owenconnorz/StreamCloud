@@ -31,11 +31,11 @@ internal val AllAppColorPalettes = listOf(
         surface = Color(0xFF29384D),
         surfaceVariant = Color(0xFF34445A),
         primary = Color(0xFF4F8EF7),
-        primaryContainer = Color(0xFF4F8EF7),
+        primaryContainer = Color(0xFF34445A),
         secondary = Color(0xFF4F8EF7),
         onBackground = Color.White,
         onSurface = Color.White,
-        onSurfaceVariant = Color(0xFFD3DDEB),
+        onSurfaceVariant = Color(0xFFB8C4D6),
         onPrimary = Color.White,
         onPrimaryContainer = Color.White,
         swatches = listOf(
@@ -44,6 +44,7 @@ internal val AllAppColorPalettes = listOf(
             Color(0xFF34445A),
             Color(0xFF4F8EF7),
             Color.White,
+            Color(0xFFB8C4D6),
         ),
     ),
     AppColorPalette(
@@ -54,10 +55,10 @@ internal val AllAppColorPalettes = listOf(
         surfaceVariant = Color(0xFF5D3FD3),
         primary = Color(0xFFA855F7),
         primaryContainer = Color(0xFF5D3FD3),
-        secondary = Color(0xFF5D3FD3),
+        secondary = Color(0xFFA855F7),
         onBackground = Color.White,
         onSurface = Color.White,
-        onSurfaceVariant = Color(0xFFE5DDF5),
+        onSurfaceVariant = Color(0xFFD4C6F1),
         onPrimary = Color.White,
         onPrimaryContainer = Color.White,
         swatches = listOf(
@@ -66,6 +67,7 @@ internal val AllAppColorPalettes = listOf(
             Color(0xFF5D3FD3),
             Color(0xFFA855F7),
             Color.White,
+            Color(0xFFD4C6F1),
         ),
     ),
     AppColorPalette(
@@ -73,21 +75,22 @@ internal val AllAppColorPalettes = listOf(
         label = "Sunset Orange",
         background = Color(0xFF3D1E0F),
         surface = Color(0xFF6B3118),
-        surfaceVariant = Color(0xFF6B3118),
-        primary = Color(0xFFF97316),
-        primaryContainer = Color(0xFFFDBA74),
+        surfaceVariant = Color(0xFFF97316),
+        primary = Color(0xFFFDBA74),
+        primaryContainer = Color(0xFFF97316),
         secondary = Color(0xFFFDBA74),
         onBackground = Color.White,
         onSurface = Color.White,
-        onSurfaceVariant = Color(0xFFFFE0C2),
+        onSurfaceVariant = Color(0xFFF3D7B8),
         onPrimary = Color(0xFF3D1E0F),
-        onPrimaryContainer = Color(0xFF3D1E0F),
+        onPrimaryContainer = Color.White,
         swatches = listOf(
             Color(0xFF3D1E0F),
             Color(0xFF6B3118),
             Color(0xFFF97316),
             Color(0xFFFDBA74),
             Color.White,
+            Color(0xFFF3D7B8),
         ),
     ),
     AppColorPalette(
@@ -95,21 +98,22 @@ internal val AllAppColorPalettes = listOf(
         label = "Forest Green",
         background = Color(0xFF0F2F2A),
         surface = Color(0xFF1B4D43),
-        surfaceVariant = Color(0xFF1B4D43),
-        primary = Color(0xFF2DD4BF),
-        primaryContainer = Color(0xFF86EFAC),
+        surfaceVariant = Color(0xFF2DD4BF),
+        primary = Color(0xFF86EFAC),
+        primaryContainer = Color(0xFF2DD4BF),
         secondary = Color(0xFF86EFAC),
         onBackground = Color.White,
         onSurface = Color.White,
-        onSurfaceVariant = Color(0xFFD3F2E3),
+        onSurfaceVariant = Color(0xFFCFE8D9),
         onPrimary = Color(0xFF0F2F2A),
-        onPrimaryContainer = Color(0xFF0F2F2A),
+        onPrimaryContainer = Color.White,
         swatches = listOf(
             Color(0xFF0F2F2A),
             Color(0xFF1B4D43),
             Color(0xFF2DD4BF),
             Color(0xFF86EFAC),
             Color.White,
+            Color(0xFFCFE8D9),
         ),
     ),
     AppColorPalette(
@@ -117,14 +121,14 @@ internal val AllAppColorPalettes = listOf(
         label = "Light Clean",
         background = Color(0xFFE9EDF2),
         surface = Color(0xFFD6E4F5),
-        surfaceVariant = Color(0xFFD6E4F5),
+        surfaceVariant = Color(0xFF93C5FD),
         primary = Color(0xFF3B82F6),
         primaryContainer = Color(0xFF93C5FD),
-        secondary = Color(0xFF93C5FD),
+        secondary = Color(0xFF3B82F6),
         onBackground = Color(0xFF1E293B),
         onSurface = Color(0xFF1E293B),
-        onSurfaceVariant = Color(0xFF334155),
-        onPrimary = Color.White,
+        onSurfaceVariant = Color(0xFF64748B),
+        onPrimary = Color(0xFF1E293B),
         onPrimaryContainer = Color(0xFF1E293B),
         swatches = listOf(
             Color(0xFFE9EDF2),
@@ -132,6 +136,7 @@ internal val AllAppColorPalettes = listOf(
             Color(0xFF93C5FD),
             Color(0xFF3B82F6),
             Color(0xFF1E293B),
+            Color(0xFF64748B),
         ),
     ),
 )
@@ -149,7 +154,49 @@ internal fun normalizeAppColorPaletteId(id: String): String = when (id.lowercase
 }
 
 internal fun appColorScheme(paletteId: String, light: Boolean): ColorScheme {
-    val palette = palettes[normalizeAppColorPaletteId(paletteId)]!!
+    return buildAppColorScheme(palettes[normalizeAppColorPaletteId(paletteId)]!!, light)
+}
+
+internal fun legacyAppColorScheme(paletteId: String, light: Boolean): ColorScheme {
+    val current = palettes[normalizeAppColorPaletteId(paletteId)]!!
+    val legacy = when (current.id) {
+        "modern_blue" -> current.copy(
+            primaryContainer = Color(0xFF4F8EF7),
+            onSurfaceVariant = Color(0xFFD3DDEB),
+        )
+        "purple_aurora" -> current.copy(
+            secondary = Color(0xFF5D3FD3),
+            onSurfaceVariant = Color(0xFFE5DDF5),
+        )
+        "sunset_orange" -> current.copy(
+            surfaceVariant = Color(0xFF6B3118),
+            primary = Color(0xFFF97316),
+            primaryContainer = Color(0xFFFDBA74),
+            onSurfaceVariant = Color(0xFFFFE0C2),
+            onPrimaryContainer = Color(0xFF3D1E0F),
+        )
+        "forest_green" -> current.copy(
+            surfaceVariant = Color(0xFF1B4D43),
+            primary = Color(0xFF2DD4BF),
+            primaryContainer = Color(0xFF86EFAC),
+            onSurfaceVariant = Color(0xFFD3F2E3),
+            onPrimaryContainer = Color(0xFF0F2F2A),
+        )
+        "light_clean" -> current.copy(
+            surfaceVariant = Color(0xFFD6E4F5),
+            secondary = Color(0xFF93C5FD),
+            onSurfaceVariant = Color(0xFF334155),
+            onPrimary = Color.White,
+        )
+        else -> current
+    }
+    return buildAppColorScheme(
+        palette = if (light) legacy.copy(onPrimary = Color.White) else legacy,
+        light = light,
+    )
+}
+
+private fun buildAppColorScheme(palette: AppColorPalette, light: Boolean): ColorScheme {
     val background = if (light) {
         if (palette.id == "light_clean") palette.background else Color(0xFFF4F6FA)
     } else {
@@ -172,7 +219,7 @@ internal fun appColorScheme(paletteId: String, light: Boolean): ColorScheme {
     } else {
         palette.onSurfaceVariant
     }
-    val onPrimary = if (light) Color.White else palette.onPrimary
+    val onPrimary = palette.onPrimary
     val onSecondary = if (palette.secondary.luminance() > 0.45f) {
         Color(0xFF1E293B)
     } else {

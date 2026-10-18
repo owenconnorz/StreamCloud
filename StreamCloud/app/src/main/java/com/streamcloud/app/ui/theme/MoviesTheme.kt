@@ -44,9 +44,28 @@ val AllMoviesThemes: List<MovieThemeEntry> = AllAppColorPalettes.map { palette -
 }
 
 @Composable
-fun MoviesThemeWrapper(themeName: String, content: @Composable () -> Unit) {
-    val entry = AllMoviesThemes.find { it.id == normalizeAppColorPaletteId(themeName) }
-        ?: AllMoviesThemes.first()
+fun MoviesThemeWrapper(
+    themeName: String,
+    useLegacyPalette: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val entry = if (useLegacyPalette) {
+        val legacy = legacyAppColorScheme(themeName, light = false)
+        MovieThemeEntry(
+            id = normalizeAppColorPaletteId(themeName),
+            label = AllAppColorPalettes.firstOrNull {
+                it.id == normalizeAppColorPaletteId(themeName)
+            }?.label ?: AllAppColorPalettes.first().label,
+            primary = legacy.primary,
+            container = legacy.primaryContainer,
+            secondary = legacy.secondary,
+            onPrimary = legacy.onPrimary,
+            onPrimaryContainer = legacy.onPrimaryContainer,
+        )
+    } else {
+        AllMoviesThemes.find { it.id == normalizeAppColorPaletteId(themeName) }
+            ?: AllMoviesThemes.first()
+    }
     val baseColors = MaterialTheme.colorScheme
     val colors = baseColors.copy(
         primary = entry.primary,
@@ -65,6 +84,11 @@ fun MoviesThemeWrapper(themeName: String, content: @Composable () -> Unit) {
         typography  = MaterialTheme.typography,
         content     = content,
     )
+}
+
+@Composable
+fun LegacyMoviesThemeWrapper(themeName: String, content: @Composable () -> Unit) {
+    MoviesThemeWrapper(themeName, useLegacyPalette = true, content = content)
 }
 
 @Composable
@@ -111,7 +135,7 @@ fun MoviesThemePicker(
                     palette.swatches.forEach { swatch ->
                         Box(
                             modifier = Modifier
-                                .size(15.dp)
+                                .size(12.dp)
                                 .clip(CircleShape)
                                 .background(swatch)
                                 .border(0.75.dp, palette.onSurface.copy(alpha = 0.3f), CircleShape),
